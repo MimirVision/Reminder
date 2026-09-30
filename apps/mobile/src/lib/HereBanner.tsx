@@ -7,19 +7,20 @@ import { hereCandidate, type Dismissals } from '../core/proximity.ts';
 import { selectRegions } from '../core/regions.ts';
 import type { PoiCache } from '../core/pois.ts';
 import type { Region } from '../core/types.ts';
+import { Glass } from './glass';
 import { readSnapshot, storeKeys } from './reminders';
 import { readJson, writeJson } from './store';
-import { useTheme } from './theme';
+import { font, useTheme } from './theme';
 
 const DISMISS_KEY = 'hm.hereDismissed';
 
-// "Are you here?" — while the app is open, once you are within a store's radius a bar appears at the bottom.
-// Tapping "I'm here" opens the shopping list for that place.
+// "Are you here?" While the app is open and you are within a store's distance, a glass card appears above the
+// tab bar. "I'm here" opens that place's list.
 export function HereBanner() {
   const t = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [candidate, setCandidate] = useState<{ region: Region; distanceM: number } | null>(null);
+  const [candidate, setCandidate] = useState<{ region: Region; distanceM: number; count: number } | null>(null);
   const sub = useRef<Location.LocationSubscription | null>(null);
 
   useEffect(() => {
@@ -34,7 +35,8 @@ export function HereBanner() {
           const pois = readJson<PoiCache | null>(storeKeys.pois, null)?.byCategory ?? {};
           const here = { lat: pos.coords.latitude, lon: pos.coords.longitude };
           const regions = selectRegions({ places, memories, pois, here, max: 200 });
-          setCandidate(hereCandidate({ here, regions, dismissed: readJson<Dismissals>(DISMISS_KEY, {}), now: Date.now() }));
+          const c = hereCandidate({ here, regions, dismissed: readJson<Dismissals>(DISMISS_KEY, {}), now: Date.now() });
+          setCandidate(c ? { ...c, count: memories.filter((m) => m.place_id === c.region.placeId).length } : null);
         },
       );
     })().catch(() => {});
@@ -53,29 +55,34 @@ export function HereBanner() {
   };
 
   return (
-    <View
-      style={{
-        position: 'absolute', left: 12, right: 12, bottom: insets.bottom + 64,
-        backgroundColor: t.accent, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
-        shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Are you at {region.label}?</Text>
-        <Text style={{ color: '#fff', opacity: 0.85 }}>{Math.round(candidate.distanceM)} m away</Text>
-      </View>
-      <Pressable
-        onPress={() => {
-          remember();
-          router.push({ pathname: '/list/[placeId]', params: { placeId: region.placeId, label: region.label } });
-        }}
-        style={{ backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12 }}
-      >
-        <Text style={{ color: t.accent, fontWeight: '700' }}>I'm here</Text>
-      </Pressable>
-      <Pressable onPress={remember} hitSlop={10}>
-        <Text style={{ color: '#fff', fontSize: 18 }}>✕</Text>
-      </Pressable>
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 74 }}>
+      <Glass style={{ borderRadius: 30, padding: 16, gap: 14 }}>
+        <View style={{ gap: 2 }}>
+          <Text style={{ color: t.ink, fontSize: 22, lineHeight: 27, fontFamily: font.display }}>Are you at {region.label}?</Text>
+          <Text style={{ color: t.ink, opacity: 0.75, fontSize: 15, fontFamily: font.body }}>
+            {Math.round(candidate.distanceM)} m away · {candidate.count} to-do{candidate.count === 1 ? '' : 's'} here
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              remember();
+              router.push({ pathname: '/list/[placeId]', params: { placeId: region.placeId, label: region.label } });
+            }}
+            style={{ flex: 1, height: 50, borderRadius: 25, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 17, fontFamily: font.semi }}>I'm here</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={remember}
+            style={{ height: 50, paddingHorizontal: 22, borderRadius: 25, backgroundColor: t.dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ color: t.ink, fontSize: 16, fontFamily: font.semi }}>Not now</Text>
+          </Pressable>
+        </View>
+      </Glass>
     </View>
   );
 }

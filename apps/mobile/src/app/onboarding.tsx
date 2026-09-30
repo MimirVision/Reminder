@@ -3,7 +3,7 @@ import { SafeAreaView, ScrollView, Text } from 'react-native';
 import { createHousehold, joinHousehold } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useTheme } from '@/lib/theme';
-import { Btn, Field, Muted, styles } from '@/lib/ui';
+import { Btn, Field, Muted, Title, styles } from '@/lib/ui';
 
 export default function Onboarding() {
   const t = useTheme();
@@ -30,7 +30,7 @@ export default function Onboarding() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
       <ScrollView contentContainerStyle={[styles.screen, { paddingTop: 60 }]} keyboardShouldPersistTaps="handled">
-        <Text style={{ color: t.fg, fontSize: 26, fontWeight: '700' }}>Welcome</Text>
+        <Title>Welcome</Title>
         <Field placeholder="Your name" value={name} onChangeText={setName} />
         <Text style={{ color: t.fg, fontWeight: '600', marginTop: 12 }}>Start a new household</Text>
         <Field placeholder="Household name" value={houseName} onChangeText={setHouseName} />

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { SafeAreaView, ScrollView, Text } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useTheme } from '@/lib/theme';
-import { Btn, Field, Muted, styles } from '@/lib/ui';
+import { Btn, Field, Muted, Title, styles } from '@/lib/ui';
 
 export default function Login() {
   const t = useTheme();
@@ -27,7 +27,8 @@ export default function Login() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
       <ScrollView contentContainerStyle={[styles.screen, { paddingTop: 80 }]} keyboardShouldPersistTaps="handled">
-        <Text style={{ color: t.fg, fontSize: 28, fontWeight: '700' }}>Home Memory</Text>
+        <Title>Home Memory</Title>
+        <Muted>To-dos that remind you in the right place, and a calendar for the house.</Muted>
         <Field placeholder="Email" autoCapitalize="none" keyboardType="email-address" autoComplete="email" value={email} onChangeText={setEmail} />
         <Field placeholder="Password" secureTextEntry autoComplete={mode === 'in' ? 'current-password' : 'new-password'} value={password} onChangeText={setPassword} />
         <Btn primary label={mode === 'in' ? 'Sign in' : 'Create account'} onPress={submit} disabled={busy || !email || password.length < 8} />

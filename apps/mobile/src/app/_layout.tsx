@@ -13,12 +13,17 @@ import { refreshRegions, setupNotificationCategories } from '@/lib/reminders';
 import { useTheme } from '@/lib/theme';
 import { Muted } from '@/lib/ui';
 import { HereBanner } from '@/lib/HereBanner';
+import { GlassProvider } from '@/lib/glass';
+import { useFonts } from 'expo-font';
+import { BricolageGrotesque_700Bold } from '@expo-google-fonts/bricolage-grotesque';
+import { DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold } from '@expo-google-fonts/dm-sans';
 
 function Gate() {
   const { ready, session, household } = useSession();
   const router = useRouter();
   const segments = useSegments();
   const t = useTheme();
+  const [fontsLoaded] = useFonts({ BricolageGrotesque_700Bold, DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold });
 
   // Route guard: login -> onboarding -> app.
   useEffect(() => {
@@ -79,7 +84,7 @@ function Gate() {
       </View>
     );
   }
-  if (!ready) {
+  if (!ready || !fontsLoaded) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', backgroundColor: t.bg }}>
         <ActivityIndicator />
@@ -88,13 +93,14 @@ function Gate() {
   }
   return (
     <>
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="login" />
       <Stack.Screen name="onboarding" />
-      <Stack.Screen name="list/[placeId]" />
+      <Stack.Screen name="add" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="list/[placeId]" options={{ presentation: 'modal' }} />
     </Stack>
-    {session && household ? <HereBanner /> : null}
+    {session && household && !(segments as string[]).some((x) => x === 'add' || x === 'list') ? <HereBanner /> : null}
     </>
   );
 }
@@ -102,8 +108,10 @@ function Gate() {
 export default function RootLayout() {
   return (
     <SessionProvider>
-      <StatusBar style="auto" />
-      <Gate />
+      <GlassProvider>
+        <StatusBar style="auto" />
+        <Gate />
+      </GlassProvider>
     </SessionProvider>
   );
 }

@@ -154,3 +154,24 @@ export async function nearbyMemories(withinM = 3000): Promise<{ label: string; d
   }
   return out;
 }
+
+export type Pin = { key: string; placeId: string; label: string; lat: number; lon: number; radius: number; count: number; fixed: boolean };
+
+// Pins for the map view: every watched place (specific ones and the shops found for "any pharmacy") with its open to-do count.
+export async function mapPins(): Promise<{ here: LatLon | null; pins: Pin[] }> {
+  const here = await currentPosition();
+  const { places, memories } = readSnapshot();
+  const pois = readJson<PoiCache | null>(K.pois, null)?.byCategory ?? {};
+  const regions = selectRegions({ places, memories, pois, here, max: 60 });
+  const pins = regions.map((r) => ({
+    key: r.identifier,
+    placeId: r.placeId,
+    label: r.label,
+    lat: r.latitude,
+    lon: r.longitude,
+    radius: r.radius,
+    count: memories.filter((m) => m.place_id === r.placeId).length,
+    fixed: r.identifier.endsWith('|fixed'),
+  }));
+  return { here, pins };
+}

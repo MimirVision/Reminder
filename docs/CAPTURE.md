@@ -32,7 +32,7 @@ Name it **Remember**. Then:
   step 1 with *Shortcut Input*. Then "Share → Remember" saves a web page or note.
 
 ## Notes
-- Captures land in the inbox with no place attached; attach a place in the app or on the web.
+- To-dos land in the inbox with no place attached; attach a place in the app or on the web.
 - If Shortcuts reports `401`, also add the header `Authorization` = `Bearer <publishable key>` and tell me, so I can
   adjust the docs.
 - The same request works from Windows (PowerShell `Invoke-RestMethod`, AutoHotkey, etc.).

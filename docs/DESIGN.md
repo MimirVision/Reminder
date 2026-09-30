@@ -147,6 +147,11 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   and note). `complete_maintenance` schedules the next occurrence. No overdue state: tasks are due, coming up, or later.
   `seed_house_template` inserts a Norway-oriented starter calendar switched by a house profile. Timing rules are
   covered by tests in `supabase/tests`.
+- **Visual design: "E".** D's look (Bricolage Grotesque + DM Sans, white cards, one red-orange accent) with A's layout
+  (title, sections, cards, four tabs). To-do wording: tabs To-do / House / Places / Settings, circles to tick,
+  sections Near you / At a place / Anytime. To-do has a List | Map toggle. Floating Liquid Glass tab bar and "Add a
+  to-do…" bar (system glass on iOS 26+, blur fallback), adjustable in Settings (Clear / Glass / Frosted). The design
+  canvas is the reference.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

@@ -1,31 +1,39 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, RefreshControl, SafeAreaView, ScrollView, Text, View } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
-import { deleteMemory, listMembers, listMemories, listPhotoUrls, listPlaces, markDone } from '@/lib/api';
-import { capture, flush, pending } from '@/lib/outbox';
-import { uuid } from '@/lib/id';
-import { nearbyMemories } from '@/lib/reminders';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { listMembers, listMemories, listPhotoUrls, listPlaces, markDone } from '@/lib/api';
+import { AddBar } from '@/lib/AddBar';
+import { Glass } from '@/lib/glass';
+import { flush, pending } from '@/lib/outbox';
+import { mapPins, refreshRegions, type Pin } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
-import { useTheme } from '@/lib/theme';
-import { Btn, Card, Field, Muted, styles } from '@/lib/ui';
+import { font, useTheme } from '@/lib/theme';
+import { TodoMap } from '@/lib/TodoMap';
+import { BAR_SPACE, Card, Check, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
+import { distanceM } from '../../core/geo.ts';
 import type { Member, Memory, Place } from '@/lib/types';
+import type { LatLon } from '../../core/types.ts';
 
-export default function Memories() {
+const NEAR_M = 3000;
+const km = (m: number) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
+
+type Group = { placeId: string; label: string; distance: number | null; items: Memory[] };
+
+export default function Todo() {
   const t = useTheme();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { household, session } = useSession();
+  const [mode, setMode] = useState<'List' | 'Map'>('List');
   const [memories, setMemories] = useState<Memory[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [photos, setPhotos] = useState<Record<string, string[]>>({});
+  const [pins, setPins] = useState<Pin[]>([]);
+  const [here, setHere] = useState<LatLon | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [queued, setQueued] = useState(pending().length);
-  const [near, setNear] = useState<Awaited<ReturnType<typeof nearbyMemories>> | null>(null);
-
-  const [body, setBody] = useState('');
-  const [placeId, setPlaceId] = useState<string | null>(null);
-  const [uris, setUris] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!household) return;
@@ -40,9 +48,13 @@ export default function Memories() {
       setPlaces(p);
       setMembers(mem);
       setPhotos(await listPhotoUrls(m.map((x) => x.id)));
+      await refreshRegions().catch(() => {});
     } catch {
       // offline: keep showing what we have
     }
+    const mp = await mapPins().catch(() => ({ here: null, pins: [] as Pin[] }));
+    setPins(mp.pins);
+    setHere(mp.here);
     setQueued(pending().length);
   }, [household]);
 
@@ -50,123 +62,138 @@ export default function Memories() {
     void load();
   }, [load]);
 
-  const who = (id: string) => (id === session?.user.id ? 'You' : members.find((m) => m.user_id === id)?.display_name ?? 'Partner');
-  const placeName = (id: string | null) => places.find((p) => p.id === id)?.name;
-
-  async function pick(camera: boolean) {
-    const perm = camera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const res = camera
-      ? await ImagePicker.launchCameraAsync({ quality: 0.8 })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsMultipleSelection: true });
-    if (!res.canceled) setUris((u) => [...u, ...res.assets.map((a) => a.uri)]);
-  }
-
-  async function save() {
-    if (!household || (!body.trim() && uris.length === 0)) return;
-    setSaving(true);
-    let lat: number | null = null;
-    let lon: number | null = null;
-    try {
-      const perm = await Location.getForegroundPermissionsAsync();
-      if (perm.granted) {
-        const pos = await Location.getLastKnownPositionAsync();
-        lat = pos?.coords.latitude ?? null;
-        lon = pos?.coords.longitude ?? null;
-      }
-    } catch {
-      // location stamp is optional
+  const { near, atPlace, anytime } = useMemo(() => {
+    const byPlace = new Map<string, Memory[]>();
+    const anytime: Memory[] = [];
+    for (const m of memories) {
+      if (!m.place_id) anytime.push(m);
+      else byPlace.set(m.place_id, [...(byPlace.get(m.place_id) ?? []), m]);
     }
-    await capture({
-      id: uuid(), household_id: household.id, body: body.trim(), place_id: placeId,
-      capture_lat: lat, capture_lon: lon, photoUris: uris,
-    });
-    setBody('');
-    setUris([]);
-    setPlaceId(null);
-    setSaving(false);
-    await load();
+    const near: Group[] = [];
+    const atPlace: Group[] = [];
+    for (const [placeId, items] of byPlace) {
+      const place = places.find((p) => p.id === placeId);
+      const pinsHere = pins.filter((p) => p.placeId === placeId);
+      const closest = here && pinsHere.length
+        ? pinsHere.map((p) => ({ p, d: distanceM(here, { lat: p.lat, lon: p.lon }) })).sort((a, b) => a.d - b.d)[0]
+        : null;
+      const g: Group = { placeId, label: closest?.p.label ?? place?.name ?? 'Somewhere', distance: closest?.d ?? null, items };
+      (closest && closest.d <= NEAR_M ? near : atPlace).push(g);
+    }
+    near.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+    return { near, atPlace, anytime };
+  }, [memories, places, pins, here]);
+
+  const who = (id: string) => (id === session?.user.id ? 'You' : members.find((m) => m.user_id === id)?.display_name ?? 'Partner');
+
+  async function complete(m: Memory) {
+    setMemories((cur) => cur.filter((x) => x.id !== m.id));
+    try {
+      await markDone([m.id]);
+    } finally {
+      void load();
+    }
   }
 
-  async function onRefresh() {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
+  const openList = (placeId: string, label: string) =>
+    router.push({ pathname: '/list/[placeId]', params: { placeId, label } });
+
+  const Row = ({ m, meta }: { m: Memory; meta?: boolean }) => (
+    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-start' }}>
+      <Check onPress={() => complete(m)} />
+      <View style={{ flex: 1, gap: 8 }}>
+        <Text style={{ color: t.ink, fontSize: 18, lineHeight: 24, fontFamily: font.medium }}>{m.body || '(photo)'}</Text>
+        {(photos[m.id] ?? []).length > 0 && (
+          <View style={styles.row}>
+            {photos[m.id].map((u) => <Image key={u} source={{ uri: u }} style={{ width: 120, height: 78, borderRadius: 12 }} />)}
+          </View>
+        )}
+        {meta && <Muted>{who(m.author_id)} · {new Date(m.created_at).toLocaleDateString()}</Muted>}
+      </View>
+    </View>
+  );
+
+  const groupCard = (g: Group) => {
+    const shown = g.items.slice(0, 3);
+    return (
+      <Card key={g.placeId} gap={14}>
+        <Pressable onPress={() => openList(g.placeId, g.label)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <PlaceChip label={g.label} />
+          {g.distance != null && <Text style={{ color: t.muted, fontSize: 13, fontFamily: font.semi }}>{km(g.distance)}</Text>}
+        </Pressable>
+        {shown.map((m) => <Row key={m.id} m={m} meta={g.items.length === 1} />)}
+        <Pressable onPress={() => openList(g.placeId, g.label)}>
+          <Text style={{ color: t.accentText, fontSize: 14, fontFamily: font.semi }}>
+            {g.items.length > shown.length ? `+ ${g.items.length - shown.length} more · ` : ''}Open list
+          </Text>
+        </Pressable>
+      </Card>
+    );
+  };
+
+  const segmented = (
+    <Glass interactive style={{ borderRadius: 24, padding: 3, flexDirection: 'row' }}>
+      {(['List', 'Map'] as const).map((m) => (
+        <Pressable
+          key={m}
+          accessibilityRole="button"
+          accessibilityState={{ selected: mode === m }}
+          onPress={() => setMode(m)}
+          style={{ paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20, backgroundColor: mode === m ? (t.dark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)') : 'transparent' }}
+        >
+          <Text style={{ color: t.ink, fontSize: 14, fontFamily: font.semi }}>{m}</Text>
+        </Pressable>
+      ))}
+    </Glass>
+  );
+
+  if (mode === 'Map') {
+    return (
+      <View style={{ flex: 1, backgroundColor: t.bg }}>
+        <TodoMap pins={pins} here={here} onOpen={(p) => openList(p.placeId, p.label)} />
+        <View style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, alignItems: 'center' }}>{segmented}</View>
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '38%', backgroundColor: t.sheet, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 10, paddingHorizontal: 20, paddingBottom: BAR_SPACE - 70, opacity: 0.96 }}>
+          <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: t.line, alignSelf: 'center', marginBottom: 12 }} />
+          <Text style={{ color: t.ink, fontSize: 22, fontFamily: font.display, marginBottom: 6 }}>Near you</Text>
+          <ScrollView>
+            {near.length === 0 && <Muted>{here ? 'Nothing to do within 3 km.' : 'Allow location to see what is near you.'}</Muted>}
+            {near.map((g) => (
+              <Pressable key={g.placeId} onPress={() => openList(g.placeId, g.label)} style={{ paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth * 2, borderBottomColor: t.line }}>
+                <Text style={{ color: t.ink, fontSize: 17, fontFamily: font.medium }}>{g.label} · {g.items.length} to-do{g.items.length === 1 ? '' : 's'}</Text>
+                {g.distance != null && <Muted>{km(g.distance)}</Muted>}
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+        <AddBar />
+      </View>
+    );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
+    <View style={{ flex: 1, backgroundColor: t.bg }}>
       <ScrollView
-        contentContainerStyle={styles.screen}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE + 20 }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       >
-        <Card>
-          <Field placeholder="What do you want to remember?" multiline value={body} onChangeText={setBody} />
-          <View style={styles.row}>
-            <Btn label="📷 Camera" onPress={() => pick(true)} />
-            <Btn label="🖼 Library" onPress={() => pick(false)} />
-            {uris.length > 0 && <Muted>{uris.length} photo(s)</Muted>}
-          </View>
-          {places.length > 0 && (
-            <View style={styles.row}>
-              <Btn label="No place" primary={placeId === null} onPress={() => setPlaceId(null)} />
-              {places.map((p) => (
-                <Btn key={p.id} label={`📍 ${p.name}`} primary={placeId === p.id} onPress={() => setPlaceId(p.id)} />
-              ))}
-            </View>
-          )}
-          <Btn primary label={saving ? 'Saving…' : 'Save'} onPress={save} disabled={saving} />
-          {queued > 0 && <Muted>{queued} waiting to sync (offline)</Muted>}
-        </Card>
-
-        <Btn label="What's near me?" onPress={async () => setNear(await nearbyMemories())} />
-        {near && (
-          <Card>
-            {near.length === 0 && <Muted>Nothing to remember within 3 km.</Muted>}
-            {near.map((n) => (
-              <View key={n.label}>
-                <Text style={{ color: t.fg, fontWeight: '600' }}>{n.label} · {n.distanceM} m</Text>
-                {n.memories.map((m) => (
-                  <Text key={m.id} style={{ color: t.fg }}>• {m.body}</Text>
-                ))}
-              </View>
-            ))}
-          </Card>
-        )}
-
-        <Text style={{ color: t.fg, fontSize: 18, fontWeight: '700' }}>To remember</Text>
-        {memories.length === 0 && <Muted>Nothing here yet.</Muted>}
-        {memories.map((m) => (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 }}>
+          <Title>To-do</Title>
+          {segmented}
+        </View>
+        {queued > 0 && <Muted>{queued} waiting to sync (offline)</Muted>}
+        {memories.length === 0 && <Muted>Nothing to do. Add something below.</Muted>}
+        {near.length > 0 && <SectionLabel>Near you</SectionLabel>}
+        {near.map(groupCard)}
+        {atPlace.length > 0 && <SectionLabel>At a place</SectionLabel>}
+        {atPlace.map(groupCard)}
+        {anytime.length > 0 && <SectionLabel>Anytime</SectionLabel>}
+        {anytime.map((m) => (
           <Card key={m.id}>
-            {m.body ? <Text style={{ color: t.fg, fontSize: 16 }}>{m.body}</Text> : null}
-            {(photos[m.id] ?? []).length > 0 && (
-              <View style={styles.row}>
-                {photos[m.id].map((u) => (
-                  <Image key={u} source={{ uri: u }} style={{ width: 96, height: 96, borderRadius: 8 }} />
-                ))}
-              </View>
-            )}
-            <Muted>
-              {who(m.author_id)} · {new Date(m.created_at).toLocaleDateString()}
-              {placeName(m.place_id) ? ` · 📍 ${placeName(m.place_id)}` : ''}
-            </Muted>
-            <View style={styles.row}>
-              <Btn label="Done" onPress={async () => { await markDone([m.id]); await load(); }} />
-              <Btn
-                danger
-                label="Delete"
-                onPress={() =>
-                  Alert.alert('Delete this memory?', undefined, [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: async () => { await deleteMemory(m.id); await load(); } },
-                  ])
-                }
-              />
-            </View>
+            <Row m={m} meta />
           </Card>
         ))}
       </ScrollView>
-    </SafeAreaView>
+      <AddBar />
+    </View>
   );
 }

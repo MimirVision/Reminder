@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, SafeAreaView, ScrollView, Text, View } from 'react-native';
+import { Alert, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { addPlace, deletePlace, listPlaces, updatePlaceRadius } from '@/lib/api';
 import { refreshRegions } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
-import { useTheme } from '@/lib/theme';
-import { Btn, Card, Field, Muted, styles } from '@/lib/ui';
+import { font, useTheme } from '@/lib/theme';
+import { BAR_SPACE, Btn, Card, Field, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
 import type { Place } from '@/lib/types';
 
 const RADII = [100, 150, 250, 500, 1000];
@@ -20,6 +21,7 @@ const CATEGORIES = [
 
 export default function Places() {
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const { household } = useSession();
   const [places, setPlaces] = useState<Place[]>([]);
   const [name, setName] = useState('');
@@ -58,49 +60,43 @@ export default function Places() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
-      <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
-        {places.length === 0 && <Muted>No places yet.</Muted>}
-        {places.map((p) => (
-          <Card key={p.id}>
-            <Text style={{ color: t.fg, fontWeight: '600' }}>{p.name}</Text>
-            <Muted>{p.kind === 'category' ? 'any nearby shop of this kind' : 'specific place'} · "Are you here?" within {p.radius_m} m</Muted>
-            <View style={styles.row}>
-              <Btn
-                label={`Distance ${p.radius_m} m`}
-                onPress={() => run(() => updatePlaceRadius(p.id, RADII[(RADII.indexOf(p.radius_m) + 1) % RADII.length] ?? 150))}
-              />
-              <Btn danger label="Delete" onPress={() => run(() => deletePlace(p.id))} />
-            </View>
-          </Card>
+    <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE - 60 }]} keyboardShouldPersistTaps="handled">
+      <Title>Places</Title>
+      <Muted>Where you want to be reminded. The distance is how close you get before "Are you here?" appears.</Muted>
+      {places.length === 0 && <Muted>No places yet.</Muted>}
+      {places.map((p) => (
+        <Card key={p.id}>
+          <PlaceChip label={p.name} />
+          <Muted>{p.kind === 'category' ? 'Any nearby shop of this kind' : 'A specific place'} · within {p.radius_m} m</Muted>
+          <View style={styles.row}>
+            <Btn small label={`Distance ${p.radius_m} m`} onPress={() => run(() => updatePlaceRadius(p.id, RADII[(RADII.indexOf(p.radius_m) + 1) % RADII.length] ?? 150))} />
+            <Btn small danger label="Delete" onPress={() => run(() => deletePlace(p.id))} />
+          </View>
+        </Card>
+      ))}
+
+      <SectionLabel>Add a category</SectionLabel>
+      <View style={styles.row}>
+        {CATEGORIES.filter((c) => !places.some((p) => p.category === c.category)).map((c) => (
+          <Btn
+            key={c.category}
+            small
+            label={`+ ${c.name}`}
+            onPress={() =>
+              household &&
+              run(() => addPlace({ household_id: household.id, name: c.name, kind: 'category', category: c.category, lat: null, lon: null, radius_m: 150 }))
+            }
+          />
         ))}
+      </View>
 
-        <Text style={{ color: t.fg, fontSize: 16, fontWeight: '700' }}>Add a category</Text>
-        <View style={styles.row}>
-          {CATEGORIES.filter((c) => !places.some((p) => p.category === c.category)).map((c) => (
-            <Btn
-              key={c.category}
-              label={`+ ${c.name}`}
-              onPress={() =>
-                household &&
-                run(() => addPlace({
-                  household_id: household.id, name: c.name, kind: 'category', category: c.category,
-                  lat: null, lon: null, radius_m: 150,
-                }))
-              }
-            />
-          ))}
-        </View>
-
-        <Text style={{ color: t.fg, fontSize: 16, fontWeight: '700' }}>Save where I am now</Text>
-        <Field placeholder="Name (e.g. Home, Byggmax)" value={name} onChangeText={setName} />
-        <View style={styles.row}>
-          {[100, 150, 250, 500].map((r) => (
-            <Btn key={r} label={`${r} m`} primary={radius === r} onPress={() => setRadius(r)} />
-          ))}
-        </View>
-        <Btn primary label="Save this place" onPress={addHere} disabled={!name.trim()} />
-      </ScrollView>
-    </SafeAreaView>
+      <SectionLabel>Save where I am now</SectionLabel>
+      <Field placeholder="Name (e.g. Home, Byggmax)" value={name} onChangeText={setName} />
+      <View style={styles.row}>
+        {[100, 150, 250, 500].map((r) => <Btn key={r} small label={`${r} m`} primary={radius === r} onPress={() => setRadius(r)} />)}
+      </View>
+      <Btn primary label="Save this place" onPress={addHere} disabled={!name.trim()} />
+      <Text style={{ color: t.muted, fontSize: 12, fontFamily: font.body }}> </Text>
+    </ScrollView>
   );
 }
