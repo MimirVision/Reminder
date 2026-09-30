@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -327,6 +327,61 @@ await as(A, async () => {
   assert.equal(f.todos.find((x) => x.body === 'All day').due_time, null);
   assert.ok(f.places.some((p) => p.address === 'Storgata 5, 0155 Oslo'), 'place addresses reach the feed');
   await as(A, async () => { await db.query(`delete from feed_keys where label = 'due'`); });
+}
+
+// 0009: repeating to-dos, done_by, web push subscriptions, weekly done count.
+{
+  let ids = {};
+  await as(A, async () => {
+    const ins = async (body, extra) => (await db.query(`insert into memories (household_id, body, status, due_on, due_time, repeat_rule) values ($1, $2, 'active', $3, $4, $5) returning id`, [hid, body, ...extra])).rows[0].id;
+    ids.weekly = await ins('Bins', ['2020-01-07', '07:30', 'weekly']);
+    ids.monthly = await ins('Rent', ['2020-01-31', null, 'monthly']);
+    ids.once = await ins('One-off', ['2020-01-07', null, null]);
+    await rejects(() => db.query(`insert into memories (household_id, body, repeat_rule) values ($1, 'repeat without a date', 'daily')`, [hid]), /memories_repeat_rule_valid|check constraint/);
+    await rejects(() => db.query(`insert into memories (household_id, body, due_on, repeat_rule) values ($1, 'bad rule', '2030-01-01', 'hourly')`, [hid]), /memories_repeat_rule_valid|check constraint/);
+  });
+  await as(C, async () => {
+    assert.equal((await db.query(`select public.complete_memory($1) as n`, [ids.weekly])).rows[0].n, null, 'a stranger cannot complete');
+  });
+  await as(B, async () => {
+    const next = (await db.query(`select public.complete_memory($1) as n`, [ids.weekly])).rows[0].n;
+    assert.ok(next, 'a repeating to-do returns the next occurrence');
+    const done = (await db.query(`select status, done_by from memories where id = $1`, [ids.weekly])).rows[0];
+    assert.deepEqual(done, { status: 'done', done_by: B }, 'who ticked it off is recorded');
+    const n = (await db.query(`select body, status, due_on::text as d, due_time::text as t, repeat_rule, author_id from memories where id = $1`, [next])).rows[0];
+    assert.equal(n.status, 'active'); assert.equal(n.body, 'Bins'); assert.equal(n.t, '07:30:00'); assert.equal(n.repeat_rule, 'weekly');
+    assert.equal(n.author_id, A, 'the next one keeps its author');
+    const days = (await db.query(`select (due_on - current_date) as d, extract(dow from due_on) = extract(dow from date '2020-01-07') as sameweekday from memories where id = $1`, [next])).rows[0];
+    assert.ok(days.d > 0 && days.d <= 7 && days.sameweekday, 'the next date is in the future and on the same weekday');
+    assert.equal((await db.query(`select public.complete_memory($1) as n`, [ids.weekly])).rows[0].n, null, 'completing twice does nothing');
+    const once = (await db.query(`select public.complete_memory($1) as n`, [ids.once])).rows[0].n;
+    assert.equal(once, null, 'a one-off creates no next occurrence');
+    const monthly = (await db.query(`select public.complete_memory($1) as n`, [ids.monthly])).rows[0].n;
+    assert.ok(monthly);
+    assert.ok((await db.query(`select due_on > current_date as ok from memories where id = $1`, [monthly])).rows[0].ok);
+  });
+  // web push subscriptions
+  await as(A, async () => {
+    await db.query(`select public.save_push_subscription('https://push.example/1', 'p256', 'authsecret', 'nb')`);
+    assert.equal((await db.query(`select lang from web_push_subscriptions`)).rows[0].lang, 'nb');
+  });
+  await as(B, async () => {
+    assert.equal((await db.query(`select * from web_push_subscriptions`)).rows.length, 0, 'you only see your own subscriptions');
+    await db.query(`select public.save_push_subscription('https://push.example/1', 'p2', 'a2', 'en')`);
+    assert.equal((await db.query(`select user_id from web_push_subscriptions`)).rows[0].user_id, B, 'a device that signs in as someone else takes the subscription');
+    await rejects(() => db.query(`insert into web_push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, 'https://push.example/2', 'x', 'y')`, [A]), /row-level security/);
+  });
+  await as(A, async () => { assert.equal((await db.query(`select * from web_push_subscriptions`)).rows.length, 0); });
+  await db.exec(`reset role`);
+  await db.exec(buildSetup(UPGRADE_AFTER)); // safe to run again
+  let k;
+  await as(A, async () => { k = (await db.query(`select public.create_feed_key($1, 'week') as k`, [hid])).rows[0].k; });
+  await db.exec(`set role anon; select set_config('request.jwt.claim.sub', '', false)`);
+  const f = (await db.query(`select public.reminder_feed($1) as f`, [k])).rows[0].f;
+  await db.exec(`reset role`);
+  assert.ok(f.done_week >= 3, 'finished to-dos this week are counted');
+  assert.ok(f.todos.some((x) => x.repeat_rule === 'weekly'), 'repeat rules reach the feed');
+  await as(A, async () => { await db.query(`delete from feed_keys where label = 'week'`); });
 }
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
