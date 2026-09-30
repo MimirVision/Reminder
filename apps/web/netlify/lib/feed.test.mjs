@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, buildIcs, daysBetween, digestText, escapeText, fold, loadFeed, placeText, scheduleText, todayIn } from './feed.mjs';
+import { addDays, buildIcs, daysBetween, digestText, escapeText, fold, loadFeed, pickLang, placeText, scheduleText, taskTitle, todayIn, todayText } from './feed.mjs';
 
 const feed = {
   household: 'Home',
@@ -65,6 +65,47 @@ test('digest: due now, coming up, waiting to-dos', () => {
   assert.equal(soonOnly, 'Home Memory\nDue now: Clean gutters, front & back\nComing up: Test smoke detectors (in 2 weeks)');
 });
 
+const dated = {
+  ...feed,
+  places: [...feed.places, { id: 'p9', name: 'Kiwi Myren', kind: 'fixed', category: 'grocery', radius_m: 150, address: 'Myrens veg 5, 0473 Oslo' }],
+  todos: [
+    { id: 'd1', body: 'Buy milk\nand bread', place_id: 'p9', created_at: '', due_on: '2026-09-30', due_time: '18:00:00' },
+    { id: 'd2', body: 'Call the plumber', place_id: null, created_at: '', due_on: '2026-09-30', due_time: null },
+    { id: 'd3', body: 'Earlier job', place_id: null, created_at: '', due_on: '2026-09-28', due_time: '09:30:00' },
+    { id: 'd4', body: 'Next week', place_id: null, created_at: '', due_on: '2026-10-07', due_time: null },
+    { id: 'd5', body: 'Undated', place_id: null, created_at: '' },
+  ],
+};
+
+test('today text lists what is due today and earlier, timed first, empty when nothing', () => {
+  const now = new Date('2026-09-30T07:00:00Z');
+  assert.equal(todayText(dated, { now }), '3 to-dos for today:\n- 09:30 Earlier job\n- Call the plumber\n- 18:00 Buy milk');
+  assert.equal(todayText({ ...dated, todos: [dated.todos[3], dated.todos[4]] }, { now }), '', 'nothing due -> no notification');
+  assert.equal(todayText(feed, { now }), '', 'feed without dates');
+});
+
+test('digest mentions what is due today', () => {
+  const d = digestText(dated, { now: new Date('2026-09-30T07:00:00Z') });
+  assert.match(d, /Due today: Earlier job, Call the plumber, Buy milk/);
+});
+
+test('ics has events for dated to-dos: timed ones alert at their time', () => {
+  const ics = buildIcs(dated, { now: new Date('2026-09-30T08:15:30Z') });
+  assert.equal((ics.match(/BEGIN:VEVENT/g) ?? []).length, 3 + 4, 'three house tasks + four dated to-dos');
+  assert.match(ics, /UID:todo-d1@homememory/);
+  assert.match(ics, /DTSTART:20260930T180000\r\nDTEND:20260930T183000/, 'timed: floating local time, 30 minutes');
+  assert.match(ics, /LOCATION:Kiwi Myren\\, Myrens veg 5\\, 0473 Oslo/, 'place name and address');
+  assert.match(ics, /SUMMARY:Buy milk\r\n/, 'first line only');
+  assert.match(ics, /DTSTART;VALUE=DATE:20260930\r\nDTEND;VALUE=DATE:20261001\r\nSUMMARY:Call the plumber/, 'all-day to-do');
+  assert.match(ics, /TRIGGER:PT0S/);
+  assert.doesNotMatch(ics, /todo-d5@/, 'undated to-dos are not in the calendar');
+});
+
+test('a timed to-do late in the evening does not spill wrongly across midnight', () => {
+  const late = { ...dated, todos: [{ id: 'z', body: 'Late', place_id: null, created_at: '', due_on: '2026-12-31', due_time: '23:45' }] };
+  assert.match(buildIcs(late), /DTSTART:20261231T234500\r\nDTEND:20270101T001500/);
+});
+
 test('schedule text', () => {
   assert.equal(scheduleText(feed.tasks[0]), 'every year, Sep-Oct');
   assert.equal(scheduleText(feed.tasks[1]), 'every 3 months');
@@ -72,7 +113,7 @@ test('schedule text', () => {
 });
 
 test('ics escaping and folding', () => {
-  assert.equal(escapeText('a,b;c\\d\ne'), 'a\\,b\;c\\\\d\\ne');
+  assert.equal(escapeText('a,b;c\\d\ne'), 'a\\,b\\;c\\\\d\\ne');
   const long = 'SUMMARY:' + 'æ'.repeat(60);
   const folded = fold(long);
   for (const part of folded.split('\r\n')) assert.ok(new TextEncoder().encode(part).length <= 75, `line too long: ${part.length}`);
@@ -104,4 +145,41 @@ test('loadFeed sends only the apikey header and maps outcomes', async () => {
   assert.equal((await loadFeed({ url: 'u', anonKey: 'k', key: 'x', fetchImpl: async () => Response.json(null) })).status, 'invalid');
   assert.equal((await loadFeed({ url: 'u', anonKey: 'k', key: 'x', fetchImpl: async () => new Response('no', { status: 500 }) })).status, 'error');
   assert.equal((await loadFeed({ url: 'u', anonKey: 'k', key: 'x', fetchImpl: async () => { throw new Error('offline'); } })).status, 'error');
+});
+
+test('the language comes from ?lang and defaults to English', () => {
+  assert.equal(pickLang('nb'), 'nb');
+  assert.equal(pickLang('NB-no'), 'nb');
+  assert.equal(pickLang('no'), 'nb');
+  assert.equal(pickLang('en'), 'en');
+  assert.equal(pickLang(null), 'en');
+  assert.equal(pickLang('fr'), 'en');
+});
+
+test('Norwegian notification text: places, digest, today, schedules', () => {
+  const now = new Date('2026-09-30T08:00:00Z');
+  const p = placeText(feed, { category: 'hardware', lang: 'nb' });
+  assert.match(p, /^3 oppgaver hos hardware:/);
+  assert.match(p, /Nyttig her:/);
+  assert.match(placeText(feed, { category: 'pharmacy', lang: 'nb' }), /^1 oppgave hos Any pharmacy \(apotek\):/);
+  const d = digestText(feed, { now, lang: 'nb' });
+  assert.match(d, /Aktuelt nå: /);
+  assert.match(d, /Kommer snart: .*\(om 5 dager\)/);
+  assert.match(d, /Oppgaver: 5 venter \(1 når som helst, 4 på steder\)/);
+  const withDue = { ...feed, todos: [{ id: 'd1', body: 'Ring rørlegger', place_id: null, created_at: '2026-09-29', due_on: '2026-09-30', due_time: '18:00:00' }] };
+  assert.equal(todayText(withDue, { now, lang: 'nb' }), '1 oppgave i dag:\n- 18:00 Ring rørlegger');
+  assert.equal(scheduleText({ schedule: 'seasonal', window_start_month: 9, window_end_month: 10 }, 'nb'), 'hvert år, sep-okt');
+  assert.equal(scheduleText({ schedule: 'interval', interval_months: 24 }, 'nb'), 'hvert 2. år');
+  assert.equal(scheduleText({ schedule: 'interval', interval_months: 3 }), 'every 3 months');
+});
+
+test('house template tasks are translated by their key; your own tasks are left alone', () => {
+  const t = { template_key: 'gutters_autumn', title: 'Clean gutters and downpipes', notes: 'x' };
+  assert.equal(taskTitle(t, 'nb'), 'Rens takrenner og nedløpsrør');
+  assert.equal(taskTitle(t, 'en'), 'Clean gutters and downpipes');
+  assert.equal(taskTitle({ template_key: null, title: 'Oil the terrace' }, 'nb'), 'Oil the terrace');
+  assert.equal(taskTitle({ template_key: 'unknown_key', title: 'Mine' }, 'nb'), 'Mine');
+  const ics = buildIcs({ ...feed, tasks: [{ ...feed.tasks[0], template_key: 'gutters_autumn' }] }, { now: new Date('2026-09-30T08:00:00Z'), lang: 'nb' });
+  assert.match(ics, /SUMMARY:Rens takrenner og nedløpsrør/);
+  assert.match(ics, /DESCRIPTION:hvert år\\, sep-okt\. Ikke gjort ennå\./);
 });

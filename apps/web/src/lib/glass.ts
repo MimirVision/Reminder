@@ -1,10 +1,6 @@
 // Glass level for the floating bars: clear (most see-through), glass, frosted (most readable).
 export type GlassLevel = 'clear' | 'glass' | 'frosted';
-export const GLASS_LEVELS: { id: GlassLevel; label: string }[] = [
-  { id: 'clear', label: 'Clear' },
-  { id: 'glass', label: 'Glass' },
-  { id: 'frosted', label: 'Frosted' },
-];
+export const GLASS_LEVELS: GlassLevel[] = ['clear', 'glass', 'frosted'];
 const KEY = 'hm.glassLevel';
 
 export function getGlass(): GlassLevel {

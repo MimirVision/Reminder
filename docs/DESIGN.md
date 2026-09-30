@@ -176,6 +176,21 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
 - **Get set up card + invite link (web).** A compact card on the To-do page shows progress and only the next step (places,
   first to-do, house calendar, emergency card, iPhone reminders, partner); steps tick themselves off from real data and it can
   be hidden. Settings can copy an invite link (`/?join=CODE`); it pre-fills the code for the partner after sign-up.
+- **To-dos with a place and a date (web).** The add and edit sheet has one "Where?" search: type a shop ("kiwi myren"), a kind of
+  shop ("apotek", which means any pharmacy) or an address. Shops and addresses come from Photon (OpenStreetMap data,
+  Norway only); saved places are matched first and reused, so there are no duplicates. "When?" is Today / Tomorrow / Weekend /
+  Next week or any date, plus an optional time (migration 0008: `memories.due_on`, `due_time`, `places.address`). The list has
+  sections Today, Coming up, At a place, Anytime. Ticking or deleting shows an Undo (deleting is a soft delete, purged after
+  30 days); changes from your partner appear live (Supabase Realtime) and when the app returns to the foreground.
+- **Map as part of the app (web).** The To-do screen has a List / Map switch. The map is full-bleed behind the same glass
+  controls, with CARTO Positron / Dark Matter tiles matching the light or dark theme, pins with counts, quiet dots for saved
+  places without to-dos, radius circles, and a draggable bottom sheet (peek, half, full) listing the places by distance.
+- **Language and appearance (web).** Norwegian and English (default from the browser, switch in Settings; the reminder links
+  and the starter house calendar follow it) and Automatic / Light / Dark. Translations are JSON dictionaries checked at compile
+  time for missing keys; the Norwegian wording deserves a native read-through.
+- **Glass.** In Safari and Firefox the bars are blurred, saturated and lit (highlights, rim light, ambient background). The
+  real refraction of iOS 26 exists only in native apps. In Chromium browsers (Chrome, Edge) the bars additionally refract
+  through an SVG displacement filter, enabled by detecting Chromium, never by feature-testing (Safari mis-reports support).
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

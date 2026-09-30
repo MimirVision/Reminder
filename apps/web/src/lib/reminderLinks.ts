@@ -5,12 +5,13 @@ export type LinkSet = {
   calendar: string; // webcal:// link (Calendar subscribes)
   calendarHttps: string;
   digest: string;
+  today: string;
   places: { label: string; url: string }[];
 };
 
-export function buildLinks(origin: string, key: string, places: Pick<Place, 'name' | 'kind' | 'category'>[]): LinkSet {
+export function buildLinks(origin: string, key: string, places: Pick<Place, 'name' | 'kind' | 'category'>[], lang: 'en' | 'nb' = 'en'): LinkSet {
   const u = new URL(origin);
-  const q = (params: Record<string, string>) => `${u.origin}/api/remind?${new URLSearchParams({ key, ...params }).toString()}`;
+  const q = (params: Record<string, string>) => `${u.origin}/api/remind?${new URLSearchParams({ key, ...params, ...(lang === 'nb' ? { lang } : {}) }).toString()}`;
   const seen = new Set<string>();
   const out: LinkSet['places'] = [];
   for (const p of places) {
@@ -22,9 +23,10 @@ export function buildLinks(origin: string, key: string, places: Pick<Place, 'nam
     out.push({ label: p.name, url });
   }
   return {
-    calendar: `webcal://${u.host}/calendar.ics?key=${key}`,
-    calendarHttps: `${u.origin}/calendar.ics?key=${key}`,
+    calendar: `webcal://${u.host}/calendar.ics?key=${key}${lang === 'nb' ? '&lang=nb' : ''}`,
+    calendarHttps: `${u.origin}/calendar.ics?key=${key}${lang === 'nb' ? '&lang=nb' : ''}`,
     digest: q({}),
+    today: q({ mode: 'today' }),
     places: out,
   };
 }

@@ -29,3 +29,14 @@ test('duplicate links are listed once', () => {
   ]);
   assert.equal(l.places.length, 1);
 });
+
+test('the morning summary link, and Norwegian links carry the language', () => {
+  const en = buildLinks('https://s.netlify.app', KEY, [{ name: 'IKEA', kind: 'fixed', category: null }]);
+  assert.equal(en.today, `https://s.netlify.app/api/remind?key=${KEY}&mode=today`);
+  const nb = buildLinks('https://s.netlify.app', KEY, [{ name: 'IKEA', kind: 'fixed', category: null }], 'nb');
+  assert.equal(nb.digest, `https://s.netlify.app/api/remind?key=${KEY}&lang=nb`);
+  assert.equal(nb.today, `https://s.netlify.app/api/remind?key=${KEY}&mode=today&lang=nb`);
+  assert.equal(nb.places[0].url, `https://s.netlify.app/api/remind?key=${KEY}&place=IKEA&lang=nb`);
+  assert.equal(nb.calendarHttps, `https://s.netlify.app/calendar.ics?key=${KEY}&lang=nb`);
+  assert.equal(nb.calendar, `webcal://s.netlify.app/calendar.ics?key=${KEY}&lang=nb`);
+});

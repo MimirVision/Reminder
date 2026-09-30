@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { addFact, deleteFact, listFacts } from '../lib/api';
-import { FACT_LABELS, groupFacts, type Fact, type FactCategory } from '../lib/facts';
+import { groupFacts, FACT_ORDER, type Fact, type FactCategory } from '../lib/facts';
+import { CATEGORIES, shopName } from '../lib/labels';
 import type { Household } from '../lib/types';
-
-const SHOPS: [string, string][] = [['hardware', 'Hardware'], ['paint', 'Paint'], ['garden', 'Garden'], ['grocery', 'Grocery'], ['pharmacy', 'Pharmacy']];
+import { useI18n } from '../i18n';
+import { useToast } from './Toast';
 
 // What size was it? Where is the shutoff? Emergency facts come first.
 export function FactsView({ household }: { household: Household }) {
+  const { t } = useI18n();
+  const toast = useToast();
   const [facts, setFacts] = useState<Fact[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -27,18 +30,18 @@ export function FactsView({ household }: { household: Household }) {
   const groups = groupFacts(facts);
   return (
     <>
-      <span className="muted">What size was it? Where is the shutoff? Save it once. Tag a fact with a shop and it shows on that store's list.</span>
+      <span className="muted">{t('facts.intro')}</span>
       {err && <p className="error">{err}</p>}
-      {groups.length === 0 && <p className="muted">No facts yet. Start with where the water shutoff and fuse box are.</p>}
+      {groups.length === 0 && <p className="muted">{t('facts.empty')}</p>}
       {groups.map((g) => (
-        <div key={g.category} style={{ display: 'contents' }}>
-          <div className="label">{g.category === 'emergency' ? 'Emergency card' : g.label}</div>
+        <div key={g.category} className="contents">
+          <div className="label">{g.category === 'emergency' ? t('facts.emergencyCard') : t(`facts.cat.${g.category}` as const)}</div>
           {g.items.map((f) => (
             <div className="card" key={f.id}>
-              <strong style={{ fontSize: g.category === 'emergency' ? 20 : 17 }}>{f.title}</strong>
-              {f.value && <span style={{ whiteSpace: 'pre-wrap', fontSize: g.category === 'emergency' ? 18 : 16 }}>{f.value}</span>}
-              {f.surface_at.length > 0 && <span className="muted">Shown at: {f.surface_at.join(', ')}</span>}
-              <div className="row"><button className="btn small danger" onClick={() => confirm('Delete this fact?') && void run(() => deleteFact(f.id))}>Delete</button></div>
+              <strong className={g.category === 'emergency' ? 'big' : undefined}>{f.title}</strong>
+              {f.value && <span className={`prewrap${g.category === 'emergency' ? ' big' : ''}`}>{f.value}</span>}
+              {f.surface_at.length > 0 && <span className="muted">{t('facts.shownAt', { shops: f.surface_at.map((s) => shopName(s, t)).join(', ') })}</span>}
+              <div className="row"><button className="btn small danger" onClick={() => confirm(t('facts.confirmDelete')) && void run(() => deleteFact(f.id))}>{t('common.delete')}</button></div>
             </div>
           ))}
         </div>
@@ -47,23 +50,24 @@ export function FactsView({ household }: { household: Household }) {
         <form className="card" onSubmit={(e) => { e.preventDefault(); void run(async () => {
           await addFact({ household_id: household.id, title: title.trim(), value: value.trim(), category, surface_at: shops });
           setTitle(''); setValue(''); setCategory('other'); setShops([]); setAdding(false);
+          toast({ text: t('toast.saved') });
         }); }}>
-          <input placeholder="Title (e.g. Water shutoff, Bedroom paint)" required value={title} onChange={(e) => setTitle(e.target.value)} />
-          <textarea placeholder="Details (e.g. under the kitchen sink, left valve)" value={value} onChange={(e) => setValue(e.target.value)} />
-          <div className="label">Type</div>
-          <div className="row">{(Object.keys(FACT_LABELS) as FactCategory[]).map((c) => (
-            <button type="button" key={c} className={`btn small${category === c ? ' primary' : ''}`} onClick={() => setCategory(c)}>{FACT_LABELS[c]}</button>
+          <input placeholder={t('facts.titlePh')} required value={title} onChange={(e) => setTitle(e.target.value)} />
+          <textarea placeholder={t('facts.valuePh')} value={value} onChange={(e) => setValue(e.target.value)} />
+          <div className="label nopad">{t('facts.type')}</div>
+          <div className="chips">{FACT_ORDER.map((c) => (
+            <button type="button" key={c} className={`chipbtn${category === c ? ' on' : ''}`} aria-pressed={category === c} onClick={() => setCategory(c)}>{t(`facts.cat.${c}` as const)}</button>
           ))}</div>
-          <div className="label">Show on the list at</div>
-          <div className="row">{SHOPS.map(([id, label]) => (
-            <button type="button" key={id} className={`btn small${shops.includes(id) ? ' primary' : ''}`}
-              onClick={() => setShops((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))}>{label}</button>
+          <div className="label nopad">{t('facts.showAt')}</div>
+          <div className="chips">{CATEGORIES.map((id) => (
+            <button type="button" key={id} className={`chipbtn${shops.includes(id) ? ' on' : ''}`} aria-pressed={shops.includes(id)}
+              onClick={() => setShops((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))}>{shopName(id, t)}</button>
           ))}</div>
-          <button className="btn primary">Save fact</button>
-          <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
+          <button className="btn primary">{t('facts.save')}</button>
+          <button type="button" className="btn" onClick={() => setAdding(false)}>{t('common.cancel')}</button>
         </form>
       ) : (
-        <button className="btn" onClick={() => setAdding(true)}>+ Add a fact</button>
+        <button className="btn" onClick={() => setAdding(true)}>{t('facts.add')}</button>
       )}
     </>
   );

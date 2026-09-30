@@ -1,0 +1,57 @@
+// Dates and times on to-dos. Wall-clock local dates as 'YYYY-MM-DD' and 'HH:MM' (no time zones to get wrong).
+import type { T } from '../i18n/core';
+
+export type DueParts = { due_on: string | null; due_time: string | null };
+
+const pad = (n: number) => String(n).padStart(2, '0');
+export const isoDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export const parseISODate = (s: string) => new Date(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+export const todayISO = (now = new Date()) => isoDate(now);
+
+export function addDays(iso: string, n: number): string {
+  const d = parseISODate(iso);
+  d.setDate(d.getDate() + n);
+  return isoDate(d);
+}
+
+/** The one-tap choices in the add sheet. "weekend" is the coming Saturday (today if it already is the weekend). */
+export function quickDates(now = new Date()) {
+  const today = todayISO(now);
+  const dow = parseISODate(today).getDay(); // 0 = Sunday
+  const weekend = dow === 0 ? today : addDays(today, (6 - dow + 7) % 7);
+  const nextWeek = addDays(today, ((1 - dow + 7) % 7) || 7);
+  return { today, tomorrow: addDays(today, 1), weekend, nextWeek };
+}
+
+export const timeShort = (t: string | null | undefined) => (t ? t.slice(0, 5) : '');
+
+export function formatDay(iso: string, locale: string, now = new Date()): string {
+  const d = parseISODate(iso);
+  return new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) }).format(d);
+}
+
+/** "Today 18:00", "Tomorrow", "Friday", "Fri 3 Oct", "Since Tue 30 Sep" (never scolding: no "overdue"). */
+export function dueLabel(due: DueParts, t: T, locale: string, now = new Date()): string {
+  if (!due.due_on) return '';
+  const today = todayISO(now);
+  const time = timeShort(due.due_time);
+  let day: string;
+  if (due.due_on < today) return t('when.since', { date: formatDay(due.due_on, locale, now) });
+  if (due.due_on === today) day = t('when.today');
+  else if (due.due_on === addDays(today, 1)) day = t('when.tomorrow');
+  else if (due.due_on <= addDays(today, 6)) day = new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(parseISODate(due.due_on));
+  else day = formatDay(due.due_on, locale, now);
+  return time ? `${day} ${time}` : day;
+}
+
+export type DueBucket = 'today' | 'upcoming' | 'none';
+export function dueBucket(due: DueParts, now = new Date()): DueBucket {
+  if (!due.due_on) return 'none';
+  return due.due_on <= todayISO(now) ? 'today' : 'upcoming';
+}
+
+/** Earliest first; all-day before timed on the same day; undated last. */
+export function compareDue(a: DueParts, b: DueParts): number {
+  if (!a.due_on || !b.due_on) return a.due_on ? -1 : b.due_on ? 1 : 0;
+  return a.due_on.localeCompare(b.due_on) || timeShort(a.due_time).localeCompare(timeShort(b.due_time));
+}

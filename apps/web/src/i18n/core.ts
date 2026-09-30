@@ -1,0 +1,47 @@
+// Translation core: language detection, {placeholders}, plurals. No React here, so it is unit tested with plain Node.
+import en from './en.json' with { type: 'json' };
+import nb from './nb.json' with { type: 'json' };
+
+export type Lang = 'en' | 'nb';
+export type Key = keyof typeof en;
+type OneBase<K> = K extends `${infer B}_one` ? B : never;
+export type PluralBase = OneBase<Key>;
+export type Params = Record<string, string | number>;
+export type T = (key: Key, params?: Params) => string;
+export type TN = (base: PluralBase, count: number, params?: Params) => string;
+
+export const LANGS: { id: Lang; label: string }[] = [{ id: 'en', label: 'English' }, { id: 'nb', label: 'Norsk' }];
+
+// Compile-time check that the Norwegian file has every key the English file has.
+const NB: Record<Key, string> = nb;
+const DICT: Record<Lang, Record<Key, string>> = { en, nb: NB };
+
+/** Norwegian (bokmål, nynorsk, "no") if the browser prefers it, else English. */
+export function detectLang(languages: readonly string[]): Lang {
+  for (const l of languages) {
+    const c = l.toLowerCase();
+    if (c === 'no' || c.startsWith('no-') || c.startsWith('nb') || c.startsWith('nn')) return 'nb';
+    if (c.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
+
+export const isLang = (v: unknown): v is Lang => v === 'en' || v === 'nb';
+export const dateLocale = (lang: Lang) => (lang === 'nb' ? 'nb-NO' : 'en-GB');
+
+export function interpolate(s: string, params?: Params): string {
+  return params ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in params ? String(params[k]) : m)) : s;
+}
+
+export function translate(lang: Lang, key: Key, params?: Params): string {
+  return interpolate(DICT[lang][key] ?? DICT.en[key] ?? key, params);
+}
+
+export function translatePlural(lang: Lang, base: PluralBase, count: number, params?: Params): string {
+  return translate(lang, `${base}_${count === 1 ? 'one' : 'other'}` as Key, { count, n: count, ...params });
+}
+
+export const makeT = (lang: Lang): T => (key, params) => translate(lang, key, params);
+export const makeTN = (lang: Lang): TN => (base, count, params) => translatePlural(lang, base, count, params);
+
+export const dictionaries = { en, nb: NB };

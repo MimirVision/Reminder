@@ -17,7 +17,9 @@
     "noEmit": true,
     "types": [
       "vite/client"
-    ]
+    ],
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true
   },
   "include": [
     "src",

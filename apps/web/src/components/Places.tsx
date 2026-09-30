@@ -1,26 +1,21 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { addPlace, deletePlace, listPlaces, updatePlaceRadius } from '../lib/api';
+import { useCallback, useEffect, useState } from 'react';
+import { addPlace, deletePlace, listPlaces, updatePlaceCategory, updatePlaceRadius } from '../lib/api';
+import { CATEGORIES, categoryName, placeLabel, shopName } from '../lib/labels';
+import { findExistingPlace, directionsUrl, categoryFromName } from '../lib/placeSearch';
 import type { Household, Place } from '../lib/types';
+import { useI18n } from '../i18n';
 import { Icon } from './icons';
+import { PlaceSearchBox, type Pick } from './PlaceSearchBox';
+import { useToast } from './Toast';
 
-// Category places mean "any of these" (resolved to nearby shops by the phone app and the map).
-const CATEGORIES = [
-  { category: 'pharmacy', name: 'Any pharmacy (apotek)' },
-  { category: 'hardware', name: 'Any hardware store (byggevarehus)' },
-  { category: 'grocery', name: 'Any grocery store (dagligvare)' },
-  { category: 'paint', name: 'Any paint shop (malingforretning)' },
-  { category: 'garden', name: 'Any garden centre (hagesenter)' },
-];
 const RADII = [100, 150, 250, 500, 1000];
 
 export function Places({ household }: { household: Household }) {
+  const { t } = useI18n();
+  const toast = useToast();
   const [places, setPlaces] = useState<Place[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [lat, setLat] = useState('');
-  const [lon, setLon] = useState('');
-  const [radius, setRadius] = useState(150);
-  const [shopKind, setShopKind] = useState('');
+  const [key, setKey] = useState(0); // remounts the search box after adding, so it is empty again
 
   const load = useCallback(async () => {
     try { setPlaces(await listPlaces(household.id)); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -31,73 +26,63 @@ export function Places({ household }: { household: Household }) {
     try { setErr(null); await fn(); await load(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   }
 
-  function useMyLocation() {
-    navigator.geolocation.getCurrentPosition(
-      (p) => { setLat(p.coords.latitude.toFixed(6)); setLon(p.coords.longitude.toFixed(6)); },
-      (e) => setErr(e.message),
-      { enableHighAccuracy: true, timeout: 10_000 },
-    );
-  }
-
-  function submitFixed(e: FormEvent) {
-    e.preventDefault();
-    void run(async () => {
-      await addPlace({ household_id: household.id, name, kind: 'fixed', category: shopKind || null, lat: Number(lat), lon: Number(lon), radius_m: radius });
-      setName(''); setLat(''); setLon(''); setShopKind('');
-    });
-  }
+  const add = (p: Pick) => void run(async () => {
+    if (p.type === 'saved') return;
+    if (p.type === 'kind') {
+      const name = categoryName(p.category, t);
+      await addPlace({ household_id: household.id, name, kind: 'category', category: p.category, lat: null, lon: null, radius_m: 150 });
+      toast({ text: t('places.saved', { name }) });
+    } else {
+      if (findExistingPlace(places, p.hit)) return;
+      await addPlace({
+        household_id: household.id, name: p.hit.name, kind: 'fixed', category: p.hit.category ?? categoryFromName(p.hit.name),
+        lat: p.hit.lat, lon: p.hit.lon, radius_m: p.hit.isAddress ? 150 : 200, address: p.hit.address || null,
+      });
+      toast({ text: t('places.saved', { name: p.hit.name }) });
+    }
+    setKey((k) => k + 1);
+  });
 
   return (
     <main className="page">
-      <h1>Places</h1>
-      <span className="muted">Where you want to be reminded. The distance is how close you get before "Are you here?" appears on the phone.</span>
-      {err && <p className="error">{err}</p>}
-      {places.length === 0 && <p className="muted">No places yet.</p>}
+      <h1>{t('places.title')}</h1>
+      <span className="muted">{t('places.intro')}</span>
+      {err && <p className="error" role="alert">{err}</p>}
+
+      <div className="label">{t('places.addSpecific')}</div>
+      <div className="card">
+        <span className="muted">{t('places.addHelp')}</span>
+        <PlaceSearchBox key={key} places={places} showSaved={false} onPick={add} />
+      </div>
+
+      {places.length === 0 && <p className="muted">{t('places.empty')}</p>}
       {places.map((p) => (
-        <div className="card" key={p.id}>
+        <div className="card place" key={p.id}>
           <div className="row spread">
-            <span className="chip"><Icon name="pin" size={13} />{p.name}</span>
-            <span className="muted">{p.kind === 'category' ? 'any nearby shop of this kind' : 'specific place'}</span>
+            <div className="rt">
+              <strong><Icon name={p.kind === 'category' ? 'store' : 'pin'} size={16} /> {placeLabel(p, t)}</strong>
+              <span className="muted">{p.address ?? (p.kind === 'category' ? t('places.kindCategory') : t('places.kindFixed'))}</span>
+            </div>
+            {p.lat != null && p.lon != null && <a className="btn small" href={directionsUrl({ lat: p.lat, lon: p.lon })} target="_blank" rel="noreferrer"><Icon name="navigate" size={14} />{t('where.directions')}</a>}
           </div>
           <div className="row">
-            <label className="muted">Distance{' '}
+            <label className="muted">{t('places.distance')}{' '}
               <select value={p.radius_m} onChange={(e) => void run(() => updatePlaceRadius(p.id, Number(e.target.value)))}>
-                {RADII.map((r) => <option key={r} value={r}>{r} m</option>)}
+                {[...new Set([...RADII, p.radius_m])].sort((a, b) => a - b).map((r) => <option key={r} value={r}>{t('places.meters', { n: r })}</option>)}
               </select>
             </label>
-            <button className="btn small danger" onClick={() => confirm(`Delete ${p.name}?`) && void run(() => deletePlace(p.id))}>Delete</button>
+            {p.kind === 'fixed' && (
+              <label className="muted">{t('places.kindOfShop')}{' '}
+                <select value={p.category ?? ''} onChange={(e) => void run(() => updatePlaceCategory(p.id, e.target.value || null))}>
+                  <option value="">{t('common.none')}</option>
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{shopName(c, t)}</option>)}
+                </select>
+              </label>
+            )}
+            <button className="btn small danger" onClick={() => confirm(t('places.confirmDelete', { name: placeLabel(p, t) })) && void run(() => deletePlace(p.id))}>{t('common.delete')}</button>
           </div>
         </div>
       ))}
-
-      <div className="label">Add a category</div>
-      <div className="row">
-        {CATEGORIES.filter((c) => !places.some((p) => p.category === c.category)).map((c) => (
-          <button key={c.category} className="btn small" onClick={() => void run(() => addPlace({ household_id: household.id, name: c.name, kind: 'category', category: c.category, lat: null, lon: null, radius_m: 150 }))}>+ {c.name}</button>
-        ))}
-      </div>
-
-      <div className="label">Add a specific place</div>
-      <form className="card" onSubmit={submitFixed}>
-        <input placeholder="Name (e.g. Home, Byggmax Skøyen)" required value={name} onChange={(e) => setName(e.target.value)} />
-        <div className="row">
-          <input style={{ flex: 1, minWidth: 120 }} placeholder="Latitude" required inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} />
-          <input style={{ flex: 1, minWidth: 120 }} placeholder="Longitude" required inputMode="decimal" value={lon} onChange={(e) => setLon(e.target.value)} />
-          <button type="button" className="btn small" onClick={useMyLocation}>Use my location</button>
-        </div>
-        <div className="row">
-          <label className="muted">Distance{' '}
-            <select value={radius} onChange={(e) => setRadius(Number(e.target.value))}>{RADII.map((r) => <option key={r} value={r}>{r} m</option>)}</select>
-          </label>
-          <label className="muted">Kind of shop{' '}
-            <select value={shopKind} onChange={(e) => setShopKind(e.target.value)}>
-              <option value="">None</option>
-              {CATEGORIES.map((c) => <option key={c.category} value={c.category}>{c.category}</option>)}
-            </select>
-          </label>
-          <button className="btn primary small">Add place</button>
-        </div>
-      </form>
     </main>
   );
 }

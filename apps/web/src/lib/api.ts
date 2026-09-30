@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import type { Fact, FactCategory } from './facts';
 import type { ReportSummary } from './report';
+import type { Hit } from './placeSearch';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -21,7 +22,7 @@ export async function createHousehold(name: string, displayName: string) {
 
 export async function joinHousehold(code: string, displayName: string) {
   const id = check(await supabase.rpc('join_household', { p_invite_code: code, p_display_name: displayName }));
-  if (!id) throw new Error('That invite code is not valid.');
+  if (!id) throw new Error('invalid_invite');
 }
 
 export async function rotateInviteCode(householdId: string): Promise<string> {
@@ -49,38 +50,104 @@ export type NewMemory = {
   body: string;
   place_id?: string | null;
   place_category?: string | null;
+  due_on?: string | null;
+  due_time?: string | null;
   capture_lat?: number | null;
   capture_lon?: number | null;
   capture_accuracy_m?: number | null;
 };
 
+// A to-do with a place or a date is "active" (it has a reason to surface); one with neither waits in the inbox.
+export const statusFor = (m: { place_id?: string | null; place_category?: string | null; due_on?: string | null }): MemoryStatus =>
+  m.place_id || m.place_category || m.due_on ? 'active' : 'inbox';
+
 export async function addMemory(m: NewMemory): Promise<Memory> {
-  const status: MemoryStatus = m.place_id || m.place_category ? 'active' : 'inbox';
-  return check(await supabase.from('memories').insert({ ...m, status }).select().single());
+  return check(await supabase.from('memories').insert({ ...m, due_time: m.due_on ? m.due_time ?? null : null, status: statusFor(m) }).select().single());
 }
 
-export async function updateMemory(id: string, patch: Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at'>>) {
+type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time'>>;
+
+export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
+}
+
+/** Edit text, place and date together. The status follows what the to-do now has. */
+export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null }) {
+  await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, status: statusFor(f) });
 }
 
 export async function markDone(id: string) {
   await updateMemory(id, { status: 'done', done_at: new Date().toISOString() });
 }
 
-export async function reopen(id: string, hasPlace: boolean) {
-  await updateMemory(id, { status: hasPlace ? 'active' : 'inbox', done_at: null });
+export async function reopen(id: string, m: { place_id: string | null; due_on: string | null }) {
+  await updateMemory(id, { status: statusFor(m), done_at: null });
+}
+
+/** Deleting is a soft delete so it can be undone. Old dismissed to-dos are purged by purgeDismissed. */
+export async function softDelete(id: string) {
+  await updateMemory(id, { status: 'dismissed' });
+}
+
+export async function restoreMemory(id: string, m: { place_id: string | null; due_on: string | null }) {
+  await updateMemory(id, { status: statusFor(m), done_at: null });
+}
+
+export async function purgeDismissed(householdId: string, olderThanDays = 30) {
+  const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
+  await supabase.from('memories').delete().eq('household_id', householdId).eq('status', 'dismissed').lt('created_at', cutoff);
 }
 
 export async function deleteMemory(id: string) {
   check(await supabase.from('memories').delete().eq('id', id));
 }
 
+/** Live updates: calls onChange when anything in this household's to-dos or places changes (partner added something). */
+export function subscribeHousehold(householdId: string, onChange: () => void): () => void {
+  const ch = supabase
+    .channel(`hm-${householdId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'memories', filter: `household_id=eq.${householdId}` }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'places', filter: `household_id=eq.${householdId}` }, onChange)
+    .subscribe();
+  return () => { void supabase.removeChannel(ch); };
+}
+
 export async function listPlaces(householdId: string): Promise<Place[]> {
   return check(await supabase.from('places').select('*').eq('household_id', householdId).order('created_at'));
 }
 
-export async function addPlace(p: Omit<Place, 'id'>) {
-  check(await supabase.from('places').insert(p));
+export async function addPlace(p: Omit<Place, 'id'>): Promise<Place> {
+  return check(await supabase.from('places').insert(p).select().single());
+}
+
+/** Where a to-do goes, as chosen in the add sheet. */
+export type Where =
+  | { kind: 'none' }
+  | { kind: 'place'; placeId: string }
+  | { kind: 'category'; category: string; name: string }
+  | { kind: 'hit'; hit: Hit; kindOfShop: string | null };
+
+/** Turns the choice into a place id, reusing a saved place when there is one (no duplicates). */
+export async function resolveWhere(householdId: string, where: Where, places: Place[], find: (places: Place[], hit: Hit) => Place | null): Promise<{ placeId: string | null; created: Place | null }> {
+  if (where.kind === 'none') return { placeId: null, created: null };
+  if (where.kind === 'place') return { placeId: where.placeId, created: null };
+  if (where.kind === 'category') {
+    const have = places.find((p) => p.kind === 'category' && p.category === where.category);
+    if (have) return { placeId: have.id, created: null };
+    const created = await addPlace({ household_id: householdId, name: where.name, kind: 'category', category: where.category, lat: null, lon: null, radius_m: 150 });
+    return { placeId: created.id, created };
+  }
+  const have = find(places, where.hit);
+  if (have) return { placeId: have.id, created: null };
+  const created = await addPlace({
+    household_id: householdId, name: where.hit.name, kind: 'fixed', category: where.kindOfShop ?? where.hit.category,
+    lat: where.hit.lat, lon: where.hit.lon, radius_m: where.hit.isAddress ? 150 : 200, address: where.hit.address || null,
+  });
+  return { placeId: created.id, created };
+}
+
+export async function updatePlaceCategory(id: string, category: string | null) {
+  check(await supabase.from('places').update({ category }).eq('id', id));
 }
 
 export async function deletePlace(id: string) {
@@ -235,10 +302,7 @@ export async function importReport(householdId: string, file: File): Promise<Rep
   if (error) {
     let code = '';
     try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
-    if (code === 'not_configured') throw new Error('The AI reader is not set up yet. See supabase/README.md, "AI features".');
-    if (code === 'too_large') throw new Error('That PDF is too large (limit 25 MB).');
-    if (code === 'incomplete' || code === 'unreadable') throw new Error('The report could not be read completely. Try again or use a smaller PDF.');
-    throw new Error('Could not read the report. Try again in a minute.');
+    throw new Error(`report:${['not_configured', 'too_large', 'incomplete', 'unreadable'].includes(code) ? (code === 'unreadable' ? 'incomplete' : code) : 'failed'}`);
   }
   return (data as { report: ReportSummary }).report;
 }

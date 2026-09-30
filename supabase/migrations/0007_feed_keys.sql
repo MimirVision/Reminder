@@ -3,7 +3,7 @@
 -- The key is a secret in the link: only its sha256 hash is stored, it can be revoked, and it only ever READS
 -- to-dos, house tasks and facts that were tagged for a shop. It cannot change anything.
 
-create table public.feed_keys (
+create table if not exists public.feed_keys (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade default auth.uid(),
@@ -12,15 +12,17 @@ create table public.feed_keys (
   created_at timestamptz not null default now(),
   last_used_at timestamptz
 );
-create index feed_keys_user_idx on public.feed_keys (user_id);
+create index if not exists feed_keys_user_idx on public.feed_keys (user_id);
 
 alter table public.feed_keys enable row level security;
+drop policy if exists feed_keys_select on public.feed_keys;
 create policy feed_keys_select on public.feed_keys for select using (user_id = auth.uid());
+drop policy if exists feed_keys_delete on public.feed_keys;
 create policy feed_keys_delete on public.feed_keys for delete using (user_id = auth.uid());
 grant select, delete on public.feed_keys to authenticated;
 
 -- Returns the plaintext key exactly once.
-create function public.create_feed_key(p_household_id uuid, p_label text default 'iPhone')
+create or replace function public.create_feed_key(p_household_id uuid, p_label text default 'iPhone')
 returns text language plpgsql security definer set search_path = public as $$
 declare k text;
 begin
@@ -36,7 +38,7 @@ grant execute on function public.create_feed_key(uuid, text) to authenticated;
 
 -- What the reminder links show. Callable without login (anon): the key is the credential. Unknown or revoked key: NULL.
 -- Deliberately narrow: no authors, no photos, and only facts that were tagged for a shop (the emergency card stays private).
-create function public.reminder_feed(p_key text) returns jsonb
+create or replace function public.reminder_feed(p_key text) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare fk public.feed_keys; result jsonb;
 begin

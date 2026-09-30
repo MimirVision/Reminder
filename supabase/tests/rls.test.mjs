@@ -20,10 +20,11 @@ await db.exec(`
   create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text);
   create function storage.foldername(name text) returns text[] language sql immutable as
     $$ select string_to_array(name, '/') $$;
+  create publication supabase_realtime;
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -300,6 +301,36 @@ await db.exec(`reset role`);
   await as(A, async () => { await db.query(`delete from feed_keys where label = 'e2e'`); });
   assert.equal((await call(`/api/remind?key=${key2}`)).status, 401, 'revoked key stops working through the whole chain');
   await new Promise((ok) => server.close(ok));
+}
+
+// 0008: due dates, addresses, realtime, feed fields; and upgrade.sql is safe to run again on a migrated database.
+await as(A, async () => {
+  const id = (await db.query(`insert into memories (household_id, body, status, due_on, due_time) values ($1, 'Buy milk', 'active', '2026-10-01', '18:00') returning id`, [hid])).rows[0].id;
+  const r = (await db.query(`select due_on::text as d, due_time::text as t from memories where id = $1`, [id])).rows[0];
+  assert.deepEqual(r, { d: '2026-10-01', t: '18:00:00' });
+  await db.query(`insert into memories (household_id, body, due_on) values ($1, 'All day', '2026-10-02')`, [hid]);
+  await rejects(() => db.query(`insert into memories (household_id, body, due_time) values ($1, 'time but no date', '09:00')`, [hid]), /memories_due_time_needs_date|check constraint/);
+  await db.query(`update places set address = 'Storgata 5, 0155 Oslo' where name = 'Any pharmacy'`);
+});
+{
+  const pub = (await db.query(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`)).rows.map((r) => r.tablename);
+  assert.deepEqual(pub, ['memories', 'places'], 'shared to-dos and places are published for live updates');
+  await db.exec(buildSetup(UPGRADE_AFTER));
+  await db.exec(buildSetup(UPGRADE_AFTER));
+  const pub2 = (await db.query(`select count(*)::int as n from pg_publication_tables where pubname = 'supabase_realtime'`)).rows[0].n;
+  assert.equal(pub2, 2, 'running the upgrade again changes nothing');
+}
+{
+  let key3;
+  await as(A, async () => { key3 = (await db.query(`select public.create_feed_key($1, 'due') as k`, [hid])).rows[0].k; });
+  await db.exec(`set role anon; select set_config('request.jwt.claim.sub', '', false)`);
+  const f = (await db.query(`select public.reminder_feed($1) as f`, [key3])).rows[0].f;
+  await db.exec(`reset role`);
+  const milk = f.todos.find((x) => x.body === 'Buy milk');
+  assert.deepEqual([milk.due_on, milk.due_time], ['2026-10-01', '18:00:00'], 'due date and time reach the feed');
+  assert.equal(f.todos.find((x) => x.body === 'All day').due_time, null);
+  assert.ok(f.places.some((p) => p.address === 'Storgata 5, 0155 Oslo'), 'place addresses reach the feed');
+  await as(A, async () => { await db.query(`delete from feed_keys where label = 'due'`); });
 }
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');

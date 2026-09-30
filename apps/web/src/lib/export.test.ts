@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMarkdown, scheduleText, type ExportData } from './export.ts';
+import { buildMarkdown as build, scheduleText as sched, type ExportData } from './export.ts';
+import { makeT } from '../i18n/core.ts';
+
+const en = makeT('en');
+const buildMarkdown = (d: ExportData) => build(d, en);
+const scheduleText = (x: ExportData['tasks'][number]) => sched(x, en);
 
 const data: ExportData = {
   exportedAt: '2026-09-30T10:00:00Z',
@@ -24,7 +29,7 @@ const data: ExportData = {
 test('markdown lists open to-dos, done ones, and hides dismissed', () => {
   const md = buildMarkdown(data);
   assert.match(md, /^# Home: Home Memory export/);
-  assert.match(md, /- \[ \] Buy plasters — and tape \(Any pharmacy\) \[photo\]\(photos\/m1-1\.jpg\)/);
+  assert.match(md, /- \[ \] Buy plasters — and tape \(Any pharmacy \(apotek\)\) \[photo\]\(photos\/m1-1\.jpg\)/);
   assert.match(md, /- \[ \] \(photo\)/);
   assert.match(md, /### Done\n\n- \[x\] Order stain/);
   assert.doesNotMatch(md, /dismissed one/);
@@ -37,7 +42,7 @@ test('markdown has facts, maintenance with history (newest first), and places', 
   assert.match(md, /### Clean gutters\nevery year, Sep–Oct\. Last done: 2025-10-05\. Next due: 2026-09-01\./);
   assert.ok(md.indexOf('2025-10-05 — 450 kr — front only') < md.indexOf('- 2024-10-01'), 'history newest first');
   assert.doesNotMatch(md, /Old task/, 'retired tasks are left out');
-  assert.match(md, /- Any pharmacy \(any pharmacy, 150 m\)/);
+  assert.match(md, /- Any pharmacy \(apotek\) \(any pharmacy, 150 m\)/);
   assert.match(md, /- Cabin \(60\.1, 10\.2, 250 m\)/);
 });
 
@@ -53,4 +58,17 @@ test('empty household still exports cleanly', () => {
   const md = buildMarkdown({ ...data, memories: [], tasks: [], events: [], facts: [], places: [], photos: [] });
   assert.match(md, /Nothing open\./);
   assert.match(md, /No tasks\./);
+});
+
+test('the export can be written in Norwegian, including the house template', () => {
+  const md = build({ ...data, tasks: [{ ...data.tasks[0], template_key: 'gutters_autumn' }] }, makeT('nb'), 'nb');
+  assert.match(md, /Eksportert 2026-09-30\./);
+  assert.match(md, /### Rens takrenner og nedløpsrør/);
+  assert.match(md, /hvert år, Sep–Okt|hvert år, sep–okt/i);
+  assert.match(md, /Sist gjort: 2025-10-05/);
+});
+
+test('dated to-dos show their date', () => {
+  const md = buildMarkdown({ ...data, memories: [{ ...data.memories[0], due_on: '2026-10-03', due_time: '18:00:00' }] });
+  assert.match(md, /\(due 2026-10-03 18:00\)/);
 });

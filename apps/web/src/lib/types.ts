@@ -11,6 +11,7 @@ export type Place = {
   lat: number | null;
   lon: number | null;
   radius_m: number;
+  address?: string | null;
 };
 
 export type Suggestion = {
@@ -35,6 +36,8 @@ export type Memory = {
   done_at: string | null;
   suggestion: Suggestion | null;
   suggested_at: string | null;
+  due_on: string | null;
+  due_time: string | null;
 };
 
 export type Media = { id: string; memory_id: string; storage_path: string; kind: 'photo' | 'voice' };
@@ -45,6 +48,7 @@ export type Member = { user_id: string; display_name: string | null };
 export type MaintenanceTask = {
   id: string;
   household_id: string;
+  template_key?: string | null;
   title: string;
   notes: string | null;
   zone: 'house' | 'garden' | 'other';

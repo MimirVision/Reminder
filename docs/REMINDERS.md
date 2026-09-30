@@ -1,16 +1,17 @@
 # iPhone reminders without an app
 
 Your iPhone can nudge you using its own **Shortcuts** and **Calendar** apps. No Apple developer account, no app build,
-no npm. Three things you can set up:
+no npm. Four things you can set up:
 
 1. **When I arrive somewhere**: a notification with the to-dos for that place (and any facts you tagged for that kind of shop).
 2. **Sunday summary**: what house tasks are due and how many to-dos are waiting.
-3. **House tasks in Calendar**: your maintenance calendar as a subscribed calendar.
+3. **Morning summary**: the to-dos with today's date (and anything still open from earlier days), timed ones first.
+4. **House tasks and dated to-dos in Calendar**: your maintenance calendar and every to-do with a date, as a subscribed calendar.
 
 They are read-only: they show your data, they never change it.
 
 ## Before you start
-1. Run `supabase/upgrade.sql` in the Supabase SQL Editor (it adds reminder keys).
+1. Run `supabase/upgrade.sql` in the Supabase SQL Editor (reminder keys, and to-do dates and place addresses). It is safe to run again.
 2. Your Netlify site redeploys by itself when the code is pushed. Check that the new links exist by opening
    `https://YOUR-SITE.netlify.app/api/remind?ping=1` in a browser. It should say **ok: configured**.
    If it says "missing Supabase environment variables", check the two variables in Netlify (Site configuration, Environment variables).
@@ -40,13 +41,22 @@ Tips:
 
 If there is nothing due and no to-dos, the link answers with nothing, so you get no notification that week.
 
-## 3. House tasks in Calendar
+## 3. Morning summary
+Same as the Sunday summary, but choose **Daily** and use the **Morning summary** link (it ends in `&mode=today`). You are only
+notified on days when something has today's date, so it stays quiet otherwise.
+
+## 4. House tasks and dated to-dos in Calendar
 On the iPhone, in Settings, tap **Subscribe in Calendar** (or, in the iOS Settings app: Calendar, Accounts, Add Account, Other,
 Add Subscribed Calendar, and paste the house tasks link). Each task shows as an all-day event on its due date, or across its
-season for yearly jobs, and moves on by itself after you mark it done.
+season for yearly jobs, and moves on by itself after you mark it done. To-dos with a date show up too (timed ones at their time,
+with the place as the location) and disappear when you tick them off.
 
 I set the events to alert at 09:00 on their first day, but iOS decides whether a subscribed calendar is allowed to alert,
 so do not rely on that alone. The Sunday summary is the dependable nudge; the calendar is for seeing what is coming.
+
+## Norwegian
+The links follow the language you picked in Settings: in Norwegian they end in `&lang=nb`, and the notification text, the
+calendar text and the house-calendar task titles are in Norwegian. Switch the language and copy the links again to change it.
 
 ## Good to know
 - **Accuracy:** "arrive" automations use iOS's own location detection. They are usually fine for places you visit but can be

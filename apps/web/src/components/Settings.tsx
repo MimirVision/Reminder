@@ -6,15 +6,19 @@ import { ReminderLinks } from './ReminderLinks';
 import { inviteLink } from '../lib/invite';
 import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
+import { LanguageSwitch, useI18n } from '../i18n';
+import { ThemeSwitch } from '../theme';
 
 export function Settings({ household }: { household: Household }) {
+  const { t, lang, locale } = useI18n();
   const [keys, setKeys] = useState<CaptureKey[]>([]);
-  const [label, setLabel] = useState('iPhone Shortcut');
+  const [label, setLabel] = useState(() => t('quick.defaultLabel'));
   const [fresh, setFresh] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [glass, setGlass] = useState<GlassLevel>(getGlass);
   const [invite, setInvite] = useState(household.invite_code);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
@@ -30,69 +34,76 @@ export function Settings({ household }: { household: Household }) {
 
   return (
     <main className="page">
-      <h1>Settings</h1>
+      <h1>{t('set.title')}</h1>
       {err && <p className="error">{err}</p>}
 
       <section className="card">
-        <h2>Glass</h2>
-        <span className="muted">How see-through the floating bars are.</span>
+        <h2>{t('set.language')}</h2>
+        <LanguageSwitch />
+        <h2 className="gap">{t('set.appearance')}</h2>
+        <ThemeSwitch />
+      </section>
+
+      <section className="card">
+        <h2>{t('glass.title')}</h2>
+        <span className="muted">{t('glass.help')}</span>
         <div className="row">
           {GLASS_LEVELS.map((g) => (
-            <button key={g.id} className={`btn small${glass === g.id ? ' primary' : ''}`} onClick={() => { setGlass(g.id); applyGlass(g.id); }}>{g.label}</button>
+            <button key={g} className={`btn small${glass === g ? ' primary' : ''}`} aria-pressed={glass === g} onClick={() => { setGlass(g); applyGlass(g); }}>{t(`glass.${g}` as const)}</button>
           ))}
         </div>
-        <div className="glass" style={{ borderRadius: 22, padding: 14 }}>Preview: this is how the bars look</div>
+        <div className="glass previewbar">{t('glass.preview')}</div>
+        <span className="muted">{t('glass.note')}</span>
       </section>
 
       <ReminderLinks household={household} />
 
       <section className="card">
-        <h2>Quick add (Siri, Action button, share sheet)</h2>
-        <span className="muted">
-          A key lets an iOS Shortcut or a script add a to-do without opening the app. See <code>docs/CAPTURE.md</code> for the recipe.
-        </span>
-        {keys.length === 0 && <span className="muted">No keys yet.</span>}
+        <h2>{t('quick.title')}</h2>
+        <span className="muted">{t('quick.intro')}</span>
+        {keys.length === 0 && <span className="muted">{t('quick.none')}</span>}
         {keys.map((k) => (
           <div key={k.id} className="row spread">
-            <span>{k.label}<span className="muted"> · {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleDateString()}` : 'never used'}</span></span>
-            <button className="btn small danger" onClick={() => confirm('Revoke this key? Shortcuts using it will stop working.') && void run(() => deleteCaptureKey(k.id))}>Revoke</button>
+            <span>{k.label}<span className="muted"> · {k.last_used_at ? t('rem.lastUsed', { date: new Date(k.last_used_at).toLocaleDateString(locale) }) : t('quick.neverUsed')}</span></span>
+            <button className="btn small danger" onClick={() => confirm(t('quick.revokeConfirm')) && void run(() => deleteCaptureKey(k.id))}>{t('common.revoke')}</button>
           </div>
         ))}
         <form className="row" onSubmit={(e) => { e.preventDefault(); void run(async () => setFresh(await createCaptureKey(household.id, label))); }}>
-          <input style={{ flex: 1 }} value={label} onChange={(e) => setLabel(e.target.value)} aria-label="Key label" />
-          <button className="btn primary small">Create key</button>
+          <input className="growfield" value={label} onChange={(e) => setLabel(e.target.value)} aria-label={t('quick.label')} />
+          <button className="btn primary small">{t('quick.create')}</button>
         </form>
-        {fresh && <div><span className="muted">Copy this key now. It is shown only once:</span><br /><code>{fresh}</code></div>}
-        <span className="muted">Endpoint for the Shortcut:</span>
+        {fresh && <div><span className="muted">{t('quick.copyNow')}</span><br /><code>{fresh}</code></div>}
+        <span className="muted">{t('quick.endpoint')}</span>
         <code>{endpoint}</code>
       </section>
 
       <section className="card">
-        <h2>Household</h2>
+        <h2>{t('hh.title')}</h2>
         <span>{household.name}</span>
-        <span className="muted">Invite code for your partner: <code>{invite}</code></span>
+        <span className="muted">{t('hh.invite')} <code>{invite}</code></span>
         <div className="row">
           <button className="btn small primary" onClick={async () => {
             const link = inviteLink(window.location.origin, invite);
-            try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { window.prompt('Send this link to your partner:', link); }
-          }}>{copied ? 'Copied' : 'Copy invite link'}</button>
-          <button className="btn small" onClick={() => confirm('Make a new invite code? The old one stops working.') && void run(async () => setInvite(await rotateInviteCode(household.id)))}>New invite code</button>
+            try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { window.prompt(t('hh.sendLink'), link); }
+          }}>{copied ? t('common.copied') : t('hh.copyLink')}</button>
+          <button className="btn small" onClick={() => confirm(t('hh.confirmNew')) && void run(async () => setInvite(await rotateInviteCode(household.id)))}>{t('hh.newCode')}</button>
         </div>
       </section>
 
       <section className="card">
-        <h2>Your data</h2>
-        <span className="muted">
-          Download everything as a zip: a readable summary (Markdown), all data as JSON, and every photo. Your memories should outlive this app.
-        </span>
-        <button className="btn" disabled={exporting !== null && !exporting.startsWith('Done')} onClick={() => {
-          setExporting('Starting…');
-          downloadExport(household.id, household.name, setExporting).catch((e) => setExporting(`Failed: ${e instanceof Error ? e.message : String(e)}`));
-        }}>Export everything</button>
+        <h2>{t('data.title')}</h2>
+        <span className="muted">{t('data.intro')}</span>
+        <button className="btn" disabled={exportBusy} onClick={() => {
+          setExportBusy(true);
+          setExporting(t('data.starting'));
+          downloadExport(household.id, household.name, setExporting, t, lang)
+            .catch((e) => setExporting(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
+            .finally(() => setExportBusy(false));
+        }}>{t('data.export')}</button>
         {exporting && <span className="muted" role="status">{exporting}</span>}
       </section>
 
-      <button className="btn danger" onClick={() => supabase.auth.signOut()}>Sign out</button>
+      <button className="btn danger" onClick={() => supabase.auth.signOut()}>{t('auth.signOut')}</button>
     </main>
   );
 }

@@ -51,6 +51,15 @@ test('place and digest text', async () => {
   assert.equal(await (await call(`/api/remind?key=${KEY}&place=nowhere`)).text(), '', 'empty when there is nothing');
 });
 
+test('morning mode lists what is due today', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  setup({ rpc: async () => Response.json({ ...feed, todos: [{ id: 'a', body: 'Buy milk', place_id: null, created_at: '', due_on: today, due_time: '18:00:00' }] }) });
+  const body = await (await call(`/api/remind?key=${KEY}&mode=today&tz=UTC`)).text();
+  assert.match(body, /^1 to-do for today:\n- 18:00 Buy milk$/);
+  setup();
+  assert.equal(await (await call(`/api/remind?key=${KEY}&mode=today`)).text(), '', 'nothing due today');
+});
+
 test('calendar feed', async () => {
   setup();
   const res = await call(`/calendar.ics?key=${KEY}`);

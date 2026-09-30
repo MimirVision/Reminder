@@ -1,52 +1,89 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { acceptSuggestion, deleteMemory, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, reopen, requestSuggestion } from '../lib/api';
-import { fetchPois, type LatLon, type Poi } from '../lib/geo';
+import {
+  acceptSuggestion, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, purgeDismissed, reopen,
+  requestSuggestion, restoreMemory, softDelete, subscribeHousehold,
+} from '../lib/api';
+import { distanceM, fetchPois, type LatLon, type Poi } from '../lib/geo';
+import { categoryName, placeLabel, recurringLabel } from '../lib/labels';
+import { buildPins, type MapPin } from '../lib/pins';
+import { directionsUrl } from '../lib/placeSearch';
+import type { SetupTarget } from '../lib/setup';
+import type { Snap } from '../lib/sheetSnap';
 import type { Household, Member, Memory, Place } from '../lib/types';
-import { AddBar, AddSheet } from './AddSheet';
+import { useHere } from '../lib/useHere';
+import { compareDue, dueBucket, dueLabel, todayISO } from '../lib/when';
+import { useI18n } from '../i18n';
+import { useTheme } from '../theme';
+import { AddBar } from './AddBar';
 import { Icon } from './icons';
+import { MapSheet } from './MapSheet';
 import { PlaceSheet } from './PlaceSheet';
 import { SetupChecklist } from './SetupChecklist';
-import type { SetupTarget } from '../lib/setup';
-import { buildPins, type MapPin } from '../lib/pins';
+import { TodoRow } from './TodoRow';
+import { TodoSheet, type SavedInfo } from './TodoSheet';
+import { useToast } from './Toast';
 
 const TodoMap = lazy(() => import('./TodoMap'));
 
-function ago(iso: string): string {
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.round(mins / 60);
-  return hours < 24 ? `${hours} h ago` : new Date(iso).toLocaleDateString();
-}
+type Entry = { placeId: string; key: string | null; label: string; sub: string; count: number; distance: number | null; coords: LatLon | null };
+
+const fmtDistance = (m: number) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(m < 10_000 ? 1 : 0)} km`);
 
 export function Todo({ household, userId, onNavigate }: { household: Household; userId: string; onNavigate: (t: SetupTarget) => void }) {
-  const [mode, setMode] = useState<'List' | 'Map'>('List');
+  const { t, tn, locale } = useI18n();
+  const { resolved } = useTheme();
+  const toast = useToast();
+  const [mode, setMode] = useState<'list' | 'map'>('list');
   const [showDone, setShowDone] = useState(false);
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [photos, setPhotos] = useState<Map<string, string[]>>(new Map());
   const [pois, setPois] = useState<Record<string, Poi[]>>({});
-  const [here, setHere] = useState<LatLon | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Memory | null>(null);
   const [openPlace, setOpenPlace] = useState<{ id: string; label: string } | null>(null);
+  const [snap, setSnap] = useState<Snap>('peek');
+  const [sheetH, setSheetH] = useState(220);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const { here, state: locState, locate } = useHere(mode === 'map');
+
+  const mapOn = mode === 'map' && !showDone;
 
   const load = useCallback(async () => {
     try {
       const list = await listMemories(household.id, showDone ? ['done'] : ['inbox', 'active']);
       setMemories(list);
-      setPhotos(await listPhotoUrls(list.map((m) => m.id)));
+      setLoaded(true);
       setErr(null);
+      setPhotos(await listPhotoUrls(list.map((m) => m.id)).catch(() => new Map()));
     } catch (e) {
+      setLoaded(true);
       setErr(e instanceof Error ? e.message : String(e));
     }
   }, [household.id, showDone]);
+  const loadPlaces = useCallback(() => { listPlaces(household.id).then(setPlaces).catch(() => {}); }, [household.id]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { loadPlaces(); listMembers(household.id).then(setMembers).catch(() => {}); }, [household.id, loadPlaces]);
+  useEffect(() => { void purgeDismissed(household.id).catch(() => {}); }, [household.id]);
+
+  // Live: a to-do your partner adds shows up here without a refresh. Also refresh when the app comes back to the front.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    let timer: number | undefined;
+    const soon = () => { window.clearTimeout(timer); timer = window.setTimeout(() => { void loadRef.current(); loadPlaces(); }, 250); };
+    const off = subscribeHousehold(household.id, soon);
+    const onVisible = () => { if (document.visibilityState === 'visible') soon(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearTimeout(timer); off(); document.removeEventListener('visibilitychange', onVisible); };
+  }, [household.id, loadPlaces]);
 
   // Ask for place suggestions for a few to-dos that have none yet (once per to-do; silent if not set up).
-  const suggestOff = useRef(false); // set after the first failure so we stop asking this session
+  const suggestOff = useRef(false);
   useEffect(() => {
     if (showDone || suggestOff.current) return;
     const todo = memories.filter((m) => !m.place_id && m.body && !m.suggested_at).slice(0, 3);
@@ -62,121 +99,212 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     })();
     return () => { cancelled = true; };
   }, [memories, showDone]);
-  useEffect(() => {
-    listPlaces(household.id).then(setPlaces).catch(() => {});
-    listMembers(household.id).then(setMembers).catch(() => {});
-  }, [household.id]);
 
-  // Map: ask for location once (only when the map is opened) and look up shops for "any pharmacy" style places.
+  // Map: shops for "any pharmacy" style places, looked up around where you are.
+  const catKey = places.filter((p) => p.kind === 'category' && p.category).map((p) => p.category).sort().join(',');
   useEffect(() => {
-    if (mode !== 'Map') return;
-    const cats = [...new Set(places.filter((p) => p.kind === 'category' && p.category).map((p) => p.category as string))];
-    const go = async (h: LatLon | null) => {
-      setHere(h);
-      if (!h) return;
+    if (!mapOn || !here || !catKey) return;
+    let live = true;
+    (async () => {
       const next: Record<string, Poi[]> = {};
-      for (const c of cats) next[c] = await fetchPois(c, h).catch(() => []);
-      setPois(next);
-    };
-    if (!('geolocation' in navigator)) { void go(null); return; }
-    navigator.geolocation.getCurrentPosition((p) => void go({ lat: p.coords.latitude, lon: p.coords.longitude }), () => void go(null), { timeout: 8000, maximumAge: 300_000 });
-  }, [mode, places]);
+      for (const c of new Set(catKey.split(','))) next[c] = await fetchPois(c, here).catch(() => []);
+      if (live) setPois(next);
+    })();
+    return () => { live = false; };
+  }, [mapOn, here, catKey]);
 
-  const who = (id: string) => (id === userId ? 'You' : members.find((m) => m.user_id === id)?.display_name ?? 'Partner');
-  const placeName = (id: string | null) => places.find((p) => p.id === id)?.name;
+  const labelOf = useCallback((p: Place) => placeLabel(p, t), [t]);
+  const placeName = (id: string | null) => { const p = places.find((x) => x.id === id); return p ? labelOf(p) : undefined; };
+  const who = (id: string) => (id === userId ? null : members.find((m) => m.user_id === id)?.display_name ?? t('common.partner'));
+  const ago = (iso: string) => {
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+    if (mins < 1) return t('time.now');
+    if (mins < 60) return t('time.min', { n: mins });
+    const hours = Math.round(mins / 60);
+    return hours < 24 ? t('time.hour', { n: hours }) : new Date(iso).toLocaleDateString(locale);
+  };
+  const byline = (m: Memory) => { const w = who(m.author_id); return w ? `${w} · ${ago(m.created_at)}` : undefined; };
 
-  const { byPlace, anytime } = useMemo(() => {
+  const groups = useMemo(() => {
+    const today = memories.filter((m) => dueBucket(m) === 'today').sort(compareDue);
+    const upcoming = memories.filter((m) => dueBucket(m) === 'upcoming').sort(compareDue);
+    const undated = memories.filter((m) => dueBucket(m) === 'none');
     const byPlace = new Map<string, Memory[]>();
     const anytime: Memory[] = [];
-    for (const m of memories) {
+    for (const m of undated) {
       if (!m.place_id) anytime.push(m);
       else byPlace.set(m.place_id, [...(byPlace.get(m.place_id) ?? []), m]);
     }
-    return { byPlace, anytime };
+    return { today, upcoming, byPlace, anytime };
   }, [memories]);
 
-  const pins = useMemo(() => buildPins(places, new Map([...byPlace].map(([k, v]) => [k, v.length])), pois), [places, byPlace, pois]);
+  const countByPlace = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const m of memories) if (m.place_id) c.set(m.place_id, (c.get(m.place_id) ?? 0) + 1);
+    return c;
+  }, [memories]);
+  const pins = useMemo(() => buildPins(places, countByPlace, pois, labelOf), [places, countByPlace, pois, labelOf]);
+
+  const entries: Entry[] = useMemo(() => places.map((p) => {
+    const count = countByPlace.get(p.id) ?? 0;
+    if (p.kind === 'fixed') {
+      const coords = p.lat != null && p.lon != null ? { lat: p.lat, lon: p.lon } : null;
+      return { placeId: p.id, key: coords ? p.id : null, label: labelOf(p), sub: p.address ?? '', count, distance: coords && here ? distanceM(here, coords) : null, coords };
+    }
+    const near = here ? (pois[p.category ?? ''] ?? []).map((poi) => ({ poi, d: distanceM(here, poi) })).sort((a, b) => a.d - b.d)[0] : undefined;
+    return { placeId: p.id, key: near ? `${p.id}|${near.poi.id}` : null, label: labelOf(p), sub: near ? near.poi.name : t('places.kindCategory'), count, distance: near?.d ?? null, coords: near ? { lat: near.poi.lat, lon: near.poi.lon } : null };
+  }).sort((a, b) => (b.count > 0 ? 1 : 0) - (a.count > 0 ? 1 : 0) || (a.distance ?? 1e12) - (b.distance ?? 1e12) || a.label.localeCompare(b.label, locale)), [places, countByPlace, here, pois, labelOf, locale, t]);
 
   async function act(fn: () => Promise<void>) {
-    try { await fn(); await load(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    try { await fn(); await load(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); await load(); }
   }
 
-  const todo = (m: Memory, meta: boolean) => (
-    <div key={m.id} className={`todo${showDone ? ' done' : ''}`}>
-      <button className={`check${showDone ? ' on' : ''}`} aria-label={showDone ? 'Mark as not done' : 'Mark as done'}
-        onClick={() => void act(() => (showDone ? reopen(m.id, Boolean(m.place_id)) : markDone(m.id)))}>
-        {showDone && <Icon name="check" size={14} />}
-      </button>
-      <div className="text">
-        {m.body && <p className="body">{m.body}</p>}
-        {(photos.get(m.id) ?? []).length > 0 && <div className="photos">{photos.get(m.id)!.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" loading="lazy" /></a>)}</div>}
+  const toggle = (m: Memory) => {
+    if (showDone) {
+      setMemories((cur) => cur.filter((x) => x.id !== m.id));
+      void act(() => reopen(m.id, m));
+      return;
+    }
+    setMemories((cur) => cur.filter((x) => x.id !== m.id));
+    void act(() => markDone(m.id)).then(() => toast({ text: t('toast.done'), undo: () => void act(() => reopen(m.id, m)) }));
+  };
+
+  const remove = (m: Memory) => {
+    setEditing(null);
+    setMemories((cur) => cur.filter((x) => x.id !== m.id));
+    void act(() => softDelete(m.id)).then(() => toast({ text: t('toast.deleted'), undo: () => void act(() => restoreMemory(m.id, m)) }));
+  };
+
+  const saved = (info: SavedInfo) => {
+    setAdding(false);
+    setEditing(null);
+    setShowDone(false);
+    if (info.createdPlace) loadPlaces();
+    toast({ text: info.edited ? t('toast.saved') : tn('toast.added', info.added.length) });
+    void load();
+  };
+
+  const row = (m: Memory, opts: { place?: boolean; meta?: boolean } = {}) => {
+    const due = dueLabel(m, t, locale);
+    return (
+      <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={showDone} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
+        place={opts.place ? placeName(m.place_id) : undefined} byline={opts.meta === false ? undefined : byline(m)}
+        onToggle={() => toggle(m)} onEdit={() => setEditing(m)}>
         {m.suggestion && !showDone && (
-          <div className="suggest" role="group" aria-label="Suggested place">
-            <span className="chip"><Icon name={m.suggestion.kind === 'recurring' ? 'house' : 'pin'} size={13} />{m.suggestion.kind === 'recurring' ? `Recurring task · ${m.suggestion.label}` : m.suggestion.label}</span>
+          <div className="suggest" role="group" aria-label={t('suggest.aria')}>
+            <span className="chip"><Icon name={m.suggestion.kind === 'recurring' ? 'house' : 'pin'} size={13} />
+              {m.suggestion.kind === 'recurring' ? t('suggest.recurring', { label: m.suggestion.recurring ? recurringLabel(m.suggestion.recurring, t) : m.suggestion.label }) : m.suggestion.kind === 'category' && m.suggestion.category ? categoryName(m.suggestion.category, t) : m.suggestion.label}</span>
             <span className="muted">{m.suggestion.reason}</span>
             <span className="row">
-              <button className="btn small primary" onClick={() => void act(() => acceptSuggestion(m.id, household.id, m.suggestion!).then(() => listPlaces(household.id).then(setPlaces)))}>{m.suggestion.kind === 'recurring' ? 'Make recurring' : 'Add reminder'}</button>
-              <button className="btn small" onClick={() => void act(() => dismissSuggestion(m.id))}>No thanks</button>
+              <button className="btn small primary" onClick={() => void act(() => acceptSuggestion(m.id, household.id, m.suggestion!).then(loadPlaces))}>{m.suggestion.kind === 'recurring' ? t('suggest.makeRecurring') : t('suggest.add')}</button>
+              <button className="btn small" onClick={() => void act(() => dismissSuggestion(m.id))}>{t('suggest.no')}</button>
             </span>
           </div>
         )}
-        {meta && <span className="muted">{who(m.author_id)} · {ago(m.created_at)}</span>}
-      </div>
-      <button className="link quiet" onClick={() => confirm('Delete this to-do?') && void act(() => deleteMemory(m.id))}>Delete</button>
-    </div>
+      </TodoRow>
+    );
+  };
+
+  const section = (title: string, items: Memory[], opts?: { place?: boolean }) => items.length === 0 ? null : (
+    <section className="group" aria-label={title}>
+      <div className="label">{title}</div>
+      <div className="card list">{items.map((m) => row(m, { place: opts?.place ?? true }))}</div>
+    </section>
   );
 
-  const groupCard = (placeId: string, items: Memory[]) => {
-    const name = placeName(placeId) ?? 'Somewhere';
+  const placeCard = (placeId: string, items: Memory[]) => {
+    const name = placeName(placeId) ?? t('todo.somewhere');
     const shown = items.slice(0, 3);
     return (
-      <div className="card" key={placeId}>
-        <div className="row spread">
+      <div className="card list" key={placeId}>
+        <div className="row spread cardhead">
           <span className="chip"><Icon name="pin" size={13} />{name}</span>
-          <button className="link" onClick={() => setOpenPlace({ id: placeId, label: name })}>Open list</button>
+          <button className="link" onClick={() => setOpenPlace({ id: placeId, label: name })}>{t('todo.openList')}</button>
         </div>
-        {shown.map((m) => todo(m, items.length === 1))}
-        {items.length > shown.length && <button className="link" style={{ textAlign: 'left' }} onClick={() => setOpenPlace({ id: placeId, label: name })}>+ {items.length - shown.length} more · Open list</button>}
+        {shown.map((m) => row(m, { meta: items.length === 1 }))}
+        {items.length > shown.length && <button className="link more" onClick={() => setOpenPlace({ id: placeId, label: name })}>{t('todo.moreAt', { n: items.length - shown.length })}</button>}
       </div>
     );
   };
 
   const seg = (
-    <div className="seg glass" role="group" aria-label="View">
-      {(['List', 'Map'] as const).map((m) => <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}>{m}</button>)}
+    <div className="seg glass" role="group" aria-label={t('view.label')}>
+      {(['list', 'map'] as const).map((m) => <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`view.${m}` as const)}</button>)}
     </div>
   );
 
-  return (
-    <main className="page">
-      <div className="head"><h1>{showDone ? 'Done' : 'To-do'}</h1>{!showDone && seg}</div>
-      {err && <p className="error">{err}</p>}
-      {!showDone && mode === 'List' && <SetupChecklist household={household} onNavigate={onNavigate} />}
+  const selectEntry = (e: Entry) => { if (e.key) { setSelectedKey(e.key); setSnap((s) => (s === 'full' ? 'half' : s)); } };
+  const selectPin = (p: MapPin) => { setSelectedKey(p.key); setSnap((s) => (s === 'peek' ? 'half' : s)); };
+  const selectedPlaceId = pins.find((p) => p.key === selectedKey)?.placeId;
+  const cards = (list: Entry[]) => list.map((e) => (
+    <article key={e.placeId} className={`pcard${selectedPlaceId === e.placeId ? ' sel' : ''}`} onClick={() => selectEntry(e)}>
+      <div className="pc-main">
+        <strong>{e.label}</strong>
+        <span className="muted">{[e.distance != null ? t('map.away', { d: fmtDistance(e.distance) }) : '', e.sub].filter(Boolean).join(' · ')}</span>
+      </div>
+      <span className={`chip${e.count ? '' : ' plain'}`}>{e.count ? tn('map.todos', e.count) : t('map.noTodos')}</span>
+      <div className="pc-actions">
+        <button className="btn small" onClick={(ev) => { ev.stopPropagation(); setOpenPlace({ id: e.placeId, label: e.label }); }}>{t('todo.openList')}</button>
+        {e.coords && <a className="btn small" href={directionsUrl(e.coords)} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()}><Icon name="navigate" size={14} />{t('where.directions')}</a>}
+      </div>
+    </article>
+  ));
 
-      {mode === 'Map' && !showDone ? (
+  const withTodos = entries.filter((e) => e.count > 0);
+  const without = entries.filter((e) => e.count === 0);
+  const title = showDone ? t('todo.doneTitle') : t('todo.title');
+  const empty = loaded && memories.length === 0;
+
+  return (
+    <main className={`page${mapOn ? ' map-mode' : ''}`}>
+      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1>{!showDone && seg}</div>
+      {err && (
+        <p className="error" role="alert">{err} <button className="link" onClick={() => void load()}>{t('common.retry')}</button></p>
+      )}
+
+      {mapOn ? (
         <>
-          <Suspense fallback={<div className="mapbox" />}>
-            <TodoMap pins={pins} here={here} onOpen={(p: MapPin) => setOpenPlace({ id: p.placeId, label: p.label })} />
+          <Suspense fallback={<div className="mapwrap"><div className="map" /></div>}>
+            <TodoMap pins={pins} here={here} selectedKey={selectedKey} resolved={resolved} bottomInset={sheetH} onSelect={selectPin} onLocate={locate} onAdd={() => setAdding(true)} />
           </Suspense>
-          {pins.length === 0 && <p className="muted">No mapped places with open to-dos yet. Add a to-do at a place, and allow location to find nearby shops.</p>}
+          <MapSheet snap={snap} onSnap={setSnap} onHeight={setSheetH} title={here ? t('map.nearYou') : t('map.places')}>
+            {!here && locState !== 'unsupported' && (locState === 'denied'
+              ? <p className="muted">{t('map.locationOff')}</p>
+              : <button className="btn small" onClick={locate}><Icon name="locate" size={15} /> {t('map.allowLocation')}</button>)}
+            {places.length === 0 && <p className="muted">{t('map.empty')}</p>}
+            {cards(withTodos)}
+            {without.length > 0 && <div className="label">{t('map.otherPlaces')}</div>}
+            {cards(without)}
+          </MapSheet>
         </>
       ) : showDone ? (
-        <div className="card">{memories.length === 0 ? <span className="muted">Nothing done yet.</span> : memories.map((m) => todo(m, true))}</div>
+        <div className="card list">{memories.length === 0 ? <span className="muted pad">{t('todo.done.empty')}</span> : memories.map((m) => row(m, { place: true }))}</div>
+      ) : !loaded ? (
+        <div className="card list" aria-busy="true">{[70, 52, 84].map((w) => <div className="todo" key={w}><span className="check skel" /><span className="skel line" style={{ width: `${w}%` }} /></div>)}</div>
       ) : (
         <>
-          {memories.length === 0 && <p className="muted">Nothing to do. Add something below.</p>}
-          {byPlace.size > 0 && <div className="label">At a place</div>}
-          {[...byPlace].map(([id, items]) => groupCard(id, items))}
-          {anytime.length > 0 && <div className="label">Anytime</div>}
-          {anytime.map((m) => <div className="card" key={m.id}>{todo(m, true)}</div>)}
+          <SetupChecklist household={household} onNavigate={onNavigate} />
+          {empty && (
+            <div className="empty">
+              <span className="empty-ico"><Icon name="check" size={28} /></span>
+              <strong>{t('todo.empty.title')}</strong>
+              <span className="muted">{t('todo.empty.body')}</span>
+            </div>
+          )}
+          {section(t('todo.sec.today'), groups.today)}
+          {section(t('todo.sec.upcoming'), groups.upcoming)}
+          {groups.byPlace.size > 0 && <div className="label">{t('todo.sec.place')}</div>}
+          {[...groups.byPlace].map(([id, items]) => placeCard(id, items))}
+          {section(t('todo.sec.anytime'), groups.anytime, { place: false })}
         </>
       )}
 
-      <p><button className="link quiet" onClick={() => setShowDone(!showDone)}>{showDone ? 'Back to to-do' : 'Show done'}</button></p>
+      {!mapOn && <p><button className="link quiet" onClick={() => setShowDone(!showDone)}>{showDone ? t('todo.back') : t('todo.showDone')}</button></p>}
 
-      {!showDone && <AddBar onClick={() => setAdding(true)} />}
-      {adding && <AddSheet household={household} places={places} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); setShowDone(false); void load(); }} />}
-      {openPlace && <PlaceSheet household={household} placeId={openPlace.id} label={openPlace.label} onClose={() => setOpenPlace(null)} onChanged={() => void load()} />}
+      {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
+      {adding && <TodoSheet household={household} places={places} onClose={() => setAdding(false)} onSaved={saved} />}
+      {editing && <TodoSheet key={editing.id} household={household} places={places} memory={editing} photos={photos.get(editing.id)} onClose={() => setEditing(null)} onSaved={saved} onDelete={remove} />}
+      {openPlace && <PlaceSheet household={household} placeId={openPlace.id} label={openPlace.label} onClose={() => setOpenPlace(null)} onChanged={() => void load()} onEdit={(m) => setEditing(m)} />}
     </main>
   );
 }

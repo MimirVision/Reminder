@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSteps, progress, type SetupStatus } from './setup.ts';
+import { buildSteps as build, progress, type SetupStatus } from './setup.ts';
+import { makeT } from '../i18n/core.ts';
+
+const en = makeT('en');
+const nb = makeT('nb');
+const buildSteps = (s: SetupStatus) => build(s, en);
 
 const none: SetupStatus = { places: false, todos: false, calendar: false, emergency: false, reminders: false, partner: false };
 
@@ -20,4 +25,9 @@ test('progress follows the status', () => {
 
 test('every step points at a screen that exists', () => {
   for (const s of buildSteps(none)) assert.ok(['todo', 'house', 'places', 'settings'].includes(s.go), s.id);
+});
+
+test('steps are translated', () => {
+  const a = build(none, en), b = build(none, nb);
+  assert.ok(a.every((s, i) => s.title !== b[i].title && s.why && b[i].why && b[i].cta));
 });

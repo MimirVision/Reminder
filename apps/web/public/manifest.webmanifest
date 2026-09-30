@@ -3,8 +3,8 @@
   "short_name": "Home Memory",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#C8431F",
+  "background_color": "#F2F3F5",
+  "theme_color": "#F2F3F5",
   "icons": [
     { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }

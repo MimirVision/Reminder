@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { buildMarkdown, type ExportData } from './export';
+import type { Lang, T } from '../i18n/core';
 
 async function all<T>(table: string, columns: string, householdId: string): Promise<T[]> {
   const rows: T[] = [];
@@ -12,12 +13,12 @@ async function all<T>(table: string, columns: string, householdId: string): Prom
 }
 
 // Builds a zip with export.json, home-memory.md and every photo, and downloads it.
-export async function downloadExport(householdId: string, householdName: string, onProgress: (msg: string) => void) {
-  onProgress('Collecting your data…');
+export async function downloadExport(householdId: string, householdName: string, onProgress: (msg: string) => void, t: T, lang: Lang) {
+  onProgress(t('data.collecting'));
   const [memories, places, tasks, events, facts, media] = await Promise.all([
-    all<ExportData['memories'][number]>('memories', 'id, body, status, place_id, created_at, done_at', householdId),
-    all<ExportData['places'][number]>('places', 'id, name, kind, category, lat, lon, radius_m', householdId),
-    all<ExportData['tasks'][number]>('maintenance_tasks', 'id, title, notes, schedule, interval_months, window_start_month, window_end_month, last_done_at, next_due_at, active', householdId),
+    all<ExportData['memories'][number]>('memories', 'id, body, status, place_id, created_at, done_at, due_on, due_time', householdId),
+    all<ExportData['places'][number]>('places', 'id, name, kind, category, lat, lon, radius_m, address', householdId),
+    all<ExportData['tasks'][number]>('maintenance_tasks', 'id, template_key, title, notes, schedule, interval_months, window_start_month, window_end_month, last_done_at, next_due_at, active', householdId),
     all<ExportData['events'][number]>('maintenance_events', 'task_id, done_at, cost_nok, note', householdId),
     all<ExportData['facts'][number]>('house_facts', 'title, value, category, surface_at', householdId),
     all<{ memory_id: string; storage_path: string }>('media', 'memory_id, storage_path', householdId),
@@ -36,7 +37,7 @@ export async function downloadExport(householdId: string, householdName: string,
   }
   let done = 0;
   for (const { memory_id, url } of urls) {
-    onProgress(`Downloading photos ${++done} of ${urls.length}…`);
+    onProgress(t('data.photosProgress', { a: ++done, b: urls.length }));
     const res = await fetch(url);
     if (!res.ok) continue;
     const n = (counter.get(memory_id) ?? 0) + 1;
@@ -47,15 +48,15 @@ export async function downloadExport(householdId: string, householdName: string,
   }
 
   const data: ExportData = { exportedAt: new Date().toISOString(), household: { name: householdName }, memories, places, tasks, events, facts, photos };
-  onProgress('Packing the zip…');
+  onProgress(t('data.packing'));
   const { zipSync, strToU8 } = await import('fflate');
   files['export.json'] = strToU8(JSON.stringify(data, null, 2));
-  files['home-memory.md'] = strToU8(buildMarkdown(data));
+  files['home-memory.md'] = strToU8(buildMarkdown(data, t, lang));
   const blob = new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `home-memory-export-${data.exportedAt.slice(0, 10)}.zip`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-  onProgress(`Done: ${memories.length} to-dos, ${tasks.length} tasks, ${photos.length} photos.`);
+  onProgress(t('data.finished', { a: memories.length, b: tasks.length, c: photos.length }));
 }

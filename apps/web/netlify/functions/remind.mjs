@@ -2,9 +2,11 @@
 //   /api/remind?key=...&place=IKEA      to-dos at a place        (for a Shortcuts "Arrive" automation)
 //   /api/remind?key=...&category=pharmacy   to-dos at any shop of a kind
 //   /api/remind?key=...                 weekly digest            (for a Shortcuts "Time of Day" automation)
-//   /calendar.ics?key=...               house tasks as a calendar (Calendar app subscription)
+//   /api/remind?key=...&mode=today      to-dos due today         (for a daily morning automation)
+//   add &lang=nb for Norwegian text
+//   /calendar.ics?key=...               house tasks and dated to-dos as a calendar (Calendar app subscription)
 // Text answers are empty when there is nothing to say, so a Shortcut can skip the notification.
-import { buildIcs, digestText, loadFeed, placeText } from '../lib/feed.mjs';
+import { buildIcs, digestText, loadFeed, pickLang, placeText, todayText } from '../lib/feed.mjs';
 
 const env = (name) => globalThis.Netlify?.env?.get?.(name) ?? process.env[name];
 
@@ -26,9 +28,10 @@ export default async function handler(req) {
   if (result.status === 'invalid') return text('This reminder link is not valid (it may have been revoked).', 401);
   if (result.status === 'error') return text('Could not read your data right now. Try again later.', 502);
   const { feed } = result;
+  const lang = pickLang(url.searchParams.get('lang'));
 
   if (url.pathname.endsWith('.ics')) {
-    return new Response(buildIcs(feed), {
+    return new Response(buildIcs(feed, { lang }), {
       status: 200,
       headers: { 'Content-Type': 'text/calendar; charset=utf-8', 'Content-Disposition': 'inline; filename="home-memory.ics"', 'Cache-Control': 'no-store' },
     });
@@ -37,7 +40,8 @@ export default async function handler(req) {
   const place = url.searchParams.get('place');
   const category = url.searchParams.get('category');
   const tz = url.searchParams.get('tz') || undefined;
-  return text(place || category ? placeText(feed, { place, category }) : digestText(feed, { tz }));
+  if (place || category) return text(placeText(feed, { place, category, lang }));
+  return text(url.searchParams.get('mode') === 'today' ? todayText(feed, { tz, lang }) : digestText(feed, { tz, lang }));
 }
 
 export const config = { path: ['/api/remind', '/calendar.ics'] };

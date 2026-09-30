@@ -12,8 +12,11 @@ import { Todo } from './components/Todo';
 import { House } from './components/House';
 import { Places } from './components/Places';
 import { Settings } from './components/Settings';
+import { ToastProvider } from './components/Toast';
+import { useI18n } from './i18n';
 
 export default function App() {
+  const { t } = useI18n();
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   const [household, setHousehold] = useState<Household | null>(null);
@@ -42,21 +45,21 @@ export default function App() {
     return (
       <main className="page narrow">
         <h1>Home Memory</h1>
-        <p>Supabase is not configured. Copy <code>.env.example</code> to <code>.env.local</code> and fill in the project URL and anon key.</p>
+        <p>{t('app.notConfigured')}</p>
       </main>
     );
   }
-  if (!ready || loadingHousehold) return <main className="page narrow"><span className="muted">Loading…</span></main>;
+  if (!ready || loadingHousehold) return <main className="page narrow"><span className="muted">{t('common.loading')}</span></main>;
   if (!session) return <Auth />;
   if (!household) return <Onboarding onDone={loadHousehold} />;
 
   return (
-    <>
+    <ToastProvider>
       {tab === 'todo' && <Todo household={household} userId={session.user.id} onNavigate={setTab} />}
       {tab === 'house' && <House household={household} />}
       {tab === 'places' && <Places household={household} />}
       {tab === 'settings' && <Settings household={household} />}
       <Nav tab={tab} onChange={setTab} />
-    </>
+    </ToastProvider>
   );
 }

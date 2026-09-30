@@ -3,6 +3,7 @@ import { getSetupStatus } from '../lib/api';
 import { buildSteps, progress, type SetupStep, type SetupTarget } from '../lib/setup';
 import type { Household } from '../lib/types';
 import { Icon } from './icons';
+import { useI18n } from '../i18n';
 
 const HIDE_KEY = 'hm.setupHidden';
 const hidden = () => { try { return localStorage.getItem(HIDE_KEY) === '1'; } catch { return false; } };
@@ -11,6 +12,7 @@ const hidden = () => { try { return localStorage.getItem(HIDE_KEY) === '1'; } ca
 // iPhone reminders, and the partner. It shows only the next step (all steps one tap away), ticks itself off from real
 // data, and can be hidden. It stays small so your actual to-dos are still the first thing you see.
 export function SetupChecklist({ household, onNavigate }: { household: Household; onNavigate: (t: SetupTarget) => void }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState<Awaited<ReturnType<typeof getSetupStatus>> | null>(null);
   const [hide, setHide] = useState(hidden);
   const [all, setAll] = useState(false);
@@ -21,7 +23,7 @@ export function SetupChecklist({ household, onNavigate }: { household: Household
   }, [household.id, hide]);
 
   if (hide || !status) return null;
-  const steps = buildSteps(status);
+  const steps = buildSteps(status, t);
   const p = progress(steps);
   if (p.complete) return null;
   const next = steps.find((s) => !s.done)!;
@@ -32,12 +34,12 @@ export function SetupChecklist({ household, onNavigate }: { household: Household
   };
 
   return (
-    <section className="card setup" aria-label="Get set up">
+    <section className="card setup" aria-label={t('setup.title')}>
       <div className="row spread">
-        <span><strong>Get set up</strong> <span className="muted">{p.done} of {p.total}</span></span>
-        <button className="link quiet" onClick={() => { try { localStorage.setItem(HIDE_KEY, '1'); } catch { /* ignore */ } setHide(true); }}>Hide</button>
+        <span><strong>{t('setup.title')}</strong> <span className="muted">{t('setup.progress', { done: p.done, total: p.total })}</span></span>
+        <button className="link quiet" onClick={() => { try { localStorage.setItem(HIDE_KEY, '1'); } catch { /* ignore */ } setHide(true); }}>{t('setup.hideBtn')}</button>
       </div>
-      <div className="dots" role="img" aria-label={`${p.done} of ${p.total} steps done`}>
+      <div className="dots" role="img" aria-label={t('setup.aria', { done: p.done, total: p.total })}>
         {steps.map((s) => <span key={s.id} className={s.done ? 'on' : ''} />)}
       </div>
 
@@ -47,7 +49,7 @@ export function SetupChecklist({ household, onNavigate }: { household: Household
           <span className="muted">{next.why}</span>
           <div className="row">
             <button className="btn small primary" onClick={() => go(next)}>{next.cta}</button>
-            <button className="link" onClick={() => setAll(true)}>All steps</button>
+            <button className="link" onClick={() => setAll(true)}>{t('setup.all')}</button>
           </div>
         </div>
       ) : (
@@ -62,7 +64,7 @@ export function SetupChecklist({ household, onNavigate }: { household: Household
               </div>
             </div>
           ))}
-          <button className="link" style={{ textAlign: 'left' }} onClick={() => setAll(false)}>Show only the next step</button>
+          <button className="link left" onClick={() => setAll(false)}>{t('setup.onlyNext')}</button>
         </>
       )}
     </section>
