@@ -8,12 +8,13 @@
 // Text answers are empty when there is nothing to say, so a Shortcut can skip the notification.
 import { buildIcs, digestText, loadFeed, pickLang, placeText, todayText } from '../lib/feed.mjs';
 
-const env = (name) => globalThis.Netlify?.env?.get?.(name) ?? process.env[name];
+const netlifyEnv = (name) => globalThis.Netlify?.env?.get?.(name) ?? globalThis.process?.env?.[name];
 
 const text = (body, status = 200) =>
   new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
 
-export default async function handler(req) {
+/** The whole handler, independent of the host: Netlify passes its own env reader, Cloudflare Pages passes context.env. */
+export async function handle(req, env = (name) => netlifyEnv(name)) {
   const url = new URL(req.url);
   const supabaseUrl = env('VITE_SUPABASE_URL') ?? env('SUPABASE_URL');
   const anonKey = env('VITE_SUPABASE_ANON_KEY') ?? env('SUPABASE_ANON_KEY');
@@ -42,6 +43,10 @@ export default async function handler(req) {
   const tz = url.searchParams.get('tz') || undefined;
   if (place || category) return text(placeText(feed, { place, category, lang }));
   return text(url.searchParams.get('mode') === 'today' ? todayText(feed, { tz, lang }) : digestText(feed, { tz, lang }));
+}
+
+export default function handler(req) {
+  return handle(req);
 }
 
 export const config = { path: ['/api/remind', '/calendar.ics'] };
