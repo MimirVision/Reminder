@@ -242,3 +242,18 @@ export async function importReport(householdId: string, file: File): Promise<Rep
   }
   return (data as { report: ReportSummary }).report;
 }
+
+// Reminder keys: read-only links for iPhone Shortcuts automations and the Calendar app (served by the Netlify function).
+export type FeedKey = { id: string; label: string; created_at: string; last_used_at: string | null };
+
+export async function listFeedKeys(): Promise<FeedKey[]> {
+  return check(await supabase.from('feed_keys').select('id, label, created_at, last_used_at').order('created_at'));
+}
+
+export async function createFeedKey(householdId: string, label: string): Promise<string> {
+  return check(await supabase.rpc('create_feed_key', { p_household_id: householdId, p_label: label })) as string;
+}
+
+export async function deleteFeedKey(id: string) {
+  check(await supabase.from('feed_keys').delete().eq('id', id));
+}

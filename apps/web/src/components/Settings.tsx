@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createCaptureKey, deleteCaptureKey, listCaptureKeys, rotateInviteCode, type CaptureKey } from '../lib/api';
 import { applyGlass, getGlass, GLASS_LEVELS, type GlassLevel } from '../lib/glass';
 import { downloadExport } from '../lib/exportZip';
+import { ReminderLinks } from './ReminderLinks';
 import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
 
@@ -40,6 +41,8 @@ export function Settings({ household }: { household: Household }) {
         </div>
         <div className="glass" style={{ borderRadius: 22, padding: 14 }}>Preview: this is how the bars look</div>
       </section>
+
+      <ReminderLinks household={household} />
 
       <section className="card">
         <h2>Quick add (Siri, Action button, share sheet)</h2>

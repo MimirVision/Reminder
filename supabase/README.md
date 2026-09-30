@@ -6,9 +6,9 @@ row-level security, the invite flow, capture keys (for Siri/Shortcuts) and a pri
 
 ## Already ran setup.sql? Run `upgrade.sql`
 
-`setup.sql` is the whole schema for a fresh project. If you ran an earlier `setup.sql` (through migration 0004), paste
-`upgrade.sql` into the SQL Editor and run it once instead; it contains only the newer migrations
-(0005 hardening, 0006 house facts and custom tasks, and later ones). `npm run build:setup` regenerates both files.
+`setup.sql` is the whole schema for a fresh project. If you already ran `setup.sql` or an earlier `upgrade.sql` through
+migration 0006, paste `upgrade.sql` into the SQL Editor and run it once instead; it contains only the newer migrations
+(0007 reminder keys, and later ones). `npm run build:setup` regenerates both files.
 
 ## Setup (one time, ~10 minutes)
 

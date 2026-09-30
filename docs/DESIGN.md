@@ -166,6 +166,13 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   and returns TG3/TG2/TGIU findings with measure, horizon and NOK estimate; the model output is cleaned and capped.
   You choose findings (TG3/TGIU pre-selected) and they become to-dos. Nothing is stored except the PDF in the private bucket.
 - **Export.** Web Settings builds a zip (readable Markdown, JSON, all photos) so the data outlives the app.
+- **Reminders without a native app.** Read-only reminder keys (`feed_keys`, hashed, revocable) open links on the web
+  app's own domain, served by one Netlify function: `/api/remind` (to-dos at a place or shop kind, or a weekly digest, as
+  plain text) and `/calendar.ics` (house tasks). iPhone Shortcuts automations (Arrive, Time of Day) call them and show a
+  notification; Calendar subscribes to the feed. It uses iOS's own geofencing, needs no Apple account, and is the bridge
+  until the native app exists. The feed is narrow by design: no authors or photos, only shop-tagged facts (the emergency
+  card never leaves the database). Tested end to end from the SQL function through the Netlify function to the final text.
+  See `docs/REMINDERS.md`.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

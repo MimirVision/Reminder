@@ -3,6 +3,8 @@
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import remind from '../../apps/web/netlify/functions/remind.mjs';
 import { buildSetup, UPGRADE_AFTER } from '../build-setup.mjs';
 
 const db = new PGlite();
@@ -21,7 +23,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -218,6 +220,87 @@ await as(C, async () => {
   assert.equal((await db.query(`select * from house_facts`)).rows.length, 0);
   await rejects(() => db.query(`select add_maintenance_task($1, 'x', null, 'interval', 3)`, [hid]), /not a member/);
 });
+
+// Reminder keys: read-only feed for Shortcuts / Calendar links.
+let fkey;
+await as(A, async () => {
+  fkey = (await db.query(`select public.create_feed_key($1, 'iPhone') as k`, [hid])).rows[0].k;
+  assert.match(fkey, /^hmr_[0-9a-f]{64}$/);
+  const stored = (await db.query(`select key_hash from feed_keys`)).rows[0].key_hash;
+  assert.ok(!Buffer.from(stored).toString('utf8').includes(fkey), 'plaintext key is not stored');
+});
+await as(C, async () => {
+  await rejects(() => db.query(`select public.create_feed_key($1)`, [hid]), /not a member/);
+  assert.equal((await db.query(`select * from feed_keys`)).rows.length, 0, 'stranger cannot list keys');
+});
+await as(B, async () => {
+  assert.equal((await db.query(`select * from feed_keys`)).rows.length, 0, 'keys are private to whoever made them');
+});
+await db.exec(`set role anon; select set_config('request.jwt.claim.sub', '', false)`);
+const feed = (await db.query(`select public.reminder_feed($1) as f`, [fkey])).rows[0].f;
+assert.equal(feed.household, 'Home');
+assert.ok(feed.places.length >= 1 && feed.places.every((p) => p.id && p.name));
+assert.ok(feed.todos.length >= 1 && feed.todos.every((x) => ['id', 'body', 'place_id', 'created_at'].every((k) => k in x)));
+assert.ok(feed.todos.every((x) => x.body !== 'milk'), 'done to-dos are not in the feed');
+assert.ok(feed.tasks.length >= 3 && feed.tasks.every((x) => x.title && x.next_due_at));
+assert.deepEqual(feed.facts.map((f) => f.title), ['Hallway bulbs'], 'only facts tagged for a shop; the emergency card stays private');
+assert.equal(feed.todos.some((x) => 'author_id' in x), false, 'no authors in the feed');
+assert.equal((await db.query(`select public.reminder_feed('hmr_wrong') as f`)).rows[0].f, null, 'unknown key -> null');
+assert.equal((await db.query(`select public.reminder_feed(null) as f`)).rows[0].f, null);
+await rejects(() => db.query(`select * from memories`), /permission denied/);
+await rejects(() => db.query(`select * from feed_keys`), /permission denied/);
+await db.exec(`reset role`);
+await as(A, async () => {
+  assert.notEqual((await db.query(`select last_used_at from feed_keys`)).rows[0].last_used_at, null, 'use is recorded');
+  await db.query(`delete from feed_keys`);
+});
+await db.exec(`set role anon`);
+assert.equal((await db.query(`select public.reminder_feed($1) as f`, [fkey])).rows[0].f, null, 'revoked key -> null');
+await db.exec(`reset role`);
+
+// End to end: real SQL feed -> the Netlify function -> notification text and calendar file.
+{
+  let key2, pharmacyId, ikeaId;
+  await as(A, async () => {
+    key2 = (await db.query(`select public.create_feed_key($1, 'e2e') as k`, [hid])).rows[0].k;
+    pharmacyId = (await db.query(`select id from places where category = 'pharmacy' limit 1`)).rows[0].id;
+    ikeaId = (await db.query(`insert into places (household_id, name, kind, category, lat, lon, radius_m) values ($1, 'IKEA Furuset', 'fixed', 'hardware', 59.93, 10.9, 300) returning id`, [hid])).rows[0].id;
+    await db.query(`insert into memories (household_id, body, status, place_id) values ($1, 'Buy plasters', 'active', $2)`, [hid, pharmacyId]);
+    await db.query(`insert into memories (household_id, body, status, place_id) values ($1, 'Bookshelf' || chr(10) || 'white', 'active', $2)`, [hid, ikeaId]);
+  });
+  const server = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const c of req) body += c;
+    if (req.method === 'POST' && req.url === '/rest/v1/rpc/reminder_feed') {
+      await db.exec(`set role anon; select set_config('request.jwt.claim.sub', '', false)`);
+      const r = await db.query(`select public.reminder_feed($1) as f`, [JSON.parse(body).p_key]);
+      await db.exec(`reset role`);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(r.rows[0].f));
+    } else { res.writeHead(404); res.end(); }
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const env = { VITE_SUPABASE_URL: `http://127.0.0.1:${server.address().port}`, VITE_SUPABASE_ANON_KEY: 'test' };
+  globalThis.Netlify = { env: { get: (k) => env[k] } };
+  const call = (path) => remind(new Request(`https://site.example${path}`));
+
+  const pharmacy = await (await call(`/api/remind?key=${key2}&category=pharmacy`)).text();
+  assert.equal(pharmacy, '1 to-do at Any pharmacy:\n- Buy plasters');
+  const ikea = await (await call(`/api/remind?key=${key2}&place=ikea`)).text();
+  assert.match(ikea, /^1 to-do at IKEA Furuset:\n- Bookshelf\n\nUseful here:\n- Hallway bulbs: E27, 3000 K$/, 'first line only, plus the fact tagged for hardware shops');
+  assert.doesNotMatch(ikea, /Water shutoff/, 'the emergency card never leaves the database');
+  const digest = await (await call(`/api/remind?key=${key2}`)).text();
+  assert.match(digest, /^Home Memory\n/);
+  assert.match(digest, /To-dos: \d+ waiting/);
+  const ics = await (await call(`/calendar.ics?key=${key2}`)).text();
+  assert.match(ics, /BEGIN:VCALENDAR/);
+  assert.ok((ics.match(/BEGIN:VEVENT/g) ?? []).length >= 3, 'the seeded house tasks are in the calendar');
+  assert.match(ics, /SUMMARY:Clean gutters/);
+  assert.equal((await call(`/api/remind?key=hmr_${'0'.repeat(64)}`)).status, 401, 'a well-formed but unknown key is rejected');
+  await as(A, async () => { await db.query(`delete from feed_keys where label = 'e2e'`); });
+  assert.equal((await call(`/api/remind?key=${key2}`)).status, 401, 'revoked key stops working through the whole chain');
+  await new Promise((ok) => server.close(ok));
+}
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
 assert.equal(readFileSync(new URL('../upgrade.sql', import.meta.url), 'utf8'), buildSetup(UPGRADE_AFTER), 'upgrade.sql is stale: run npm run build:setup');

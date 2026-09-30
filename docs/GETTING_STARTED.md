@@ -49,7 +49,11 @@ On the iPhone open the link in Safari > Share > **Add to Home Screen**. When you
 See `apps/mobile/README.md`. In short: install **Expo Go**, fill in `apps/mobile/.env`, run `npx expo start`, scan the QR code.
 Background reminders (when the app is closed) do not work in Expo Go.
 
-## 5. Siri / Action button capture (optional)
+## 5. Reminders on the iPhone without an app (recommended)
+A notification when you arrive at a place, a Sunday summary, and your house tasks in Calendar, all using the iPhone's own
+Shortcuts and Calendar apps. Follow `docs/REMINDERS.md`.
+
+## 5b. Siri / Action button capture (optional)
 Follow `docs/CAPTURE.md`. Create a key in **Settings** first.
 
 ## 6. AI features (optional)
