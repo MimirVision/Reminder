@@ -103,3 +103,18 @@ test('messages are worded in the recipient language', () => {
   assert.equal(buildMessage('en', '', ['']).body, 'Your partner added a photo');
   assert.ok(buildMessage('en', 'A'.repeat(100), ['x'.repeat(500)]).body.length < 170);
 });
+
+test('the key generator in docs/ makes keys that the sender accepts', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../../docs/generate-vapid-keys.js', import.meta.url), 'utf8');
+  const lines: string[] = [];
+  const code = src.split('\n').filter((l) => !l.startsWith('//')).join('\n').trim().replace(/;$/, '');
+  await new Function('console', 'crypto', 'atob', 'btoa', `return ${code}`)({ log: (s: string) => lines.push(s) }, crypto, atob, btoa);
+  const pub = lines.find((l) => l.startsWith('VAPID_PUBLIC_KEY='))!.split('=')[1];
+  const priv = lines.find((l) => l.startsWith('VAPID_PRIVATE_KEY='))!.split('=')[1];
+  assert.equal(b64uToBytes(pub).length, 65);
+  assert.equal(b64uToBytes(pub)[0], 4);
+  assert.equal(b64uToBytes(priv).length, 32);
+  const header = await vapidAuthorization('https://web.push.apple.com/abc', 'mailto:me@example.com', b64uToBytes(pub), b64uToBytes(priv));
+  assert.match(header, /^vapid t=.+, k=/);
+});

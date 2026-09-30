@@ -13,7 +13,7 @@ const WORDS = {
     everyYear: 'every year', everyYearIn: 'every year, {a}', everyYearSeason: 'every year, {a}-{b}', everyYears: 'every {n} years', everyMonth: 'every month', everyMonths: 'every {n} months',
     now: 'now', tomorrow: 'tomorrow', inDays: 'in {n} days', inWeeks: 'in {n} weeks',
     todosAt_one: '{n} to-do at {label}:', todosAt_other: '{n} to-dos at {label}:', more: '+ {n} more', useful: 'Useful here:',
-    dueNow: 'Due now: {list}', comingUp: 'Coming up: {list}', dueToday: 'Due today: {list}', todosWaiting: 'To-dos: {n} waiting ({a} anytime, {b} at places)',
+    dueNow: 'Due now: {list}', comingUp: 'Coming up: {list}', dueToday: 'Due today: {list}', todosWaiting: 'To-dos: {n} waiting ({a} anytime, {b} at places)', doneWeek: 'Done this week: {n}',
     forToday_one: '{n} to-do for today:', forToday_other: '{n} to-dos for today:', lastDone: 'Last done {d}.', notDone: 'Not done yet.',
   },
   nb: {
@@ -21,7 +21,7 @@ const WORDS = {
     everyYear: 'hvert år', everyYearIn: 'hvert år, {a}', everyYearSeason: 'hvert år, {a}-{b}', everyYears: 'hvert {n}. år', everyMonth: 'hver måned', everyMonths: 'hver {n}. måned',
     now: 'nå', tomorrow: 'i morgen', inDays: 'om {n} dager', inWeeks: 'om {n} uker',
     todosAt_one: '{n} oppgave hos {label}:', todosAt_other: '{n} oppgaver hos {label}:', more: '+ {n} til', useful: 'Nyttig her:',
-    dueNow: 'Aktuelt nå: {list}', comingUp: 'Kommer snart: {list}', dueToday: 'I dag: {list}', todosWaiting: 'Oppgaver: {n} venter ({a} når som helst, {b} på steder)',
+    dueNow: 'Aktuelt nå: {list}', comingUp: 'Kommer snart: {list}', dueToday: 'I dag: {list}', todosWaiting: 'Oppgaver: {n} venter ({a} når som helst, {b} på steder)', doneWeek: 'Ferdig denne uken: {n}',
     forToday_one: '{n} oppgave i dag:', forToday_other: '{n} oppgaver i dag:', lastDone: 'Sist gjort {d}.', notDone: 'Ikke gjort ennå.',
   },
 };
@@ -38,9 +38,9 @@ export const taskTitle = (t, lang = 'en') => (lang === 'nb' && t.template_key &&
 export const taskNotes = (t, lang = 'en') => (lang === 'nb' && t.template_key && NB_TASKS[t.template_key]?.notes) || t.notes;
 
 /** @typedef {{id:string,name:string,kind:string,category:string|null,radius_m:number,address?:string|null}} Place */
-/** @typedef {{id:string,body:string,place_id:string|null,created_at:string,due_on?:string|null,due_time?:string|null}} Todo */
+/** @typedef {{id:string,body:string,place_id:string|null,created_at:string,due_on?:string|null,due_time?:string|null,repeat_rule?:string|null}} Todo */
 /** @typedef {{id:string,template_key?:string|null,title:string,notes:string|null,schedule:string,interval_months:number|null,window_start_month:number|null,window_end_month:number|null,next_due_at:string,due_until:string|null,last_done_at:string|null}} Task */
-/** @typedef {{household:string,generated_at:string,places:Place[],todos:Todo[],tasks:Task[],facts:{title:string,value:string,surface_at:string[]}[]}} Feed */
+/** @typedef {{household:string,generated_at:string,done_week?:number,places:Place[],todos:Todo[],tasks:Task[],facts:{title:string,value:string,surface_at:string[]}[]}} Feed */
 
 /** Today's date (yyyy-mm-dd) in a time zone. */
 export function todayIn(tz = DEFAULT_TZ, now = new Date()) {
@@ -125,6 +125,8 @@ export function digestText(feed, { tz = DEFAULT_TZ, now = new Date(), lang = 'en
   const anytime = feed.todos.filter((t) => !t.place_id).length;
   const atPlace = feed.todos.length - anytime;
   if (feed.todos.length) lines.push(fmt(x.todosWaiting, { n: feed.todos.length, a: anytime, b: atPlace }));
+  const doneWeek = Number(feed.done_week ?? 0);
+  if (lines.length && doneWeek > 0) lines.push(fmt(x.doneWeek, { n: doneWeek }));
   return lines.length ? ['Home Memory', ...lines].join('\n') : '';
 }
 
@@ -240,6 +242,8 @@ export function buildIcs(feed, { now = new Date(), lang = 'en' } = {}) {
     } else {
       lines.push(`DTSTART;VALUE=DATE:${compact(t.due_on)}`, `DTEND;VALUE=DATE:${compact(addDays(t.due_on, 1))}`);
     }
+    const rrule = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' }[t.repeat_rule ?? ''];
+    if (rrule) lines.push(`RRULE:FREQ=${rrule}`);
     lines.push(`SUMMARY:${escapeText(title)}`);
     if (where) lines.push(`LOCATION:${escapeText(where)}`);
     lines.push('TRANSP:TRANSPARENT', 'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeText(title)}`, time ? 'TRIGGER:PT0S' : 'TRIGGER:PT9H', 'END:VALARM', 'END:VEVENT');

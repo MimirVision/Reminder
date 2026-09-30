@@ -2,7 +2,8 @@ import { supabase } from './supabase';
 import type { Fact, FactCategory } from './facts';
 import type { ReportSummary } from './report';
 import type { Hit } from './placeSearch';
-import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, Suggestion } from './types';
+import { enqueue, flushQueue, isNetworkError, pendingFor, type KV, type QueuedTodo } from './outbox.ts';
+import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, RepeatRule, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -33,25 +34,48 @@ export async function listMembers(householdId: string): Promise<Member[]> {
   return check(await supabase.from('household_members').select('user_id, display_name').eq('household_id', householdId));
 }
 
+// localStorage that never throws (private windows, blocked storage).
+export const safeKV: KV = {
+  getItem: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  setItem: (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
+};
+const cacheKey = (householdId: string) => `hm.cache.open.${householdId}`;
+
+/** The last open list we saw, for opening the app without a connection. */
+export function cachedOpenMemories(householdId: string): Memory[] {
+  try { const v = JSON.parse(safeKV.getItem(cacheKey(householdId)) ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
 export async function listMemories(householdId: string, statuses: MemoryStatus[]): Promise<Memory[]> {
-  return check(
+  const list: Memory[] = check(
     await supabase
       .from('memories')
       .select('*')
       .eq('household_id', householdId)
       .in('status', statuses)
       .order('created_at', { ascending: false })
-      .limit(200),
+      .limit(200)
+      .retry(false), // fail fast when offline (the default retries for several seconds), the list then comes from the device
   );
+  if (statuses.includes('active') || statuses.includes('inbox')) safeKV.setItem(cacheKey(householdId), JSON.stringify(list.slice(0, 100)));
+  return list;
+}
+
+/** Finished to-dos from the last few days, for the weekly recap. */
+export async function listDoneSince(householdId: string, days = 7): Promise<Pick<Memory, 'id' | 'done_at' | 'done_by' | 'author_id'>[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  return check(await supabase.from('memories').select('id, done_at, done_by, author_id').eq('household_id', householdId).eq('status', 'done').gte('done_at', since).limit(500));
 }
 
 export type NewMemory = {
+  id?: string;
   household_id: string;
   body: string;
   place_id?: string | null;
   place_category?: string | null;
   due_on?: string | null;
   due_time?: string | null;
+  repeat_rule?: RepeatRule | null;
   capture_lat?: number | null;
   capture_lon?: number | null;
   capture_accuracy_m?: number | null;
@@ -61,27 +85,68 @@ export type NewMemory = {
 export const statusFor = (m: { place_id?: string | null; place_category?: string | null; due_on?: string | null }): MemoryStatus =>
   m.place_id || m.place_category || m.due_on ? 'active' : 'inbox';
 
-export async function addMemory(m: NewMemory): Promise<Memory> {
-  return check(await supabase.from('memories').insert({ ...m, due_time: m.due_on ? m.due_time ?? null : null, status: statusFor(m) }).select().single());
+const toRow = (m: NewMemory & { id: string }) => ({
+  ...m, due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m),
+});
+
+/** The to-do as it shows on this device while it waits to be sent. */
+export function queuedToMemory(q: QueuedTodo): Memory {
+  return {
+    id: q.id, household_id: q.household_id, author_id: q.author_id, body: q.body, status: q.due_on || q.place_id ? 'active' : 'inbox',
+    place_id: q.place_id, place_category: null, created_at: q.created_at, done_at: null, suggestion: null, suggested_at: new Date().toISOString(),
+    due_on: q.due_on, due_time: q.due_on ? q.due_time : null, repeat_rule: (q.repeat_rule as RepeatRule | null) ?? null, pending: true,
+  };
 }
 
-type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time'>>;
+/** Saves a to-do. Without a connection it is kept on the device and sent later (see flushOutbox); the result then has `pending: true`. */
+export async function addMemory(m: NewMemory): Promise<Memory> {
+  const row = toRow({ ...m, id: m.id ?? crypto.randomUUID() });
+  try {
+    return check(await supabase.from('memories').insert(row).select().single());
+  } catch (e) {
+    if (!isNetworkError(e, navigator.onLine)) throw e;
+    const { data } = await supabase.auth.getSession();
+    const q: QueuedTodo = {
+      id: row.id, household_id: m.household_id, body: m.body, place_id: m.place_id ?? null, due_on: row.due_on ?? null, due_time: row.due_time,
+      repeat_rule: row.repeat_rule, author_id: data.session?.user.id ?? '', created_at: new Date().toISOString(),
+    };
+    enqueue(safeKV, q);
+    return queuedToMemory(q);
+  }
+}
+
+export const pendingTodos = (householdId: string): Memory[] => pendingFor(safeKV, householdId).map(queuedToMemory);
+
+/** Sends whatever was written offline. Returns the ids that reached the server. */
+export async function flushOutbox(): Promise<string[]> {
+  const r = await flushQueue(safeKV, async (q) => {
+    const { error } = await supabase.from('memories').insert(toRow({
+      id: q.id, household_id: q.household_id, body: q.body, place_id: q.place_id, due_on: q.due_on, due_time: q.due_time, repeat_rule: q.repeat_rule as RepeatRule | null,
+    }));
+    if (error && !/duplicate key|23505/.test(error.message + (error as { code?: string }).code)) throw new Error(error.message);
+  }, navigator.onLine);
+  return r.sent;
+}
+
+type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by'>>;
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
 }
 
 /** Edit text, place and date together. The status follows what the to-do now has. */
-export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null }) {
-  await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, status: statusFor(f) });
+export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: RepeatRule | null }) {
+  await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, repeat_rule: f.due_on ? f.repeat_rule ?? null : null, status: statusFor(f) });
 }
 
-export async function markDone(id: string) {
-  await updateMemory(id, { status: 'done', done_at: new Date().toISOString() });
+/** Ticks a to-do off (and, for a repeating one, creates the next occurrence). Returns the next occurrence's id, if any. */
+export async function markDone(id: string): Promise<string | null> {
+  const next = check(await supabase.rpc('complete_memory', { p_id: id })) as string | null;
+  return next ?? null;
 }
 
 export async function reopen(id: string, m: { place_id: string | null; due_on: string | null }) {
-  await updateMemory(id, { status: statusFor(m), done_at: null });
+  await updateMemory(id, { status: statusFor(m), done_at: null, done_by: null });
 }
 
 /** Deleting is a soft delete so it can be undone. Old dismissed to-dos are purged by purgeDismissed. */
@@ -341,3 +406,23 @@ export async function getSetupStatus(householdId: string): Promise<import('./set
   ]);
   return { places, todos, calendar, emergency, reminders, partner: (members.count ?? 0) > 1 };
 }
+
+
+// Photo of a label, tin, receipt or warranty: upload, then let the AI turn it into a fact to confirm.
+export type LabelFact = { title: string; value: string; category: FactCategory; surface_at: string[] };
+
+export async function readLabel(householdId: string, file: File, lang: 'en' | 'nb'): Promise<LabelFact> {
+  const blob = await downscale(file, 1800);
+  const path = `${householdId}/labels/${crypto.randomUUID()}.jpg`;
+  const up = await supabase.storage.from('media').upload(path, blob, { contentType: 'image/jpeg' });
+  if (up.error) throw new Error(up.error.message);
+  const { data, error } = await supabase.functions.invoke('read-label', { body: { path, lang } });
+  if (error) {
+    let code = '';
+    try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
+    throw new Error(`label:${['not_configured', 'too_large', 'unreadable'].includes(code) ? code : 'failed'}`);
+  }
+  return (data as { fact: LabelFact }).fact;
+}
+
+export { notifyPartner as notifyPartnerIfSet } from './push';

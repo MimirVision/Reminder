@@ -8,6 +8,11 @@ import './styles.css';
 
 installLens();
 
+// Offline shell and notifications. Only in the built app, so `npm run dev` is never served from a cache.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>

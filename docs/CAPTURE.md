@@ -36,3 +36,8 @@ Name it **Remember**. Then:
 - If Shortcuts reports `401`, also add the header `Authorization` = `Bearer <publishable key>` and tell me, so I can
   adjust the docs.
 - The same request works from Windows (PowerShell `Invoke-RestMethod`, AutoHotkey, etc.).
+
+## Sharing into the web app
+Once Home Memory is installed as an app on **Android or Windows** (Chrome or Edge: menu, "Install app"), it appears in the
+system Share menu: share a page or text to "Home Memory" and the add sheet opens with it ready to save. **iPhone Safari does not
+support this**, so on an iPhone use the Shortcut above ("Show in Share Sheet"), which does the same job.

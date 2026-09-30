@@ -15,6 +15,7 @@ const P: Record<string, string> = {
   trash: 'M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5',
   locate: 'M12 8a4 4 0 100 8 4 4 0 000-8zM12 3v3M12 18v3M3 12h3M18 12h3',
   minus: 'M5 12h14',
+  repeat: 'M4 12a6 6 0 016-6h9M16 3l3 3-3 3M20 12a6 6 0 01-6 6H5M8 21l-3-3 3-3',
   chevron: 'M9 6l6 6-6 6',
   store: 'M4 9l1.5-4h13L20 9M4.5 9v10h15V9M4 9a2.7 2.7 0 005.3 0 2.7 2.7 0 005.4 0A2.7 2.7 0 0020 9M10 19v-5h4v5',
 };

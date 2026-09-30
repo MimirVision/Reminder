@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { addFact, deleteFact, listFacts } from '../lib/api';
+import { addFact, deleteFact, listFacts, readLabel } from '../lib/api';
+import { Icon } from './icons';
 import { groupFacts, FACT_ORDER, type Fact, type FactCategory } from '../lib/facts';
 import { CATEGORIES, shopName } from '../lib/labels';
 import type { Household } from '../lib/types';
@@ -8,8 +9,9 @@ import { useToast } from './Toast';
 
 // What size was it? Where is the shutoff? Emergency facts come first.
 export function FactsView({ household }: { household: Household }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const toast = useToast();
+  const [reading, setReading] = useState(false);
   const [facts, setFacts] = useState<Fact[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -25,6 +27,18 @@ export function FactsView({ household }: { household: Household }) {
 
   async function run(fn: () => Promise<void>) {
     try { setErr(null); await fn(); await load(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function fromPhoto(file: File | undefined) {
+    if (!file) return;
+    setReading(true); setErr(null);
+    try {
+      const f = await readLabel(household.id, file, lang);
+      setTitle(f.title); setValue(f.value); setCategory(f.category); setShops(f.surface_at); setAdding(true);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      setErr(m.startsWith('label:') ? t(`label.err.${m.slice(6)}` as 'label.err.failed') : m);
+    } finally { setReading(false); }
   }
 
   const groups = groupFacts(facts);
@@ -67,7 +81,14 @@ export function FactsView({ household }: { household: Household }) {
           <button type="button" className="btn" onClick={() => setAdding(false)}>{t('common.cancel')}</button>
         </form>
       ) : (
-        <button className="btn" onClick={() => setAdding(true)}>{t('facts.add')}</button>
+        <div className="row">
+          <button className="btn" onClick={() => setAdding(true)}>{t('facts.add')}</button>
+          <label className={`btn${reading ? ' disabled' : ''}`}>
+            <Icon name="camera" size={16} /> {reading ? t('label.reading') : t('label.button')}
+            <input type="file" accept="image/*" capture="environment" hidden disabled={reading} onChange={(e) => { void fromPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+          </label>
+          <span className="muted">{t('label.intro')}</span>
+        </div>
       )}
     </>
   );

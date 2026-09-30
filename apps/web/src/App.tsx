@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { configured, supabase } from './lib/supabase';
 import { getHousehold } from './lib/api';
 import { applyGlass, getGlass } from './lib/glass';
+import { applyA11y } from './lib/a11y';
 import { captureInviteFromUrl } from './lib/invite';
 import type { Household } from './lib/types';
 import { Auth } from './components/Auth';
@@ -23,7 +24,7 @@ export default function App() {
   const [loadingHousehold, setLoadingHousehold] = useState(false);
   const [tab, setTab] = useState<Tab>('todo');
 
-  useEffect(() => { applyGlass(getGlass()); captureInviteFromUrl(); }, []);
+  useEffect(() => { applyGlass(getGlass()); applyA11y(); captureInviteFromUrl(); }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true); });

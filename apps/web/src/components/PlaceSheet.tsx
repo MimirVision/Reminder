@@ -1,7 +1,8 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { addMemory, listFacts, listMemories, listPhotoUrls, listPlaces, markDone, reopen } from '../lib/api';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { addMemory, listFacts, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, notifyPartnerIfSet, reopen, subscribeHousehold } from '../lib/api';
+import { tap } from '../lib/haptics';
 import { factsForCategory, type Fact } from '../lib/facts';
-import type { Household, Memory } from '../lib/types';
+import type { Household, Member, Memory } from '../lib/types';
 import { useI18n } from '../i18n';
 import { dueLabel } from '../lib/when';
 import { Icon } from './icons';
@@ -18,6 +19,7 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [useful, setUseful] = useState<Fact[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -34,6 +36,16 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
   }, [household.id, placeId]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { listMembers(household.id).then(setMembers).catch(() => {}); }, [household.id]);
+
+  // Shopping together: when your partner ticks something off at the shop, it changes here too.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    let timer: number | undefined;
+    const off = subscribeHousehold(household.id, () => { window.clearTimeout(timer); timer = window.setTimeout(() => void loadRef.current(), 250); });
+    return () => { window.clearTimeout(timer); off(); };
+  }, [household.id]);
 
   // Facts tagged for this kind of shop appear as "Useful here".
   useEffect(() => {
@@ -42,22 +54,26 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
       .catch(() => {});
   }, [household.id, placeId]);
 
-  async function act(fn: () => Promise<void>) {
-    try { await fn(); await load(); onChanged(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    try { const r = await fn(); await load(); onChanged(); return r; } catch (e) { setErr(e instanceof Error ? e.message : String(e)); return undefined; }
   }
+  const nameOf = (id: string | null | undefined) => (id ? members.find((x) => x.user_id === id)?.display_name ?? null : null);
 
   async function add(e: FormEvent) {
     e.preventDefault();
     const lines = draft.split('\n').map((l) => l.trim()).filter(Boolean);
     setDraft('');
-    await act(async () => { for (const body of lines) await addMemory({ household_id: household.id, body, place_id: placeId }); });
+    const ids = await act(async () => { const out: string[] = []; for (const body of lines) out.push((await addMemory({ household_id: household.id, body, place_id: placeId })).id); return out; });
+    if (ids) notifyPartnerIfSet(ids);
   }
 
   const open = items.filter((m) => m.status !== 'done');
   const done = items.filter((m) => m.status === 'done');
   const row = (m: Memory) => (
     <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={m.status === 'done'} due={dueLabel(m, t, locale) || undefined}
-      onToggle={() => void act(() => (m.status === 'done' ? reopen(m.id, m) : markDone(m.id)))}
+      doneBy={m.status === 'done' && m.done_by ? nameOf(m.done_by) : null}
+      author={members.length > 1 ? { id: m.author_id, name: nameOf(m.author_id) } : null}
+      onToggle={() => { tap(m.status === 'done' ? 'light' : 'success'); void act(async () => { if (m.status === 'done') await reopen(m.id, m); else { const next = await markDone(m.id); void next; } }); }}
       onEdit={() => onEdit(m)} />
   );
 

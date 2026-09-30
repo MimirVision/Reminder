@@ -183,3 +183,14 @@ test('house template tasks are translated by their key; your own tasks are left 
   assert.match(ics, /SUMMARY:Rens takrenner og nedløpsrør/);
   assert.match(ics, /DESCRIPTION:hvert år\\, sep-okt\. Ikke gjort ennå\./);
 });
+
+test('repeating to-dos become repeating calendar events; the digest mentions what was finished this week', () => {
+  const f = { ...feed, done_week: 7, todos: [{ id: 'r1', body: 'Bins', place_id: null, created_at: '2026-09-29', due_on: '2026-10-06', due_time: '07:30:00', repeat_rule: 'weekly' }, { id: 'r2', body: 'Once', place_id: null, created_at: '2026-09-29', due_on: '2026-10-07', due_time: null, repeat_rule: null }] };
+  const ics = buildIcs(f, { now: new Date('2026-09-30T08:00:00Z') });
+  assert.equal((ics.match(/RRULE:FREQ=WEEKLY/g) ?? []).length, 1, 'only the repeating one has a rule');
+  assert.match(ics, /UID:todo-r1@homememory[\s\S]*?RRULE:FREQ=WEEKLY[\s\S]*?SUMMARY:Bins/);
+  const now = new Date('2026-09-30T08:00:00Z');
+  assert.match(digestText(f, { now }), /Done this week: 7$/);
+  assert.match(digestText(f, { now, lang: 'nb' }), /Ferdig denne uken: 7$/);
+  assert.doesNotMatch(digestText({ ...f, done_week: 0 }, { now }), /Done this week/);
+});

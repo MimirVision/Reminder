@@ -6,7 +6,39 @@
   "background_color": "#F2F3F5",
   "theme_color": "#F2F3F5",
   "icons": [
-    { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "description": "To-dos that remind you in the right place, and a calendar for the house.",
+  "scope": "/",
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "New to-do",
+      "short_name": "New",
+      "url": "/?share=1",
+      "icons": [
+        {
+          "src": "/icon-180.png",
+          "sizes": "180x180"
+        }
+      ]
+    }
   ]
 }

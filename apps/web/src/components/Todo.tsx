@@ -1,8 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  acceptSuggestion, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, purgeDismissed, reopen,
-  requestSuggestion, restoreMemory, softDelete, subscribeHousehold,
+  acceptSuggestion, cachedOpenMemories, deleteMemory, dismissSuggestion, flushOutbox, listMembers, listMemories, listPhotoUrls, listPlaces, markDone,
+  notifyPartnerIfSet, pendingTodos, purgeDismissed, reopen, requestSuggestion, restoreMemory, softDelete, subscribeHousehold,
 } from '../lib/api';
+import { tap } from '../lib/haptics';
+import { nextOccurrence } from '../lib/recurrence';
+import { hasShare, shareToText } from '../lib/share';
 import { distanceM, fetchPois, type LatLon, type Poi } from '../lib/geo';
 import { categoryName, placeLabel, recurringLabel } from '../lib/labels';
 import { buildPins, type MapPin } from '../lib/pins';
@@ -11,13 +14,15 @@ import type { SetupTarget } from '../lib/setup';
 import type { Snap } from '../lib/sheetSnap';
 import type { Household, Member, Memory, Place } from '../lib/types';
 import { useHere } from '../lib/useHere';
-import { compareDue, dueBucket, dueLabel, todayISO } from '../lib/when';
+import { compareDue, dueBucket, dueLabel, formatDay, todayISO } from '../lib/when';
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { AddBar } from './AddBar';
 import { Icon } from './icons';
 import { MapSheet } from './MapSheet';
 import { PlaceSheet } from './PlaceSheet';
+import { RecapCard } from './RecapCard';
+import { Tour, tourKey } from './Tour';
 import { SetupChecklist } from './SetupChecklist';
 import { TodoRow } from './TodoRow';
 import { TodoSheet, type SavedInfo } from './TodoSheet';
@@ -32,6 +37,12 @@ const fmtDistance = (m: number) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `
 export function Todo({ household, userId, onNavigate }: { household: Household; userId: string; onNavigate: (t: SetupTarget) => void }) {
   const { t, tn, locale } = useI18n();
   const { resolved } = useTheme();
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [tour, setTour] = useState(false);
+  const [placesLoaded, setPlacesLoaded] = useState(false);
+  const [sharedText, setSharedText] = useState<string | null>(null);
+  const [doneTicks, setDoneTicks] = useState(0);
   const toast = useToast();
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [showDone, setShowDone] = useState(false);
@@ -53,22 +64,55 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const mapOn = mode === 'map' && !showDone;
 
   const load = useCallback(async () => {
+    const pending = showDone ? [] : pendingTodos(household.id);
     try {
       const list = await listMemories(household.id, showDone ? ['done'] : ['inbox', 'active']);
-      setMemories(list);
+      setMemories([...pending.filter((p) => !list.some((m) => m.id === p.id)), ...list]);
       setLoaded(true);
       setErr(null);
+      setLoadFailed(false);
       setPhotos(await listPhotoUrls(list.map((m) => m.id)).catch(() => new Map()));
     } catch (e) {
       setLoaded(true);
-      setErr(e instanceof Error ? e.message : String(e));
+      if (!showDone && (!navigator.onLine || /fetch|network|load failed/i.test(String(e)))) {
+        // Offline: show the last list we saw, plus what was written on this device.
+        setLoadFailed(true);
+        setMemories([...pending, ...cachedOpenMemories(household.id).filter((m) => !pending.some((p) => p.id === m.id))]);
+        setErr(null);
+      } else setErr(e instanceof Error ? e.message : String(e));
     }
   }, [household.id, showDone]);
-  const loadPlaces = useCallback(() => { listPlaces(household.id).then(setPlaces).catch(() => {}); }, [household.id]);
+  const loadPlaces = useCallback(() => { listPlaces(household.id).then((p) => { setPlaces(p); setPlacesLoaded(true); }).catch(() => setPlacesLoaded(true)); }, [household.id]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { loadPlaces(); listMembers(household.id).then(setMembers).catch(() => {}); }, [household.id, loadPlaces]);
   useEffect(() => { void purgeDismissed(household.id).catch(() => {}); }, [household.id]);
+
+  // Send what was written offline as soon as we are back online.
+  const loadRef0 = useRef(load);
+  loadRef0.current = load;
+  useEffect(() => {
+    const sync = async () => {
+      setOnline(navigator.onLine);
+      if (!navigator.onLine) return;
+      const ids = await flushOutbox().catch(() => []);
+      if (ids.length > 0) { toast({ text: tn('offline.synced', ids.length) }); notifyPartnerIfSet(ids); void loadRef0.current(); }
+    };
+    const off = () => setOnline(false);
+    void sync();
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', off);
+    document.addEventListener('visibilitychange', sync);
+    return () => { window.removeEventListener('online', sync); window.removeEventListener('offline', off); document.removeEventListener('visibilitychange', sync); };
+  }, [toast, tn]);
+
+  // Something shared into the app (Web Share Target) opens the add sheet with the text ready.
+  useEffect(() => {
+    if (!hasShare(window.location.search)) return;
+    const text = shareToText(window.location.search);
+    window.history.replaceState(null, '', window.location.pathname);
+    if (text) { setSharedText(text); setAdding(true); }
+  }, []);
 
   // Live: a to-do your partner adds shows up here without a refresh. Also refresh when the app comes back to the front.
   const loadRef = useRef(load);
@@ -113,6 +157,15 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     return () => { live = false; };
   }, [mapOn, here, catKey]);
 
+  // First visit with nothing set up: a short guided start.
+  useEffect(() => {
+    if (!loaded || !placesLoaded || showDone || tour) return;
+    let seen = false;
+    try { seen = localStorage.getItem(tourKey(household.id)) === '1'; } catch { /* ignore */ }
+    if (!seen && memories.length === 0 && places.length === 0 && !hasShare(window.location.search)) setTour(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, placesLoaded, showDone]);
+
   const labelOf = useCallback((p: Place) => placeLabel(p, t), [t]);
   const placeName = (id: string | null) => { const p = places.find((x) => x.id === id); return p ? labelOf(p) : undefined; };
   const who = (id: string) => (id === userId ? null : members.find((m) => m.user_id === id)?.display_name ?? t('common.partner'));
@@ -155,18 +208,20 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     return { placeId: p.id, key: near ? `${p.id}|${near.poi.id}` : null, label: labelOf(p), sub: near ? near.poi.name : t('places.kindCategory'), count, distance: near?.d ?? null, coords: near ? { lat: near.poi.lat, lon: near.poi.lon } : null };
   }).sort((a, b) => (b.count > 0 ? 1 : 0) - (a.count > 0 ? 1 : 0) || (a.distance ?? 1e12) - (b.distance ?? 1e12) || a.label.localeCompare(b.label, locale)), [places, countByPlace, here, pois, labelOf, locale, t]);
 
-  async function act(fn: () => Promise<void>) {
-    try { await fn(); await load(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); await load(); }
+  async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    try { const r = await fn(); await load(); return r; } catch (e) { setErr(e instanceof Error ? e.message : String(e)); await load(); return undefined; }
   }
 
   const toggle = (m: Memory) => {
-    if (showDone) {
-      setMemories((cur) => cur.filter((x) => x.id !== m.id));
-      void act(() => reopen(m.id, m));
-      return;
-    }
+    if (m.pending) return; // it has not reached the server yet
+    tap(showDone ? 'light' : 'success');
     setMemories((cur) => cur.filter((x) => x.id !== m.id));
-    void act(() => markDone(m.id)).then(() => toast({ text: t('toast.done'), undo: () => void act(() => reopen(m.id, m)) }));
+    if (showDone) { void act(() => reopen(m.id, m)); return; }
+    setDoneTicks((n) => n + 1);
+    void act(() => markDone(m.id)).then((next) => {
+      const text = next && m.due_on && m.repeat_rule ? t('toast.doneRepeat', { date: formatDay(nextOccurrence(m.due_on, m.repeat_rule, todayISO()), locale) }) : t('toast.done');
+      toast({ text, undo: () => void act(async () => { await reopen(m.id, m); if (next) await deleteMemory(next); }) });
+    });
   };
 
   const remove = (m: Memory) => {
@@ -179,6 +234,10 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     setAdding(false);
     setEditing(null);
     setShowDone(false);
+    setSharedText(null);
+    // Anything saved without a connection shows at once, before the list is fetched again.
+    const waiting = info.added.filter((m) => m.pending);
+    if (waiting.length) setMemories((cur) => [...waiting, ...cur.filter((m) => !waiting.some((w) => w.id === m.id))]);
     if (info.createdPlace) loadPlaces();
     toast({ text: info.edited ? t('toast.saved') : tn('toast.added', info.added.length) });
     void load();
@@ -189,7 +248,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     return (
       <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={showDone} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
         place={opts.place ? placeName(m.place_id) : undefined} byline={opts.meta === false ? undefined : byline(m)}
-        onToggle={() => toggle(m)} onEdit={() => setEditing(m)}>
+        author={members.length > 1 ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
+        onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}>
         {m.suggestion && !showDone && (
           <div className="suggest" role="group" aria-label={t('suggest.aria')}>
             <span className="chip"><Icon name={m.suggestion.kind === 'recurring' ? 'house' : 'pin'} size={13} />
@@ -258,6 +318,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   return (
     <main className={`page${mapOn ? ' map-mode' : ''}`}>
       <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1>{!showDone && seg}</div>
+      {(!online || loadFailed) && !mapOn && <p className="offline-banner" role="status">{t('offline.banner')}</p>}
       {err && (
         <p className="error" role="alert">{err} <button className="link" onClick={() => void load()}>{t('common.retry')}</button></p>
       )}
@@ -284,6 +345,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       ) : (
         <>
           <SetupChecklist household={household} onNavigate={onNavigate} />
+          <RecapCard household={household} members={members} refreshKey={doneTicks} />
           {empty && (
             <div className="empty">
               <span className="empty-ico"><Icon name="check" size={28} /></span>
@@ -302,7 +364,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       {!mapOn && <p><button className="link quiet" onClick={() => setShowDone(!showDone)}>{showDone ? t('todo.back') : t('todo.showDone')}</button></p>}
 
       {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
-      {adding && <TodoSheet household={household} places={places} onClose={() => setAdding(false)} onSaved={saved} />}
+      {adding && <TodoSheet household={household} places={places} initialBody={sharedText ?? undefined} onClose={() => { setAdding(false); setSharedText(null); }} onSaved={saved} />}
+      {tour && <Tour household={household} onClose={() => setTour(false)} onChanged={() => { void load(); loadPlaces(); }} />}
       {editing && <TodoSheet key={editing.id} household={household} places={places} memory={editing} photos={photos.get(editing.id)} onClose={() => setEditing(null)} onSaved={saved} onDelete={remove} />}
       {openPlace && <PlaceSheet household={household} placeId={openPlace.id} label={openPlace.label} onClose={() => setOpenPlace(null)} onChanged={() => void load()} onEdit={(m) => setEditing(m)} />}
     </main>

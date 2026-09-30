@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { addMemory, resolveWhere, updateMemoryFields, uploadPhoto, type Where } from '../lib/api';
+import { addMemory, notifyPartnerIfSet, resolveWhere, updateMemoryFields, uploadPhoto, type Where } from '../lib/api';
+import { isNetworkError } from '../lib/outbox';
 import { findExistingPlace } from '../lib/placeSearch';
 import type { Household, Memory, Place } from '../lib/types';
 import { useI18n } from '../i18n';
@@ -11,14 +12,14 @@ import { WhereField, whereFrom } from './WhereField';
 export type SavedInfo = { added: Memory[]; edited: Memory | null; createdPlace: Place | null };
 
 // Add or edit a to-do: text, where (search a shop, kind of shop or address), when (date and time) and photos.
-export function TodoSheet({ household, places, memory, photos, initialPlaceId, onClose, onSaved, onDelete }: {
-  household: Household; places: Place[]; memory?: Memory; photos?: string[]; initialPlaceId?: string | null;
+export function TodoSheet({ household, places, memory, photos, initialPlaceId, initialBody, onClose, onSaved, onDelete }: {
+  household: Household; places: Place[]; memory?: Memory; photos?: string[]; initialPlaceId?: string | null; initialBody?: string;
   onClose: () => void; onSaved: (info: SavedInfo) => void; onDelete?: (m: Memory) => void;
 }) {
   const { t, tn } = useI18n();
-  const [body, setBody] = useState(memory?.body ?? '');
+  const [body, setBody] = useState(memory?.body ?? initialBody ?? '');
   const [where, setWhere] = useState<Where>(whereFrom(memory?.place_id ?? initialPlaceId ?? null));
-  const [due, setDue] = useState<Due>({ due_on: memory?.due_on ?? null, due_time: memory?.due_time ?? null });
+  const [due, setDue] = useState<Due>({ due_on: memory?.due_on ?? null, due_time: memory?.due_time ?? null, repeat_rule: memory?.repeat_rule ?? null });
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -45,22 +46,26 @@ export function TodoSheet({ household, places, memory, photos, initialPlaceId, o
       const { placeId, created } = await resolveWhere(household.id, where, places, findExistingPlace);
       if (memory) {
         const text = body.trim();
-        await updateMemoryFields(memory.id, { body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time });
+        await updateMemoryFields(memory.id, { body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule });
         for (const f of files) await uploadPhoto(household.id, memory.id, f);
-        onSaved({ added: [], edited: { ...memory, body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time }, createdPlace: created });
+        onSaved({ added: [], edited: { ...memory, body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule ?? null }, createdPlace: created });
         return;
       }
       // One to-do per line, so a pasted list becomes several.
       const bodies = lines.length > 0 ? lines : [''];
       const added: Memory[] = [];
       for (const [i, b] of bodies.entries()) {
-        const m = await addMemory({ household_id: household.id, body: b, place_id: placeId, due_on: due.due_on, due_time: due.due_time });
+        const m = await addMemory({ household_id: household.id, body: b, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule });
         added.push(m);
-        if (i === 0) for (const f of files) await uploadPhoto(household.id, m.id, f);
+        if (i === 0 && files.length > 0) {
+          if (m.pending) throw new Error(t('offline.noPhoto'));
+          for (const f of files) await uploadPhoto(household.id, m.id, f);
+        }
       }
+      notifyPartnerIfSet(added.filter((m) => !m.pending).map((m) => m.id));
       onSaved({ added, edited: null, createdPlace: created });
     } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : String(e2));
+      setErr(isNetworkError(e2, navigator.onLine) ? t('offline.needsNet') : e2 instanceof Error ? e2.message : String(e2));
       setSaving(false);
     }
   }

@@ -1,3 +1,5 @@
+export type RepeatRule = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
 export type MemoryStatus = 'inbox' | 'active' | 'done' | 'dismissed';
 
 export type Household = { id: string; name: string; invite_code: string };
@@ -38,6 +40,9 @@ export type Memory = {
   suggested_at: string | null;
   due_on: string | null;
   due_time: string | null;
+  repeat_rule?: RepeatRule | null;
+  done_by?: string | null;
+  pending?: boolean; // saved on this device, waiting for a connection
 };
 
 export type Media = { id: string; memory_id: string; storage_path: string; kind: 'photo' | 'voice' };

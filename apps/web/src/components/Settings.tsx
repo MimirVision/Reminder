@@ -8,6 +8,8 @@ import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
 import { LanguageSwitch, useI18n } from '../i18n';
 import { ThemeSwitch } from '../theme';
+import { applyContrast, applyTextSize, getContrast, getTextSize, TEXT_SIZES, type Contrast, type TextSize } from '../lib/a11y';
+import { NotificationsControl } from './NotificationsControl';
 
 export function Settings({ household }: { household: Household }) {
   const { t, lang, locale } = useI18n();
@@ -20,6 +22,8 @@ export function Settings({ household }: { household: Household }) {
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [textSize, setTextSize] = useState<TextSize>(getTextSize);
+  const [contrast, setContrast] = useState<Contrast>(getContrast);
 
   const load = useCallback(async () => {
     try { setKeys(await listCaptureKeys()); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -42,6 +46,28 @@ export function Settings({ household }: { household: Household }) {
         <LanguageSwitch />
         <h2 className="gap">{t('set.appearance')}</h2>
         <ThemeSwitch />
+      </section>
+
+      <section className="card">
+        <h2>{t('push.title')}</h2>
+        <span className="muted">{t('push.intro')}</span>
+        <NotificationsControl />
+      </section>
+
+      <section className="card">
+        <h2>{t('a11y.title')}</h2>
+        <span className="muted">{t('a11y.textSize')}</span>
+        <div className="row">
+          {TEXT_SIZES.map((s) => (
+            <button key={s} className={`btn small${textSize === s ? ' primary' : ''}`} aria-pressed={textSize === s} onClick={() => { setTextSize(s); applyTextSize(s); }}>{t(`a11y.${s}` as 'a11y.normal')}</button>
+          ))}
+        </div>
+        <span className="muted">{t('a11y.contrast')}: {t('a11y.contrastHelp')}</span>
+        <div className="row">
+          {(['normal', 'high'] as const).map((c) => (
+            <button key={c} className={`btn small${contrast === c ? ' primary' : ''}`} aria-pressed={contrast === c} onClick={() => { setContrast(c); applyContrast(c); }}>{c === 'high' ? t('a11y.on') : t('a11y.off')}</button>
+          ))}
+        </div>
       </section>
 
       <section className="card">

@@ -191,6 +191,12 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
 - **Glass.** In Safari and Firefox the bars are blurred, saturated and lit (highlights, rim light, ambient background). The
   real refraction of iOS 26 exists only in native apps. In Chromium browsers (Chrome, Edge) the bars additionally refract
   through an SVG displacement filter, enabled by detecting Chromium, never by feature-testing (Safari mis-reports support).
+- **More on the web (migration 0009 and friends).** Repeating to-dos (daily, weekly, monthly, yearly; ticking one off creates
+  the next, with Undo), a small avatar for who added each to-do and "Done by" at shops, swipe right to finish or left to delete,
+  a weekly recap card, a three-step first-run tour, text size and high-contrast settings, offline capture (a service worker
+  opens the app without signal; to-dos written offline wait on the device with a "waiting for connection" badge and are sent
+  when you are back online), sharing into the app (Android/Windows), notifications when your partner adds something (Web Push;
+  `docs/NOTIFICATIONS.md`) and "Add from a photo" for labels, tins and warranties (`read-label`).
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 
