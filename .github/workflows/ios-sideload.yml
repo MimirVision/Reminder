@@ -10,7 +10,6 @@ jobs:
   ios:
     runs-on: macos-15
     timeout-minutes: 60
-    defaults: { run: { working-directory: apps/mobile } }
     env:
       EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
@@ -25,21 +24,28 @@ jobs:
         with: { xcode-version: latest-stable }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: apps/mobile/package-lock.json }
-      - run: npm ci
+      - name: Install dependencies
+        working-directory: apps/mobile
+        run: npm ci
       - name: Generate the native iOS project
+        working-directory: apps/mobile
         run: npx expo prebuild --platform ios --no-install
       - name: Install pods
+        working-directory: apps/mobile
         run: cd ios && pod install
       - name: Remove the push entitlement (a free Apple ID cannot sign it; local reminders and place reminders do not need it)
+        working-directory: apps/mobile
         run: |
           for f in ios/*/*.entitlements; do /usr/libexec/PlistBuddy -c "Delete :aps-environment" "$f" || true; done
       - name: Build (no signing)
+        working-directory: apps/mobile
         run: |
           WS=$(ls -d ios/*.xcworkspace | head -1)
           SCHEME=$(basename "$WS" .xcworkspace)
           xcodebuild -workspace "$WS" -scheme "$SCHEME" -configuration Release -sdk iphoneos \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -n 40
       - name: Package the .ipa
+        working-directory: apps/mobile
         run: |
           APP=$(ls -d build/Build/Products/Release-iphoneos/*.app | head -1)
           mkdir -p Payload && cp -R "$APP" Payload/ && zip -qry HomeMemory-unsigned.ipa Payload
