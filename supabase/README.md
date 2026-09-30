@@ -26,7 +26,11 @@ When you add a to-do without a place, the apps ask the `suggest` edge function w
 ("paracetamol → any pharmacy"). It only proposes; you confirm with one tap. Each to-do is asked about at most once.
 The apps work without it.
 
-One-time setup (needs an Anthropic API key from console.anthropic.com):
+**No command line?** Paste the single-file copies in `dashboard/` into the Supabase dashboard (Edge Functions, new function,
+editor) with the names `suggest` and `import-report`; see `docs/GETTING_STARTED.md` section 6. `npm run build:functions`
+regenerates them, and a test fails if they go stale.
+
+One-time setup with the CLI (needs an Anthropic API key from console.anthropic.com):
 
 ```powershell
 npx supabase login
