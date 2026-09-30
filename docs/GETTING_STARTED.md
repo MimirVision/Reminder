@@ -29,7 +29,7 @@ Create an account, "Start a new household", then add places, to-dos, and open **
 
 **Option A, nothing to install (recommended):**
 1. Go to <https://app.netlify.com>, sign up, then **Add new site > Import an existing project > GitHub**, and pick the `Reminder` repository.
-2. Set the branch to `claude/home-memory-design-hlpuoi`. The build settings are read from `apps/web/netlify.toml`.
+2. Set the branch to `claude/home-memory-design-hlpuoi`. The build settings are read from `netlify.toml` at the repository root.
 3. Before the first deploy open **Site configuration > Environment variables** and add
    `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (same values as in step 2). Then deploy.
 4. Netlify gives you a link like `something.netlify.app`.

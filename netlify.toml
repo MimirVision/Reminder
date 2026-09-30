@@ -1,0 +1,33 @@
+# Netlify reads this file from the repository root. The web app lives in apps/web, so the build runs there.
+# Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Project configuration > Environment variables.
+[build]
+  base = "apps/web"
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# The single-page-app fallback (unknown paths serve index.html instead of a 404) lives in apps/web/public/_redirects
+# so it also ships with a manually uploaded dist folder.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Vite fingerprints files in /assets, so they can be cached forever.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# The service worker must always be fetched fresh, or updates never reach the phone.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"

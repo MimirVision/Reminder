@@ -1,0 +1,4 @@
+# The reminder links are served by a Netlify function; these lines make sure the catch-all below never swallows them.
+/api/remind    /.netlify/functions/remind    200
+/calendar.ics  /.netlify/functions/remind    200
+/*    /index.html    200
