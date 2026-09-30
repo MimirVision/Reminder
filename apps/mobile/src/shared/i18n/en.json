@@ -485,5 +485,20 @@
   "rem.steps.1": "Open the Shortcuts app, tap Automation, then +, then Arrive.",
   "rem.steps.2": "Choose the place, and set it to Run Immediately.",
   "rem.steps.3": "Add the action \"Get Contents of URL\" and paste that place's link from the list below.",
-  "rem.steps.4": "Add \"If\" (has any value), then \"Show Notification\" with the result. Done: you now get the list when you arrive."
+  "rem.steps.4": "Add \"If\" (has any value), then \"Show Notification\" with the result. Done: you now get the list when you arrive.",
+  "search.open": "Search",
+  "search.placeholder": "Search your to-dos",
+  "search.none": "Nothing matches “{q}”.",
+  "search.clear": "Clear search",
+  "search.results_one": "{n} result",
+  "search.results_other": "{n} results",
+  "arrive.title": "When I arrive",
+  "arrive.intro": "One automation per place. Copy the link, then follow the steps.",
+  "arrive.progress": "{done} of {total} set up",
+  "arrive.copy": "Copy link",
+  "arrive.test": "Test",
+  "arrive.markDone": "I set this up",
+  "arrive.isDone": "Set up",
+  "arrive.noPlaces": "Add a place first (Places tab), then it appears here.",
+  "arrive.more": "More links (summaries, calendar)"
 }

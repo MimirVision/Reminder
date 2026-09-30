@@ -3,6 +3,7 @@ import { createFeedKey, deleteFeedKey, listFeedKeys, listPlaces, type FeedKey } 
 import { placeLabel } from '../lib/labels';
 import { buildLinks } from '../lib/reminderLinks';
 import type { Household, Place } from '../lib/types';
+import { Icon } from './icons';
 import { useI18n } from '../i18n';
 
 const storeKey = (householdId: string) => `hm.reminderKey.${householdId}`;
@@ -32,6 +33,11 @@ export function ReminderLinks({ household }: { household: Household }) {
   const [key, setKey] = useState<string | null>(() => readKey(household.id));
   const [places, setPlaces] = useState<Place[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const doneKey = `hm.arriveDone.${household.id}`;
+  const [doneSet, setDoneSet] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(doneKey) ?? '[]'); } catch { return []; } });
+  const isDone = (url: string) => doneSet.includes(url);
+  const toggleDone = (url: string) => setDoneSet((cur) => { const next = cur.includes(url) ? cur.filter((x) => x !== url) : [...cur, url]; try { localStorage.setItem(doneKey, JSON.stringify(next)); } catch { /* ignore */ } return next; });
 
   const load = useCallback(async () => {
     try {
@@ -77,19 +83,39 @@ export function ReminderLinks({ household }: { household: Household }) {
 
       {links ? (
         <>
+          <strong>{t('rem.steps.title')}</strong>
           <ol className="steps">
-            <li><strong>{t('rem.steps.title')}</strong></li>
             {(['rem.steps.1', 'rem.steps.2', 'rem.steps.3', 'rem.steps.4'] as const).map((k) => <li key={k} className="muted">{t(k)}</li>)}
           </ol>
-          <CopyRow label={t('rem.today')} url={links.today} note={t('rem.todayNote')} />
-          <CopyRow label={t('rem.digest')} url={links.digest} note={t('rem.digestNote')} />
-          {links.places.length === 0 && <span className="muted">{t('rem.noPlaces')}</span>}
-          {links.places.map((p) => <CopyRow key={p.url} label={t('rem.arrive', { place: p.label })} url={p.url} note={t('rem.arriveNote')} />)}
-          <CopyRow label={t('rem.calendar')} url={links.calendar} note={t('rem.calendarNote')} />
-          <div className="row">
-            <a className="btn small" href={links.calendar}>{t('rem.subscribe')}</a>
-            <a className="btn small" href={links.digest} target="_blank" rel="noreferrer">{t('rem.preview')}</a>
-          </div>
+          <div className="label nopad">{t('arrive.title')} · {t('arrive.progress', { done: links.places.filter((p) => isDone(p.url)).length, total: links.places.length })}</div>
+          {links.places.length === 0 && <span className="muted">{t('arrive.noPlaces')}</span>}
+          {links.places.map((p) => (
+            <div key={p.url} className={`arrive${isDone(p.url) ? ' done' : ''}`}>
+              <div className="row spread">
+                <strong>{p.label}</strong>
+                {isDone(p.url) && <span className="chip"><Icon name="check" size={12} />{t('arrive.isDone')}</span>}
+              </div>
+              <div className="row">
+                <button className="btn small primary" onClick={async () => { try { await navigator.clipboard.writeText(p.url); setCopiedUrl(p.url); setTimeout(() => setCopiedUrl(null), 1500); } catch { window.prompt(t('rem.copyPrompt'), p.url); } }}>
+                  {copiedUrl === p.url ? t('common.copied') : t('arrive.copy')}
+                </button>
+                <a className="btn small" href={p.url} target="_blank" rel="noreferrer">{t('arrive.test')}</a>
+                <label className="row checkrow muted">
+                  <input type="checkbox" checked={isDone(p.url)} onChange={() => toggleDone(p.url)} /> {t('arrive.markDone')}
+                </label>
+              </div>
+            </div>
+          ))}
+          <details className="advanced">
+            <summary>{t('arrive.more')}</summary>
+            <CopyRow label={t('rem.today')} url={links.today} note={t('rem.todayNote')} />
+            <CopyRow label={t('rem.digest')} url={links.digest} note={t('rem.digestNote')} />
+            <CopyRow label={t('rem.calendar')} url={links.calendar} note={t('rem.calendarNote')} />
+            <div className="row">
+              <a className="btn small" href={links.calendar}>{t('rem.subscribe')}</a>
+              <a className="btn small" href={links.digest} target="_blank" rel="noreferrer">{t('rem.preview')}</a>
+            </div>
+          </details>
         </>
       ) : keys.length > 0 ? (
         <span className="muted">{t('rem.keyExists')}</span>

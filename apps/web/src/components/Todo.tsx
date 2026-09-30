@@ -14,6 +14,7 @@ import type { SetupTarget } from '../lib/setup';
 import type { Snap } from '../lib/sheetSnap';
 import type { Household, Member, Memory, Place } from '../lib/types';
 import { useHere } from '../lib/useHere';
+import { matchTodos } from '../lib/search';
 import { compareDue, dueBucket, dueLabel, formatDay, todayISO } from '../lib/when';
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
@@ -43,6 +44,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [placesLoaded, setPlacesLoaded] = useState(false);
   const [sharedText, setSharedText] = useState<string | null>(null);
   const [doneTicks, setDoneTicks] = useState(0);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
   const toast = useToast();
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [showDone, setShowDone] = useState(false);
@@ -314,10 +317,14 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const without = entries.filter((e) => e.count === 0);
   const title = showDone ? t('todo.doneTitle') : t('todo.title');
   const empty = loaded && memories.length === 0;
+  const found = query.trim() ? matchTodos(memories, query, placeName, (m) => dueLabel(m, t, locale)) : null;
 
   return (
     <main className={`page${mapOn ? ' map-mode' : ''}`}>
-      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1>{!showDone && seg}</div>
+      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{!showDone && seg}</div></div>
+      {searching && !mapOn && !showDone && (
+        <label className="searchfield"><Icon name="search" size={18} /><input autoFocus type="search" placeholder={t('search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />{query && <button type="button" className="mini" aria-label={t('search.clear')} onClick={() => setQuery('')}><Icon name="x" size={14} /></button>}</label>
+      )}
       {(!online || loadFailed) && !mapOn && <p className="offline-banner" role="status">{t('offline.banner')}</p>}
       {err && (
         <p className="error" role="alert">{err} <button className="link" onClick={() => void load()}>{t('common.retry')}</button></p>
@@ -342,6 +349,10 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
         <div className="card list">{memories.length === 0 ? <span className="muted pad">{t('todo.done.empty')}</span> : memories.map((m) => row(m, { place: true }))}</div>
       ) : !loaded ? (
         <div className="card list" aria-busy="true">{[70, 52, 84].map((w) => <div className="todo" key={w}><span className="check skel" /><span className="skel line" style={{ width: `${w}%` }} /></div>)}</div>
+      ) : found ? (
+        found.length === 0 ? <p className="muted" role="status">{t('search.none', { q: query.trim() })}</p> : (
+          <section className="group"><div className="label">{tn('search.results', found.length)}</div><div className="card list">{found.map((m) => row(m, { place: true }))}</div></section>
+        )
       ) : (
         <>
           <SetupChecklist household={household} onNavigate={onNavigate} />

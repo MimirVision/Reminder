@@ -485,5 +485,20 @@
   "rem.steps.1": "Åpne Snarveier, trykk Automasjon, deretter +, og velg Ankomme.",
   "rem.steps.2": "Velg stedet, og sett den til Kjør umiddelbart.",
   "rem.steps.3": "Legg til handlingen «Hent innholdet i URL» og lim inn lenken for stedet fra listen under.",
-  "rem.steps.4": "Legg til «Hvis» (har en verdi), deretter «Vis varsel» med resultatet. Ferdig: du får listen når du kommer dit."
+  "rem.steps.4": "Legg til «Hvis» (har en verdi), deretter «Vis varsel» med resultatet. Ferdig: du får listen når du kommer dit.",
+  "search.open": "Søk",
+  "search.placeholder": "Søk i oppgavene dine",
+  "search.none": "Ingen treff på «{q}».",
+  "search.clear": "Tøm søket",
+  "search.results_one": "{n} treff",
+  "search.results_other": "{n} treff",
+  "arrive.title": "Når jeg kommer til",
+  "arrive.intro": "Én automasjon per sted. Kopier lenken, og følg trinnene.",
+  "arrive.progress": "{done} av {total} satt opp",
+  "arrive.copy": "Kopier lenke",
+  "arrive.test": "Test",
+  "arrive.markDone": "Jeg har satt dette opp",
+  "arrive.isDone": "Satt opp",
+  "arrive.noPlaces": "Legg til et sted først (Steder-fanen), så dukker det opp her.",
+  "arrive.more": "Flere lenker (oppsummeringer, kalender)"
 }
