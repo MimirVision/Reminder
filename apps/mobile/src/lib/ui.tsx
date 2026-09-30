@@ -58,11 +58,11 @@ export function Card({ children, gap = 10 }: { children: ReactNode; gap?: number
   return <View style={[styles.card, { backgroundColor: t.card, gap }]}>{children}</View>;
 }
 
-export function PlaceChip({ label }: { label: string }) {
+export function PlaceChip({ label, icon = 'mappin' }: { label: string; icon?: SFSymbol }) {
   const t = useTheme();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: t.tint, borderRadius: 999, paddingVertical: 4, paddingLeft: 8, paddingRight: 10, alignSelf: 'flex-start' }}>
-      <Icon name="mappin" size={13} color={t.tintInk} />
+      <Icon name={icon} size={13} color={t.tintInk} />
       <Text style={{ color: t.tintInk, fontSize: 13, fontFamily: font.semi }}>{label}</Text>
     </View>
   );

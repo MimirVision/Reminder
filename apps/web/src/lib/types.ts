@@ -14,9 +14,10 @@ export type Place = {
 };
 
 export type Suggestion = {
-  kind: 'existing_place' | 'category';
+  kind: 'existing_place' | 'category' | 'recurring';
   place_id?: string;
   category?: string;
+  recurring?: { title: string; schedule: 'interval' | 'seasonal'; interval_months?: number; window_start?: number; window_end?: number };
   label: string;
   reason: string;
   confidence: 'high' | 'medium';

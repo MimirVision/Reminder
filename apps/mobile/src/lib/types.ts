@@ -4,9 +4,10 @@ import type { MaintenanceTask as CoreTask, MemoryRow, PlaceRow } from '../core/t
 export type Household = { id: string; name: string; invite_code: string };
 
 export type Suggestion = {
-  kind: 'existing_place' | 'category';
+  kind: 'existing_place' | 'category' | 'recurring';
   place_id?: string;
   category?: string;
+  recurring?: { title: string; schedule: 'interval' | 'seasonal'; interval_months?: number; window_start?: number; window_end?: number };
   label: string;
   reason: string;
   confidence: 'high' | 'medium';

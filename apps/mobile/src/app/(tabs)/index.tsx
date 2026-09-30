@@ -125,10 +125,10 @@ export default function Todo() {
         )}
         {m.suggestion && (
           <View style={{ gap: 8, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: t.line, padding: 12, backgroundColor: t.tint }}>
-            <PlaceChip label={m.suggestion.label} />
+            <PlaceChip label={m.suggestion.kind === 'recurring' ? `Recurring task · ${m.suggestion.label}` : m.suggestion.label} icon={m.suggestion.kind === 'recurring' ? 'arrow.triangle.2.circlepath' : 'mappin'} />
             {m.suggestion.reason ? <Muted>{m.suggestion.reason}</Muted> : null}
             <View style={styles.row}>
-              <Btn small primary label="Add reminder" onPress={async () => { if (household) { await acceptSuggestion(m.id, household.id, m.suggestion!).catch(() => {}); void load(); } }} />
+              <Btn small primary label={m.suggestion.kind === 'recurring' ? 'Make recurring' : 'Add reminder'} onPress={async () => { if (household) { await acceptSuggestion(m.id, household.id, m.suggestion!).catch(() => {}); void load(); } }} />
               <Btn small label="No thanks" onPress={async () => { await dismissSuggestion(m.id).catch(() => {}); void load(); }} />
             </View>
           </View>

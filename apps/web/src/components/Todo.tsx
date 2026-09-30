@@ -108,10 +108,10 @@ export function Todo({ household, userId }: { household: Household; userId: stri
         {(photos.get(m.id) ?? []).length > 0 && <div className="photos">{photos.get(m.id)!.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" loading="lazy" /></a>)}</div>}
         {m.suggestion && !showDone && (
           <div className="suggest" role="group" aria-label="Suggested place">
-            <span className="chip"><Icon name="pin" size={13} />{m.suggestion.label}</span>
+            <span className="chip"><Icon name={m.suggestion.kind === 'recurring' ? 'house' : 'pin'} size={13} />{m.suggestion.kind === 'recurring' ? `Recurring task · ${m.suggestion.label}` : m.suggestion.label}</span>
             <span className="muted">{m.suggestion.reason}</span>
             <span className="row">
-              <button className="btn small primary" onClick={() => void act(() => acceptSuggestion(m.id, household.id, m.suggestion!).then(() => listPlaces(household.id).then(setPlaces)))}>Add reminder</button>
+              <button className="btn small primary" onClick={() => void act(() => acceptSuggestion(m.id, household.id, m.suggestion!).then(() => listPlaces(household.id).then(setPlaces)))}>{m.suggestion.kind === 'recurring' ? 'Make recurring' : 'Add reminder'}</button>
               <button className="btn small" onClick={() => void act(() => dismissSuggestion(m.id))}>No thanks</button>
             </span>
           </div>

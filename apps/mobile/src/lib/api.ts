@@ -170,6 +170,15 @@ export async function requestSuggestion(memoryId: string): Promise<{ suggestion:
 }
 
 export async function acceptSuggestion(memoryId: string, householdId: string, s: Suggestion) {
+  if (s.kind === 'recurring' && s.recurring) {
+    // Turn the to-do into a recurring house task, and retire the to-do.
+    await addTask({
+      householdId, title: s.recurring.title, schedule: s.recurring.schedule,
+      intervalMonths: s.recurring.interval_months, windowStart: s.recurring.window_start, windowEnd: s.recurring.window_end,
+    });
+    check(await supabase.from('memories').update({ status: 'dismissed', suggestion: null }).eq('id', memoryId));
+    return;
+  }
   let placeId = s.place_id;
   if (s.kind === 'category' && s.category) {
     const row = check(
