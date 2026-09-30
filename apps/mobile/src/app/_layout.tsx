@@ -11,6 +11,8 @@ import { uuid } from '@/lib/id';
 import { markDone } from '@/lib/api';
 import { refreshRegions, setupNotificationCategories } from '@/lib/reminders';
 import { useTheme } from '@/lib/theme';
+import { I18nProvider, useI18n } from '@/lib/i18n';
+import { ToastProvider } from '@/lib/Toast';
 import { Muted } from '@/lib/ui';
 import { HereBanner } from '@/lib/HereBanner';
 import { GlassProvider } from '@/lib/glass';
@@ -23,6 +25,7 @@ function Gate() {
   const router = useRouter();
   const segments = useSegments();
   const t = useTheme();
+  const { t: tr } = useI18n();
   const [fontsLoaded] = useFonts({ BricolageGrotesque_700Bold, DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold });
 
   // Route guard: login -> onboarding -> app.
@@ -91,7 +94,7 @@ function Gate() {
   if (!configured) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: t.bg }}>
-        <Muted>Supabase is not configured. Copy .env.example to .env and fill in the values, then restart.</Muted>
+        <Muted>{tr('app.notConfigured')}</Muted>
       </View>
     );
   }
@@ -116,13 +119,26 @@ function Gate() {
   );
 }
 
+function Themed() {
+  const th = useTheme();
+  return (
+    <>
+      <StatusBar style={th.dark ? 'light' : 'dark'} />
+      <ToastProvider>
+        <Gate />
+      </ToastProvider>
+    </>
+  );
+}
+
 export default function RootLayout() {
   return (
-    <SessionProvider>
-      <GlassProvider>
-        <StatusBar style="auto" />
-        <Gate />
-      </GlassProvider>
-    </SessionProvider>
+    <I18nProvider>
+      <SessionProvider>
+        <GlassProvider>
+          <Themed />
+        </GlassProvider>
+      </SessionProvider>
+    </I18nProvider>
   );
 }

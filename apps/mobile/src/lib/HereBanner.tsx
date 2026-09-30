@@ -9,6 +9,7 @@ import type { PoiCache } from '../core/pois.ts';
 import type { Region } from '../core/types.ts';
 import { Glass } from './glass';
 import { readSnapshot, storeKeys } from './reminders';
+import { useI18n } from './i18n';
 import { readJson, writeJson } from './store';
 import { font, useTheme } from './theme';
 
@@ -18,6 +19,7 @@ const DISMISS_KEY = 'hm.hereDismissed';
 // tab bar. "I'm here" opens that place's list.
 export function HereBanner() {
   const t = useTheme();
+  const { t: tr, tn } = useI18n();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [candidate, setCandidate] = useState<{ region: Region; distanceM: number; count: number } | null>(null);
@@ -58,9 +60,9 @@ export function HereBanner() {
     <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 74 }}>
       <Glass style={{ borderRadius: 30, padding: 16, gap: 14 }}>
         <View style={{ gap: 2 }}>
-          <Text style={{ color: t.ink, fontSize: 22, lineHeight: 27, fontFamily: font.display }}>Are you at {region.label}?</Text>
+          <Text style={{ color: t.ink, fontSize: 22, lineHeight: 27, fontFamily: font.display }}>{tr('here.title', { place: region.label })}</Text>
           <Text style={{ color: t.ink, opacity: 0.75, fontSize: 15, fontFamily: font.body }}>
-            {Math.round(candidate.distanceM)} m away · {candidate.count} to-do{candidate.count === 1 ? '' : 's'} here
+            {tn('here.detail', candidate.count, { d: Math.round(candidate.distanceM) })}
           </Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -72,14 +74,14 @@ export function HereBanner() {
             }}
             style={{ flex: 1, height: 50, borderRadius: 25, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Text style={{ color: '#FFFFFF', fontSize: 17, fontFamily: font.semi }}>I'm here</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 17, fontFamily: font.semi }}>{tr('here.imHere')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
             onPress={remember}
             style={{ height: 50, paddingHorizontal: 22, borderRadius: 25, backgroundColor: t.dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' }}
           >
-            <Text style={{ color: t.ink, fontSize: 16, fontFamily: font.semi }}>Not now</Text>
+            <Text style={{ color: t.ink, fontSize: 16, fontFamily: font.semi }}>{tr('common.notNow')}</Text>
           </Pressable>
         </View>
       </Glass>

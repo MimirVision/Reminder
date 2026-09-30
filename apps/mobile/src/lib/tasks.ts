@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { GEOFENCE_TASK, NOTIFICATION_CATEGORY, readRegionLabels, readSnapshot, REFRESH_ID, refreshRegions, storeKeys } from './reminders';
 import { readJson, writeJson } from './store';
 import { onRegionEvent, type SurfaceState } from '../core/surfacing.ts';
+import { tNow } from './i18n';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -29,7 +30,7 @@ TaskManager.defineTask<{ eventType: Location.LocationGeofencingEventType; region
 
     const placeId = identifier.split('|')[0];
     const { places, memories } = readSnapshot();
-    const label = readRegionLabels()[identifier] ?? places.find((p) => p.id === placeId)?.name ?? 'a place';
+    const label = readRegionLabels()[identifier] ?? places.find((p) => p.id === placeId)?.name ?? '…';
 
     const result = onRegionEvent({
       type: entered ? 'enter' : 'exit',
@@ -39,6 +40,7 @@ TaskManager.defineTask<{ eventType: Location.LocationGeofencingEventType; region
       memories,
       state: readJson<SurfaceState>(storeKeys.surface, {}),
       now: Date.now(),
+      words: { near: (l) => tNow('notif.near', { label: l }), more: (n) => tNow('notif.more', { n }), photo: tNow('notif.photo') },
     });
     writeJson(storeKeys.surface, result.state);
 

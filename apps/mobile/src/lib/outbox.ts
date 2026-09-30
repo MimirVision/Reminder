@@ -1,5 +1,6 @@
 import { insertMemory, uploadPhoto, type NewMemory } from './api';
 import { readJson, writeJson } from './store';
+import type { Memory } from './types';
 
 // Capture must never fail: writes go to a local queue first and are pushed when the network allows.
 type Item = NewMemory & { photoUris: string[] };
@@ -40,4 +41,13 @@ export async function flush(): Promise<number> {
 export async function capture(item: Item) {
   enqueue(item);
   await flush();
+}
+
+/** A to-do written offline, as it shows in the lists while it waits. */
+export function queuedToMemory(item: Item, authorId: string): Memory {
+  return {
+    id: item.id, household_id: item.household_id, author_id: authorId, body: item.body, status: item.place_id || item.due_on ? 'active' : 'inbox',
+    place_id: item.place_id, snoozed_until: null, suggestion: null, suggested_at: new Date().toISOString(), created_at: new Date().toISOString(), done_at: null,
+    due_on: item.due_on ?? null, due_time: item.due_on ? item.due_time ?? null : null, repeat_rule: item.repeat_rule ?? null, pending: true,
+  };
 }

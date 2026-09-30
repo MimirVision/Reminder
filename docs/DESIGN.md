@@ -197,6 +197,10 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   opens the app without signal; to-dos written offline wait on the device with a "waiting for connection" badge and are sent
   when you are back online), sharing into the app (Android/Windows), notifications when your partner adds something (Web Push;
   `docs/NOTIFICATIONS.md`) and "Add from a photo" for labels, tins and warranties (`read-label`).
+- **Phone app parity.** The iPhone app has the same to-do features (dates, times, repeat, place search, edit, undo, swipe, avatars,
+  recap, tour, live updates, offline capture, label photos, Norwegian, light/dark) and adds a normal local notification at the
+  due time. Shared logic is written once in the web app and copied by `scripts/sync-shared.mjs`. It has been type-checked and
+  its pure logic unit-tested, but not run on a device.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

@@ -20,15 +20,20 @@ export type Memory = MemoryRow & {
   author_id: string;
   created_at: string;
   done_at: string | null;
+  done_by?: string | null;
+  due_on: string | null;
+  due_time: string | null;
+  repeat_rule?: 'daily' | 'weekly' | 'monthly' | 'yearly' | null;
+  pending?: boolean; // saved on this phone, waiting for a connection
 };
 
-export type Place = PlaceRow & { household_id: string };
+export type Place = PlaceRow & { household_id: string; address?: string | null };
 
 export type Member = { user_id: string; display_name: string | null };
 
 export type CaptureKey = { id: string; label: string; created_at: string; last_used_at: string | null };
 
-export type MaintenanceTask = CoreTask & { household_id: string };
+export type MaintenanceTask = CoreTask & { household_id: string; template_key?: string | null };
 
 export type MaintenanceEvent = { id: string; done_at: string; cost_nok: number | null; note: string | null };
 

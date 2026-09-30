@@ -8,11 +8,15 @@ export type SurfaceState = Record<string, PlaceVisitState>;
 
 export type Notice = { placeId: string; label: string; memoryIds: string[]; title: string; body: string };
 
-export function notificationText(label: string, memories: Pick<MemoryRow, 'body'>[]): { title: string; body: string } {
-  const lines = memories.map((m) => m.body.trim() || '(photo)');
+// The words in a notification, so the caller can supply Norwegian; English by default.
+export type Words = { near: (label: string) => string; more: (n: number) => string; photo: string };
+export const ENGLISH: Words = { near: (label) => `Near ${label}`, more: (n) => `+${n} more`, photo: '(photo)' };
+
+export function notificationText(label: string, memories: Pick<MemoryRow, 'body'>[], w: Words = ENGLISH): { title: string; body: string } {
+  const lines = memories.map((m) => m.body.trim() || w.photo);
   const shown = lines.slice(0, 3);
   const extra = lines.length - shown.length;
-  return { title: `Near ${label}`, body: shown.join('\n') + (extra > 0 ? `\n+${extra} more` : '') };
+  return { title: w.near(label), body: shown.join('\n') + (extra > 0 ? `\n${w.more(extra)}` : '') };
 }
 
 export function onRegionEvent(args: {
@@ -23,6 +27,7 @@ export function onRegionEvent(args: {
   memories: MemoryRow[];
   state: SurfaceState;
   now: number;
+  words?: Words;
 }): { notice: Notice | null; state: SurfaceState } {
   const prev = args.state[args.placeId] ?? { inside: false, lastNotifiedAt: null };
 
@@ -45,7 +50,7 @@ export function onRegionEvent(args: {
 
   next.lastNotifiedAt = args.now;
   return {
-    notice: { placeId: args.placeId, label: args.label, memoryIds: due.map((m) => m.id), ...notificationText(args.label, due) },
+    notice: { placeId: args.placeId, label: args.label, memoryIds: due.map((m) => m.id), ...notificationText(args.label, due, args.words) },
     state: { ...args.state, [args.placeId]: next },
   };
 }

@@ -37,3 +37,17 @@ Frosted (and older iOS) use a blur with a wash for readability.
 ## Status
 Type-checks, unit tests pass and the iOS JS bundle builds. Not yet run on a device; expect first-run fixes.
 Known gaps: no background push between partners; notification "Done" opens the app; no AI suggestions yet.
+
+## Same features as the web app
+The phone app now matches the web app: to-dos with a date, time and repeat (a normal notification rings at the due time), one
+"Where?" search for shops, kinds of shop and addresses, edit and Undo, swipe to finish or delete, avatars, weekly recap,
+first-run tour, live updates between the two phones, offline capture, "Add from a photo" for labels and warranties,
+Norwegian and English, and light / dark / follow the phone.
+
+The logic that is the same on both (dates, labels, place search, repeat rules, translations) lives in `apps/web/src` and is
+copied to `src/shared` by `node scripts/sync-shared.mjs` (run from the repository root). Never edit `src/shared` by hand: a test
+in the web app fails when the copies are stale.
+
+Not in the phone app: notifications when your partner adds something (that is Web Push, see `docs/NOTIFICATIONS.md`, so the
+partner needs the web app on their home screen), the text-size and high-contrast settings (iOS Dynamic Type already scales
+the text), and Share-to-app (use the Shortcut in `docs/CAPTURE.md`).

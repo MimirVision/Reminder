@@ -7,32 +7,25 @@ import { font, useTheme } from '@/lib/theme';
 import { AddTaskForm } from '@/lib/AddTaskForm';
 import { FactsView } from '@/lib/FactsView';
 import { BAR_SPACE, Btn, Card, Check, Field, Muted, SectionLabel, Title, styles } from '@/lib/ui';
-import { groupTasks, scheduleLabel } from '../../core/maintenance.ts';
+import { groupTasks } from '../../core/maintenance.ts';
+import { scheduleLabel, taskNotes, taskTitle } from '../../shared/lib/labels';
+import { useI18n } from '@/lib/i18n';
+import { useToast } from '@/lib/Toast';
 import type { HouseProfile, MaintenanceEvent, MaintenanceTask } from '@/lib/types';
 
-const PROFILE_LABELS: [keyof HouseProfile, string][] = [
-  ['has_garden', 'Garden'],
-  ['has_wood_stove', 'Wood stove / chimney'],
-  ['has_heat_pump', 'Heat pump'],
-  ['has_balanced_ventilation', 'Balanced ventilation (heat recovery)'],
-  ['has_basement', 'Basement'],
-  ['has_wooden_facade', 'Wooden facade'],
-  ['has_septic', 'Private septic tank'],
-  ['has_well', 'Private well'],
-];
-
-const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+const PROFILE: (keyof HouseProfile)[] = ['has_garden', 'has_wood_stove', 'has_heat_pump', 'has_balanced_ventilation', 'has_basement', 'has_wooden_facade', 'has_septic', 'has_well'];
 const today = () => new Date().toISOString().slice(0, 10);
 
 function Ribbon({ task }: { task: MaintenanceTask }) {
   const t = useTheme();
+  const { t: tr } = useI18n();
   if (task.schedule !== 'seasonal' || !task.window_start_month || !task.window_end_month) return null;
   const s = task.window_start_month;
   const e = task.window_end_month;
   const now = new Date().getMonth() + 1;
   return (
     <View style={{ flexDirection: 'row', gap: 3 }}>
-      {MONTHS.map((m, idx) => {
+      {tr('ribbon.months').split('').map((m, idx) => {
         const i = idx + 1;
         const inWin = s <= e ? i >= s && i <= e : i >= s || i <= e;
         return (
@@ -47,6 +40,8 @@ function Ribbon({ task }: { task: MaintenanceTask }) {
 
 export default function House() {
   const t = useTheme();
+  const { t: tr, lang } = useI18n();
+  const toast = useToast();
   const insets = useSafeAreaInsets();
   const { household } = useSession();
   const [tasks, setTasks] = useState<MaintenanceTask[] | null>(null);
@@ -60,7 +55,7 @@ export default function House() {
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [mode, setMode] = useState<'Calendar' | 'Facts'>('Calendar');
+  const [mode, setMode] = useState<'calendar' | 'facts'>('calendar');
   const [addingTask, setAddingTask] = useState(false);
 
   const load = useCallback(async () => {
@@ -83,8 +78,9 @@ export default function House() {
 
   async function done(task: MaintenanceTask) {
     const c = cost.trim() ? Number(cost.replace(',', '.')) : null;
-    if (c !== null && Number.isNaN(c)) return Alert.alert('Cost must be a number');
+    if (c !== null && Number.isNaN(c)) return Alert.alert(tr('house.costNumber'));
     await completeTask(task.id, { cost: c, note });
+    toast({ text: tr('toast.done') });
     setOpenId(null);
     await load();
   }
@@ -93,14 +89,14 @@ export default function House() {
 
   const toggle2 = (
     <View style={styles.row}>
-      {(['Calendar', 'Facts'] as const).map((m) => <Btn key={m} small label={m} primary={mode === m} onPress={() => setMode(m)} />)}
+      {(['calendar', 'facts'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
     </View>
   );
 
-  if (mode === 'Facts') {
+  if (mode === 'facts') {
     return (
       <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
-        <Title>House</Title>
+        <Title>{tr('house.title')}</Title>
         {toggle2}
         <FactsView />
       </ScrollView>
@@ -110,30 +106,27 @@ export default function House() {
   if (tasks.length === 0) {
     return (
       <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]}>
-        <Title>House</Title>
+        <Title>{tr('house.title')}</Title>
         {toggle2}
-        <Muted>
-          Pick what applies and a starter maintenance calendar for a Norwegian house is added. It is a starting point you
-          can edit, not professional advice. Check your kommune's rules for chimney sweeping and septic tanks.
-        </Muted>
+        <Muted>{tr('house.intro')}</Muted>
         <Card>
-          {PROFILE_LABELS.map(([key, label]) => (
+          {PROFILE.map((key) => (
             <View key={key} style={[styles.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-              <Text style={{ color: t.ink, fontSize: 16, fontFamily: font.body, flex: 1 }}>{label}</Text>
+              <Text style={{ color: t.ink, fontSize: 16, fontFamily: font.body, flex: 1 }}>{tr(`prof.${key}` as 'prof.has_garden')}</Text>
               <Switch value={profile[key]} onValueChange={(v) => setProfile((p) => ({ ...p, [key]: v }))} trackColor={{ true: t.accent }} />
             </View>
           ))}
         </Card>
         <Btn
           primary
-          label="Create my maintenance calendar"
+          label={tr('house.create')}
           onPress={async () => {
             if (!household) return;
             try {
               await seedHouseTemplate(household.id, profile);
               await load();
             } catch (e) {
-              Alert.alert('Error', e instanceof Error ? e.message : String(e));
+              Alert.alert(tr('common.error'), e instanceof Error ? e.message : String(e));
             }
           }}
         />
@@ -150,19 +143,19 @@ export default function House() {
             <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-start' }}>
               <Check onPress={() => toggle(task)} />
               <Pressable style={{ flex: 1, gap: 2 }} onPress={() => toggle(task)}>
-                <Text style={{ color: t.ink, fontSize: 18, lineHeight: 24, fontFamily: font.semi }}>{task.title}</Text>
-                <Muted>{scheduleLabel(task)}{task.last_done_at ? ` · last done ${task.last_done_at}` : ' · not done yet'}</Muted>
+                <Text style={{ color: t.ink, fontSize: 18, lineHeight: 24, fontFamily: font.semi }}>{taskTitle(task, lang)}</Text>
+                <Muted>{scheduleLabel(task, tr)} · {task.last_done_at ? tr('house.lastDone', { date: task.last_done_at }) : tr('house.notDone')}</Muted>
               </Pressable>
             </View>
             <Ribbon task={task} />
             {openId === task.id && (
               <View style={{ gap: 10 }}>
-                {task.notes ? <Text style={{ color: t.muted, fontSize: 15, lineHeight: 21, fontFamily: font.body }}>{task.notes}</Text> : null}
-                <Field placeholder="Cost in NOK (optional)" keyboardType="decimal-pad" value={cost} onChangeText={setCost} />
-                <Field placeholder="Note (optional)" value={note} onChangeText={setNote} />
-                <Btn primary label="Mark as done" onPress={() => done(task)} />
-                <Btn danger label="Remove from my calendar" onPress={() => retireTask(task.id).then(load)} />
-                {history.length > 0 && <SectionLabel>History</SectionLabel>}
+                {taskNotes(task, lang) ? <Text style={{ color: t.muted, fontSize: 15, lineHeight: 21, fontFamily: font.body }}>{taskNotes(task, lang)}</Text> : null}
+                <Field placeholder={tr('house.cost')} keyboardType="decimal-pad" value={cost} onChangeText={setCost} />
+                <Field placeholder={tr('house.note')} value={note} onChangeText={setNote} />
+                <Btn primary label={tr('house.markDone')} onPress={() => done(task)} />
+                <Btn danger label={tr('house.remove')} onPress={() => retireTask(task.id).then(load)} />
+                {history.length > 0 && <SectionLabel>{tr('house.history')}</SectionLabel>}
                 {history.map((h) => (
                   <Muted key={h.id}>{h.done_at}{h.cost_nok != null ? ` · ${h.cost_nok} kr` : ''}{h.note ? ` · ${h.note}` : ''}</Muted>
                 ))}
@@ -179,14 +172,14 @@ export default function House() {
       contentContainerStyle={[styles.screen, pad]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
     >
-      <Title>House</Title>
+      <Title>{tr('house.title')}</Title>
       {toggle2}
-      {addingTask ? <AddTaskForm onDone={() => { setAddingTask(false); void load(); }} /> : <Btn label="+ Add your own task" onPress={() => setAddingTask(true)} />}
-      {groups.due.length === 0 && groups.soon.length === 0 && <Muted>Nothing due. Enjoy the quiet.</Muted>}
-      {section('Due now', groups.due)}
-      {section('Coming up', groups.soon)}
-      {groups.later.length > 0 && <Btn label={showLater ? 'Hide later' : `Later (${groups.later.length})`} onPress={() => setShowLater(!showLater)} />}
-      {showLater && section('Later', groups.later)}
+      {addingTask ? <AddTaskForm onDone={() => { setAddingTask(false); void load(); }} /> : <Btn label={tr('house.addOwn')} onPress={() => setAddingTask(true)} />}
+      {groups.due.length === 0 && groups.soon.length === 0 && <Muted>{tr('house.nothingDue')}</Muted>}
+      {section(tr('house.due'), groups.due)}
+      {section(tr('house.soon'), groups.soon)}
+      {groups.later.length > 0 && <Btn label={showLater ? tr('house.hideLater') : tr('house.laterN', { n: groups.later.length })} onPress={() => setShowLater(!showLater)} />}
+      {showLater && section(tr('house.later'), groups.later)}
     </ScrollView>
   );
 }

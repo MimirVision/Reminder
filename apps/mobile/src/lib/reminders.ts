@@ -3,6 +3,8 @@ import * as Notifications from 'expo-notifications';
 import { listMemories, listPlaces } from './api';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
+import { pickDueReminders, type DueMemory } from '../core/dueReminders.ts';
+import { tNow } from './i18n';
 import { needsRefresh, overpassQuery, parseOverpass, type PoiCache } from '../core/pois.ts';
 import { MAX_REGIONS, selectRegions } from '../core/regions.ts';
 import type { LatLon, MemoryRow, PlaceRow, Region } from '../core/types.ts';
@@ -30,9 +32,9 @@ export { K as storeKeys };
 
 export async function setupNotificationCategories() {
   await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY, [
-    { identifier: 'here', buttonTitle: "I'm here", options: { opensAppToForeground: true } },
-    { identifier: 'done', buttonTitle: 'Done', options: { opensAppToForeground: true } },
-    { identifier: 'notnow', buttonTitle: 'Not now', options: { opensAppToForeground: false } },
+    { identifier: 'here', buttonTitle: tNow('here.imHere'), options: { opensAppToForeground: true } },
+    { identifier: 'done', buttonTitle: tNow('common.done'), options: { opensAppToForeground: true } },
+    { identifier: 'notnow', buttonTitle: tNow('common.notNow'), options: { opensAppToForeground: false } },
   ]);
 }
 
@@ -178,4 +180,36 @@ export async function mapPins(): Promise<{ here: LatLon | null; pins: Pin[] }> {
     fixed: r.identifier.endsWith('|fixed'),
   }));
   return { here, pins };
+}
+
+// To-dos with a date get a normal notification at their time (09:00 when they only have a date). Re-planned after every change,
+// because a finished, moved or deleted to-do must not ring. Silent when notifications are not allowed.
+export async function scheduleDueReminders(memories: DueMemory[]): Promise<void> {
+  try {
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
+      if (n.identifier.startsWith('due-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    for (const r of pickDueReminders(memories, new Date())) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `due-${r.id}`,
+        content: { title: tNow('notif.due'), body: r.body, data: { memoryIds: [r.id] } },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: r.at },
+      });
+    }
+  } catch {
+    // reminders are best effort
+  }
+}
+
+/** Ask once for permission to notify (needed for dated to-do reminders). */
+export async function ensureNotifyPermission(): Promise<boolean> {
+  try {
+    const cur = await Notifications.getPermissionsAsync();
+    if (cur.granted) return true;
+    if (!cur.canAskAgain) return false;
+    return (await Notifications.requestPermissionsAsync()).granted;
+  } catch {
+    return false;
+  }
 }

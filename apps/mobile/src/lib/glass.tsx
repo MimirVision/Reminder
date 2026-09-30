@@ -7,10 +7,10 @@ import { useTheme } from './theme';
 
 // How glassy the floating bars are. "clear" is the most transparent, "frosted" the most readable.
 export type GlassLevel = 'clear' | 'regular' | 'frosted';
-export const GLASS_LEVELS: { id: GlassLevel; label: string }[] = [
-  { id: 'clear', label: 'Clear' },
-  { id: 'regular', label: 'Glass' },
-  { id: 'frosted', label: 'Frosted' },
+export const GLASS_LEVELS: { id: GlassLevel; key: 'glass.clear' | 'glass.glass' | 'glass.frosted' }[] = [
+  { id: 'clear', key: 'glass.clear' },
+  { id: 'regular', key: 'glass.glass' },
+  { id: 'frosted', key: 'glass.frosted' },
 ];
 
 const KEY = 'hm.glassLevel';

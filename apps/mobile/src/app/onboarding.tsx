@@ -2,14 +2,16 @@ import { useState } from 'react';
 import { SafeAreaView, ScrollView, Text } from 'react-native';
 import { createHousehold, joinHousehold } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useI18n } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
 import { Btn, Field, Muted, Title, styles } from '@/lib/ui';
 
 export default function Onboarding() {
   const t = useTheme();
+  const { t: tr } = useI18n();
   const { reloadHousehold } = useSession();
   const [name, setName] = useState('');
-  const [houseName, setHouseName] = useState('Home');
+  const [houseName, setHouseName] = useState(() => tr('onb.defaultHousehold'));
   const [code, setCode] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,7 +23,8 @@ export default function Onboarding() {
       await fn();
       await reloadHousehold();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg === 'invalid_invite' ? tr('onb.invalidCode') : msg);
     } finally {
       setBusy(false);
     }
@@ -30,16 +33,16 @@ export default function Onboarding() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
       <ScrollView contentContainerStyle={[styles.screen, { paddingTop: 60 }]} keyboardShouldPersistTaps="handled">
-        <Title>Welcome</Title>
-        <Field placeholder="Your name" value={name} onChangeText={setName} />
-        <Text style={{ color: t.fg, fontWeight: '600', marginTop: 12 }}>Start a new household</Text>
-        <Field placeholder="Household name" value={houseName} onChangeText={setHouseName} />
-        <Btn primary label="Create" disabled={busy || !houseName.trim()} onPress={() => run(() => createHousehold(houseName.trim(), name.trim()))} />
-        <Text style={{ color: t.fg, fontWeight: '600', marginTop: 12 }}>…or join your partner</Text>
-        <Field placeholder="Invite code" autoCapitalize="none" value={code} onChangeText={setCode} />
-        <Btn label="Join" disabled={busy || !code.trim()} onPress={() => run(() => joinHousehold(code.trim(), name.trim()))} />
+        <Title>{tr('onb.welcome')}</Title>
+        <Field placeholder={tr('onb.yourName')} value={name} onChangeText={setName} />
+        <Text style={{ color: t.fg, fontWeight: '600', marginTop: 12 }}>{tr('onb.newHousehold')}</Text>
+        <Field placeholder={tr('onb.householdName')} value={houseName} onChangeText={setHouseName} />
+        <Btn primary label={tr('onb.create')} disabled={busy || !houseName.trim()} onPress={() => run(() => createHousehold(houseName.trim(), name.trim()))} />
+        <Text style={{ color: t.fg, fontWeight: '600', marginTop: 12 }}>{tr('onb.orJoin')}</Text>
+        <Field placeholder={tr('onb.inviteCode')} autoCapitalize="none" value={code} onChangeText={setCode} />
+        <Btn label={tr('onb.join')} disabled={busy || !code.trim()} onPress={() => run(() => joinHousehold(code.trim(), name.trim()))} />
         {err && <Text style={{ color: t.danger }}>{err}</Text>}
-        <Muted>The invite code is shown under Settings on the first device.</Muted>
+        <Muted>{tr('onb.inviteShown')}</Muted>
       </ScrollView>
     </SafeAreaView>
   );

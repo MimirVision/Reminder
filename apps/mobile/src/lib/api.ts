@@ -2,6 +2,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { readJson, writeJson } from './store';
 import { supabase } from './supabase';
 import type { FactCategory } from '../core/facts.ts';
+import type { Hit } from '../shared/lib/placeSearch';
 import type { CaptureKey, HouseFact, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -22,7 +23,7 @@ export async function createHousehold(name: string, displayName: string) {
 
 export async function joinHousehold(code: string, displayName: string) {
   const id = check(await supabase.rpc('join_household', { p_invite_code: code, p_display_name: displayName }));
-  if (!id) throw new Error('That invite code is not valid.');
+  if (!id) throw new Error('invalid_invite');
 }
 
 export async function rotateInviteCode(householdId: string): Promise<string> {
@@ -49,26 +50,78 @@ export async function listPlaces(householdId: string): Promise<Place[]> {
   return check(await supabase.from('places').select('*').eq('household_id', householdId).order('created_at'));
 }
 
-export async function addPlace(p: Omit<Place, 'id'>) {
-  check(await supabase.from('places').insert(p));
+export async function addPlace(p: Omit<Place, 'id'>): Promise<Place> {
+  return check(await supabase.from('places').insert(p).select().single()) as Place;
 }
 
 export async function deletePlace(id: string) {
   check(await supabase.from('places').delete().eq('id', id));
 }
 
-export async function updateMemory(id: string, patch: Partial<Pick<Memory, 'status' | 'place_id' | 'done_at'>>) {
+export async function updatePlaceCategory(id: string, category: string | null) {
+  check(await supabase.from('places').update({ category }).eq('id', id));
+}
+
+// A to-do with a place or a date is "active" (it has a reason to surface); one with neither waits in the inbox.
+export const statusFor = (m: { place_id?: string | null; due_on?: string | null }): Memory['status'] => (m.place_id || m.due_on ? 'active' : 'inbox');
+
+type Patch = Partial<Pick<Memory, 'status' | 'place_id' | 'done_at' | 'body' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by'>>;
+
+export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
 }
 
+/** Edit text, place and date together. The status follows what the to-do now has. */
+export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: Memory['repeat_rule'] }) {
+  await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, repeat_rule: f.due_on ? f.repeat_rule ?? null : null, status: statusFor(f) });
+}
+
+/** Ticks a to-do off. A repeating one also gets its next occurrence; that new to-do's id is returned so it can be undone. */
+export async function completeMemory(id: string): Promise<string | null> {
+  return (check(await supabase.rpc('complete_memory', { p_id: id })) as string | null) ?? null;
+}
+
 export async function markDone(ids: string[]) {
-  check(
-    await supabase.from('memories').update({ status: 'done', done_at: new Date().toISOString() }).in('id', ids),
-  );
+  for (const id of ids) await completeMemory(id);
+}
+
+export async function reopenMemory(id: string, m: { place_id: string | null; due_on: string | null }) {
+  await updateMemory(id, { status: statusFor(m), done_at: null, done_by: null });
+}
+
+/** Deleting is a soft delete so it can be undone. Old dismissed to-dos are purged after 30 days. */
+export async function softDelete(id: string) {
+  await updateMemory(id, { status: 'dismissed' });
+}
+
+export async function purgeDismissed(householdId: string, olderThanDays = 30) {
+  const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
+  await supabase.from('memories').delete().eq('household_id', householdId).eq('status', 'dismissed').lt('created_at', cutoff);
 }
 
 export async function deleteMemory(id: string) {
   check(await supabase.from('memories').delete().eq('id', id));
+}
+
+export async function getMemory(id: string): Promise<Memory | null> {
+  const res = await supabase.from('memories').select('*').eq('id', id).maybeSingle();
+  if (res.error) throw new Error(res.error.message);
+  return (res.data as Memory | null) ?? null;
+}
+
+export async function listDoneSince(householdId: string, days = 7): Promise<Pick<Memory, 'id' | 'done_at' | 'done_by' | 'author_id'>[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  return check(await supabase.from('memories').select('id, done_at, done_by, author_id').eq('household_id', householdId).eq('status', 'done').gte('done_at', since).limit(500));
+}
+
+/** Live updates: calls onChange when anything in this household's to-dos or places changes (the partner added something). */
+export function subscribeHousehold(householdId: string, onChange: () => void): () => void {
+  const ch = supabase
+    .channel(`hm-${householdId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'memories', filter: `household_id=eq.${householdId}` }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'places', filter: `household_id=eq.${householdId}` }, onChange)
+    .subscribe();
+  return () => { void supabase.removeChannel(ch); };
 }
 
 export type NewMemory = {
@@ -76,14 +129,41 @@ export type NewMemory = {
   household_id: string;
   body: string;
   place_id: string | null;
+  due_on?: string | null;
+  due_time?: string | null;
+  repeat_rule?: Memory['repeat_rule'];
   capture_lat: number | null;
   capture_lon: number | null;
 };
 
 export async function insertMemory(m: NewMemory) {
-  const status = m.place_id ? 'active' : 'inbox';
-  const res = await supabase.from('memories').upsert({ ...m, status }, { onConflict: 'id', ignoreDuplicates: true });
+  const row = { ...m, due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m) };
+  const res = await supabase.from('memories').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
   if (res.error) throw new Error(res.error.message);
+}
+
+/** Where a to-do goes, as chosen in the add screen. */
+export type Where =
+  | { kind: 'none' }
+  | { kind: 'place'; placeId: string }
+  | { kind: 'category'; category: string; name: string }
+  | { kind: 'hit'; hit: Hit; kindOfShop: string | null };
+
+/** Turns the choice into a place id, reusing a saved place when there is one (no duplicates). */
+export async function resolveWhere(householdId: string, where: Where, places: Place[], find: (places: Place[], hit: Hit) => Place | null): Promise<string | null> {
+  if (where.kind === 'none') return null;
+  if (where.kind === 'place') return where.placeId;
+  if (where.kind === 'category') {
+    const have = places.find((p) => p.kind === 'category' && p.category === where.category);
+    if (have) return have.id;
+    return (await addPlace({ household_id: householdId, name: where.name, kind: 'category', category: where.category, lat: null, lon: null, radius_m: 150 })).id;
+  }
+  const have = find(places, where.hit);
+  if (have) return have.id;
+  return (await addPlace({
+    household_id: householdId, name: where.hit.name, kind: 'fixed', category: where.kindOfShop ?? where.hit.category,
+    lat: where.hit.lat, lon: where.hit.lon, radius_m: where.hit.isAddress ? 150 : 200, address: where.hit.address || null,
+  })).id;
 }
 
 export async function uploadPhoto(householdId: string, memoryId: string, uri: string) {
@@ -129,10 +209,6 @@ export async function deleteCaptureKey(id: string) {
 
 export async function updatePlaceRadius(id: string, radius: number) {
   check(await supabase.from('places').update({ radius_m: radius }).eq('id', id));
-}
-
-export async function reopenMemory(id: string) {
-  check(await supabase.from('memories').update({ status: 'active', done_at: null }).eq('id', id));
 }
 
 export async function listTasks(householdId: string): Promise<MaintenanceTask[]> {
@@ -226,4 +302,22 @@ export async function addTask(t: {
       p_last_done: t.lastDone ?? null,
     }),
   );
+}
+
+// Photo of a label, tin, receipt or warranty: upload, then let the AI turn it into a fact to confirm.
+export type LabelFact = { title: string; value: string; category: FactCategory; surface_at: string[] };
+
+export async function readLabel(householdId: string, uri: string, lang: 'en' | 'nb'): Promise<LabelFact> {
+  const small = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1800 } }], { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG });
+  const bytes = await (await fetch(small.uri)).arrayBuffer();
+  const path = `${householdId}/labels/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+  const up = await supabase.storage.from('media').upload(path, bytes, { contentType: 'image/jpeg' });
+  if (up.error) throw new Error(up.error.message);
+  const { data, error } = await supabase.functions.invoke('read-label', { body: { path, lang } });
+  if (error) {
+    let code = '';
+    try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
+    throw new Error(`label:${['not_configured', 'too_large', 'unreadable'].includes(code) ? code : 'failed'}`);
+  }
+  return (data as { fact: LabelFact }).fact;
 }

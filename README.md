@@ -9,7 +9,7 @@ principles, data model and roadmap.
 | `docs/DESIGN.md` | Product and technical design |
 | `apps/spike` | Milestone 0: iOS geofence reliability test (Expo) |
 | `apps/web` | Milestone 1: web app for desktop and the spouse's phone |
-| `apps/mobile` | Milestone 1: iPhone app (capture, places, place reminders); needs a paid Apple account to run background features |
+| `apps/mobile` | iPhone app (Expo): to-dos with dates, place search, repeat, Norwegian/English, light/dark, place reminders; needs a paid Apple account for background place reminders. Shares its logic with the web app (`scripts/sync-shared.mjs`) |
 | `docs/REMINDERS.md` | Reminders on the iPhone without an app (Shortcuts + Calendar) |
 | `docs/CAPTURE.md` | Siri / Action button / share-sheet capture recipe |
 | `supabase` | Milestone 1: database schema, RLS and tests |

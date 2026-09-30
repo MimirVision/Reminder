@@ -4,12 +4,13 @@ import type { SFSymbol } from 'expo-symbols';
 import { Glass } from './glass';
 import { font, useTheme } from './theme';
 import { Icon } from './ui';
+import { useI18n } from './i18n';
 
-const TABS: Record<string, { label: string; icon: SFSymbol }> = {
-  index: { label: 'To-do', icon: 'checkmark.circle' },
-  house: { label: 'House', icon: 'house' },
-  places: { label: 'Places', icon: 'mappin.and.ellipse' },
-  settings: { label: 'Settings', icon: 'gearshape' },
+const TABS: Record<string, { key: 'nav.todo' | 'nav.house' | 'nav.places' | 'nav.settings'; icon: SFSymbol }> = {
+  index: { key: 'nav.todo', icon: 'checkmark.circle' },
+  house: { key: 'nav.house', icon: 'house' },
+  places: { key: 'nav.places', icon: 'mappin.and.ellipse' },
+  settings: { key: 'nav.settings', icon: 'gearshape' },
 };
 
 type Props = {
@@ -20,6 +21,7 @@ type Props = {
 // Floating Liquid Glass tab bar. The selected tab gets a lighter capsule, like the system one.
 export function GlassTabBar({ state, navigation }: Props) {
   const t = useTheme();
+  const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) }}>
@@ -41,7 +43,7 @@ export function GlassTabBar({ state, navigation }: Props) {
               }}
             >
               <Icon name={meta.icon} size={22} color={color} />
-              <Text style={{ fontSize: 11, color, fontFamily: font.semi }}>{meta.label}</Text>
+              <Text style={{ fontSize: 11, color, fontFamily: font.semi }}>{tr(meta.key)}</Text>
             </Pressable>
           );
         })}
