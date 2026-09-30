@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
+import { buildSetup } from '../build-setup.mjs';
 
 const db = new PGlite();
 
@@ -20,7 +21,8 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-await db.exec(readFileSync(new URL('../migrations/0001_init.sql', import.meta.url), 'utf8'));
+for (const f of ['0001_init.sql', '0002_capture_keys.sql'])
+  await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
 const A = '11111111-1111-1111-1111-111111111111'; // you
@@ -72,5 +74,38 @@ await as(C, async () => {
 await as(A, async () => {
   assert.equal((await db.query(`select * from storage.objects`)).rows.length, 1, 'member sees photos');
 });
+
+// Capture keys: anonymous capture works with a valid key only, lands in the right household as the key's owner.
+let key;
+await as(A, async () => {
+  key = (await db.query(`select public.create_capture_key($1, 'iPhone Shortcut') as k`, [hid])).rows[0].k;
+  assert.match(key, /^hm_[0-9a-f]{64}$/);
+  const stored = (await db.query(`select key_hash from capture_keys`)).rows[0].key_hash;
+  assert.ok(!Buffer.from(stored).toString('utf8').includes(key), 'plaintext key is not stored');
+});
+await as(C, async () => {
+  await rejects(() => db.query(`select public.create_capture_key($1)`, [hid]), /not a member/);
+  assert.equal((await db.query(`select * from capture_keys`)).rows.length, 0, 'stranger cannot list keys');
+});
+await db.exec(`set role anon; select set_config('request.jwt.claim.sub', '', false)`);
+await db.query(`select public.capture_memory($1, '  remember the gutters  ', 59.91, 10.75)`, [key]);
+await rejects(() => db.query(`select public.capture_memory('hm_wrong', 'x')`), /invalid capture key/);
+await rejects(() => db.query(`select public.capture_memory($1, '   ')`, [key]), /empty memory/);
+await rejects(() => db.query(`select * from memories`), /permission denied/);
+await db.exec(`reset role`);
+await as(B, async () => {
+  const r = (await db.query(`select body, author_id, status, capture_lat from memories where body = 'remember the gutters'`)).rows;
+  assert.equal(r.length, 1);
+  assert.equal(r[0].author_id, A, 'attributed to key owner');
+  assert.equal(r[0].status, 'inbox');
+});
+await as(A, async () => {
+  await db.query(`delete from capture_keys`);
+});
+await db.exec(`set role anon`);
+await rejects(() => db.query(`select public.capture_memory($1, 'after revoke')`, [key]), /invalid capture key/);
+await db.exec(`reset role`);
+
+assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
 
 console.log('RLS checks passed');

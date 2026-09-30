@@ -128,6 +128,20 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
 | Privacy of home photos | Private storage, RLS per household, user's informed choice on cloud AI |
 | App abandonment | Dogfood with real errands before the house arrives; success gate below |
 
+### Decisions made while building Milestone 1
+
+- **Capture without native code.** Capture keys + an anonymous `capture_memory` RPC let an iOS Shortcut post text
+  to the inbox (Siri, Action button, share sheet, Windows scripts). See `docs/CAPTURE.md`. Native App Intents /
+  widgets can come later.
+- **Category places** ("any pharmacy") are resolved to real shops with OpenStreetMap (Overpass), cached on the
+  device, and re-fetched after moving >2 km or after 24 h.
+- **Geofence budget.** At most 19 nearby regions plus one 1.5 km "refresh" region; leaving the refresh region wakes
+  the app to re-pick the nearest regions. Only places with active memories are watched.
+- **Reminder logic is plain, tested TypeScript** (`apps/mobile/src/core`): region selection, once-per-visit and
+  cooldown rules, snooze handling, notification text.
+- **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
+  the phone leaves its refresh region (no background push yet).
+
 ## 10. Roadmap
 
 **Milestone 0: Location spike (throwaway, ~1–2 weeks of real use).**

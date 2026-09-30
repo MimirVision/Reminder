@@ -8,4 +8,6 @@ principles, data model and roadmap.
 | `docs/DESIGN.md` | Product and technical design |
 | `apps/spike` | Milestone 0: iOS geofence reliability test (Expo) |
 | `apps/web` | Milestone 1: web app for desktop and the spouse's phone |
+| `apps/mobile` | Milestone 1: iPhone app (capture, places, place reminders); needs a paid Apple account to run background features |
+| `docs/CAPTURE.md` | Siri / Action button / share-sheet capture recipe |
 | `supabase` | Milestone 1: database schema, RLS and tests |

@@ -7,8 +7,9 @@ import { Auth } from './components/Auth';
 import { Onboarding } from './components/Onboarding';
 import { Memories } from './components/Memories';
 import { Places } from './components/Places';
+import { CaptureKeys } from './components/CaptureKeys';
 
-type Tab = 'memories' | 'places';
+type Tab = 'memories' | 'places' | 'capture';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -59,13 +60,16 @@ export default function App() {
         <nav>
           <button className={tab === 'memories' ? 'tab on' : 'tab'} onClick={() => setTab('memories')}>Memories</button>
           <button className={tab === 'places' ? 'tab on' : 'tab'} onClick={() => setTab('places')}>Places</button>
+          <button className={tab === 'capture' ? 'tab on' : 'tab'} onClick={() => setTab('capture')}>Capture</button>
         </nav>
         <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
       </header>
       {tab === 'memories' ? (
         <Memories household={household} userId={session.user.id} />
-      ) : (
+      ) : tab === 'places' ? (
         <Places household={household} />
+      ) : (
+        <CaptureKeys household={household} />
       )}
     </div>
   );

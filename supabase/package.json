@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/rls.test.mjs"
+    "test": "node tests/rls.test.mjs",
+    "build:setup": "node build-setup.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8"

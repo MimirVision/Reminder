@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Home Memory",
+    "slug": "home-memory",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "homememory",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mimirvision.homememory",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "isIosBackgroundLocationEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Home Memory watches for places where you have a reminder and tells you when you are nearby.",
+          "locationWhenInUsePermission": "Home Memory uses your location to remind you at the right place.",
+          "locationAlwaysPermission": "Home Memory watches for places where you have a reminder and tells you when you are nearby."
+        }
+      ],
+      "expo-notifications",
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach photos to your memories.",
+          "cameraPermission": "Take photos of things you want to remember."
+        }
+      ]
+    ]
+  }
+}

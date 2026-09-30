@@ -116,3 +116,17 @@ export async function listPhotoUrls(memoryIds: string[]): Promise<Map<string, st
   }
   return out;
 }
+
+export type CaptureKey = { id: string; label: string; created_at: string; last_used_at: string | null };
+
+export async function listCaptureKeys(): Promise<CaptureKey[]> {
+  return check(await supabase.from('capture_keys').select('id, label, created_at, last_used_at').order('created_at'));
+}
+
+export async function createCaptureKey(householdId: string, label: string): Promise<string> {
+  return check(await supabase.rpc('create_capture_key', { p_household_id: householdId, p_label: label })) as string;
+}
+
+export async function deleteCaptureKey(id: string) {
+  check(await supabase.from('capture_keys').delete().eq('id', id));
+}
