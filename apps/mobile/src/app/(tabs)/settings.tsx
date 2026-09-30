@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { createCaptureKey, deleteCaptureKey, listCaptureKeys } from '@/lib/api';
+import { createCaptureKey, deleteCaptureKey, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { enableReminders, hasBackgroundAccess, refreshRegions } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
@@ -19,6 +19,7 @@ export default function Settings() {
   const [watching, setWatching] = useState<number | null>(null);
   const [keys, setKeys] = useState<CaptureKey[]>([]);
   const [newKey, setNewKey] = useState<string | null>(null);
+  const [invite, setInvite] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setEnabled(await hasBackgroundAccess());
@@ -89,7 +90,11 @@ export default function Settings() {
         {h('Household')}
         <Muted>{household?.name}</Muted>
         <Muted>Invite code for your partner:</Muted>
-        <Text selectable style={{ color: t.ink, fontFamily: 'Menlo' }}>{household?.invite_code}</Text>
+        <Text selectable style={{ color: t.ink, fontFamily: 'Menlo' }}>{invite ?? household?.invite_code}</Text>
+        <Btn small label="New invite code" onPress={() => Alert.alert('Make a new invite code?', 'The old one stops working.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'New code', onPress: async () => { if (household) setInvite(await rotateInviteCode(household.id)); } },
+        ])} />
       </Card>
 
       <Btn danger label="Sign out" onPress={() => supabase.auth.signOut()} />

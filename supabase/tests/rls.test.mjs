@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
-import { buildSetup } from '../build-setup.mjs';
+import { buildSetup, UPGRADE_AFTER } from '../build-setup.mjs';
 
 const db = new PGlite();
 
@@ -21,7 +21,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -49,7 +49,7 @@ await as(C, async () => {
   assert.equal((await db.query(`select * from households`)).rows.length, 0, 'stranger sees no households');
   await rejects(() => db.query(`insert into memories (household_id, body) values ($1, 'x')`, [hid]), /row-level security/);
   await rejects(() => db.query(`insert into household_members (household_id, user_id) values ($1, $2)`, [hid, C]), /permission denied|row-level security/);
-  await rejects(() => db.query(`select public.join_household('nope')`), /invalid invite code/);
+  assert.equal((await db.query(`select public.join_household('nope') as h`)).rows[0].h, null, 'unknown code returns null');
 });
 
 await as(B, async () => {
@@ -164,6 +164,37 @@ await as(C, async () => {
   assert.equal(n, 0, 'stranger cannot touch suggestions');
 });
 
+// Hardening: rotate invite code, throttled guessing, same-household integrity.
+const D = '44444444-4444-4444-4444-444444444444';
+await db.exec(`insert into auth.users values ('${D}')`);
+await as(D, async () => {
+  for (let i = 0; i < 10; i++) await db.query(`select public.join_household('guess${i}')`);
+  await rejects(() => db.query(`select public.join_household('guess11')`), /too many attempts/);
+  const real = (await db.query(`select invite_code from households where id = $1`, [hid])).rows.length;
+  assert.equal(real, 0, 'outsider still cannot read households');
+});
+let newCode;
+await as(A, async () => {
+  newCode = (await db.query(`select public.rotate_invite_code($1) as c`, [hid])).rows[0].c;
+  assert.match(newCode, /^[0-9a-f]{16}$/);
+  assert.notEqual(code, newCode);
+  const second = (await db.query(`select public.create_household('Other') as id`)).rows[0].id;
+  assert.equal((await db.query(`select length(invite_code) as n from households where id = $1`, [second])).rows[0].n, 16, 'new households get long codes');
+  const place = (await db.query(`select id from places where household_id = $1 limit 1`, [hid])).rows[0].id;
+  await rejects(() => db.query(`insert into memories (household_id, body, place_id) values ($1, 'x', $2)`, [second, place]), /another household/);
+  const mem = (await db.query(`select id from memories where household_id = $1 limit 1`, [hid])).rows[0].id;
+  await rejects(() => db.query(`insert into media (memory_id, household_id, storage_path) values ($1, $2, 'p')`, [mem, second]), /another household/);
+  await db.query(`insert into media (memory_id, household_id, storage_path) values ($1, $2, 'ok')`, [mem, hid]);
+});
+await as(C, async () => {
+  await rejects(() => db.query(`select public.rotate_invite_code($1)`, [hid]), /not a member/);
+});
+await as(D, async () => {
+  // the old attempts window is per hour; a fresh user with the rotated code would join, the old code no longer works
+  await db.exec(`delete from join_attempts`).catch(() => {});
+});
+
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
+assert.equal(readFileSync(new URL('../upgrade.sql', import.meta.url), 'utf8'), buildSetup(UPGRADE_AFTER), 'upgrade.sql is stale: run npm run build:setup');
 
 console.log('RLS checks passed');

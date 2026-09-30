@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { createCaptureKey, deleteCaptureKey, listCaptureKeys, type CaptureKey } from '../lib/api';
+import { createCaptureKey, deleteCaptureKey, listCaptureKeys, rotateInviteCode, type CaptureKey } from '../lib/api';
 import { applyGlass, getGlass, GLASS_LEVELS, type GlassLevel } from '../lib/glass';
 import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
@@ -10,6 +10,7 @@ export function Settings({ household }: { household: Household }) {
   const [fresh, setFresh] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [glass, setGlass] = useState<GlassLevel>(getGlass);
+  const [invite, setInvite] = useState(household.invite_code);
 
   const load = useCallback(async () => {
     try { setKeys(await listCaptureKeys()); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -62,7 +63,10 @@ export function Settings({ household }: { household: Household }) {
       <section className="card">
         <h2>Household</h2>
         <span>{household.name}</span>
-        <span className="muted">Invite code for your partner: <code>{household.invite_code}</code></span>
+        <span className="muted">Invite code for your partner: <code>{invite}</code></span>
+        <div className="row">
+          <button className="btn small" onClick={() => confirm('Make a new invite code? The old one stops working.') && void run(async () => setInvite(await rotateInviteCode(household.id)))}>New invite code</button>
+        </div>
       </section>
 
       <button className="btn danger" onClick={() => supabase.auth.signOut()}>Sign out</button>

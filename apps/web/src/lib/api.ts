@@ -18,7 +18,12 @@ export async function createHousehold(name: string, displayName: string) {
 }
 
 export async function joinHousehold(code: string, displayName: string) {
-  check(await supabase.rpc('join_household', { p_invite_code: code, p_display_name: displayName }));
+  const id = check(await supabase.rpc('join_household', { p_invite_code: code, p_display_name: displayName }));
+  if (!id) throw new Error('That invite code is not valid.');
+}
+
+export async function rotateInviteCode(householdId: string): Promise<string> {
+  return check(await supabase.rpc('rotate_invite_code', { p_household_id: householdId })) as string;
 }
 
 export async function listMembers(householdId: string): Promise<Member[]> {

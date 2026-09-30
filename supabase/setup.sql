@@ -402,3 +402,75 @@ grant execute on function public.seed_house_template(uuid, jsonb, date) to authe
 alter table public.memories
   add column suggestion jsonb,
   add column suggested_at timestamptz;
+
+-- ===== 0005_hardening.sql =====
+-- Security hardening found in review.
+-- 1. Invite codes: longer for new households, throttled guessing, and a way to rotate.
+-- 2. Cross-household references: a to-do may only point at a place of its own household, media only at its own to-dos.
+
+alter table public.households
+  alter column invite_code set default substr(replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''), 1, 16);
+
+-- Failed join attempts, used to throttle guessing. No policies: only the security definer functions touch it.
+create table public.join_attempts (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  at timestamptz not null default now()
+);
+create index join_attempts_user_idx on public.join_attempts (user_id, at desc);
+alter table public.join_attempts enable row level security;
+
+-- An unknown code now returns NULL (not an exception) so the failed attempt is recorded before the caller sees it.
+create or replace function public.join_household(p_invite_code text, p_display_name text default null)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare hid uuid; recent integer;
+begin
+  if auth.uid() is null then raise exception 'not authenticated'; end if;
+  select count(*) into recent from public.join_attempts where user_id = auth.uid() and at > now() - interval '1 hour';
+  if recent >= 10 then raise exception 'too many attempts, try again later'; end if;
+
+  select id into hid from public.households where invite_code = lower(trim(p_invite_code));
+  if hid is null then
+    insert into public.join_attempts (user_id) values (auth.uid());
+    return null;
+  end if;
+  insert into public.household_members (household_id, user_id, display_name)
+    values (hid, auth.uid(), p_display_name)
+    on conflict do nothing;
+  return hid;
+end;
+$$;
+
+-- Any member can replace the household's invite code, which invalidates the old one.
+create function public.rotate_invite_code(p_household_id uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare code text;
+begin
+  if not public.is_member(p_household_id) then raise exception 'not a member'; end if;
+  code := substr(replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''), 1, 16);
+  update public.households set invite_code = code where id = p_household_id;
+  return code;
+end;
+$$;
+grant execute on function public.rotate_invite_code(uuid) to authenticated;
+
+create function public.check_same_household() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'memories' then
+    if new.place_id is not null and not exists (
+      select 1 from public.places p where p.id = new.place_id and p.household_id = new.household_id
+    ) then
+      raise exception 'place belongs to another household';
+    end if;
+  elsif tg_table_name = 'media' then
+    if not exists (select 1 from public.memories m where m.id = new.memory_id and m.household_id = new.household_id) then
+      raise exception 'memory belongs to another household';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger memories_same_household before insert or update of place_id on public.memories
+  for each row execute function public.check_same_household();
+create trigger media_same_household before insert or update of memory_id on public.media
+  for each row execute function public.check_same_household();
