@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { deleteMemory, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, reopen } from '../lib/api';
+import { acceptSuggestion, deleteMemory, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, reopen, requestSuggestion } from '../lib/api';
 import { fetchPois, type LatLon, type Poi } from '../lib/geo';
 import type { Household, Member, Memory, Place } from '../lib/types';
 import { AddBar, AddSheet } from './AddSheet';
@@ -42,6 +42,22 @@ export function Todo({ household, userId }: { household: Household; userId: stri
   }, [household.id, showDone]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Ask for place suggestions for a few to-dos that have none yet (once per to-do; silent if not set up).
+  useEffect(() => {
+    if (showDone) return;
+    const todo = memories.filter((m) => !m.place_id && m.body && !m.suggested_at).slice(0, 3);
+    if (todo.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const m of todo) {
+        const r = await requestSuggestion(m.id);
+        if (cancelled || r.unavailable) return;
+        setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, suggestion: r.suggestion, suggested_at: new Date().toISOString() } : x)));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [memories, showDone]);
   useEffect(() => {
     listPlaces(household.id).then(setPlaces).catch(() => {});
     listMembers(household.id).then(setMembers).catch(() => {});
@@ -90,6 +106,16 @@ export function Todo({ household, userId }: { household: Household; userId: stri
       <div className="text">
         {m.body && <p className="body">{m.body}</p>}
         {(photos.get(m.id) ?? []).length > 0 && <div className="photos">{photos.get(m.id)!.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" loading="lazy" /></a>)}</div>}
+        {m.suggestion && !showDone && (
+          <div className="suggest" role="group" aria-label="Suggested place">
+            <span className="chip"><Icon name="pin" size={13} />{m.suggestion.label}</span>
+            <span className="muted">{m.suggestion.reason}</span>
+            <span className="row">
+              <button className="btn small primary" onClick={() => void act(() => acceptSuggestion(m.id, household.id, m.suggestion!).then(() => listPlaces(household.id).then(setPlaces)))}>Add reminder</button>
+              <button className="btn small" onClick={() => void act(() => dismissSuggestion(m.id))}>No thanks</button>
+            </span>
+          </div>
+        )}
         {meta && <span className="muted">{who(m.author_id)} · {ago(m.created_at)}</span>}
       </div>
       <button className="link quiet" onClick={() => confirm('Delete this to-do?') && void act(() => deleteMemory(m.id))}>Delete</button>

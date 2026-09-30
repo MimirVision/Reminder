@@ -13,6 +13,15 @@ export type Place = {
   radius_m: number;
 };
 
+export type Suggestion = {
+  kind: 'existing_place' | 'category';
+  place_id?: string;
+  category?: string;
+  label: string;
+  reason: string;
+  confidence: 'high' | 'medium';
+};
+
 export type Memory = {
   id: string;
   household_id: string;
@@ -23,6 +32,8 @@ export type Memory = {
   place_category: string | null;
   created_at: string;
   done_at: string | null;
+  suggestion: Suggestion | null;
+  suggested_at: string | null;
 };
 
 export type Media = { id: string; memory_id: string; storage_path: string; kind: 'photo' | 'voice' };

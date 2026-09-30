@@ -2,7 +2,18 @@ import type { MaintenanceTask as CoreTask, MemoryRow, PlaceRow } from '../core/t
 
 export type Household = { id: string; name: string; invite_code: string };
 
+export type Suggestion = {
+  kind: 'existing_place' | 'category';
+  place_id?: string;
+  category?: string;
+  label: string;
+  reason: string;
+  confidence: 'high' | 'medium';
+};
+
 export type Memory = MemoryRow & {
+  suggestion: Suggestion | null;
+  suggested_at: string | null;
   household_id: string;
   author_id: string;
   created_at: string;

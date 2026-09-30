@@ -14,8 +14,29 @@ row-level security, the invite flow, capture keys (for Siri/Shortcuts) and a pri
 
 (Later we can switch to the Supabase CLI so migrations are applied from the repo.)
 
+## AI place suggestions (optional)
+
+When you add a to-do without a place, the apps ask the `suggest` edge function whether it belongs at a shop
+("paracetamol → any pharmacy"). It only proposes; you confirm with one tap. Each to-do is asked about at most once.
+The apps work without it.
+
+One-time setup (needs an Anthropic API key from console.anthropic.com):
+
+```powershell
+npx supabase login
+npx supabase link --project-ref YOUR-PROJECT-REF
+npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+npx supabase functions deploy suggest
+```
+
+- The model defaults to `claude-opus-5-5`. To change it (for example to a cheaper one), run
+  `npx supabase secrets set ANTHROPIC_MODEL=<model id>`.
+- Cost: each suggestion is one tiny request (a few hundred input tokens, short output), so a few øre per day at normal use.
+- `setup.sql` already contains the two columns it needs (migration 0004).
+
 ## Tests
 
 `npm install && npm test` runs the migration in an in-process Postgres with minimal Supabase stubs and checks that
 a stranger sees nothing, a partner who joins with the invite code sees shared memories, authorship can't be
-spoofed, and photo objects are household-private.
+spoofed, and photo objects are household-private. It also tests the suggestion logic with a faked model
+(`tests/suggest.test.ts`). The function itself has not been run against the real API from here.

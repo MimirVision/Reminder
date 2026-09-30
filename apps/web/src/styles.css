@@ -84,3 +84,5 @@ form { display: flex; flex-direction: column; gap: 10px; }
 .ribbon span.on { background: var(--accent); color: #fff; } .ribbon span.now { outline: 2px solid var(--ink); }
 @media (min-width: 900px) { .page { padding-top: 40px; } }
 @media (prefers-reduced-motion: no-preference) { .btn, .check, .nav button { transition: background 0.15s, opacity 0.15s; } }
+
+.suggest { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; align-self: stretch; border: 1px dashed var(--line); border-radius: 16px; padding: 10px 12px; background: color-mix(in srgb, var(--tint) 45%, transparent); }

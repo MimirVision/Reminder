@@ -152,6 +152,9 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   sections Near you / At a place / Anytime. To-do has a List | Map toggle. Floating Liquid Glass tab bar and "Add a
   to-do…" bar (system glass on iOS 26+, blur fallback), adjustable in Settings (Clear / Glass / Frosted). The design
   canvas is the reference.
+- **AI place suggestions.** Edge function `suggest` (Claude API, structured output, low effort) proposes a saved place or
+  a shop category for a to-do that has none; the model's ids and categories are validated, nothing is applied without a
+  tap, and `suggested_at` limits it to one call per to-do. Recurrence suggestions and photo reading are later.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

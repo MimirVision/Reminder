@@ -395,3 +395,10 @@ grant select, insert, update, delete on public.maintenance_tasks to authenticate
 grant select on public.maintenance_events to authenticated;
 grant execute on function public.complete_maintenance(uuid, date, numeric, text) to authenticated;
 grant execute on function public.seed_house_template(uuid, jsonb, date) to authenticated;
+
+-- ===== 0004_suggestions.sql =====
+-- AI place suggestions. The `suggest` edge function proposes a place for a to-do; the user confirms in the app.
+-- suggested_at marks "already asked", so each to-do costs at most one model call.
+alter table public.memories
+  add column suggestion jsonb,
+  add column suggested_at timestamptz;

@@ -1,6 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
-import type { CaptureKey, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place } from './types';
+import type { CaptureKey, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -153,4 +153,27 @@ export async function listTaskEvents(taskId: string): Promise<MaintenanceEvent[]
 
 export async function retireTask(id: string) {
   check(await supabase.from('maintenance_tasks').update({ active: false }).eq('id', id));
+}
+
+// AI place suggestion (edge function `suggest`). Resolves to null when the feature is not set up or nothing fits.
+export async function requestSuggestion(memoryId: string): Promise<{ suggestion: Suggestion | null; unavailable: boolean }> {
+  const { data, error } = await supabase.functions.invoke('suggest', { body: { memory_id: memoryId } });
+  if (error) return { suggestion: null, unavailable: true };
+  return { suggestion: ((data as { suggestion?: Suggestion | null } | null)?.suggestion) ?? null, unavailable: false };
+}
+
+export async function acceptSuggestion(memoryId: string, householdId: string, s: Suggestion) {
+  let placeId = s.place_id;
+  if (s.kind === 'category' && s.category) {
+    const row = check(
+      await supabase.from('places').insert({ household_id: householdId, name: s.label, kind: 'category', category: s.category, radius_m: 150 }).select('id').single(),
+    ) as { id: string };
+    placeId = row.id;
+  }
+  if (!placeId) throw new Error('No place to attach');
+  check(await supabase.from('memories').update({ place_id: placeId, status: 'active', suggestion: null }).eq('id', memoryId));
+}
+
+export async function dismissSuggestion(memoryId: string) {
+  check(await supabase.from('memories').update({ suggestion: null }).eq('id', memoryId));
 }

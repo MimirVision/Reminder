@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { listMembers, listMemories, listPhotoUrls, listPlaces, markDone } from '@/lib/api';
+import { acceptSuggestion, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, requestSuggestion } from '@/lib/api';
 import { AddBar } from '@/lib/AddBar';
 import { Glass } from '@/lib/glass';
 import { flush, pending } from '@/lib/outbox';
@@ -10,7 +10,7 @@ import { mapPins, refreshRegions, type Pin } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
 import { TodoMap } from '@/lib/TodoMap';
-import { BAR_SPACE, Card, Check, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
+import { BAR_SPACE, Btn, Card, Check, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
 import { distanceM } from '../../core/geo.ts';
 import type { Member, Memory, Place } from '@/lib/types';
 import type { LatLon } from '../../core/types.ts';
@@ -62,6 +62,21 @@ export default function Todo() {
     void load();
   }, [load]);
 
+  // Ask for place suggestions for a few to-dos that have none yet (once per to-do; silent if not set up).
+  useEffect(() => {
+    const todo = memories.filter((m) => !m.place_id && m.body && !m.suggested_at).slice(0, 3);
+    if (todo.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const m of todo) {
+        const r = await requestSuggestion(m.id);
+        if (cancelled || r.unavailable) return;
+        setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, suggestion: r.suggestion, suggested_at: new Date().toISOString() } : x)));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [memories]);
+
   const { near, atPlace, anytime } = useMemo(() => {
     const byPlace = new Map<string, Memory[]>();
     const anytime: Memory[] = [];
@@ -106,6 +121,16 @@ export default function Todo() {
         {(photos[m.id] ?? []).length > 0 && (
           <View style={styles.row}>
             {photos[m.id].map((u) => <Image key={u} source={{ uri: u }} style={{ width: 120, height: 78, borderRadius: 12 }} />)}
+          </View>
+        )}
+        {m.suggestion && (
+          <View style={{ gap: 8, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: t.line, padding: 12, backgroundColor: t.tint }}>
+            <PlaceChip label={m.suggestion.label} />
+            {m.suggestion.reason ? <Muted>{m.suggestion.reason}</Muted> : null}
+            <View style={styles.row}>
+              <Btn small primary label="Add reminder" onPress={async () => { if (household) { await acceptSuggestion(m.id, household.id, m.suggestion!).catch(() => {}); void load(); } }} />
+              <Btn small label="No thanks" onPress={async () => { await dismissSuggestion(m.id).catch(() => {}); void load(); }} />
+            </View>
           </View>
         )}
         {meta && <Muted>{who(m.author_id)} · {new Date(m.created_at).toLocaleDateString()}</Muted>}

@@ -21,7 +21,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -150,6 +150,18 @@ await as(C, async () => {
   const id = (await db.query(`select id from maintenance_tasks limit 1`)).rows;
   assert.equal(id.length, 0);
   await rejects(() => db.query(`select complete_maintenance(gen_random_uuid())`), /not found/);
+});
+
+// Suggestions: members can store and clear a suggestion on a shared to-do; strangers cannot.
+await as(B, async () => {
+  const id = (await db.query(`select id from memories where body = 'milk'`)).rows[0].id;
+  await db.query(`update memories set suggestion = '{"kind":"category","category":"grocery","label":"x","reason":"y","confidence":"high"}', suggested_at = now() where id = $1`, [id]);
+  const r = (await db.query(`select suggestion->>'category' as c, suggested_at is not null as asked from memories where id = $1`, [id])).rows[0];
+  assert.deepEqual(r, { c: 'grocery', asked: true });
+});
+await as(C, async () => {
+  const n = (await db.query(`update memories set suggestion = null returning id`)).rows.length;
+  assert.equal(n, 0, 'stranger cannot touch suggestions');
 });
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
