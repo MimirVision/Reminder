@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createCaptureKey, deleteCaptureKey, listCaptureKeys, rotateInviteCode, type CaptureKey } from '../lib/api';
 import { applyGlass, getGlass, GLASS_LEVELS, type GlassLevel } from '../lib/glass';
+import { downloadExport } from '../lib/exportZip';
 import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
 
@@ -11,6 +12,7 @@ export function Settings({ household }: { household: Household }) {
   const [err, setErr] = useState<string | null>(null);
   const [glass, setGlass] = useState<GlassLevel>(getGlass);
   const [invite, setInvite] = useState(household.invite_code);
+  const [exporting, setExporting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try { setKeys(await listCaptureKeys()); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -67,6 +69,18 @@ export function Settings({ household }: { household: Household }) {
         <div className="row">
           <button className="btn small" onClick={() => confirm('Make a new invite code? The old one stops working.') && void run(async () => setInvite(await rotateInviteCode(household.id)))}>New invite code</button>
         </div>
+      </section>
+
+      <section className="card">
+        <h2>Your data</h2>
+        <span className="muted">
+          Download everything as a zip: a readable summary (Markdown), all data as JSON, and every photo. Your memories should outlive this app.
+        </span>
+        <button className="btn" disabled={exporting !== null && !exporting.startsWith('Done')} onClick={() => {
+          setExporting('Starting…');
+          downloadExport(household.id, household.name, setExporting).catch((e) => setExporting(`Failed: ${e instanceof Error ? e.message : String(e)}`));
+        }}>Export everything</button>
+        {exporting && <span className="muted" role="status">{exporting}</span>}
       </section>
 
       <button className="btn danger" onClick={() => supabase.auth.signOut()}>Sign out</button>

@@ -5,6 +5,7 @@ principles, data model and roadmap.
 
 | Path | What |
 |---|---|
+| `docs/GETTING_STARTED.md` | Step by step: Supabase, web, phone, Siri, AI |
 | `docs/DESIGN.md` | Product and technical design |
 | `apps/spike` | Milestone 0: iOS geofence reliability test (Expo) |
 | `apps/web` | Milestone 1: web app for desktop and the spouse's phone |
