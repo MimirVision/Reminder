@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import type { Fact, FactCategory } from './facts';
+import type { ReportSummary } from './report';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -214,4 +215,21 @@ export async function addTask(t: {
       p_last_done: t.lastDone ?? null,
     }),
   );
+}
+
+// Tilstandsrapport import: upload the PDF to the private bucket, then ask the edge function to read it.
+export async function importReport(householdId: string, file: File): Promise<ReportSummary> {
+  const path = `${householdId}/reports/${crypto.randomUUID()}.pdf`;
+  const up = await supabase.storage.from('media').upload(path, file, { contentType: 'application/pdf' });
+  if (up.error) throw new Error(up.error.message);
+  const { data, error } = await supabase.functions.invoke('import-report', { body: { path } });
+  if (error) {
+    let code = '';
+    try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
+    if (code === 'not_configured') throw new Error('The AI reader is not set up yet. See supabase/README.md, "AI features".');
+    if (code === 'too_large') throw new Error('That PDF is too large (limit 25 MB).');
+    if (code === 'incomplete' || code === 'unreadable') throw new Error('The report could not be read completely. Try again or use a smaller PDF.');
+    throw new Error('Could not read the report. Try again in a minute.');
+  }
+  return (data as { report: ReportSummary }).report;
 }

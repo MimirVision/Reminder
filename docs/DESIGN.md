@@ -160,6 +160,9 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   A specific place can carry a shop kind (e.g. IKEA = hardware) so facts surface there too.
 - **Custom recurring tasks.** `add_maintenance_task` (interval or yearly window, optional last-done date).
 - **Hardening.** Longer invite codes, throttled and rotatable; triggers keep places, to-dos and photos inside one household.
+- **Tilstandsrapport import (web).** Edge function `import-report` reads the PDF (Claude, structured output, streamed)
+  and returns TG3/TG2/TGIU findings with measure, horizon and NOK estimate; the model output is cleaned and capped.
+  You choose findings (TG3/TGIU pre-selected) and they become to-dos. Nothing is stored except the PDF in the private bucket.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

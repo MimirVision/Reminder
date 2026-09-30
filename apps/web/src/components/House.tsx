@@ -5,6 +5,7 @@ import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask } from 
 import { Icon } from './icons';
 import { AddTaskForm } from './AddTaskForm';
 import { FactsView } from './FactsView';
+import { ReportImport } from './ReportImport';
 
 const PROFILE: [keyof HouseProfile, string][] = [
   ['has_garden', 'Garden'],
@@ -47,6 +48,7 @@ export function House({ household }: { household: Household }) {
   const [showLater, setShowLater] = useState(false);
   const [mode, setMode] = useState<'Calendar' | 'Facts'>('Calendar');
   const [addingTask, setAddingTask] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     try { setTasks(await listTasks(household.id)); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setTasks([]); }
@@ -151,6 +153,10 @@ export function House({ household }: { household: Household }) {
       {section('Coming up', groups.soon)}
       {groups.later.length > 0 && <button className="btn" onClick={() => setShowLater(!showLater)}>{showLater ? 'Hide later' : `Later (${groups.later.length})`}</button>}
       {showLater && section('Later', groups.later)}
+      <div className="label">Bought a house?</div>
+      {importing
+        ? <ReportImport household={household} onClose={() => setImporting(false)} onAdded={() => {}} />
+        : <button className="btn" onClick={() => setImporting(true)}>Import the tilstandsrapport (PDF)</button>}
     </main>
   );
 }

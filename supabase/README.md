@@ -20,7 +20,7 @@ row-level security, the invite flow, capture keys (for Siri/Shortcuts) and a pri
 
 (Later we can switch to the Supabase CLI so migrations are applied from the repo.)
 
-## AI place suggestions (optional)
+## AI features (optional)
 
 When you add a to-do without a place, the apps ask the `suggest` edge function whether it belongs at a shop
 ("paracetamol → any pharmacy"). It only proposes; you confirm with one tap. Each to-do is asked about at most once.
@@ -35,9 +35,14 @@ npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 npx supabase functions deploy suggest
 ```
 
+Two functions use it:
+- `suggest`: proposes a place for a to-do (above).
+- `import-report`: reads a tilstandsrapport PDF and lists the TG2/TG3/TGIU findings with measures and cost estimates, so you can turn the ones you want into to-dos (web app: House, Import the tilstandsrapport). Deploy it too:
+  `npx supabase functions deploy import-report` (the API key secret is shared). The PDF is stored in your private bucket and sent to Anthropic's API.
+
 - The model defaults to `claude-opus-5-5`. To change it (for example to a cheaper one), run
   `npx supabase secrets set ANTHROPIC_MODEL=<model id>`.
-- Cost: each suggestion is one tiny request (a few hundred input tokens, short output), so a few øre per day at normal use.
+- Cost: each suggestion is one tiny request, so a few øre per day at normal use. A report import reads a whole PDF (tens of thousands of tokens), so expect a few kroner per report, and you only do it once or twice.
 - `setup.sql` already contains the two columns it needs (migration 0004).
 
 ## Tests
