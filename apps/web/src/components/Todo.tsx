@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { acceptSuggestion, deleteMemory, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, reopen, requestSuggestion } from '../lib/api';
 import { fetchPois, type LatLon, type Poi } from '../lib/geo';
 import type { Household, Member, Memory, Place } from '../lib/types';
@@ -44,14 +44,16 @@ export function Todo({ household, userId }: { household: Household; userId: stri
   useEffect(() => { void load(); }, [load]);
 
   // Ask for place suggestions for a few to-dos that have none yet (once per to-do; silent if not set up).
+  const suggestOff = useRef(false); // set after the first failure so we stop asking this session
   useEffect(() => {
-    if (showDone) return;
+    if (showDone || suggestOff.current) return;
     const todo = memories.filter((m) => !m.place_id && m.body && !m.suggested_at).slice(0, 3);
     if (todo.length === 0) return;
     let cancelled = false;
     (async () => {
       for (const m of todo) {
         const r = await requestSuggestion(m.id);
+        if (r.unavailable) suggestOff.current = true;
         if (cancelled || r.unavailable) return;
         setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, suggestion: r.suggestion, suggested_at: new Date().toISOString() } : x)));
       }

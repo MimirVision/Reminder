@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,13 +63,16 @@ export default function Todo() {
   }, [load]);
 
   // Ask for place suggestions for a few to-dos that have none yet (once per to-do; silent if not set up).
+  const suggestOff = useRef(false); // set after the first failure so we stop asking this session
   useEffect(() => {
+    if (suggestOff.current) return;
     const todo = memories.filter((m) => !m.place_id && m.body && !m.suggested_at).slice(0, 3);
     if (todo.length === 0) return;
     let cancelled = false;
     (async () => {
       for (const m of todo) {
         const r = await requestSuggestion(m.id);
+        if (r.unavailable) suggestOff.current = true;
         if (cancelled || r.unavailable) return;
         setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, suggestion: r.suggestion, suggested_at: new Date().toISOString() } : x)));
       }

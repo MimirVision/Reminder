@@ -7,6 +7,9 @@ import type { MapPin } from '../lib/pins';
 // Map view of the to-do list: a pin per place with open to-dos (OpenStreetMap tiles).
 export default function TodoMap({ pins, here, onOpen }: { pins: MapPin[]; here: { lat: number; lon: number } | null; onOpen: (p: MapPin) => void }) {
   const el = useRef<HTMLDivElement>(null);
+  // Keep the latest handler in a ref so a new function each render does not rebuild the map (and reset the zoom).
+  const openRef = useRef(onOpen);
+  openRef.current = onOpen;
 
   useEffect(() => {
     if (!el.current) return;
@@ -17,11 +20,11 @@ export default function TodoMap({ pins, here, onOpen }: { pins: MapPin[]; here: 
     for (const p of pins) {
       if (p.radius) L.circle([p.lat, p.lon], { radius: p.radius, color: '#C8431F', weight: 2, fillColor: '#C8431F', fillOpacity: 0.12 }).addTo(map);
       const icon = L.divIcon({ className: '', html: `<div class="pin">${p.count || ''}</div>`, iconSize: [38, 38], iconAnchor: [19, 19] });
-      L.marker([p.lat, p.lon], { icon, title: p.label, alt: p.label }).addTo(map).on('click', () => onOpen(p));
+      L.marker([p.lat, p.lon], { icon, title: p.label, alt: p.label }).addTo(map).on('click', () => openRef.current(p));
     }
     if (pins.length > 1) map.fitBounds(L.latLngBounds(pins.map((p) => [p.lat, p.lon] as [number, number])).pad(0.3), { maxZoom: 15 });
     return () => { map.remove(); };
-  }, [pins, here, onOpen]);
+  }, [pins, here]);
 
   return <div className="mapbox" ref={el} role="region" aria-label="Map of places with to-dos" />;
 }
