@@ -183,7 +183,7 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   sections Today, Coming up, At a place, Anytime. Ticking or deleting shows an Undo (deleting is a soft delete, purged after
   30 days); changes from your partner appear live (Supabase Realtime) and when the app returns to the foreground.
 - **Map as part of the app (web).** The To-do screen has a List / Map switch. The map is full-bleed behind the same glass
-  controls, with CARTO Positron / Dark Matter tiles matching the light or dark theme, pins with counts, quiet dots for saved
+  controls, with OpenStreetMap tiles (darkened by a CSS filter in the dark theme; CARTO's free tiles now require a key), pins with counts, quiet dots for saved
   places without to-dos, radius circles, and a draggable bottom sheet (peek, half, full) listing the places by distance.
 - **Language and appearance (web).** Norwegian and English (default from the browser, switch in Settings; the reminder links
   and the starter house calendar follow it) and Automatic / Light / Dark. Translations are JSON dictionaries checked at compile

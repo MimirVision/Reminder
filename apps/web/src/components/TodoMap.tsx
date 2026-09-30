@@ -43,26 +43,18 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
     return () => { ro.disconnect(); m.remove(); map.current = null; tiles.current = null; layer.current = null; me.current = null; fitted.current = ''; };
   }, []);
 
-  // Theme-matched tiles. If none load (blocked network, ad blocker), fall back to plain OpenStreetMap, then say so.
+  // Tiles. If none load (blocked network, ad blocker), say so instead of showing a silent grey box.
   useEffect(() => {
     const m = map.current;
     if (!m) return;
     tiles.current?.remove();
     setTilesFailed(false);
-    let loaded = 0, errors = 0, fallback = false;
-    const make = (url: string, subdomains: string) => {
-      const layer = L.tileLayer(url, { subdomains, maxZoom: 19, detectRetina: !fallback, attribution: fallback ? ATTRIBUTION.replace(' · © <a href="https://carto.com/attributions">CARTO</a>', '') : ATTRIBUTION }).addTo(m);
-      layer.on('tileload', () => { loaded++; });
-      layer.on('tileerror', () => {
-        errors++;
-        if (loaded > 0 || errors < 4) return;
-        if (!fallback) { fallback = true; errors = 0; layer.remove(); tiles.current = make('https://tile.openstreetmap.org/{z}/{x}/{y}.png', 'abc'); tiles.current.bringToBack(); }
-        else setTilesFailed(true);
-      });
-      return layer;
-    };
-    tiles.current = make(TILES[resolved], 'abcd');
-    tiles.current.bringToBack();
+    let loaded = 0, errors = 0;
+    const layer = L.tileLayer(TILES[resolved], { maxZoom: 19, attribution: ATTRIBUTION }).addTo(m);
+    layer.on('tileload', () => { loaded++; });
+    layer.on('tileerror', () => { errors++; if (loaded === 0 && errors >= 4) setTilesFailed(true); });
+    layer.bringToBack();
+    tiles.current = layer;
   }, [resolved]);
 
   // Pins, radius circles and the selection.
@@ -78,7 +70,7 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
       const sel = p.key === selectedKey;
       const icon = L.divIcon({
         className: 'pin-wrap', iconSize: [44, 44], iconAnchor: [22, 22],
-        html: `<div class="pin${p.count ? '' : ' empty'}${sel ? ' sel' : ''}"><span>${p.count || ''}</span></div>`,
+        html: `<div class="pin${p.count ? '' : ' dot'}${sel ? ' sel' : ''}" style="${p.count ? '' : 'width:16px;height:16px;margin:14px;'}">${p.count ? `<span>${p.count}</span>` : ''}</div>`,
       });
       L.marker([p.lat, p.lon], { icon, title: p.label, alt: p.label, zIndexOffset: sel ? 1000 : p.count ? 100 : 0 }).addTo(g).on('click', () => selectRef.current(p));
     }
@@ -137,7 +129,7 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
 
   return (
     <div className="mapwrap" style={{ ['--sheet' as string]: `${bottomInset}px` }}>
-      <div className="map" ref={el} role="region" aria-label={t('map.aria')} />
+      <div className={`map${resolved === 'dark' ? ' dark' : ''}`} ref={el} role="region" aria-label={t('map.aria')} />
       {tilesFailed && <p className="map-note glass" role="status">{t('map.tilesFailed')}</p>}
       <div className="map-controls" style={{ bottom: bottomInset + 20 }}>
         <div className="glass stack">

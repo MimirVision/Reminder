@@ -16,7 +16,6 @@ test('only the three preferences are accepted', () => {
 
 test('status-bar colour and map tiles exist for both themes', () => {
   assert.notEqual(themeColor('light'), themeColor('dark'));
-  assert.match(TILE_URLS.light, /light_all/);
-  assert.match(TILE_URLS.dark, /dark_all/);
+  for (const u of Object.values(TILE_URLS)) assert.doesNotMatch(u, /cartocdn/, 'CARTO tiles need an API key now');
   for (const u of Object.values(TILE_URLS)) assert.match(u, /\{z\}\/\{x\}\/\{y\}/);
 });
