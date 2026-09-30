@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { Fact, FactCategory } from './facts';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -188,4 +189,29 @@ export async function acceptSuggestion(memoryId: string, householdId: string, s:
 
 export async function dismissSuggestion(memoryId: string) {
   check(await supabase.from('memories').update({ suggestion: null }).eq('id', memoryId));
+}
+
+export async function listFacts(householdId: string): Promise<Fact[]> {
+  return check(await supabase.from('house_facts').select('id, household_id, title, value, category, surface_at').eq('household_id', householdId));
+}
+
+export async function addFact(f: { household_id: string; title: string; value: string; category: FactCategory; surface_at: string[] }) {
+  check(await supabase.from('house_facts').insert(f));
+}
+
+export async function deleteFact(id: string) {
+  check(await supabase.from('house_facts').delete().eq('id', id));
+}
+
+export async function addTask(t: {
+  householdId: string; title: string; notes?: string; schedule: 'interval' | 'seasonal';
+  intervalMonths?: number; windowStart?: number; windowEnd?: number; lastDone?: string | null;
+}) {
+  check(
+    await supabase.rpc('add_maintenance_task', {
+      p_household_id: t.householdId, p_title: t.title, p_notes: t.notes ?? null, p_schedule: t.schedule,
+      p_interval_months: t.intervalMonths ?? null, p_ws: t.windowStart ?? null, p_we: t.windowEnd ?? null,
+      p_last_done: t.lastDone ?? null,
+    }),
+  );
 }

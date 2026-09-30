@@ -3,6 +3,8 @@ import { completeTask, listTaskEvents, listTasks, retireTask, seedHouseTemplate 
 import { groupTasks, scheduleLabel } from '../lib/maintenance';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask } from '../lib/types';
 import { Icon } from './icons';
+import { AddTaskForm } from './AddTaskForm';
+import { FactsView } from './FactsView';
 
 const PROFILE: [keyof HouseProfile, string][] = [
   ['has_garden', 'Garden'],
@@ -43,6 +45,8 @@ export function House({ household }: { household: Household }) {
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
+  const [mode, setMode] = useState<'Calendar' | 'Facts'>('Calendar');
+  const [addingTask, setAddingTask] = useState(false);
 
   const load = useCallback(async () => {
     try { setTasks(await listTasks(household.id)); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setTasks([]); }
@@ -63,10 +67,21 @@ export function House({ household }: { household: Household }) {
 
   if (tasks === null) return <main className="page"><span className="muted">Loading…</span></main>;
 
+  const toggle2 = (
+    <div className="row">
+      {(['Calendar', 'Facts'] as const).map((m) => <button key={m} className={`btn small${mode === m ? ' primary' : ''}`} onClick={() => setMode(m)}>{m}</button>)}
+    </div>
+  );
+
+  if (mode === 'Facts') {
+    return <main className="page"><h1>House</h1>{toggle2}<FactsView household={household} /></main>;
+  }
+
   if (tasks.length === 0) {
     return (
       <main className="page">
         <h1>House</h1>
+        {toggle2}
         {err && <p className="error">{err}</p>}
         <span className="muted">
           Pick what applies and a starter maintenance calendar for a Norwegian house is added. It is a starting point you can
@@ -126,6 +141,10 @@ export function House({ household }: { household: Household }) {
   return (
     <main className="page">
       <h1>House</h1>
+      {toggle2}
+      {addingTask
+        ? <AddTaskForm household={household} onDone={() => { setAddingTask(false); void load(); }} />
+        : <button className="btn" onClick={() => setAddingTask(true)}>+ Add your own task</button>}
       {err && <p className="error">{err}</p>}
       {groups.due.length === 0 && groups.soon.length === 0 && <p className="muted">Nothing due. Enjoy the quiet.</p>}
       {section('Due now', groups.due)}

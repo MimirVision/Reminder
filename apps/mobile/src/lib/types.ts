@@ -1,3 +1,4 @@
+import type { Fact } from '../core/facts.ts';
 import type { MaintenanceTask as CoreTask, MemoryRow, PlaceRow } from '../core/types.ts';
 
 export type Household = { id: string; name: string; invite_code: string };
@@ -40,3 +41,5 @@ export type HouseProfile = {
   has_basement: boolean;
   has_wooden_facade: boolean;
 };
+
+export type HouseFact = Fact & { household_id: string };

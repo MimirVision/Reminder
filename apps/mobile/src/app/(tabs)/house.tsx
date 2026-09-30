@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { completeTask, listTaskEvents, listTasks, retireTask, seedHouseTemplate } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
+import { AddTaskForm } from '@/lib/AddTaskForm';
+import { FactsView } from '@/lib/FactsView';
 import { BAR_SPACE, Btn, Card, Check, Field, Muted, SectionLabel, Title, styles } from '@/lib/ui';
 import { groupTasks, scheduleLabel } from '../../core/maintenance.ts';
 import type { HouseProfile, MaintenanceEvent, MaintenanceTask } from '@/lib/types';
@@ -58,6 +60,8 @@ export default function House() {
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [mode, setMode] = useState<'Calendar' | 'Facts'>('Calendar');
+  const [addingTask, setAddingTask] = useState(false);
 
   const load = useCallback(async () => {
     if (household) setTasks(await listTasks(household.id).catch(() => []));
@@ -87,10 +91,27 @@ export default function House() {
 
   if (tasks === null) return <View style={{ flex: 1, backgroundColor: t.bg }} />;
 
+  const toggle2 = (
+    <View style={styles.row}>
+      {(['Calendar', 'Facts'] as const).map((m) => <Btn key={m} small label={m} primary={mode === m} onPress={() => setMode(m)} />)}
+    </View>
+  );
+
+  if (mode === 'Facts') {
+    return (
+      <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
+        <Title>House</Title>
+        {toggle2}
+        <FactsView />
+      </ScrollView>
+    );
+  }
+
   if (tasks.length === 0) {
     return (
       <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]}>
         <Title>House</Title>
+        {toggle2}
         <Muted>
           Pick what applies and a starter maintenance calendar for a Norwegian house is added. It is a starting point you
           can edit, not professional advice. Check your kommune's rules for chimney sweeping and septic tanks.
@@ -159,6 +180,8 @@ export default function House() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
     >
       <Title>House</Title>
+      {toggle2}
+      {addingTask ? <AddTaskForm onDone={() => { setAddingTask(false); void load(); }} /> : <Btn label="+ Add your own task" onPress={() => setAddingTask(true)} />}
       {groups.due.length === 0 && groups.soon.length === 0 && <Muted>Nothing due. Enjoy the quiet.</Muted>}
       {section('Due now', groups.due)}
       {section('Coming up', groups.soon)}

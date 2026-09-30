@@ -1,6 +1,8 @@
 import * as ImageManipulator from 'expo-image-manipulator';
+import { readJson, writeJson } from './store';
 import { supabase } from './supabase';
-import type { CaptureKey, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place, Suggestion } from './types';
+import type { FactCategory } from '../core/facts.ts';
+import type { CaptureKey, HouseFact, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -181,4 +183,38 @@ export async function acceptSuggestion(memoryId: string, householdId: string, s:
 
 export async function dismissSuggestion(memoryId: string) {
   check(await supabase.from('memories').update({ suggestion: null }).eq('id', memoryId));
+}
+
+// Facts are cached on the device so the emergency card works offline.
+const FACTS_CACHE = 'hm.facts';
+
+export async function listFacts(householdId: string): Promise<HouseFact[]> {
+  try {
+    const rows = check(await supabase.from('house_facts').select('id, household_id, title, value, category, surface_at').eq('household_id', householdId)) as HouseFact[];
+    writeJson(FACTS_CACHE, rows);
+    return rows;
+  } catch {
+    return readJson<HouseFact[]>(FACTS_CACHE, []);
+  }
+}
+
+export async function addFact(f: { household_id: string; title: string; value: string; category: FactCategory; surface_at: string[] }) {
+  check(await supabase.from('house_facts').insert(f));
+}
+
+export async function deleteFact(id: string) {
+  check(await supabase.from('house_facts').delete().eq('id', id));
+}
+
+export async function addTask(t: {
+  householdId: string; title: string; notes?: string; schedule: 'interval' | 'seasonal';
+  intervalMonths?: number; windowStart?: number; windowEnd?: number; lastDone?: string | null;
+}) {
+  check(
+    await supabase.rpc('add_maintenance_task', {
+      p_household_id: t.householdId, p_title: t.title, p_notes: t.notes ?? null, p_schedule: t.schedule,
+      p_interval_months: t.intervalMonths ?? null, p_ws: t.windowStart ?? null, p_we: t.windowEnd ?? null,
+      p_last_done: t.lastDone ?? null,
+    }),
+  );
 }

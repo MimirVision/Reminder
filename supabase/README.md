@@ -4,6 +4,12 @@
 row-level security, the invite flow, capture keys (for Siri/Shortcuts) and a private `media` storage bucket.
 `setup.sql` is generated from them (`npm run build:setup`); the test fails if it is stale.
 
+## Already ran setup.sql? Run `upgrade.sql`
+
+`setup.sql` is the whole schema for a fresh project. If you ran an earlier `setup.sql` (through migration 0004), paste
+`upgrade.sql` into the SQL Editor and run it once instead; it contains only the newer migrations
+(0005 hardening, 0006 house facts and custom tasks, and later ones). `npm run build:setup` regenerates both files.
+
 ## Setup (one time, ~10 minutes)
 
 1. Create a project at supabase.com (choose an EU region).

@@ -21,7 +21,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -192,6 +192,31 @@ await as(C, async () => {
 await as(D, async () => {
   // the old attempts window is per hour; a fresh user with the rotated code would join, the old code no longer works
   await db.exec(`delete from join_attempts`).catch(() => {});
+});
+
+// Facts and custom tasks.
+await as(B, async () => {
+  await db.query(`insert into house_facts (household_id, title, value, category, surface_at) values ($1, 'Water shutoff', 'Under the kitchen sink, left valve', 'emergency', '{}')`, [hid]);
+  await db.query(`insert into house_facts (household_id, title, value, category, surface_at) values ($1, 'Hallway bulbs', 'E27, 3000 K', 'appliance', '{hardware}')`, [hid]);
+  await rejects(() => db.query(`insert into house_facts (household_id, title, created_by) values ($1, 'spoof', $2)`, [hid, A]), /row-level security/);
+  const t1 = (await db.query(`select add_maintenance_task($1, 'Oil the terrace', null, 'interval', 12, null, null, null, '2026-09-30') as id`, [hid])).rows[0].id;
+  const r1 = (await db.query(`select next_due_at::text as d, due_until from maintenance_tasks where id = $1`, [t1])).rows[0];
+  assert.equal(r1.d, '2027-09-30', 'interval starts from today when never done');
+  const t2 = (await db.query(`select add_maintenance_task($1, 'Sweep the roof', null, 'interval', 6, null, null, '2026-06-01', '2026-09-30') as id`, [hid])).rows[0].id;
+  assert.equal((await db.query(`select next_due_at::text as d from maintenance_tasks where id = $1`, [t2])).rows[0].d, '2026-12-01', 'uses last done date');
+  const t3 = (await db.query(`select add_maintenance_task($1, 'Paint the fence', 'two coats', 'seasonal', null, 5, 6, null, '2026-09-30') as id`, [hid])).rows[0].id;
+  assert.deepEqual((await db.query(`select next_due_at::text as d, due_until::text as u from maintenance_tasks where id = $1`, [t3])).rows[0], { d: '2027-05-01', u: '2027-06-30' });
+  await rejects(() => db.query(`select add_maintenance_task($1, '  ', null, 'interval', 3)`, [hid]), /title required/);
+  await rejects(() => db.query(`select add_maintenance_task($1, 'x', null, 'seasonal')`, [hid]), /season required/);
+});
+await as(A, async () => {
+  assert.equal((await db.query(`select * from house_facts`)).rows.length, 2, 'facts are shared in the household');
+  const up = await db.query(`update house_facts set value = 'Under the sink, right valve' where title = 'Water shutoff' returning id`);
+  assert.equal(up.rows.length, 1, 'the other partner can edit a shared fact');
+});
+await as(C, async () => {
+  assert.equal((await db.query(`select * from house_facts`)).rows.length, 0);
+  await rejects(() => db.query(`select add_maintenance_task($1, 'x', null, 'interval', 3)`, [hid]), /not a member/);
 });
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');

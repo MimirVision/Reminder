@@ -155,6 +155,11 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
 - **AI place suggestions.** Edge function `suggest` (Claude API, structured output, low effort) proposes a saved place or
   a shop category for a to-do that has none; the model's ids and categories are validated, nothing is applied without a
   tap, and `suggested_at` limits it to one call per to-do. Recurrence suggestions and photo reading are later.
+- **House facts.** `house_facts` (emergency card, measurements, paint, appliances) with `surface_at` shop categories;
+  facts tagged for a place's category appear as "Useful here" on its list. Emergency facts are cached on the phone.
+  A specific place can carry a shop kind (e.g. IKEA = hardware) so facts surface there too.
+- **Custom recurring tasks.** `add_maintenance_task` (interval or yearly window, optional last-done date).
+- **Hardening.** Longer invite codes, throttled and rotatable; triggers keep places, to-dos and photos inside one household.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

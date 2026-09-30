@@ -26,6 +26,7 @@ export default function Places() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [name, setName] = useState('');
   const [radius, setRadius] = useState(150);
+  const [shopKind, setShopKind] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (household) setPlaces(await listPlaces(household.id).catch(() => []));
@@ -52,10 +53,11 @@ export default function Places() {
     const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     await run(async () => {
       await addPlace({
-        household_id: household.id, name: name.trim(), kind: 'fixed', category: null,
+        household_id: household.id, name: name.trim(), kind: 'fixed', category: shopKind,
         lat: pos.coords.latitude, lon: pos.coords.longitude, radius_m: radius,
       });
       setName('');
+      setShopKind(null);
     });
   }
 
@@ -94,6 +96,11 @@ export default function Places() {
       <Field placeholder="Name (e.g. Home, Byggmax)" value={name} onChangeText={setName} />
       <View style={styles.row}>
         {[100, 150, 250, 500].map((r) => <Btn key={r} small label={`${r} m`} primary={radius === r} onPress={() => setRadius(r)} />)}
+      </View>
+      <Muted>Kind of shop (optional): facts you tagged for it show up on its list.</Muted>
+      <View style={styles.row}>
+        <Btn small label="None" primary={shopKind === null} onPress={() => setShopKind(null)} />
+        {CATEGORIES.map((c) => <Btn key={c.category} small label={c.category} primary={shopKind === c.category} onPress={() => setShopKind(c.category)} />)}
       </View>
       <Btn primary label="Save this place" onPress={addHere} disabled={!name.trim()} />
       <Text style={{ color: t.muted, fontSize: 12, fontFamily: font.body }}> </Text>

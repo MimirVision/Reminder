@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { distanceM } from './geo.ts';
 import { bucketFor, groupTasks, scheduleLabel } from './maintenance.ts';
+import { factsForCategory, groupFacts, type Fact, type FactCategory } from './facts.ts';
 import { hereCandidate, PROMPT_COOLDOWN_MS } from './proximity.ts';
 import { needsRefresh, overpassQuery, parseOverpass } from './pois.ts';
 import { MAX_REGIONS, selectRegions } from './regions.ts';
@@ -133,4 +134,15 @@ test('maintenance buckets, grouping and labels', () => {
   assert.equal(scheduleLabel({ schedule: 'interval', interval_months: 12, window_start_month: null, window_end_month: null }), 'every year');
   assert.equal(scheduleLabel({ schedule: 'interval', interval_months: 24, window_start_month: null, window_end_month: null }), 'every 2 years');
   assert.equal(scheduleLabel({ schedule: 'interval', interval_months: 3, window_start_month: null, window_end_month: null }), 'every 3 months');
+});
+
+test('facts: grouping puts emergency first and surfacing matches shop categories', () => {
+  const f = (id: string, title: string, category: FactCategory, surface_at: string[] = []): Fact => ({ id, title, value: '', category, surface_at });
+  const facts = [f('1', 'Bulbs', 'appliance', ['hardware']), f('2', 'Water shutoff', 'emergency'), f('3', 'Bedroom paint', 'paint', ['paint', 'hardware']), f('4', 'Zeta window', 'measurement'), f('5', 'Alpha window', 'measurement')];
+  assert.deepEqual(groupFacts(facts).map((g) => g.category), ['emergency', 'measurement', 'paint', 'appliance']);
+  assert.deepEqual(groupFacts(facts)[1].items.map((x) => x.id), ['5', '4'], 'sorted by title');
+  assert.deepEqual(factsForCategory(facts, 'hardware').map((x) => x.id), ['1', '3']);
+  assert.deepEqual(factsForCategory(facts, 'paint').map((x) => x.id), ['3']);
+  assert.deepEqual(factsForCategory(facts, null), []);
+  assert.deepEqual(factsForCategory(facts, 'pharmacy'), []);
 });

@@ -20,6 +20,7 @@ export function Places({ household }: { household: Household }) {
   const [lat, setLat] = useState('');
   const [lon, setLon] = useState('');
   const [radius, setRadius] = useState(150);
+  const [shopKind, setShopKind] = useState('');
 
   const load = useCallback(async () => {
     try { setPlaces(await listPlaces(household.id)); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -41,8 +42,8 @@ export function Places({ household }: { household: Household }) {
   function submitFixed(e: FormEvent) {
     e.preventDefault();
     void run(async () => {
-      await addPlace({ household_id: household.id, name, kind: 'fixed', category: null, lat: Number(lat), lon: Number(lon), radius_m: radius });
-      setName(''); setLat(''); setLon('');
+      await addPlace({ household_id: household.id, name, kind: 'fixed', category: shopKind || null, lat: Number(lat), lon: Number(lon), radius_m: radius });
+      setName(''); setLat(''); setLon(''); setShopKind('');
     });
   }
 
@@ -87,6 +88,12 @@ export function Places({ household }: { household: Household }) {
         <div className="row">
           <label className="muted">Distance{' '}
             <select value={radius} onChange={(e) => setRadius(Number(e.target.value))}>{RADII.map((r) => <option key={r} value={r}>{r} m</option>)}</select>
+          </label>
+          <label className="muted">Kind of shop{' '}
+            <select value={shopKind} onChange={(e) => setShopKind(e.target.value)}>
+              <option value="">None</option>
+              {CATEGORIES.map((c) => <option key={c.category} value={c.category}>{c.category}</option>)}
+            </select>
           </label>
           <button className="btn primary small">Add place</button>
         </div>

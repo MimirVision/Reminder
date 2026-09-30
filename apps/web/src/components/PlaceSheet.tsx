@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { addMemory, deleteMemory, listMemories, listPhotoUrls, markDone, reopen } from '../lib/api';
+import { addMemory, deleteMemory, listFacts, listMemories, listPhotoUrls, listPlaces, markDone, reopen } from '../lib/api';
+import { factsForCategory, type Fact } from '../lib/facts';
 import type { Household, Memory } from '../lib/types';
 import { Icon } from './icons';
 
@@ -11,6 +12,7 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged }: {
   const [photos, setPhotos] = useState<Map<string, string[]>>(new Map());
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [useful, setUseful] = useState<Fact[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -32,6 +34,13 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged }: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [load, onClose]);
+
+  // Facts tagged for this kind of shop appear as "Useful here".
+  useEffect(() => {
+    Promise.all([listFacts(household.id), listPlaces(household.id)])
+      .then(([facts, places]) => setUseful(factsForCategory(facts, places.find((p) => p.id === placeId)?.category ?? null)))
+      .catch(() => {});
+  }, [household.id, placeId]);
 
   async function act(fn: () => Promise<void>) {
     try {
@@ -76,6 +85,12 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged }: {
         </div>
         {err && <p className="error">{err}</p>}
         <div>{open.map(row)}</div>
+        {useful.length > 0 && (
+          <div className="suggest" role="note" aria-label="Useful here">
+            <div className="label" style={{ padding: 0 }}>Useful here</div>
+            {useful.map((f) => <div key={f.id}><strong>{f.title}</strong>{f.value && <div style={{ whiteSpace: 'pre-wrap' }}>{f.value}</div>}</div>)}
+          </div>
+        )}
         <form onSubmit={add}>
           <textarea placeholder="Add to this list (one per line)" style={{ minHeight: 60 }} value={draft} onChange={(e) => setDraft(e.target.value)} />
           <button className="btn" disabled={!draft.trim()}>Add</button>
