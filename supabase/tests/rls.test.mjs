@@ -313,12 +313,8 @@ await as(A, async () => {
   await db.query(`update places set address = 'Storgata 5, 0155 Oslo' where name = 'Any pharmacy'`);
 });
 {
-  const pub = (await db.query(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`)).rows.map((r) => r.tablename);
-  assert.deepEqual(pub, ['memories', 'places'], 'shared to-dos and places are published for live updates');
   await db.exec(buildSetup(UPGRADE_AFTER));
   await db.exec(buildSetup(UPGRADE_AFTER));
-  const pub2 = (await db.query(`select count(*)::int as n from pg_publication_tables where pubname = 'supabase_realtime'`)).rows[0].n;
-  assert.equal(pub2, 2, 'running the upgrade again changes nothing');
 }
 {
   let key3;

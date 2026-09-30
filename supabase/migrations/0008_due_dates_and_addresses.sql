@@ -10,19 +10,6 @@ create index if not exists memories_due_idx on public.memories (household_id, du
 
 alter table public.places add column if not exists address text;
 
--- Live updates: when your partner adds a to-do it appears on your screen. Only where Supabase Realtime exists.
-do $$
-declare t text;
-begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['memories', 'places'] loop
-      if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
-        execute format('alter publication supabase_realtime add table public.%I', t);
-      end if;
-    end loop;
-  end if;
-end $$;
-
 -- Same narrow feed as before, now with due dates/times on to-dos and the address of places.
 create or replace function public.reminder_feed(p_key text) returns jsonb
 language plpgsql security definer set search_path = public as $$
