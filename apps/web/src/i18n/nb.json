@@ -477,5 +477,6 @@
   "tour.m3.title": "Stedspåminnelser",
   "tour.m3.body": "Slå på stedspåminnelser, så sier telefonen fra når du kommer til en butikk hvor noe venter.",
   "task.dateFormat": "Bruk datoformatet 2026-09-30, eller la feltet stå tomt.",
-  "task.howOften": "Hvor ofte"
+  "task.howOften": "Hvor ofte",
+  "map.tilesFailed": "Kartbakgrunnen kunne ikke lastes (nettverk eller annonseblokkering kan blokkere den). Stedene dine vises fortsatt."
 }

@@ -276,3 +276,4 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 :root[data-contrast='high'] .glass { border: 2px solid var(--ink); }
 :root[data-contrast='high'][data-lens='1'] .glass:not(.mapsheet) { background: rgb(var(--glass-rgb)); }
 .psb { display: flex; flex-direction: column; gap: 10px; }
+.map-note { position: fixed; left: 16px; right: 84px; top: calc(76px + env(safe-area-inset-top)); z-index: 12; margin: 0; padding: 10px 14px; border-radius: 16px; font-size: 13px; }

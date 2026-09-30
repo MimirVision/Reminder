@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Icon } from './icons';
@@ -25,6 +25,7 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
   const layer = useRef<L.LayerGroup | null>(null);
   const me = useRef<L.Marker | null>(null);
   const fitted = useRef('');
+  const [tilesFailed, setTilesFailed] = useState(false);
   const flyToMe = useRef(false);
   const inset = useRef(bottomInset);
   inset.current = bottomInset;
@@ -42,11 +43,25 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
     return () => { ro.disconnect(); m.remove(); map.current = null; tiles.current = null; layer.current = null; me.current = null; fitted.current = ''; };
   }, []);
 
+  // Theme-matched tiles. If none load (blocked network, ad blocker), fall back to plain OpenStreetMap, then say so.
   useEffect(() => {
     const m = map.current;
     if (!m) return;
     tiles.current?.remove();
-    tiles.current = L.tileLayer(TILES[resolved], { subdomains: 'abcd', maxZoom: 20, detectRetina: true, attribution: ATTRIBUTION }).addTo(m);
+    setTilesFailed(false);
+    let loaded = 0, errors = 0, fallback = false;
+    const make = (url: string, subdomains: string) => {
+      const layer = L.tileLayer(url, { subdomains, maxZoom: 19, detectRetina: !fallback, attribution: fallback ? ATTRIBUTION.replace(' · © <a href="https://carto.com/attributions">CARTO</a>', '') : ATTRIBUTION }).addTo(m);
+      layer.on('tileload', () => { loaded++; });
+      layer.on('tileerror', () => {
+        errors++;
+        if (loaded > 0 || errors < 4) return;
+        if (!fallback) { fallback = true; errors = 0; layer.remove(); tiles.current = make('https://tile.openstreetmap.org/{z}/{x}/{y}.png', 'abc'); tiles.current.bringToBack(); }
+        else setTilesFailed(true);
+      });
+      return layer;
+    };
+    tiles.current = make(TILES[resolved], 'abcd');
     tiles.current.bringToBack();
   }, [resolved]);
 
@@ -123,6 +138,7 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
   return (
     <div className="mapwrap" style={{ ['--sheet' as string]: `${bottomInset}px` }}>
       <div className="map" ref={el} role="region" aria-label={t('map.aria')} />
+      {tilesFailed && <p className="map-note glass" role="status">{t('map.tilesFailed')}</p>}
       <div className="map-controls" style={{ bottom: bottomInset + 20 }}>
         <div className="glass stack">
           <button type="button" aria-label={t('map.zoomIn')} onClick={() => map.current?.zoomIn()}><Icon name="plus" size={20} /></button>

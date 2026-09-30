@@ -477,5 +477,6 @@
   "tour.m3.title": "Place reminders",
   "tour.m3.body": "Turn on place reminders and your phone tells you when you arrive at a shop with something waiting.",
   "task.dateFormat": "Use the date format 2026-09-30, or leave it empty.",
-  "task.howOften": "How often"
+  "task.howOften": "How often",
+  "map.tilesFailed": "The map background could not load (a network or ad blocker may be blocking it). Your places are still shown."
 }
