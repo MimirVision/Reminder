@@ -5,7 +5,7 @@ Developer account you can still install it on your own iPhone with a free Apple 
 re-install it (your data lives in Supabase, so nothing is lost). Limits: 3 sideloaded apps at a time, and it needs a computer
 with a USB cable each time you renew.
 
-I could not run any of this myself, so expect to fix a snag or two the first time. If a step fails, send me the message.
+I checked in advance that the app's JavaScript bundles and the native iOS project generates correctly, but I could not run the Mac build or the install myself, so expect to fix a snag or two the first time. If a step fails, send me the message.
 
 ## 1. Build the app (free, in GitHub, no Mac needed)
 1. On GitHub open the repository, **Settings**, **Secrets and variables**, **Actions**, **New repository secret**. Add
