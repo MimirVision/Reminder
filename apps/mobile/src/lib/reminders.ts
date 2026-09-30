@@ -37,8 +37,12 @@ export async function setupNotificationCategories() {
 }
 
 export async function hasBackgroundAccess(): Promise<boolean> {
-  const [bg, n] = await Promise.all([Location.getBackgroundPermissionsAsync(), Notifications.getPermissionsAsync()]);
-  return bg.granted && n.granted;
+  try {
+    const [bg, n] = await Promise.all([Location.getBackgroundPermissionsAsync(), Notifications.getPermissionsAsync()]);
+    return bg.granted && n.granted;
+  } catch {
+    return false; // e.g. Expo Go, which has no "Always" location entitlement
+  }
 }
 
 export async function enableReminders(): Promise<boolean> {

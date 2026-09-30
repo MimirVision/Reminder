@@ -40,17 +40,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  // Depend on the user id, not the session object: tokens refresh every hour and would reload everything.
+  const userId = session?.user.id ?? null;
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (session) await reloadHousehold();
+      if (userId) await reloadHousehold();
       else setHousehold(null);
       if (!cancelled) setReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [session, reloadHousehold]);
+  }, [userId, reloadHousehold]);
 
   const value = useMemo(() => ({ ready, session, household, reloadHousehold }), [ready, session, household, reloadHousehold]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

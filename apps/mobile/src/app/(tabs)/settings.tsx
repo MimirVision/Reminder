@@ -31,10 +31,14 @@ export default function Settings() {
   }, [load]);
 
   async function turnOn() {
-    const ok = await enableReminders();
-    if (!ok) Alert.alert('Place reminders need "Always" location and notifications. Change it in iOS Settings > Home Memory.');
-    await load();
-    if (ok) setWatching((await refreshRegions()).watching);
+    try {
+      const ok = await enableReminders();
+      if (!ok) Alert.alert('Place reminders need "Always" location and notifications. Change it in iOS Settings > Home Memory.');
+      await load();
+      if (ok) setWatching((await refreshRegions()).watching);
+    } catch {
+      Alert.alert('Not available here', 'Background place reminders need the installed app (a real build), not Expo Go. The "Are you here?" card and the map still work while the app is open.');
+    }
   }
 
   const h = (s: string) => <Text style={{ color: t.ink, fontSize: 17, fontFamily: font.semi }}>{s}</Text>;

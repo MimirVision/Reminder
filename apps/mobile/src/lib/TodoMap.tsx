@@ -17,7 +17,7 @@ export function TodoMap({ pins, here, onOpen }: { pins: Pin[]; here: LatLon | nu
         <Circle key={`c${p.key}`} center={{ latitude: p.lat, longitude: p.lon }} radius={p.radius} fillColor="rgba(200,67,31,0.12)" strokeColor="rgba(200,67,31,0.5)" />
       ))}
       {pins.map((p) => (
-        <Marker key={p.key} coordinate={{ latitude: p.lat, longitude: p.lon }} onPress={() => onOpen(p)} tracksViewChanges={false}>
+        <Marker key={p.key} coordinate={{ latitude: p.lat, longitude: p.lon }} onPress={() => onOpen(p)}>
           <View style={{ alignItems: 'center' }}>
             <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFFFFF' }}>
               <Icon name="mappin" size={18} color="#FFFFFF" />

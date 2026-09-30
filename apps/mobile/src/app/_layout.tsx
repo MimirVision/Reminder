@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, AppState, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -27,12 +27,13 @@ function Gate() {
 
   // Route guard: login -> onboarding -> app.
   useEffect(() => {
-    if (!ready) return;
+    // Wait until the Stack is mounted (ready and fonts loaded), or navigation fails on a cold start.
+    if (!ready || !fontsLoaded || !configured) return;
     const top = segments[0] as string | undefined;
     if (!session && top !== 'login') router.replace('/login');
     else if (session && !household && top !== 'onboarding') router.replace('/onboarding');
     else if (session && household && (top === 'login' || top === 'onboarding')) router.replace('/');
-  }, [ready, session, household, segments, router]);
+  }, [ready, fontsLoaded, session, household, segments, router]);
 
   // Retry queued captures and re-pick geofences whenever the app comes to the foreground.
   useEffect(() => {
@@ -47,11 +48,17 @@ function Gate() {
 
   // Notification taps: "Done" completes the memories; anything else ("I'm here" or tapping it) opens the list.
   const last = Notifications.useLastNotificationResponse();
+  const handledResponse = useRef<string | null>(null);
+  const hasHousehold = !!household;
   useEffect(() => {
     void setupNotificationCategories();
   }, []);
   useEffect(() => {
-    if (!last || !household) return;
+    if (!last || !hasHousehold) return;
+    // Handle each tap once, even when the household object is refreshed later.
+    const key = `${last.notification.request.identifier}:${last.actionIdentifier}`;
+    if (handledResponse.current === key) return;
+    handledResponse.current = key;
     const data = last.notification.request.content.data as { memoryIds?: string[]; placeId?: string; label?: string } | undefined;
     if (last.actionIdentifier === 'notnow') return;
     if (last.actionIdentifier === 'done' && data?.memoryIds?.length) {
@@ -59,23 +66,27 @@ function Gate() {
     } else if (data?.placeId) {
       router.push({ pathname: '/list/[placeId]', params: { placeId: data.placeId, label: data.label ?? '' } });
     }
-  }, [last, household, router]);
+  }, [last, hasHousehold, router]);
 
   // homememory://capture?text=... (used by iOS Shortcuts / Siri when you want the app to open).
   const url = Linking.useURL();
+  const handledUrl = useRef<string | null>(null);
+  const householdId = household?.id ?? null;
   useEffect(() => {
-    if (!url || !household) return;
+    if (!url || !householdId) return;
+    if (handledUrl.current === url) return; // one to-do per link, not one per refresh
+    handledUrl.current = url;
     const parsed = Linking.parse(url);
     if (parsed.hostname === 'capture' || parsed.path === 'capture') {
       const text = String(parsed.queryParams?.text ?? '').trim();
       if (text) {
         void capture({
-          id: uuid(), household_id: household.id, body: text, place_id: null,
+          id: uuid(), household_id: householdId, body: text, place_id: null,
           capture_lat: null, capture_lon: null, photoUris: [],
         });
       }
     }
-  }, [url, household]);
+  }, [url, householdId]);
 
   if (!configured) {
     return (
