@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Home Memory Spike",
+    "slug": "home-memory-spike",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mimirvision.homememory.spike",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "isIosBackgroundLocationEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Home Memory Spike needs your location in the background to test arriving at and leaving places.",
+          "locationWhenInUsePermission": "Home Memory Spike uses your location to save places.",
+          "locationAlwaysPermission": "Home Memory Spike needs your location in the background to test arriving at and leaving places."
+        }
+      ],
+      "expo-notifications",
+      "expo-sqlite"
+    ]
+  }
+}
