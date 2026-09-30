@@ -1,0 +1,165 @@
+# Home Memory: Design Document
+
+Status: draft v1 (pre-code). Working name: Home Memory.
+Owner: Andreas. Context: personal project, Norway, iPhone, Windows desktop, buying a large house with a large garden within ~3–4 months.
+
+---
+
+## 1. Problem
+
+Forgetting is a failure of **retrieval cues**, not of storage. Traditional todo lists and time-based reminders fail because the moment a memory is needed (walking past the pharmacy, standing in the hardware store, looking at the boiler) is not a moment in time, it is a *context*.
+
+Second, the user has repeatedly tried reminder apps and they die after about a week: capture depends on discipline, discipline fades, and once the app stops being fed it stops being useful.
+
+## 2. Vision
+
+> A memory that taps you on the shoulder.
+
+Three verbs:
+
+1. **Capture**: under 3 seconds, no decisions, from wherever you already are.
+2. **Anchor**: attach the memory to context (place, thing in the house, season, person). The app proposes, the user confirms with one tap or ignores it.
+3. **Surface**: show it at the right moment (push) or when asked (pull).
+
+It is an *external memory*, not a productivity system.
+
+## 3. Design principles
+
+1. **Survive a month of adding nothing.** The app must remain useful and must not degrade into a wall of overdue items if unused for weeks.
+2. **Two layers.** *Autopilot* (works with zero input: seasonal house calendar, weather nudges, imported house data) and *Capture* (the memory part, extremely low friction).
+3. **Capture from where you already are.** Siri, Action button, lock-screen widget, share sheet, camera-roll sweep, a shared inbox for the spouse. Not "remember to open the app".
+4. **Push-first, answerable from the lock screen.** Notifications carry actions (Done / Snooze / Not this time). Opening the app should be optional.
+5. **Structure only where it fires something.** Places, recurrences and Things (objects with history) are structured. Everything else is found by search / ask.
+6. **AI proposes, human confirms.** Raw capture is always preserved. No silent reorganisation. The app works with AI turned off.
+7. **No guilt.** No red overdue counters, streaks, priorities, or required due dates.
+8. **Every push path has a pull fallback.** Location triggers will sometimes miss, so "what's near me?" and an "I'm heading out" button always work.
+9. **The data outlives the app.** Open export (Markdown, JSON, photo folder) from day one. This is a 10-year store.
+10. **Offline is normal.** Capture queues locally; emergency info and reference facts are cached.
+
+## 4. Two kinds of memory
+
+| | Tasks / reminders | Reference facts |
+|---|---|---|
+| Examples | "Buy paracetamol", "clean gutters" | "Bedroom paint NCS S0502-Y", "hall bulbs E27 warm", "fridge filter model X" |
+| Trigger | Place, season, completion | At a relevant store, or asked |
+| Failure | Never done | "What size was it again?" at the shop |
+
+**Store mode**: on arriving at a place category (hardware store, paint shop, furniture store), show open fix-items with photos and measurements *plus* the reference facts that category usually needs. This is the signature feature.
+
+## 5. Context signals
+
+| Signal | Use |
+|---|---|
+| Location (fixed place or *category*, e.g. any pharmacy) | Arrival triggers; capture-location stamp (notes made at the house default to the house) |
+| Leaving / arriving home | "Heading out" and "just arrived" surfaces |
+| Weather forecast | Frost → drain outdoor taps; no gutter jobs in rain; dry weekend → outdoor painting |
+| Calendar | "Free Saturday: 3 small jobs fit" (later) |
+| Camera / OCR | Photo of appliance label → model, serial, manual, suggested schedule |
+| Camera roll | Weekly sweep of photos/screenshots taken at home or in shops → "anything to remember?" |
+| NFC / QR tags (later) | Tag on boiler / fuse box / shed → manual, history, log-a-note |
+| Car (later) | Spoken cue when passing a target |
+
+## 6. Norway-specific layer
+
+To be verified against local rules and with professionals; treated as an editable starting template, not authority.
+
+- **Import the tilstandsrapport (condition report) and the FINN listing.** TG2/TG3 findings become dated fix-items and maintenance horizons. Year built, heating, roof type, etc. seed the house profile. This is the largest "app does the adding" win.
+- **Move-in photo documentation.** Dated photos of the state at handover, valuable if a defect claim (reklamasjon) is ever needed. Check the specifics of avhendingsloven separately.
+- **Seasonal template for a large house and garden:** gutters (autumn); outdoor taps before frost; snow/ice on roof and paths; chimney sweep (feier) and fire-safety check; smoke detectors and extinguisher; heat-pump and ventilation filters; facade staining/painting on a multi-year cycle; roof moss; lawn, trees, drainage, fences; septic tank / well if the property has them; radon and moisture checks in basements.
+- **Emergency card:** water shutoff, fuse box, gas (if any), key contacts. Offline, two taps, shareable with spouse or house-sitter.
+
+## 7. Notification policy ("somewhere in between")
+
+- Place triggers: fire **once per visit**, with a cooldown. "Not now" keeps the memory for the *next* visit.
+- All non-location, non-urgent items are **batched into one weekly digest** at a user-chosen time.
+- Time-critical exceptions (e.g. frost warning) may push immediately.
+- After a long absence, show one quiet catch-up digest, never a backlog.
+- Hard cap on non-location pushes per day (default 1).
+
+## 8. Data model (draft)
+
+Everything starts as a **Memory**; structure is optional and additive.
+
+- **Memory**: id, household_id, author, created_at, raw text, media (photos / voice / links), capture_location, capture_context (weather, at-home flag), status (`inbox`, `active`, `done`, `dismissed`), ai_suggestions (proposed anchors, unconfirmed).
+- **Anchor** (zero or more per Memory):
+  - `Place`: fixed point or category (pharmacy, hardware store), radius.
+  - `Thing`: object/appliance/area in the house.
+  - `Season/Window`: e.g. "Sep–Oct, before first frost".
+  - `Recurrence`: fixed calendar or from-completion interval.
+  - `Condition`: weather predicate (e.g. forecast < 0 °C).
+- **Thing**: name, room/zone (free text, optional), facts (key/value: model, serial, paint code, size), documents (manuals, receipts, warranty end), photos, event log.
+- **Event** (history): done / serviced / repaired / replaced, date, cost, photo, note, performed_by.
+- **Reference fact**: a Thing fact or standalone (measurement, paint code, bulb type) tagged with the place categories where it should surface.
+- **Place**: saved locations and categories with resolved POIs.
+- **Household**: members (self, spouse), shared inbox, notification prefs.
+- **House profile**: year built, heating, roof, garden features, septic/well flags, seeded template.
+
+Completing a recurring Memory writes an Event and schedules the next occurrence automatically.
+
+## 9. Architecture
+
+### Platform (decided)
+
+- **Phone: Expo (React Native, TypeScript).** Built with EAS cloud builds (no Mac needed) and distributed via TestFlight (Apple developer account, $99/year, accepted). Development builds are required for background location (Expo Go cannot do it on iOS).
+- **Backend: Supabase.** Auth, Postgres, storage for photos, edge functions for Claude API calls (parsing, OCR, report import) and scheduled jobs (weekly digest, weather checks, push dispatch).
+- **Web: React (same TypeScript types) for Windows desktop and as a home-screen web app on the spouse's iPhone.** Web push enables notifications; no geofencing there, which is acceptable for a "just add things" role.
+- **Sync/offline:** captures queue locally (SQLite) and sync when online; cached read-only copies of Things, reference facts and the emergency card. Full local-first sync is explicitly deferred.
+- **AI:** Claude API from edge functions only (keys never on device). Used for parsing brain dumps, reading labels/receipts, importing reports, and later "ask your house". Everything AI-generated is a suggestion.
+
+### Location on iOS: constraints we design around
+
+- ~20 monitored regions per app: register the most relevant regions dynamically and refresh on significant location change.
+- "Always" permission with the two-step prompt; needs a clear in-app explanation.
+- Practical radius floor ~100–200 m; events can be delayed.
+- ~64 pending local notifications.
+- Passing ≠ entering: use dwell and cooldown to reduce false positives.
+- Category triggers ("any pharmacy"): pre-resolve nearby POIs around home, work and regular routes; extend to on-demand nearby search later.
+- Personal-build caveat: paid developer account and TestFlight builds; expect some yearly OS-driven maintenance.
+
+### Known risks
+
+| Risk | Mitigation |
+|---|---|
+| Geofence reliability disappoints | Spike first; pull fallback (widget, "heading out", map) |
+| Expo native gaps (widgets, Action button, App Intents) | Shortcuts fallback; targeted native modules |
+| Capture decay (the real risk) | Autopilot layer, camera-roll sweep, spouse inbox, guilt-free digest |
+| Notification fatigue | Notification policy in §7 |
+| Photo storage growth | Thumbnails local, originals in object storage |
+| Privacy of home photos | Private storage, RLS per household, user's informed choice on cloud AI |
+| App abandonment | Dogfood with real errands before the house arrives; success gate below |
+
+## 10. Roadmap
+
+**Milestone 0: Location spike (throwaway, ~1–2 weeks of real use).**
+Minimal dev-build app logging geofence enter/exit and significant-location events during normal life. Output: measured hit rate, latency, false positives, battery impact. Decides how much weight pull fallbacks need.
+
+**Milestone 1: Capture + place reminders for errands (dogfood ≥ 1 month).**
+- Capture: Siri/Shortcuts, widget, share sheet, photo, voice → inbox.
+- One-tap AI-suggested anchors (place / recurrence / thing), skippable.
+- Place and category triggers with cooldown and snooze-until-next-time.
+- Spouse adds via web app (shared household inbox).
+- Notification actions (Done / Snooze / Not this time).
+- **Success gate:** still adding things in week 3–4; place reminders judged trustworthy.
+
+**Milestone 2: House layer (ready by key date, ~3–4 months).**
+- House profile + Norway seasonal template (autopilot).
+- Tilstandsrapport / FINN import.
+- Things, maintenance with from-completion and seasonal recurrence, history log.
+- Reference facts and store mode; emergency card.
+- Camera-roll sweep; move-in photo documentation flow.
+- Weekly digest; weather-aware nudges (frost).
+
+**Later:** NFC/QR tags, floor plan with photo pins, LiDAR room measurements, "ask your house" search, receipt/email forwarding, browser clipper, free-Saturday planner, sale-ready dossier export.
+
+## 11. Explicitly not doing
+
+Required due dates, priorities, tags/projects/folders, streaks, overdue red counts, social features, silent AI reorganisation, notifications on every pass of a location, elaborate onboarding wizards.
+
+## 12. Open questions
+
+1. Minimum viable set of Milestone 1 capture channels: Siri + share sheet first, widget/Action button second?
+2. Spouse: household inbox via web app only, or invite to the phone app later once trust is built?
+3. Category triggers: pre-resolved POIs first (simple) vs on-demand search (general).
+4. Which Places/POI data source (MapKit, Google Places, OpenStreetMap) fits Norwegian coverage and cost?
+5. Supabase region and data-residency preference (EU).
+6. Confirm legal/regulatory items in §6 before encoding them as advice.
