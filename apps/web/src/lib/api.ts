@@ -257,3 +257,23 @@ export async function createFeedKey(householdId: string, label: string): Promise
 export async function deleteFeedKey(id: string) {
   check(await supabase.from('feed_keys').delete().eq('id', id));
 }
+
+// The "get set up" checklist: cheap head-only counts, so nothing is downloaded.
+export async function getSetupStatus(householdId: string): Promise<import('./setup').SetupStatus> {
+  const has = async (table: string, col: string, filter?: (q: any) => any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    let q = supabase.from(table).select(col, { count: 'exact', head: true });
+    q = filter ? filter(q) : q;
+    const { count, error } = await q;
+    if (error) throw new Error(error.message);
+    return (count ?? 0) > 0;
+  };
+  const [places, todos, calendar, emergency, reminders, members] = await Promise.all([
+    has('places', 'id', (q) => q.eq('household_id', householdId)),
+    has('memories', 'id', (q) => q.eq('household_id', householdId)),
+    has('maintenance_tasks', 'id', (q) => q.eq('household_id', householdId).eq('active', true)),
+    has('house_facts', 'id', (q) => q.eq('household_id', householdId).eq('category', 'emergency')),
+    has('feed_keys', 'id'),
+    supabase.from('household_members').select('user_id', { count: 'exact', head: true }).eq('household_id', householdId),
+  ]);
+  return { places, todos, calendar, emergency, reminders, partner: (members.count ?? 0) > 1 };
+}

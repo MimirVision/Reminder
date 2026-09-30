@@ -5,6 +5,8 @@ import type { Household, Member, Memory, Place } from '../lib/types';
 import { AddBar, AddSheet } from './AddSheet';
 import { Icon } from './icons';
 import { PlaceSheet } from './PlaceSheet';
+import { SetupChecklist } from './SetupChecklist';
+import type { SetupTarget } from '../lib/setup';
 import { buildPins, type MapPin } from '../lib/pins';
 
 const TodoMap = lazy(() => import('./TodoMap'));
@@ -17,7 +19,7 @@ function ago(iso: string): string {
   return hours < 24 ? `${hours} h ago` : new Date(iso).toLocaleDateString();
 }
 
-export function Todo({ household, userId }: { household: Household; userId: string }) {
+export function Todo({ household, userId, onNavigate }: { household: Household; userId: string; onNavigate: (t: SetupTarget) => void }) {
   const [mode, setMode] = useState<'List' | 'Map'>('List');
   const [showDone, setShowDone] = useState(false);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -149,6 +151,7 @@ export function Todo({ household, userId }: { household: Household; userId: stri
     <main className="page">
       <div className="head"><h1>{showDone ? 'Done' : 'To-do'}</h1>{!showDone && seg}</div>
       {err && <p className="error">{err}</p>}
+      {!showDone && mode === 'List' && <SetupChecklist household={household} onNavigate={onNavigate} />}
 
       {mode === 'Map' && !showDone ? (
         <>

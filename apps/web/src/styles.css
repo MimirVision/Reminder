@@ -90,3 +90,13 @@ form { display: flex; flex-direction: column; gap: 10px; }
 .copyrow { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
 .copyrow .clip { display: block; margin-top: 4px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 a.btn { text-decoration: none; display: inline-flex; align-items: center; color: inherit; }
+
+.setup { background: color-mix(in srgb, var(--tint) 40%, var(--card)); gap: 10px; padding: 14px 16px; }
+.setup .dots { display: flex; gap: 6px; }
+.setup .dots span { flex: 1; height: 6px; border-radius: 3px; background: var(--chip); }
+.setup .dots span.on { background: var(--accent); }
+.setup-next { display: flex; flex-direction: column; gap: 6px; }
+.setup-step { display: flex; gap: 12px; align-items: flex-start; }
+.setup-step .check { cursor: default; }
+.setup-text { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.setup-step.done strong { color: var(--muted); font-weight: 500; text-decoration: line-through; }

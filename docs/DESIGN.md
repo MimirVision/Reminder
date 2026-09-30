@@ -173,6 +173,9 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   until the native app exists. The feed is narrow by design: no authors or photos, only shop-tagged facts (the emergency
   card never leaves the database). Tested end to end from the SQL function through the Netlify function to the final text.
   See `docs/REMINDERS.md`.
+- **Get set up card + invite link (web).** A compact card on the To-do page shows progress and only the next step (places,
+  first to-do, house calendar, emergency card, iPhone reminders, partner); steps tick themselves off from real data and it can
+  be hidden. Settings can copy an invite link (`/?join=CODE`); it pre-fills the code for the partner after sign-up.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 

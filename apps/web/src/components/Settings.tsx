@@ -3,6 +3,7 @@ import { createCaptureKey, deleteCaptureKey, listCaptureKeys, rotateInviteCode, 
 import { applyGlass, getGlass, GLASS_LEVELS, type GlassLevel } from '../lib/glass';
 import { downloadExport } from '../lib/exportZip';
 import { ReminderLinks } from './ReminderLinks';
+import { inviteLink } from '../lib/invite';
 import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
 
@@ -14,6 +15,7 @@ export function Settings({ household }: { household: Household }) {
   const [glass, setGlass] = useState<GlassLevel>(getGlass);
   const [invite, setInvite] = useState(household.invite_code);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     try { setKeys(await listCaptureKeys()); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -70,6 +72,10 @@ export function Settings({ household }: { household: Household }) {
         <span>{household.name}</span>
         <span className="muted">Invite code for your partner: <code>{invite}</code></span>
         <div className="row">
+          <button className="btn small primary" onClick={async () => {
+            const link = inviteLink(window.location.origin, invite);
+            try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { window.prompt('Send this link to your partner:', link); }
+          }}>{copied ? 'Copied' : 'Copy invite link'}</button>
           <button className="btn small" onClick={() => confirm('Make a new invite code? The old one stops working.') && void run(async () => setInvite(await rotateInviteCode(household.id)))}>New invite code</button>
         </div>
       </section>

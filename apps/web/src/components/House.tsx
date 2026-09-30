@@ -46,7 +46,10 @@ export function House({ household }: { household: Household }) {
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
-  const [mode, setMode] = useState<'Calendar' | 'Facts'>('Calendar');
+  const [mode, setMode] = useState<'Calendar' | 'Facts'>(() => {
+    // The setup checklist can send you straight to the Facts tab (once).
+    try { const m = sessionStorage.getItem('hm.houseMode'); sessionStorage.removeItem('hm.houseMode'); return m === 'Facts' ? 'Facts' : 'Calendar'; } catch { return 'Calendar'; }
+  });
   const [addingTask, setAddingTask] = useState(false);
   const [importing, setImporting] = useState(false);
 
