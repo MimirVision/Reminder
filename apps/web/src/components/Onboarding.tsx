@@ -22,18 +22,18 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <main className="card">
+    <main className="page narrow">
       <h1>Welcome</h1>
       <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
-      <h2>Start a new household</h2>
+      <h2 style={{ marginTop: 12 }}>Start a new household</h2>
       <form onSubmit={(e: FormEvent) => { e.preventDefault(); void run(() => createHousehold(houseName, name)); }}>
         <input placeholder="Household name" required value={houseName} onChange={(e) => setHouseName(e.target.value)} />
-        <button className="primary" disabled={busy}>Create</button>
+        <button className="btn primary" disabled={busy}>Create</button>
       </form>
-      <h2>…or join one</h2>
+      <h2 style={{ marginTop: 12 }}>…or join one</h2>
       <form onSubmit={(e: FormEvent) => { e.preventDefault(); void run(() => joinHousehold(code, name)); }}>
         <input placeholder="Invite code from your partner" required value={code} onChange={(e) => setCode(e.target.value)} />
-        <button disabled={busy}>Join</button>
+        <button className="btn" disabled={busy}>Join</button>
       </form>
       {err && <p className="error">{err}</p>}
     </main>

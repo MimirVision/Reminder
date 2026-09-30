@@ -22,8 +22,9 @@ export function Auth() {
   }
 
   return (
-    <main className="card">
+    <main className="page narrow">
       <h1>Home Memory</h1>
+      <span className="muted">To-dos that remind you in the right place, and a calendar for the house.</span>
       <form onSubmit={submit}>
         <input type="email" placeholder="Email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <input
@@ -35,10 +36,10 @@ export function Auth() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <button className="primary" disabled={busy}>{mode === 'in' ? 'Sign in' : 'Create account'}</button>
+        <button className="btn primary" disabled={busy}>{mode === 'in' ? 'Sign in' : 'Create account'}</button>
       </form>
       {msg && <p className="error">{msg}</p>}
-      <button className="link" onClick={() => setMode(mode === 'in' ? 'up' : 'in')}>
+      <button className="link" style={{ textAlign: "left" }} onClick={() => setMode(mode === 'in' ? 'up' : 'in')}>
         {mode === 'in' ? 'New here? Create an account' : 'Have an account? Sign in'}
       </button>
     </main>
