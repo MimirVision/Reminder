@@ -478,5 +478,12 @@
   "tour.m3.body": "Turn on place reminders and your phone tells you when you arrive at a shop with something waiting.",
   "task.dateFormat": "Use the date format 2026-09-30, or leave it empty.",
   "task.howOften": "How often",
-  "map.tilesFailed": "The map background could not load (a network or ad blocker may be blocking it). Your places are still shown."
+  "map.tilesFailed": "The map background could not load (a network or ad blocker may be blocking it). Your places are still shown.",
+  "set.version": "Version",
+  "set.advanced": "Advanced",
+  "rem.steps.title": "Set up \"when I arrive\" in 4 steps",
+  "rem.steps.1": "Open the Shortcuts app, tap Automation, then +, then Arrive.",
+  "rem.steps.2": "Choose the place, and set it to Run Immediately.",
+  "rem.steps.3": "Add the action \"Get Contents of URL\" and paste that place's link from the list below.",
+  "rem.steps.4": "Add \"If\" (has any value), then \"Show Notification\" with the result. Done: you now get the list when you arrive."
 }

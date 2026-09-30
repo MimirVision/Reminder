@@ -478,5 +478,12 @@
   "tour.m3.body": "Slå på stedspåminnelser, så sier telefonen fra når du kommer til en butikk hvor noe venter.",
   "task.dateFormat": "Bruk datoformatet 2026-09-30, eller la feltet stå tomt.",
   "task.howOften": "Hvor ofte",
-  "map.tilesFailed": "Kartbakgrunnen kunne ikke lastes (nettverk eller annonseblokkering kan blokkere den). Stedene dine vises fortsatt."
+  "map.tilesFailed": "Kartbakgrunnen kunne ikke lastes (nettverk eller annonseblokkering kan blokkere den). Stedene dine vises fortsatt.",
+  "set.version": "Versjon",
+  "set.advanced": "Avansert",
+  "rem.steps.title": "Slik setter du opp «når jeg kommer til» i 4 trinn",
+  "rem.steps.1": "Åpne Snarveier, trykk Automasjon, deretter +, og velg Ankomme.",
+  "rem.steps.2": "Velg stedet, og sett den til Kjør umiddelbart.",
+  "rem.steps.3": "Legg til handlingen «Hent innholdet i URL» og lim inn lenken for stedet fra listen under.",
+  "rem.steps.4": "Legg til «Hvis» (har en verdi), deretter «Vis varsel» med resultatet. Ferdig: du får listen når du kommer dit."
 }

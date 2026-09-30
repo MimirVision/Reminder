@@ -248,7 +248,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     return (
       <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={showDone} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
         place={opts.place ? placeName(m.place_id) : undefined} byline={opts.meta === false ? undefined : byline(m)}
-        author={members.length > 1 ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
+        author={members.length > 1 && m.author_id !== userId ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
         onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}>
         {m.suggestion && !showDone && (
           <div className="suggest" role="group" aria-label={t('suggest.aria')}>

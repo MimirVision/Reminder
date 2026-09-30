@@ -280,3 +280,8 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 /* Dark map: the standard OSM tiles, inverted and softened so they sit in the dark theme. */
 .map.dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.55); }
 .pin { flex: none; }
+
+/* ---------- Settings tidy-up */
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; } .steps li:first-child { list-style: none; margin-left: -20px; }
+.advanced { display: flex; flex-direction: column; gap: 14px; } .advanced > summary { cursor: pointer; font: 600 15px var(--font-body); color: var(--muted); padding: 8px 4px; }
+.advanced[open] > summary { margin-bottom: 4px; } .center { text-align: center; }

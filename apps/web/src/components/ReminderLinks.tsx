@@ -77,6 +77,10 @@ export function ReminderLinks({ household }: { household: Household }) {
 
       {links ? (
         <>
+          <ol className="steps">
+            <li><strong>{t('rem.steps.title')}</strong></li>
+            {(['rem.steps.1', 'rem.steps.2', 'rem.steps.3', 'rem.steps.4'] as const).map((k) => <li key={k} className="muted">{t(k)}</li>)}
+          </ol>
           <CopyRow label={t('rem.today')} url={links.today} note={t('rem.todayNote')} />
           <CopyRow label={t('rem.digest')} url={links.digest} note={t('rem.digestNote')} />
           {links.places.length === 0 && <span className="muted">{t('rem.noPlaces')}</span>}

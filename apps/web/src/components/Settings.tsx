@@ -48,6 +48,8 @@ export function Settings({ household }: { household: Household }) {
         <ThemeSwitch />
       </section>
 
+      <ReminderLinks household={household} />
+
       <section className="card">
         <h2>{t('push.title')}</h2>
         <span className="muted">{t('push.intro')}</span>
@@ -82,8 +84,8 @@ export function Settings({ household }: { household: Household }) {
         <span className="muted">{t('glass.note')}</span>
       </section>
 
-      <ReminderLinks household={household} />
-
+      <details className="advanced">
+      <summary>{t('set.advanced')}</summary>
       <section className="card">
         <h2>{t('quick.title')}</h2>
         <span className="muted">{t('quick.intro')}</span>
@@ -102,6 +104,8 @@ export function Settings({ household }: { household: Household }) {
         <span className="muted">{t('quick.endpoint')}</span>
         <code>{endpoint}</code>
       </section>
+
+      </details>
 
       <section className="card">
         <h2>{t('hh.title')}</h2>
@@ -130,6 +134,7 @@ export function Settings({ household }: { household: Household }) {
       </section>
 
       <button className="btn danger" onClick={() => supabase.auth.signOut()}>{t('auth.signOut')}</button>
+      <p className="muted center">{t('set.version')}: {__BUILD__}</p>
     </main>
   );
 }
