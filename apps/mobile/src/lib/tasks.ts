@@ -48,7 +48,7 @@ TaskManager.defineTask<{ eventType: Location.LocationGeofencingEventType; region
           title: result.notice.title,
           body: result.notice.body,
           categoryIdentifier: NOTIFICATION_CATEGORY,
-          data: { memoryIds: result.notice.memoryIds },
+          data: { memoryIds: result.notice.memoryIds, placeId: result.notice.placeId, label: result.notice.label },
         },
         trigger: null,
       });

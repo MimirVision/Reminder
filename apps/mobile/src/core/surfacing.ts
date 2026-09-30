@@ -6,7 +6,7 @@ export const PLACE_COOLDOWN_MS = 3 * 3600_000;
 export type PlaceVisitState = { inside: boolean; lastNotifiedAt: number | null };
 export type SurfaceState = Record<string, PlaceVisitState>;
 
-export type Notice = { placeId: string; memoryIds: string[]; title: string; body: string };
+export type Notice = { placeId: string; label: string; memoryIds: string[]; title: string; body: string };
 
 export function notificationText(label: string, memories: Pick<MemoryRow, 'body'>[]): { title: string; body: string } {
   const lines = memories.map((m) => m.body.trim() || '(photo)');
@@ -45,7 +45,7 @@ export function onRegionEvent(args: {
 
   next.lastNotifiedAt = args.now;
   return {
-    notice: { placeId: args.placeId, memoryIds: due.map((m) => m.id), ...notificationText(args.label, due) },
+    notice: { placeId: args.placeId, label: args.label, memoryIds: due.map((m) => m.id), ...notificationText(args.label, due) },
     state: { ...args.state, [args.placeId]: next },
   };
 }

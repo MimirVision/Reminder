@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { distanceM } from './geo.ts';
+import { bucketFor, groupTasks, scheduleLabel } from './maintenance.ts';
+import { hereCandidate, PROMPT_COOLDOWN_MS } from './proximity.ts';
 import { needsRefresh, overpassQuery, parseOverpass } from './pois.ts';
 import { MAX_REGIONS, selectRegions } from './regions.ts';
 import { notificationText, onRegionEvent, PLACE_COOLDOWN_MS, type SurfaceState } from './surfacing.ts';
@@ -96,4 +98,39 @@ test('no memories, no notification (and no cooldown consumed)', () => {
   const r = onRegionEvent({ type: 'enter', placeId: 'ph', label: 'X', places: [pharmacy], memories: [], state: {}, now: 1 });
   assert.equal(r.notice, null);
   assert.equal(r.state['ph'].lastNotifiedAt, null);
+});
+
+test('category regions use the place radius (the "are you here" distance)', () => {
+  const ikea: PlaceRow = { ...pharmacy, id: 'ik', name: 'IKEA', category: 'hardware', radius_m: 400 };
+  const r = selectRegions({
+    places: [ikea], memories: [mem('a', 'ik')],
+    pois: { hardware: [{ id: 'n1', name: 'IKEA Furuset', lat: 59.93, lon: 10.9 }] }, here: oslo,
+  });
+  assert.equal(r[0].radius, 400);
+});
+
+test('are-you-here prompt: only inside the radius, nearest first, respects dismissal', () => {
+  const store = { identifier: 'ik|n1', placeId: 'ik', label: 'IKEA', latitude: 59.9139, longitude: 10.7522, radius: 400 };
+  const other = { identifier: 'ph|n2', placeId: 'ph', label: 'Apotek', latitude: 59.9145, longitude: 10.7522, radius: 400 };
+  const now = 1_700_000_000_000;
+  const near = { lat: 59.9141, lon: 10.7522 }; // ~22 m from store, ~44 m from other
+  assert.equal(hereCandidate({ here: { lat: 60.5, lon: 10.7 }, regions: [store], dismissed: {}, now }), null, 'too far');
+  assert.equal(hereCandidate({ here: near, regions: [store, other], dismissed: {}, now })?.region.label, 'IKEA');
+  assert.equal(hereCandidate({ here: near, regions: [store], dismissed: { ik: now - 1000 }, now }), null, 'dismissed recently');
+  assert.equal(hereCandidate({ here: near, regions: [store], dismissed: { ik: now - PROMPT_COOLDOWN_MS - 1 }, now })?.region.placeId, 'ik', 'cooldown over');
+  assert.equal(hereCandidate({ here: near, regions: [store, other], dismissed: { ik: now }, now })?.region.label, 'Apotek', 'other place still prompts');
+});
+
+test('maintenance buckets, grouping and labels', () => {
+  const t = (id: string, next_due_at: string, active = true) => ({ id, next_due_at, active });
+  assert.equal(bucketFor(t('a', '2026-09-01'), '2026-09-30'), 'due', 'past its start is simply due, not overdue');
+  assert.equal(bucketFor(t('a', '2026-09-30'), '2026-09-30'), 'due');
+  assert.equal(bucketFor(t('a', '2026-11-01'), '2026-09-30'), 'soon');
+  assert.equal(bucketFor(t('a', '2027-04-01'), '2026-09-30'), 'later');
+  const g = groupTasks([t('x', '2027-04-01'), t('y', '2026-09-01'), t('z', '2026-10-15'), t('off', '2026-09-01', false)], '2026-09-30');
+  assert.deepEqual([g.due.map((x) => x.id), g.soon.map((x) => x.id), g.later.map((x) => x.id)], [['y'], ['z'], ['x']]);
+  assert.equal(scheduleLabel({ schedule: 'seasonal', interval_months: null, window_start_month: 9, window_end_month: 10 }), 'every Sep–Oct');
+  assert.equal(scheduleLabel({ schedule: 'interval', interval_months: 12, window_start_month: null, window_end_month: null }), 'every year');
+  assert.equal(scheduleLabel({ schedule: 'interval', interval_months: 24, window_start_month: null, window_end_month: null }), 'every 2 years');
+  assert.equal(scheduleLabel({ schedule: 'interval', interval_months: 3, window_start_month: null, window_end_month: null }), 'every 3 months');
 });

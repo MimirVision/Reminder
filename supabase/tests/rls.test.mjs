@@ -21,7 +21,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -105,6 +105,52 @@ await as(A, async () => {
 await db.exec(`set role anon`);
 await rejects(() => db.query(`select public.capture_memory($1, 'after revoke')`, [key]), /invalid capture key/);
 await db.exec(`reset role`);
+
+// Maintenance: seeding, scheduling rules, completion, isolation.
+const due = async (schedule, months, ws, we, from) =>
+  (await db.query(`select next_due::text as d, due_until::text as u from next_maintenance_due($1, $2, $3, $4, $5::date)`, [schedule, months, ws, we, from])).rows[0];
+assert.deepEqual(await due('interval', 6, null, null, '2026-08-31'), { d: '2027-02-28', u: null });
+assert.deepEqual(await due('seasonal', null, 9, 10, '2026-09-20'), { d: '2027-09-01', u: '2027-10-31' }, 'done inside window: next year');
+assert.deepEqual(await due('seasonal', null, 9, 10, '2026-07-15'), { d: '2027-09-01', u: '2027-10-31' }, 'done a bit early counts for this window');
+assert.deepEqual(await due('seasonal', null, 9, 10, '2026-02-01'), { d: '2026-09-01', u: '2026-10-31' }, 'done long before: this year');
+assert.deepEqual(await due('seasonal', null, 11, 2, '2026-12-05'), { d: '2027-11-01', u: '2028-02-29' }, 'window wrapping the new year');
+const first = async (ws, we, today) => (await db.query(`select next_due::text as d, due_until::text as u from first_seasonal_due($1, $2, $3::date)`, [ws, we, today])).rows[0];
+assert.deepEqual(await first(9, 10, '2026-09-30'), { d: '2026-09-01', u: '2026-10-31' }, 'inside window: due now');
+assert.deepEqual(await first(9, 10, '2026-11-15'), { d: '2027-09-01', u: '2027-10-31' }, 'after window: next year');
+assert.deepEqual(await first(11, 2, '2027-01-10'), { d: '2026-11-01', u: '2027-02-28' }, 'inside a window that started last year');
+
+let seeded;
+await as(A, async () => {
+  seeded = (await db.query(`select seed_house_template($1, '{"has_garden": true, "has_heat_pump": true}', '2026-09-30') as n`, [hid])).rows[0].n;
+  const again = (await db.query(`select seed_house_template($1, '{"has_garden": true, "has_heat_pump": true}', '2026-09-30') as n`, [hid])).rows[0].n;
+  assert.equal(again, 0, 'seeding is idempotent');
+  const keys = (await db.query(`select template_key from maintenance_tasks`)).rows.map((r) => r.template_key);
+  assert.ok(keys.includes('gutters_autumn') && keys.includes('garden_autumn') && keys.includes('heat_pump_filters'));
+  assert.ok(!keys.includes('septic') && !keys.includes('chimney'), 'optional groups stay off');
+  assert.equal(keys.length, seeded);
+  const g = (await db.query(`select next_due_at::text as d from maintenance_tasks where template_key = 'gutters_autumn'`)).rows[0];
+  assert.equal(g.d, '2026-09-01', 'gutters due now (we are in the window)');
+  const stagger = (await db.query(`select min(next_due_at)::text as a, max(next_due_at)::text as b from maintenance_tasks where schedule = 'interval'`)).rows[0];
+  assert.ok(stagger.a >= '2026-10-07' && stagger.b <= '2026-11-25', `interval tasks are staggered: ${JSON.stringify(stagger)}`);
+});
+await as(C, async () => {
+  await rejects(() => db.query(`select seed_house_template($1)`, [hid]), /not a member/);
+  assert.equal((await db.query(`select * from maintenance_tasks`)).rows.length, 0);
+});
+await as(B, async () => {
+  const id = (await db.query(`select id from maintenance_tasks where template_key = 'gutters_autumn'`)).rows[0].id;
+  await db.query(`select complete_maintenance($1, '2026-09-30', 450, 'did the front only')`, [id]);
+  const t = (await db.query(`select last_done_at::text as l, next_due_at::text as n, due_until::text as u from maintenance_tasks where id = $1`, [id])).rows[0];
+  assert.deepEqual(t, { l: '2026-09-30', n: '2027-09-01', u: '2027-10-31' });
+  const e = (await db.query(`select cost_nok::text as c, note, done_by from maintenance_events where task_id = $1`, [id])).rows;
+  assert.equal(e.length, 1); assert.equal(e[0].c, '450.00'); assert.equal(e[0].done_by, B);
+  await rejects(() => db.query(`insert into maintenance_events (task_id, household_id) values ($1, $2)`, [id, hid]), /permission denied|row-level security/);
+});
+await as(C, async () => {
+  const id = (await db.query(`select id from maintenance_tasks limit 1`)).rows;
+  assert.equal(id.length, 0);
+  await rejects(() => db.query(`select complete_maintenance(gen_random_uuid())`), /not found/);
+});
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
 

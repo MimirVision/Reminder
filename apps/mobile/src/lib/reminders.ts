@@ -30,6 +30,7 @@ export { K as storeKeys };
 
 export async function setupNotificationCategories() {
   await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY, [
+    { identifier: 'here', buttonTitle: "I'm here", options: { opensAppToForeground: true } },
     { identifier: 'done', buttonTitle: 'Done', options: { opensAppToForeground: true } },
     { identifier: 'notnow', buttonTitle: 'Not now', options: { opensAppToForeground: false } },
   ]);
@@ -77,7 +78,6 @@ async function fetchPois(category: string, center: LatLon) {
 // Re-picks which (max 20) places iOS should watch. Runs on app open, after edits, and when the phone
 // leaves the "refresh" region around its last known position.
 export async function refreshRegions(): Promise<{ watching: number }> {
-  if (!(await hasBackgroundAccess())) return { watching: 0 };
   const householdId = readJson<string | null>(K.household, null);
   if (!householdId) return { watching: 0 };
 
@@ -106,6 +106,10 @@ export async function refreshRegions(): Promise<{ watching: number }> {
     places, memories, pois: cache?.byCategory ?? {}, here, max: MAX_REGIONS - 1,
   });
   writeJson(K.regions, Object.fromEntries(regions.map((r) => [r.identifier, r.label])));
+
+  // The list snapshot and shop lookups above also feed the in-app "Are you here?" bar, which only needs
+  // foreground location. Registering background geofences needs "Always" + notifications.
+  if (!(await hasBackgroundAccess())) return { watching: 0 };
 
   const watched = regions.map((r) => ({
     identifier: r.identifier,

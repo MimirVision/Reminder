@@ -12,6 +12,7 @@ import { markDone } from '@/lib/api';
 import { refreshRegions, setupNotificationCategories } from '@/lib/reminders';
 import { useTheme } from '@/lib/theme';
 import { Muted } from '@/lib/ui';
+import { HereBanner } from '@/lib/HereBanner';
 
 function Gate() {
   const { ready, session, household } = useSession();
@@ -39,15 +40,21 @@ function Gate() {
     return () => sub.remove();
   }, []);
 
-  // Notification actions ("Done" opens the app and completes the memories in the notification).
+  // Notification taps: "Done" completes the memories; anything else ("I'm here" or tapping it) opens the list.
+  const last = Notifications.useLastNotificationResponse();
   useEffect(() => {
     void setupNotificationCategories();
-    const sub = Notifications.addNotificationResponseReceivedListener((r) => {
-      const ids = (r.notification.request.content.data as { memoryIds?: string[] } | undefined)?.memoryIds;
-      if (r.actionIdentifier === 'done' && ids?.length) void markDone(ids).then(() => refreshRegions()).catch(() => {});
-    });
-    return () => sub.remove();
   }, []);
+  useEffect(() => {
+    if (!last || !household) return;
+    const data = last.notification.request.content.data as { memoryIds?: string[]; placeId?: string; label?: string } | undefined;
+    if (last.actionIdentifier === 'notnow') return;
+    if (last.actionIdentifier === 'done' && data?.memoryIds?.length) {
+      void markDone(data.memoryIds).then(() => refreshRegions()).catch(() => {});
+    } else if (data?.placeId) {
+      router.push({ pathname: '/list/[placeId]', params: { placeId: data.placeId, label: data.label ?? '' } });
+    }
+  }, [last, household, router]);
 
   // homememory://capture?text=... (used by iOS Shortcuts / Siri when you want the app to open).
   const url = Linking.useURL();
@@ -80,11 +87,15 @@ function Gate() {
     );
   }
   return (
+    <>
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="login" />
       <Stack.Screen name="onboarding" />
+      <Stack.Screen name="list/[placeId]" />
     </Stack>
+    {session && household ? <HereBanner /> : null}
+    </>
   );
 }
 

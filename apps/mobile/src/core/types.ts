@@ -29,3 +29,18 @@ export type Region = {
   longitude: number;
   radius: number;
 };
+
+export type MaintenanceTask = {
+  id: string;
+  title: string;
+  notes: string | null;
+  zone: 'house' | 'garden' | 'other';
+  schedule: 'interval' | 'seasonal';
+  interval_months: number | null;
+  window_start_month: number | null;
+  window_end_month: number | null;
+  next_due_at: string; // yyyy-mm-dd
+  due_until: string | null;
+  last_done_at: string | null;
+  active: boolean;
+};

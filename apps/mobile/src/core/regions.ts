@@ -3,7 +3,6 @@ import type { LatLon, MemoryRow, PlaceRow, Poi, Region } from './types.ts';
 
 // iOS monitors at most 20 regions per app, so watch only the nearest ones and re-select on significant movement.
 export const MAX_REGIONS = 20;
-export const CATEGORY_RADIUS_M = 120;
 
 export function selectRegions(input: {
   places: PlaceRow[];
@@ -28,7 +27,7 @@ export function selectRegions(input: {
       for (const poi of input.pois[p.category] ?? []) {
         regions.push({
           identifier: `${p.id}|${poi.id}`, placeId: p.id, label: poi.name,
-          latitude: poi.lat, longitude: poi.lon, radius: CATEGORY_RADIUS_M,
+          latitude: poi.lat, longitude: poi.lon, radius: p.radius_m,
         });
       }
     }

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, SafeAreaView, ScrollView, Text, View } from 'react-native';
 import * as Location from 'expo-location';
-import { addPlace, deletePlace, listPlaces } from '@/lib/api';
+import { addPlace, deletePlace, listPlaces, updatePlaceRadius } from '@/lib/api';
 import { refreshRegions } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
 import { useTheme } from '@/lib/theme';
 import { Btn, Card, Field, Muted, styles } from '@/lib/ui';
 import type { Place } from '@/lib/types';
+
+const RADII = [100, 150, 250, 500, 1000];
 
 const CATEGORIES = [
   { category: 'pharmacy', name: 'Any pharmacy (apotek)' },
@@ -62,8 +64,14 @@ export default function Places() {
         {places.map((p) => (
           <Card key={p.id}>
             <Text style={{ color: t.fg, fontWeight: '600' }}>{p.name}</Text>
-            <Muted>{p.kind === 'category' ? 'category' : `${p.radius_m} m radius`}</Muted>
-            <Btn danger label="Delete" onPress={() => run(() => deletePlace(p.id))} />
+            <Muted>{p.kind === 'category' ? 'any nearby shop of this kind' : 'specific place'} · "Are you here?" within {p.radius_m} m</Muted>
+            <View style={styles.row}>
+              <Btn
+                label={`Distance ${p.radius_m} m`}
+                onPress={() => run(() => updatePlaceRadius(p.id, RADII[(RADII.indexOf(p.radius_m) + 1) % RADII.length] ?? 150))}
+              />
+              <Btn danger label="Delete" onPress={() => run(() => deletePlace(p.id))} />
+            </View>
           </Card>
         ))}
 

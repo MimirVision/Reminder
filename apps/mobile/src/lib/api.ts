@@ -1,6 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from './supabase';
-import type { CaptureKey, Household, Member, Memory, Place } from './types';
+import type { CaptureKey, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -118,4 +118,39 @@ export async function createCaptureKey(householdId: string, label: string): Prom
 
 export async function deleteCaptureKey(id: string) {
   check(await supabase.from('capture_keys').delete().eq('id', id));
+}
+
+export async function updatePlaceRadius(id: string, radius: number) {
+  check(await supabase.from('places').update({ radius_m: radius }).eq('id', id));
+}
+
+export async function reopenMemory(id: string) {
+  check(await supabase.from('memories').update({ status: 'active', done_at: null }).eq('id', id));
+}
+
+export async function listTasks(householdId: string): Promise<MaintenanceTask[]> {
+  return check(await supabase.from('maintenance_tasks').select('*').eq('household_id', householdId).eq('active', true));
+}
+
+export async function seedHouseTemplate(householdId: string, profile: HouseProfile): Promise<number> {
+  return check(await supabase.rpc('seed_house_template', { p_household_id: householdId, p_profile: profile })) as number;
+}
+
+export async function completeTask(id: string, opts: { cost?: number | null; note?: string; doneAt?: string }) {
+  check(
+    await supabase.rpc('complete_maintenance', {
+      p_task_id: id, p_done_at: opts.doneAt ?? new Date().toISOString().slice(0, 10),
+      p_cost: opts.cost ?? null, p_note: opts.note ?? null,
+    }),
+  );
+}
+
+export async function listTaskEvents(taskId: string): Promise<MaintenanceEvent[]> {
+  return check(
+    await supabase.from('maintenance_events').select('id, done_at, cost_nok, note').eq('task_id', taskId).order('done_at', { ascending: false }).limit(20),
+  );
+}
+
+export async function retireTask(id: string) {
+  check(await supabase.from('maintenance_tasks').update({ active: false }).eq('id', id));
 }

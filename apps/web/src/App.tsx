@@ -7,9 +7,10 @@ import { Auth } from './components/Auth';
 import { Onboarding } from './components/Onboarding';
 import { Memories } from './components/Memories';
 import { Places } from './components/Places';
+import { House } from './components/House';
 import { CaptureKeys } from './components/CaptureKeys';
 
-type Tab = 'memories' | 'places' | 'capture';
+type Tab = 'memories' | 'house' | 'places' | 'capture';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -59,6 +60,7 @@ export default function App() {
         <strong>{household.name}</strong>
         <nav>
           <button className={tab === 'memories' ? 'tab on' : 'tab'} onClick={() => setTab('memories')}>Memories</button>
+          <button className={tab === 'house' ? 'tab on' : 'tab'} onClick={() => setTab('house')}>House</button>
           <button className={tab === 'places' ? 'tab on' : 'tab'} onClick={() => setTab('places')}>Places</button>
           <button className={tab === 'capture' ? 'tab on' : 'tab'} onClick={() => setTab('capture')}>Capture</button>
         </nav>
@@ -66,6 +68,8 @@ export default function App() {
       </header>
       {tab === 'memories' ? (
         <Memories household={household} userId={session.user.id} />
+      ) : tab === 'house' ? (
+        <House household={household} />
       ) : tab === 'places' ? (
         <Places household={household} />
       ) : (

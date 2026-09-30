@@ -139,6 +139,14 @@ Completing a recurring Memory writes an Event and schedules the next occurrence 
   the app to re-pick the nearest regions. Only places with active memories are watched.
 - **Reminder logic is plain, tested TypeScript** (`apps/mobile/src/core`): region selection, once-per-visit and
   cooldown rules, snooze handling, notification text.
+- **"Are you here?"** A place's radius is also its prompt distance (per place, 100 m–1 km). While the app is open,
+  a bar at the bottom asks "Are you at IKEA?"; "I'm here" opens that place's checklist (memories at the place, tick to
+  complete, add several items at once). In the background the notification carries the same "I'm here" action.
+  A Live Activity / Dynamic Island version would need native code and is a later option.
+- **Maintenance model.** `maintenance_tasks` (interval or seasonal window) + `maintenance_events` (history with cost
+  and note). `complete_maintenance` schedules the next occurrence. No overdue state: tasks are due, coming up, or later.
+  `seed_house_template` inserts a Norway-oriented starter calendar switched by a house profile. Timing rules are
+  covered by tests in `supabase/tests`.
 - **Known limitation:** a partner's new memory reaches the other phone's geofences only when that app is opened or
   the phone leaves its refresh region (no background push yet).
 
