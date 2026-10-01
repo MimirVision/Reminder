@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -382,6 +382,45 @@ await as(A, async () => {
   assert.ok(f.done_week >= 3, 'finished to-dos this week are counted');
   assert.ok(f.todos.some((x) => x.repeat_rule === 'weekly'), 'repeat rules reach the feed');
   await as(A, async () => { await db.query(`delete from feed_keys where label = 'week'`); });
+}
+
+// 0010: daily AI limits and account deletion.
+{
+  await as(A, async () => {
+    const take = async (fn, limit) => (await db.query(`select public.ai_take($1, $2) as ok`, [fn, limit])).rows[0].ok;
+    assert.deepEqual([await take('read-label', 2), await take('read-label', 2), await take('read-label', 2)], [true, true, false], 'the third use of the day is refused');
+    assert.equal(await take('suggest', 2), true, 'each function has its own count');
+  });
+  await as(B, async () => {
+    assert.equal((await db.query(`select public.ai_take('read-label', 2) as ok`)).rows[0].ok, true, 'each person has their own count');
+    await rejects(() => db.query(`select * from ai_usage`), /permission denied/);
+  });
+  await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false)`);
+  assert.equal((await db.query(`select public.ai_take('x', 5) as ok`)).rows[0].ok, false, 'not signed in: refused');
+
+  // Account deletion: a lone user's household disappears; in a shared household the data stays with the partner.
+  const D = '66666666-6666-6666-6666-666666666666';
+  await db.exec(`insert into auth.users values ('${D}')`);
+  let solo;
+  await as(D, async () => {
+    solo = (await db.query(`select public.create_household('Solo', 'Dee') as id`)).rows[0].id;
+    await db.query(`insert into memories (household_id, body) values ($1, 'mine')`, [solo]);
+  });
+  await as(D, async () => { await db.query(`select public.delete_my_account()`); });
+  await db.exec(`reset role`);
+  assert.equal((await db.query(`select count(*)::int as n from households where id = $1`, [solo])).rows[0].n, 0, 'a lone user takes the household with them');
+  assert.equal((await db.query(`select count(*)::int as n from auth.users where id = $1`, [D])).rows[0].n, 0, 'the user is gone');
+
+  const E = '77777777-7777-7777-7777-777777777777';
+  await db.exec(`insert into auth.users values ('${E}')`);
+  const liveCode = (await db.query(`select invite_code from households where id = $1`, [hid])).rows[0].invite_code;
+  await as(E, async () => { await db.query(`select public.join_household($1, 'Eve')`, [liveCode]); await db.query(`insert into memories (household_id, body) values ($1, 'from eve')`, [hid]); });
+  await as(E, async () => { await db.query(`select public.delete_my_account()`); });
+  await db.exec(`reset role`);
+  const kept = (await db.query(`select author_id from memories where body = 'from eve'`)).rows[0];
+  assert.ok(kept && kept.author_id !== E, 'a shared household keeps the to-do, handed to a remaining member');
+  assert.equal((await db.query(`select count(*)::int as n from household_members where user_id = $1`, [E])).rows[0].n, 0);
+  assert.equal((await db.query(`select count(*)::int as n from households where id = $1`, [hid])).rows[0].n, 1, 'the shared household survives');
 }
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');

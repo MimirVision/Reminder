@@ -500,5 +500,15 @@
   "arrive.markDone": "I set this up",
   "arrive.isDone": "Set up",
   "arrive.noPlaces": "Add a place first (Places tab), then it appears here.",
-  "arrive.more": "More links (summaries, calendar)"
+  "arrive.more": "More links (summaries, calendar)",
+  "report.err.limit": "Daily limit reached for this feature. Try again tomorrow.",
+  "label.err.limit": "Daily limit reached for photo reading. Try again tomorrow.",
+  "acct.title": "Your account",
+  "acct.privacy": "Privacy policy",
+  "acct.deleteIntro": "Delete your account and what is stored about you. If you are alone in the household, all its to-dos, places, facts, photos and tasks are deleted. If a partner shares it, their data stays and your to-dos go to them. This cannot be undone.",
+  "acct.delete": "Delete my account",
+  "acct.typeToConfirm": "Type DELETE to confirm",
+  "acct.confirmWord": "DELETE",
+  "acct.deleting": "Deleting…",
+  "acct.deleteConfirmBtn": "Delete everything"
 }

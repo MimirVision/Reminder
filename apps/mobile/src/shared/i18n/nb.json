@@ -500,5 +500,15 @@
   "arrive.markDone": "Jeg har satt dette opp",
   "arrive.isDone": "Satt opp",
   "arrive.noPlaces": "Legg til et sted først (Steder-fanen), så dukker det opp her.",
-  "arrive.more": "Flere lenker (oppsummeringer, kalender)"
+  "arrive.more": "Flere lenker (oppsummeringer, kalender)",
+  "report.err.limit": "Daglig grense nådd for denne funksjonen. Prøv igjen i morgen.",
+  "label.err.limit": "Daglig grense nådd for bildelesing. Prøv igjen i morgen.",
+  "acct.title": "Kontoen din",
+  "acct.privacy": "Personvern",
+  "acct.deleteIntro": "Slett kontoen din og det som er lagret om deg. Hvis du er alene i husholdningen, slettes alle oppgaver, steder, fakta, bilder og vedlikeholdsoppgaver. Hvis en partner deler den, blir deres data og oppgavene dine overføres til dem. Dette kan ikke angres.",
+  "acct.delete": "Slett kontoen min",
+  "acct.typeToConfirm": "Skriv SLETT for å bekrefte",
+  "acct.confirmWord": "SLETT",
+  "acct.deleting": "Sletter…",
+  "acct.deleteConfirmBtn": "Slett alt"
 }

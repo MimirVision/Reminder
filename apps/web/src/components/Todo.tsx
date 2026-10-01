@@ -321,7 +321,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
   return (
     <main className={`page${mapOn ? ' map-mode' : ''}`}>
-      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{!showDone && seg}</div></div>
+      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{!mapOn && <button className={`btn small icon glass${showDone ? ' on' : ''}`} aria-label={showDone ? t('todo.back') : t('todo.showDone')} aria-pressed={showDone} onClick={() => { setShowDone(!showDone); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{!showDone && seg}</div></div>
       {searching && !mapOn && !showDone && (
         <label className="searchfield"><Icon name="search" size={18} /><input autoFocus type="search" placeholder={t('search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />{query && <button type="button" className="mini" aria-label={t('search.clear')} onClick={() => setQuery('')}><Icon name="x" size={14} /></button>}</label>
       )}
@@ -372,7 +372,6 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
         </>
       )}
 
-      {!mapOn && <p><button className="link quiet" onClick={() => setShowDone(!showDone)}>{showDone ? t('todo.back') : t('todo.showDone')}</button></p>}
 
       {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
       {adding && <TodoSheet household={household} places={places} initialBody={sharedText ?? undefined} onClose={() => { setAdding(false); setSharedText(null); }} onSaved={saved} />}

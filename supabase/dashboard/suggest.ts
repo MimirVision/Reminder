@@ -188,6 +188,10 @@ Deno.serve(async (req) => {
 
   const { data: places } = await db.from('places').select('id, name, kind, category').eq('household_id', memory.household_id);
 
+  // Daily cap per person (the models cost money). Skipped silently if the limits migration has not been run yet.
+  const { data: allowed } = await db.rpc('ai_take', { p_fn: 'suggest', p_limit: 100 });
+  if (allowed === false) return json({ error: 'limit' }, 429);
+
   const client = new Anthropic({ apiKey });
   const model = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-opus-5-5';
   let suggestion = null;

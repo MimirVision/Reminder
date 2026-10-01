@@ -84,6 +84,10 @@ Deno.serve(async (req) => {
   }
   if (!path || !/^[0-9a-f-]{36}\/labels\/[\w.-]+\.jpg$/i.test(path)) return json({ error: 'bad_request' }, 400);
 
+  // Daily cap per person (the models cost money). Skipped silently if the limits migration has not been run yet.
+  const { data: allowed } = await db.rpc('ai_take', { p_fn: 'read-label', p_limit: 15 });
+  if (allowed === false) return json({ error: 'limit' }, 429);
+
   const { data: file, error } = await db.storage.from('media').download(path);
   if (error || !file) return json({ error: 'not_found' }, 404);
   if (file.size > MAX_BYTES) return json({ error: 'too_large' }, 413);

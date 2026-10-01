@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { createCaptureKey, deleteCaptureKey, listCaptureKeys, rotateInviteCode, type CaptureKey } from '../lib/api';
+import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode, type CaptureKey } from '../lib/api';
 import { applyGlass, getGlass, GLASS_LEVELS, type GlassLevel } from '../lib/glass';
 import { downloadExport } from '../lib/exportZip';
 import { ReminderLinks } from './ReminderLinks';
@@ -22,6 +22,9 @@ export function Settings({ household }: { household: Household }) {
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [acctBusy, setAcctBusy] = useState(false);
   const [textSize, setTextSize] = useState<TextSize>(getTextSize);
   const [contrast, setContrast] = useState<Contrast>(getContrast);
 
@@ -131,6 +134,26 @@ export function Settings({ household }: { household: Household }) {
             .finally(() => setExportBusy(false));
         }}>{t('data.export')}</button>
         {exporting && <span className="muted" role="status">{exporting}</span>}
+      </section>
+
+      <section className="card">
+        <h2>{t('acct.title')}</h2>
+        <a className="link" href="/privacy.html" target="_blank" rel="noreferrer">{t('acct.privacy')}</a>
+        {deleting ? (
+          <>
+            <span className="muted">{t('acct.deleteIntro')}</span>
+            <input placeholder={t('acct.typeToConfirm')} value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoCapitalize="characters" />
+            <div className="row">
+              <button className="btn danger" disabled={acctBusy || confirmText.trim().toUpperCase() !== t('acct.confirmWord')}
+                onClick={() => { setAcctBusy(true); void deleteMyAccount(household.id).catch((e) => { setErr(e instanceof Error ? e.message : String(e)); setAcctBusy(false); }); }}>
+                {acctBusy ? t('acct.deleting') : t('acct.deleteConfirmBtn')}
+              </button>
+              <button className="btn" onClick={() => { setDeleting(false); setConfirmText(''); }}>{t('common.cancel')}</button>
+            </div>
+          </>
+        ) : (
+          <button className="btn small danger" onClick={() => setDeleting(true)}>{t('acct.delete')}</button>
+        )}
       </section>
 
       <button className="btn danger" onClick={() => supabase.auth.signOut()}>{t('auth.signOut')}</button>

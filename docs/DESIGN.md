@@ -239,3 +239,8 @@ Required due dates, priorities, tags/projects/folders, streaks, overdue red coun
 4. Which Places/POI data source (MapKit, Google Places, OpenStreetMap) fits Norwegian coverage and cost?
 5. Supabase region and data-residency preference (EU).
 6. Confirm legal/regulatory items in §6 before encoding them as advice.
+
+- **Limits and accounts (migration 0010).** The AI functions refuse after a daily cap per person (suggestions 100, label photos 15,
+  report imports 3; `ai_take`), so credits cannot run away. "Delete my account" in Settings removes the login and, if you are alone
+  in the household, all of its data and files; in a shared household the to-dos go to the partner. A privacy page is at
+  `/privacy.html` (add your contact email there).

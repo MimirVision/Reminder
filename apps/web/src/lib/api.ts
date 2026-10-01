@@ -367,7 +367,7 @@ export async function importReport(householdId: string, file: File): Promise<Rep
   if (error) {
     let code = '';
     try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
-    throw new Error(`report:${['not_configured', 'too_large', 'incomplete', 'unreadable'].includes(code) ? (code === 'unreadable' ? 'incomplete' : code) : 'failed'}`);
+    throw new Error(`report:${['not_configured', 'too_large', 'incomplete', 'unreadable', 'limit'].includes(code) ? (code === 'unreadable' ? 'incomplete' : code) : 'failed'}`);
   }
   return (data as { report: ReportSummary }).report;
 }
@@ -420,9 +420,32 @@ export async function readLabel(householdId: string, file: File, lang: 'en' | 'n
   if (error) {
     let code = '';
     try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
-    throw new Error(`label:${['not_configured', 'too_large', 'unreadable'].includes(code) ? code : 'failed'}`);
+    throw new Error(`label:${['not_configured', 'too_large', 'unreadable', 'limit'].includes(code) ? code : 'failed'}`);
   }
   return (data as { fact: LabelFact }).fact;
 }
 
 export { notifyPartner as notifyPartnerIfSet } from './push';
+
+
+// Deleting your account: first the photos and files of any household you are alone in, then the database rows and the login.
+async function removeHouseholdFiles(householdId: string) {
+  const bucket = supabase.storage.from('media');
+  const paths: string[] = [];
+  const top = await bucket.list(householdId, { limit: 1000 });
+  for (const e of top.data ?? []) {
+    if (e.id) { paths.push(`${householdId}/${e.name}`); continue; }
+    const sub = await bucket.list(`${householdId}/${e.name}`, { limit: 1000 });
+    for (const f of sub.data ?? []) if (f.id) paths.push(`${householdId}/${e.name}/${f.name}`);
+  }
+  for (let i = 0; i < paths.length; i += 100) await bucket.remove(paths.slice(i, i + 100));
+}
+
+export async function deleteMyAccount(householdId: string | null) {
+  if (householdId) {
+    const members = await listMembers(householdId);
+    if (members.length <= 1) await removeHouseholdFiles(householdId).catch(() => {});
+  }
+  check(await supabase.rpc('delete_my_account'));
+  await supabase.auth.signOut().catch(() => {});
+}

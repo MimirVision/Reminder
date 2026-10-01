@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Home Memory: privacy / personvern</title>
+<style>
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 680px; margin: 0 auto; padding: 24px 16px 60px; color: #1E2430; background: #F2F3F5; }
+  @media (prefers-color-scheme: dark) { body { color: #EEF0F3; background: #0F1217; } a { color: #F08A66; } }
+  h1 { font-size: 28px; } h2 { font-size: 19px; margin-top: 28px; } a { color: #B93B18; }
+  hr { margin: 36px 0; border: 0; border-top: 1px solid #8884; }
+</style>
+</head>
+<body>
+<h1>Home Memory: privacy</h1>
+<p><strong>Short version:</strong> your to-dos, places, notes and photos are yours. They are stored so you and the people you invite can see them, and
+are not sold, shown to anyone else or used for advertising. There is no tracking and no ads.</p>
+
+<h2>What is stored</h2>
+<ul>
+  <li>Your email address and a hashed password (for signing in), and the name you give yourself.</li>
+  <li>Your household's to-dos (with dates, places and photos), places (name, address, coordinates), house facts and maintenance tasks.</li>
+  <li>Keys you create for Siri/Shortcuts and reminder links (stored hashed), and, if you turn on notifications, a push address for each device.</li>
+</ul>
+
+<h2>Who handles it</h2>
+<ul>
+  <li><strong>Supabase</strong> stores the data and handles sign-in.</li>
+  <li><strong>Cloudflare</strong> serves the web app and the reminder links.</li>
+  <li><strong>Anthropic</strong> receives text or a photo/PDF only when you use an AI feature (place suggestions, reading a label, importing a condition report), and only for that request.</li>
+  <li><strong>Map and search:</strong> place search (Photon / OpenStreetMap) and map tiles (OpenStreetMap) receive what you type in the place search and the map area you look at.</li>
+  <li><strong>Apple / Google / Microsoft push services</strong> carry encrypted notifications if you turn them on.</li>
+</ul>
+
+<h2>Your choices</h2>
+<ul>
+  <li><strong>Export:</strong> Settings, "Your data" downloads everything.</li>
+  <li><strong>Delete:</strong> Settings, "Your account", "Delete my account" removes your login and what is stored about you (see the note there about shared households).</li>
+  <li><strong>Location:</strong> the phone app only uses your location for place reminders and the map, and you can turn it off in iOS Settings.</li>
+</ul>
+
+<h2>Contact</h2>
+<p>This is a small personal project. Questions or requests: <em>[add your email address here]</em>.</p>
+
+<hr />
+<h1>Personvern</h1>
+<p><strong>Kort fortalt:</strong> oppgaver, steder, notater og bilder er dine. De lagres slik at du og de du inviterer kan se dem, og de selges ikke,
+vises ikke til andre og brukes ikke til reklame. Ingen sporing og ingen annonser.</p>
+
+<h2>Hva som lagres</h2>
+<ul>
+  <li>E-postadressen din og et kryptert passord (for innlogging), og navnet du oppgir.</li>
+  <li>Husholdningens oppgaver (med datoer, steder og bilder), steder (navn, adresse, koordinater), fakta om huset og vedlikeholdsoppgaver.</li>
+  <li>Nøkler du lager for Siri/Snarveier og påminnelseslenker (lagres kryptert), og hvis du slår på varsler, en push-adresse per enhet.</li>
+</ul>
+
+<h2>Hvem som behandler dem</h2>
+<ul>
+  <li><strong>Supabase</strong> lagrer dataene og håndterer innlogging.</li>
+  <li><strong>Cloudflare</strong> leverer nettappen og påminnelseslenkene.</li>
+  <li><strong>Anthropic</strong> får tekst eller bilde/PDF bare når du bruker en AI-funksjon (stedsforslag, lese etikett, importere tilstandsrapport), og bare for den forespørselen.</li>
+  <li><strong>Kart og søk:</strong> stedssøket (Photon / OpenStreetMap) og kartfliser (OpenStreetMap) får det du skriver i stedssøket og kartutsnittet du ser på.</li>
+  <li><strong>Push-tjenester fra Apple / Google / Microsoft</strong> frakter krypterte varsler hvis du slår dem på.</li>
+</ul>
+
+<h2>Dine valg</h2>
+<ul>
+  <li><strong>Eksport:</strong> Innstillinger, «Dataene dine» laster ned alt.</li>
+  <li><strong>Sletting:</strong> Innstillinger, «Kontoen din», «Slett kontoen min» fjerner innloggingen og det som er lagret om deg (se merknaden der om delte husholdninger).</li>
+  <li><strong>Posisjon:</strong> mobilappen bruker posisjonen din bare til stedspåminnelser og kartet, og du kan slå den av i iOS-innstillinger.</li>
+</ul>
+
+<h2>Kontakt</h2>
+<p>Dette er et lite personlig prosjekt. Spørsmål eller forespørsler: <em>[legg inn e-postadressen din her]</em>.</p>
+</body>
+</html>
