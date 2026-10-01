@@ -1,0 +1,17 @@
+{
+  // Cloudflare Workers (static assets + the reminder links). Deploy command: npx wrangler deploy
+  "name": "reminder",
+  "main": "./worker/index.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/calendar.ics"]
+  },
+  // Public values (protected by row level security); the reminder links read them at run time.
+  "vars": {
+    "VITE_SUPABASE_URL": "https://krwrvktqcasvikorqcux.supabase.co",
+    "VITE_SUPABASE_ANON_KEY": "sb_publishable_qRU9v0ZvO9Q2JLRZf6hhkw_fACbH_oB"
+  }
+}
