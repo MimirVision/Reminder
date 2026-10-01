@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import * as maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { Icon } from './icons';
 import { useI18n } from '../i18n';
 import type { LatLon } from '../lib/geo';
+import { circlePolygon } from '../lib/geoCircle';
 import type { MapPin } from '../lib/pins';
+import { MAP_ATTRIBUTION_FALLBACK, MAP_STYLE_URL, RASTER_FALLBACK_STYLE } from '../theme-core';
 
-import { TILE_ATTRIBUTION as ATTRIBUTION, TILE_URLS as TILES } from '../theme-core';
+maplibregl.setWorkerUrl(workerUrl); // the map's background worker, bundled as its own file
 
-const OSLO: L.LatLngTuple = [59.9139, 10.7522];
+const OSLO: [number, number] = [10.7522, 59.9139];
+const PIN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 0113 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.3"/></svg>';
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 
 type Props = {
   pins: MapPin[]; here: LatLon | null; selectedKey: string | null; resolved: 'light' | 'dark';
@@ -16,125 +21,147 @@ type Props = {
   bottomInset: number; onSelect: (p: MapPin) => void; onLocate: () => void; onAdd: () => void;
 };
 
-// The map behind the to-do screen. It is created once; pins, theme and position are updated in place, never rebuilt.
+/** A modern vector map (OpenFreeMap, no key needed) behind the to-do screen. Created once; pins, circles and position are updated in place. */
 export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset, onSelect, onLocate, onAdd }: Props) {
   const { t } = useI18n();
   const el = useRef<HTMLDivElement>(null);
-  const map = useRef<L.Map | null>(null);
-  const tiles = useRef<L.TileLayer | null>(null);
-  const layer = useRef<L.LayerGroup | null>(null);
-  const me = useRef<L.Marker | null>(null);
+  const map = useRef<maplibregl.Map | null>(null);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const markers = useRef<maplibregl.Marker[]>([]);
+  const me = useRef<maplibregl.Marker | null>(null);
   const fitted = useRef('');
-  const [tilesFailed, setTilesFailed] = useState(false);
   const flyToMe = useRef(false);
   const inset = useRef(bottomInset);
   inset.current = bottomInset;
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
 
+  // The style comes from OpenFreeMap; if it cannot be fetched, plain OpenStreetMap tiles are used instead.
   useEffect(() => {
     if (!el.current) return;
-    const m = L.map(el.current, { zoomControl: false, attributionControl: false, zoomSnap: 0.5, zoomDelta: 1, worldCopyJump: false }).setView(OSLO, 11);
-    L.control.attribution({ prefix: false, position: 'bottomleft' }).addTo(m);
-    layer.current = L.layerGroup().addTo(m);
-    map.current = m;
-    const ro = new ResizeObserver(() => m.invalidateSize());
-    ro.observe(el.current);
-    return () => { ro.disconnect(); m.remove(); map.current = null; tiles.current = null; layer.current = null; me.current = null; fitted.current = ''; };
+    let cancelled = false;
+    let m: maplibregl.Map | null = null;
+    let ro: ResizeObserver | null = null;
+    (async () => {
+      let style = RASTER_FALLBACK_STYLE as unknown as maplibregl.StyleSpecification;
+      let fallback = true;
+      try {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 6000);
+        const res = await fetch(MAP_STYLE_URL, { signal: ctl.signal });
+        clearTimeout(timer);
+        if (res.ok) { style = (await res.json()) as maplibregl.StyleSpecification; fallback = false; }
+      } catch { /* use the fallback */ }
+      if (cancelled || !el.current) return;
+      m = new maplibregl.Map({
+        container: el.current, style, center: OSLO, zoom: 11, attributionControl: false, dragRotate: false, pitchWithRotate: false,
+        touchPitch: false, fadeDuration: 120, canvasContextAttributes: { antialias: true },
+      });
+      m.touchZoomRotate.disableRotation();
+      m.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: fallback ? MAP_ATTRIBUTION_FALLBACK : undefined }), 'bottom-left');
+      m.on('load', () => {
+        m!.addSource('radius', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        m!.addLayer({ id: 'radius-fill', type: 'fill', source: 'radius', paint: { 'fill-color': '#C8431F', 'fill-opacity': ['case', ['==', ['get', 'sel'], 1], 0.18, 0.08] } });
+        m!.addLayer({ id: 'radius-line', type: 'line', source: 'radius', paint: { 'line-color': '#C8431F', 'line-opacity': ['case', ['==', ['get', 'sel'], 1], 0.9, 0.45], 'line-width': 1.5 } });
+        setReady(true);
+      });
+      const failTimer = setTimeout(() => { if (m && !m.loaded()) setFailed(true); }, 9000);
+      m.once('idle', () => { clearTimeout(failTimer); setFailed(false); });
+      ro = new ResizeObserver(() => m?.resize());
+      ro.observe(el.current);
+      map.current = m;
+    })();
+    return () => {
+      cancelled = true;
+      ro?.disconnect();
+      markers.current.forEach((x) => x.remove());
+      me.current?.remove();
+      m?.remove();
+      map.current = null; me.current = null; markers.current = []; fitted.current = '';
+      setReady(false);
+    };
   }, []);
 
-  // Tiles. If none load (blocked network, ad blocker), say so instead of showing a silent grey box.
+  // Pins (with a label on the selected one) and the radius circles.
   useEffect(() => {
     const m = map.current;
-    if (!m) return;
-    tiles.current?.remove();
-    setTilesFailed(false);
-    let loaded = 0, errors = 0;
-    const layer = L.tileLayer(TILES[resolved], { maxZoom: 19, attribution: ATTRIBUTION }).addTo(m);
-    layer.on('tileload', () => { loaded++; });
-    layer.on('tileerror', () => { errors++; if (loaded === 0 && errors >= 4) setTilesFailed(true); });
-    layer.bringToBack();
-    tiles.current = layer;
-  }, [resolved]);
-
-  // Pins, radius circles and the selection.
-  useEffect(() => {
-    const g = layer.current;
-    if (!g) return;
-    g.clearLayers();
-    for (const p of pins) {
+    if (!m || !ready) return;
+    markers.current.forEach((x) => x.remove());
+    markers.current = pins.map((p) => {
       const sel = p.key === selectedKey;
-      if (p.radius && (sel || p.count > 0)) L.circle([p.lat, p.lon], { radius: p.radius, interactive: false, className: `radius${sel ? ' sel' : ''}`, weight: 1.5 }).addTo(g);
-    }
-    for (const p of pins) {
-      const sel = p.key === selectedKey;
-      const icon = L.divIcon({
-        className: 'pin-wrap', iconSize: [44, 44], iconAnchor: [22, 22],
-        html: `<div class="pin${p.count ? '' : ' dot'}${sel ? ' sel' : ''}" style="${p.count ? '' : 'width:16px;height:16px;margin:14px;'}">${p.count ? `<span>${p.count}</span>` : ''}</div>`,
-      });
-      L.marker([p.lat, p.lon], { icon, title: p.label, alt: p.label, zIndexOffset: sel ? 1000 : p.count ? 100 : 0 }).addTo(g).on('click', () => selectRef.current(p));
-    }
-  }, [pins, selectedKey]);
+      const node = document.createElement('button');
+      node.type = 'button';
+      node.className = `mpin${p.count ? '' : ' quiet'}${sel ? ' sel' : ''}`;
+      node.setAttribute('aria-label', p.label);
+      node.innerHTML = `<span class="mpin-body">${p.count ? `${PIN}<b>${p.count}</b>` : ''}</span>${sel ? `<span class="mpin-label">${esc(p.label)}</span>` : ''}`;
+      node.addEventListener('click', (e) => { e.stopPropagation(); selectRef.current(p); });
+      return new maplibregl.Marker({ element: node, anchor: 'center' }).setLngLat([p.lon, p.lat]).addTo(m);
+    });
+    const src = m.getSource('radius') as maplibregl.GeoJSONSource | undefined;
+    src?.setData({
+      type: 'FeatureCollection',
+      features: pins.filter((p) => p.radius && (p.key === selectedKey || p.count > 0)).map((p) => ({
+        type: 'Feature', properties: { sel: p.key === selectedKey ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [circlePolygon(p.lat, p.lon, p.radius as number)] },
+      })),
+    });
+  }, [pins, selectedKey, ready]);
 
   // Where you are.
   useEffect(() => {
     const m = map.current;
-    if (!m) return;
+    if (!m || !ready) return;
     me.current?.remove();
     me.current = null;
     if (!here) return;
-    me.current = L.marker([here.lat, here.lon], {
-      interactive: false, keyboard: false, zIndexOffset: 2000,
-      icon: L.divIcon({ className: 'pin-wrap', iconSize: [24, 24], iconAnchor: [12, 12], html: '<div class="me"><i></i></div>' }),
-    }).addTo(m);
-  }, [here]);
+    const node = document.createElement('div');
+    node.className = 'me';
+    node.innerHTML = '<i></i>';
+    me.current = new maplibregl.Marker({ element: node }).setLngLat([here.lon, here.lat]).addTo(m);
+  }, [here, ready]);
 
   // Frame the pins once per set of pins (and you, when there are none), keeping them above the sheet.
   useEffect(() => {
     const m = map.current;
-    if (!m) return;
+    if (!m || !ready) return;
     const sig = pins.map((p) => p.key).sort().join(',') + (pins.length === 0 && here ? '|here' : '');
     if (sig === fitted.current || (sig === '' && !here)) return;
     fitted.current = sig;
-    const padding = { paddingTopLeft: [28, 120] as L.PointTuple, paddingBottomRight: [28, inset.current + 24] as L.PointTuple };
-    const pts = pins.filter((p) => p.count > 0 || pins.length === 1).map((p) => [p.lat, p.lon] as L.LatLngTuple);
-    const all = pts.length ? pts : pins.map((p) => [p.lat, p.lon] as L.LatLngTuple);
-    if (here && all.length) all.push([here.lat, here.lon]);
-    if (all.length > 1) m.fitBounds(L.latLngBounds(all), { ...padding, maxZoom: 16, animate: false });
-    else if (all.length === 1) m.setView(all[0], 15, { animate: false });
-    else if (here) m.setView([here.lat, here.lon], 14, { animate: false });
-  }, [pins, here]);
+    const withTodos = pins.filter((p) => p.count > 0);
+    const pts: [number, number][] = (withTodos.length ? withTodos : pins).map((p) => [p.lon, p.lat]);
+    if (here && pts.length) pts.push([here.lon, here.lat]);
+    const padding = { top: 120, left: 28, right: 28, bottom: inset.current + 24 };
+    if (pts.length > 1) {
+      const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
+      pts.forEach((c) => b.extend(c));
+      m.fitBounds(b, { padding, maxZoom: 16, duration: 0 });
+    } else if (pts.length === 1) m.jumpTo({ center: pts[0], zoom: 15, padding });
+    else if (here) m.jumpTo({ center: [here.lon, here.lat], zoom: 14, padding });
+  }, [pins, here, ready]);
 
-  // Selecting a card (or a pin) brings the place into the open part of the map.
+  // Selecting a card (or a pin) glides to the place and keeps it above the sheet.
   useEffect(() => {
     const m = map.current;
     const p = pins.find((x) => x.key === selectedKey);
-    if (!m || !p) return;
-    const zoom = Math.max(m.getZoom(), 15);
-    const target = m.project([p.lat, p.lon], zoom).add([0, inset.current / 2 - 30]);
-    m.flyTo(m.unproject(target, zoom), zoom, { duration: 0.5 });
+    if (!m || !ready || !p) return;
+    m.easeTo({ center: [p.lon, p.lat], zoom: Math.max(m.getZoom(), 15), padding: { top: 100, left: 20, right: 20, bottom: inset.current + 20 }, duration: 550 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey]);
 
-  const flyTo = (p: LatLon) => {
-    const m = map.current;
-    if (!m) return;
-    const zoom = Math.max(m.getZoom(), 15);
-    m.flyTo(m.unproject(m.project([p.lat, p.lon], zoom).add([0, inset.current / 2 - 30]), zoom), zoom, { duration: 0.6 });
-  };
-  // The position arrived after a tap on the locate button.
+  const flyTo = (p: LatLon) => map.current?.easeTo({ center: [p.lon, p.lat], zoom: Math.max(map.current.getZoom(), 15), padding: { top: 100, left: 20, right: 20, bottom: inset.current + 20 }, duration: 600 });
   useEffect(() => {
     if (here && flyToMe.current) { flyToMe.current = false; flyTo(here); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [here]);
 
   return (
     <div className="mapwrap" style={{ ['--sheet' as string]: `${bottomInset}px` }}>
       <div className={`map${resolved === 'dark' ? ' dark' : ''}`} ref={el} role="region" aria-label={t('map.aria')} />
-      {tilesFailed && <p className="map-note glass" role="status">{t('map.tilesFailed')}</p>}
+      {failed && <p className="map-note glass" role="status">{t('map.tilesFailed')}</p>}
       <div className="map-controls" style={{ bottom: bottomInset + 20 }}>
         <div className="glass stack">
-          <button type="button" aria-label={t('map.zoomIn')} onClick={() => map.current?.zoomIn()}><Icon name="plus" size={20} /></button>
-          <button type="button" aria-label={t('map.zoomOut')} onClick={() => map.current?.zoomOut()}><Icon name="minus" size={20} /></button>
+          <button type="button" aria-label={t('map.zoomIn')} onClick={() => map.current?.zoomIn({ duration: 250 })}><Icon name="plus" size={20} /></button>
+          <button type="button" aria-label={t('map.zoomOut')} onClick={() => map.current?.zoomOut({ duration: 250 })}><Icon name="minus" size={20} /></button>
         </div>
         <button type="button" className="glass round" aria-label={t('map.locate')} onClick={() => { if (here) flyTo(here); else flyToMe.current = true; onLocate(); }}><Icon name="locate" size={20} /></button>
         <button type="button" className="round accent" aria-label={t('todo.addAria')} onClick={onAdd}><Icon name="plus" size={22} /></button>

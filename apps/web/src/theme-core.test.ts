@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isThemePref, resolveTheme, themeColor, TILE_URLS } from './theme-core.ts';
+import { isThemePref, MAP_STYLE_URL, RASTER_FALLBACK_STYLE, resolveTheme, themeColor } from './theme-core.ts';
 
 test('system follows the device, explicit choices win', () => {
   assert.equal(resolveTheme('system', true), 'dark');
@@ -16,6 +16,6 @@ test('only the three preferences are accepted', () => {
 
 test('status-bar colour and map tiles exist for both themes', () => {
   assert.notEqual(themeColor('light'), themeColor('dark'));
-  for (const u of Object.values(TILE_URLS)) assert.doesNotMatch(u, /cartocdn/, 'CARTO tiles need an API key now');
-  for (const u of Object.values(TILE_URLS)) assert.match(u, /\{z\}\/\{x\}\/\{y\}/);
+  assert.match(MAP_STYLE_URL, /^https:\/\/tiles\.openfreemap\.org\/styles\//);
+  assert.match(RASTER_FALLBACK_STYLE.sources.osm.tiles[0], /\{z\}\/\{x\}\/\{y\}/);
 });
