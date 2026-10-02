@@ -6,3 +6,5 @@ create table if not exists public.due_pushes (
 );
 alter table public.due_pushes enable row level security;
 revoke all on public.due_pushes from anon, authenticated;
+
+notify pgrst, 'reload schema';

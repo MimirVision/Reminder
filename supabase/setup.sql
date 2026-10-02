@@ -479,7 +479,7 @@ create trigger media_same_household before insert or update of memory_id on publ
 -- House facts: things you need to look up in the shop or in an emergency (paint code, bulb type, measurements,
 -- where the water shutoff is). surface_at lists shop categories where the fact should appear on the store list.
 
-create table public.house_facts (
+create table if not exists public.house_facts (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households (id) on delete cascade,
   title text not null,
@@ -490,22 +490,27 @@ create table public.house_facts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create index house_facts_household_idx on public.house_facts (household_id, category);
+create index if not exists house_facts_household_idx on public.house_facts (household_id, category);
+drop trigger if exists house_facts_touch on public.house_facts;
 create trigger house_facts_touch before update on public.house_facts
   for each row execute function public.touch_updated_at();
 
 alter table public.house_facts enable row level security;
+drop policy if exists house_facts_select on public.house_facts;
 create policy house_facts_select on public.house_facts for select using (public.is_member(household_id));
+drop policy if exists house_facts_insert on public.house_facts;
 create policy house_facts_insert on public.house_facts for insert
   with check (public.is_member(household_id) and created_by = auth.uid());
 -- Either partner may edit or delete a shared fact.
+drop policy if exists house_facts_update on public.house_facts;
 create policy house_facts_update on public.house_facts for update
   using (public.is_member(household_id)) with check (public.is_member(household_id));
+drop policy if exists house_facts_delete on public.house_facts;
 create policy house_facts_delete on public.house_facts for delete using (public.is_member(household_id));
 grant select, insert, update, delete on public.house_facts to authenticated;
 
 -- Your own recurring task. `p_last_done` (optional) says when it was last done, so the first due date is right.
-create function public.add_maintenance_task(
+create or replace function public.add_maintenance_task(
   p_household_id uuid, p_title text, p_notes text, p_schedule text,
   p_interval_months int default null, p_ws int default null, p_we int default null,
   p_last_done date default null, p_today date default current_date
@@ -533,6 +538,9 @@ begin
 end;
 $$;
 grant execute on function public.add_maintenance_task(uuid, text, text, text, int, int, int, date, date) to authenticated;
+
+-- Make the API pick up the new table and function right away.
+notify pgrst, 'reload schema';
 
 -- ===== 0007_feed_keys.sql =====
 -- Read-only "reminder keys". A key opens links on the web app's own domain (/api/remind and /calendar.ics) that
@@ -869,3 +877,5 @@ create table if not exists public.due_pushes (
 );
 alter table public.due_pushes enable row level security;
 revoke all on public.due_pushes from anon, authenticated;
+
+notify pgrst, 'reload schema';

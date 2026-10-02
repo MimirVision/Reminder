@@ -7,8 +7,8 @@ row-level security, the invite flow, capture keys (for Siri/Shortcuts) and a pri
 ## Already ran setup.sql? Run `upgrade.sql`
 
 `setup.sql` is the whole schema for a fresh project. If you already ran `setup.sql` or an earlier `upgrade.sql` through
-migration 0006, paste `upgrade.sql` into the SQL Editor and run it once instead; it contains only the newer migrations
-(0007 reminder keys, 0008 to-do dates and place addresses, 0009 repeating to-dos, notification subscriptions and the weekly recap, and later ones; both are safe to run twice). For live updates between phones, run `enable-realtime.sql` once (optional). `npm run build:setup` regenerates both files.
+migration 0005, paste `upgrade.sql` into the SQL Editor and run it once instead; it contains only the newer migrations
+(0006 house facts and your own recurring tasks, 0007 reminder keys, 0008 to-do dates and place addresses, 0009 repeating to-dos, notification subscriptions and the weekly recap, and later ones; both are safe to run twice). For live updates between phones, run `enable-realtime.sql` once (optional). `npm run build:setup` regenerates both files.
 
 ## Setup (one time, ~10 minutes)
 

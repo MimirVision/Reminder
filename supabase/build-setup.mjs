@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 // Migrations up to and including this number are what earlier setup.sql pastes already contained.
-export const UPGRADE_AFTER = 6;
+export const UPGRADE_AFTER = 5;
 
 export function buildSetup(after = 0) {
   const dir = new URL('./migrations/', import.meta.url);
