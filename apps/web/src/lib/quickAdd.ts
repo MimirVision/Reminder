@@ -291,7 +291,8 @@ export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
   const BARE_SHOP = /^(?:handle(?: inn)?|buy|shop|shopping|go shopping|do the (?:grocery )?shopping|kj\u00f8p|g\u00e5 og handle)$/i;
   for (const [i, p] of parts.entries()) {
     // "Handle på kiwi." with the list in the next sentence: the place and time carry over to that sentence.
-    if (BARE_SHOP.test(p.title) && i < parts.length - 1 && hasMeta(p.meta)) p.title = '';
+    const bare = p.title.replace(/\s+(?:p\u00e5 vei(?: hjem)? fra|on my way(?: home)? from)(?:\s+\S+){1,2}$/i, '');
+    if (BARE_SHOP.test(bare) && i < parts.length - 1 && hasMeta(p.meta)) p.title = '';
     if (!p.title && hasMeta(p.meta)) {
       if (carry) fill(carry, p.meta); else carry = { ...p.meta };
       continue;
