@@ -65,14 +65,14 @@ export async function updatePlaceCategory(id: string, category: string | null) {
 // A to-do with a place or a date is "active" (it has a reason to surface); one with neither waits in the inbox.
 export const statusFor = (m: { place_id?: string | null; due_on?: string | null }): Memory['status'] => (m.place_id || m.due_on ? 'active' : 'inbox');
 
-type Patch = Partial<Pick<Memory, 'status' | 'place_id' | 'done_at' | 'body' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by'>>;
+type Patch = Partial<Pick<Memory, 'status' | 'place_id' | 'done_at' | 'body' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned'>>;
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
 }
 
 /** Edit text, place and date together. The status follows what the to-do now has. */
-export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: Memory['repeat_rule'] }) {
+export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: Memory['repeat_rule']; assignee_id?: string | null; pinned?: boolean }) {
   await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, repeat_rule: f.due_on ? f.repeat_rule ?? null : null, status: statusFor(f) });
 }
 
@@ -114,10 +114,12 @@ export async function listDoneSince(householdId: string, days = 7): Promise<Pick
   return check(await supabase.from('memories').select('id, done_at, done_by, author_id').eq('household_id', householdId).eq('status', 'done').gte('done_at', since).limit(500));
 }
 
+let channelCount = 0;
+
 /** Live updates: calls onChange when anything in this household's to-dos or places changes (the partner added something). */
 export function subscribeHousehold(householdId: string, onChange: () => void): () => void {
   const ch = supabase
-    .channel(`hm-${householdId}`)
+    .channel(`hm-${householdId}-${++channelCount}`) // each subscriber needs its own channel: supabase-js reuses a topic that is already subscribed
     .on('postgres_changes', { event: '*', schema: 'public', table: 'memories', filter: `household_id=eq.${householdId}` }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'places', filter: `household_id=eq.${householdId}` }, onChange)
     .subscribe();
@@ -132,12 +134,16 @@ export type NewMemory = {
   due_on?: string | null;
   due_time?: string | null;
   repeat_rule?: Memory['repeat_rule'];
+  assignee_id?: string | null;
+  pinned?: boolean;
   capture_lat: number | null;
   capture_lon: number | null;
 };
 
 export async function insertMemory(m: NewMemory) {
-  const row = { ...m, due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m) };
+  // assignee_id and pinned are only sent when used, so it works before the 0011 database upgrade is run.
+  const { assignee_id, pinned, ...base } = m;
+  const row = { ...base, ...(assignee_id ? { assignee_id } : {}), ...(pinned ? { pinned } : {}), due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m) };
   const res = await supabase.from('memories').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
   if (res.error) throw new Error(res.error.message);
 }
@@ -320,4 +326,41 @@ export async function readLabel(householdId: string, uri: string, lang: 'en' | '
     throw new Error(`label:${['not_configured', 'too_large', 'unreadable'].includes(code) ? code : 'failed'}`);
   }
   return (data as { fact: LabelFact }).fact;
+}
+
+
+/** "Smart add": the AI reads free text into a list of to-dos. `unavailable` when the function is not set up (the caller falls back to the on-phone reader). */
+export async function parseTasksAI(householdId: string, text: string, lang: 'en' | 'nb', partner: string | null): Promise<{ tasks: import('../shared/lib/quickAdd').ParsedTask[] | null; error: 'unavailable' | 'limit' | 'failed' | null }> {
+  const d = new Date();
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const { data, error } = await supabase.functions.invoke('parse-tasks', { body: { household_id: householdId, text, lang, today: iso, partner } });
+  if (error) {
+    let code = '';
+    try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
+    return { tasks: null, error: code === 'limit' ? 'limit' : code === 'not_configured' || /not found|404|Failed to send/i.test(String(error.message)) ? 'unavailable' : 'failed' };
+  }
+  return { tasks: (data as { tasks?: import('../shared/lib/quickAdd').ParsedTask[] } | null)?.tasks ?? [], error: null };
+}
+
+
+// Deleting your account: first the photos and files of any household you are alone in, then the database rows and the login.
+async function removeHouseholdFiles(householdId: string) {
+  const bucket = supabase.storage.from('media');
+  const paths: string[] = [];
+  const top = await bucket.list(householdId, { limit: 1000 });
+  for (const e of top.data ?? []) {
+    if (e.id) { paths.push(`${householdId}/${e.name}`); continue; }
+    const sub = await bucket.list(`${householdId}/${e.name}`, { limit: 1000 });
+    for (const f of sub.data ?? []) if (f.id) paths.push(`${householdId}/${e.name}/${f.name}`);
+  }
+  for (let i = 0; i < paths.length; i += 100) await bucket.remove(paths.slice(i, i + 100));
+}
+
+export async function deleteMyAccount(householdId: string | null) {
+  if (householdId) {
+    const members = await listMembers(householdId);
+    if (members.length <= 1) await removeHouseholdFiles(householdId).catch(() => {});
+  }
+  check(await supabase.rpc('delete_my_account'));
+  await supabase.auth.signOut().catch(() => {});
 }

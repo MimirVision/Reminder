@@ -6,6 +6,7 @@ import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
 import { AddTaskForm } from '@/lib/AddTaskForm';
 import { FactsView } from '@/lib/FactsView';
+import { MovingView } from '@/lib/MovingView';
 import { BAR_SPACE, Btn, Card, Check, Field, Muted, SectionLabel, Title, styles } from '@/lib/ui';
 import { groupTasks } from '../../core/maintenance.ts';
 import { scheduleLabel, taskNotes, taskTitle } from '../../shared/lib/labels';
@@ -55,7 +56,7 @@ export default function House() {
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [mode, setMode] = useState<'calendar' | 'facts'>('calendar');
+  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving'>('calendar');
   const [addingTask, setAddingTask] = useState(false);
 
   const load = useCallback(async () => {
@@ -89,9 +90,19 @@ export default function House() {
 
   const toggle2 = (
     <View style={styles.row}>
-      {(['calendar', 'facts'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
+      {(['calendar', 'facts', 'moving'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
     </View>
   );
+
+  if (mode === 'moving') {
+    return (
+      <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
+        <Title>{tr('house.title')}</Title>
+        {toggle2}
+        <MovingView />
+      </ScrollView>
+    );
+  }
 
   if (mode === 'facts') {
     return (

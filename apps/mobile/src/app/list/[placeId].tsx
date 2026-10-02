@@ -5,6 +5,8 @@ import { completeMemory, listFacts, listMembers, listMemories, listPhotoUrls, li
 import { Avatar } from '@/lib/Avatar';
 import { useI18n } from '@/lib/i18n';
 import { dueLabel } from '../../shared/lib/when';
+import { splitShoppingLine } from '../../shared/lib/quickAdd';
+import { readJson, writeJson } from '@/lib/store';
 import { factsForCategory } from '../../core/facts.ts';
 import { uuid } from '@/lib/id';
 import { capture, pending } from '@/lib/outbox';
@@ -27,6 +29,8 @@ export default function PlaceList() {
   const [draft, setDraft] = useState('');
   const [queued, setQueued] = useState<string[]>([]);
   const [useful, setUseful] = useState<HouseFact[]>([]);
+  const [shop, setShop] = useState(() => readJson<boolean>('hm.shopView', true));
+  const setShopView = (v: boolean) => { setShop(v); writeJson('hm.shopView', v); };
 
   const load = useCallback(async () => {
     if (!household) return;
@@ -81,7 +85,8 @@ export default function PlaceList() {
 
   async function add() {
     if (!household || !draft.trim()) return;
-    const lines = draft.split('\n').map((l) => l.trim()).filter(Boolean);
+    // "milk, eggs and bread" on one line becomes three items.
+    const lines = draft.split('\n').map((l) => l.trim()).filter(Boolean).flatMap(splitShoppingLine);
     setDraft('');
     for (const body of lines) {
       await capture({ id: uuid(), household_id: household.id, body, place_id: placeId, capture_lat: null, capture_lon: null, photoUris: [] });
@@ -91,6 +96,31 @@ export default function PlaceList() {
 
   const open = items.filter((m) => m.status !== 'done');
   const done = items.filter((m) => m.status === 'done');
+  const total = open.length + done.length;
+
+  // Shopping view: big rows you tick with a thumb, and a bar that fills as you go.
+  const big = (m: Memory) => {
+    const isDone = m.status === 'done';
+    const sub = [m.due_on ? dueLabel(m, tr, locale) : '', m.pinned ? tr('row.pinned') : ''].filter(Boolean).join(' · ');
+    return (
+      <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 18, borderWidth: 1, borderColor: t.line, backgroundColor: t.card, marginBottom: 8, opacity: isDone ? 0.55 : 1 }}>
+        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isDone }} onPress={() => void toggle(m)}
+          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, paddingLeft: 14, paddingRight: 8, minHeight: 60 }}>
+          <View style={{ width: 32, height: 32, borderRadius: 16, borderWidth: isDone ? 0 : 2, borderColor: t.control, backgroundColor: isDone ? t.ink : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+            {isDone && <Icon name="checkmark" size={18} color={t.card} />}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: t.ink, fontSize: 18, lineHeight: 24, fontFamily: font.semi, textDecorationLine: isDone ? 'line-through' : 'none' }}>{m.body || tr('todo.photo')}</Text>
+            {sub ? <Muted>{sub}</Muted> : null}
+          </View>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={tr('shop.edit', { title: (m.body || tr('todo.photo')).split('\n')[0] })} hitSlop={8}
+          onPress={() => router.push({ pathname: '/add', params: { id: m.id } })} style={{ padding: 14 }}>
+          <Icon name="chevron.right" size={14} color={t.muted} />
+        </Pressable>
+      </View>
+    );
+  };
 
   const row = (m: Memory) => (
     <View key={m.id} style={{ flexDirection: 'row', gap: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: t.line, alignItems: 'flex-start' }}>
@@ -124,7 +154,13 @@ export default function PlaceList() {
           </Pressable>
         </View>
         <View style={{ marginTop: 8 }}>
-          {open.map(row)}
+          {shop && total > 0 && (
+            <View accessibilityRole="progressbar" accessibilityLabel={tr('shop.progress', { done: done.length, total })} style={{ height: 26, borderRadius: 13, backgroundColor: t.line, overflow: 'hidden', marginBottom: 10, justifyContent: 'center' }}>
+              <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(done.length / total) * 100}%`, backgroundColor: t.accent, borderRadius: 13 }} />
+              <Text style={{ textAlign: 'center', color: t.ink, fontSize: 13, fontFamily: font.semi }}>{tr('shop.progress', { done: done.length, total })}</Text>
+            </View>
+          )}
+          {open.map(shop ? big : row)}
           {queued.map((b, i) => (
             <View key={`q${i}`} style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: t.line }}>
               <Text style={{ color: t.muted, fontSize: 17, fontFamily: font.body }}>{b} ({tr('row.pending')})</Text>
@@ -147,7 +183,10 @@ export default function PlaceList() {
           <Btn label={tr('common.add')} onPress={add} disabled={!draft.trim()} />
         </View>
         {done.length > 0 && <View style={{ marginTop: 12 }}><SectionLabel>{tr('list.gotIt')}</SectionLabel></View>}
-        {done.map(row)}
+        {done.map(shop ? big : row)}
+        <Pressable accessibilityRole="button" onPress={() => setShopView(!shop)} style={{ alignSelf: 'center', paddingVertical: 14 }}>
+          <Text style={{ color: t.accentText, fontFamily: font.semi, fontSize: 14 }}>{shop ? tr('shop.detail') : tr('shop.mode')}</Text>
+        </Pressable>
       </ScrollView>
       <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: 28 }}>
         <Btn primary label={tr('list.doneHere')} onPress={() => { void refreshRegions().catch(() => {}); router.back(); }} />

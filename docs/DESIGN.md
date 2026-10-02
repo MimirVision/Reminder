@@ -255,3 +255,9 @@ Required due dates, priorities, tags/projects/folders, streaks, overdue red coun
   time from the public OSRM server, time at each stop by kind of shop, rush-hour factors by time of day, and today's "before HH:MM"
   deadlines; draws the line and numbered stops on the map and hands the ordered stops to Google or Apple Maps. Limit: OSRM has no
   live traffic; the rush-hour factors are estimates and the maps apps use live traffic when you drive.
+- **Phone app 0.2.0 catches up with the web app.** Smart add (on-phone reader shared with the web through `scripts/sync-shared.mjs`, plus "Sort with AI"),
+  who a to-do is for and the filter, pinning, shopping view and list splitting in a place list, the Moving tab, the route planner screen (map line,
+  numbered stops, hand-off to Apple or Google Maps), delete-my-account, and an error screen instead of a blank one. The shared logic is tested in
+  `apps/web` (`quickAdd`, `route`, `moving`); the phone screens are type-checked and the iOS bundle builds, but have not been run on a device.
+  Sideloaded apps stop opening after 7 days (free Apple ID) and update only by installing a new build; there is no over-the-air update path.
+

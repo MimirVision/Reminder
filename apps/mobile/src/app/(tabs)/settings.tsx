@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { createCaptureKey, deleteCaptureKey, listCaptureKeys, rotateInviteCode } from '@/lib/api';
+import Constants from 'expo-constants';
+import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
 import { enableReminders, hasBackgroundAccess, refreshRegions } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
 import { font, setThemePref, useTheme, useThemePref } from '@/lib/theme';
-import { BAR_SPACE, Btn, Card, Muted, Title, styles } from '@/lib/ui';
+import { BAR_SPACE, Btn, Card, Field, Muted, Title, styles } from '@/lib/ui';
 import type { CaptureKey } from '@/lib/types';
 
 export default function Settings() {
@@ -23,6 +24,9 @@ export default function Settings() {
   const [keys, setKeys] = useState<CaptureKey[]>([]);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [invite, setInvite] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [acctBusy, setAcctBusy] = useState(false);
 
   const load = useCallback(async () => {
     setEnabled(await hasBackgroundAccess());
@@ -103,7 +107,25 @@ export default function Settings() {
         ])} />
       </Card>
 
+      <Card>
+        {h(t('acct.title'))}
+        {deleting ? (
+          <>
+            <Muted>{t('acct.deleteIntro')}</Muted>
+            <Muted>{t('acct.typeToConfirm')}</Muted>
+            <Field value={confirmText} onChangeText={setConfirmText} autoCapitalize="characters" autoCorrect={false} />
+            <Btn danger disabled={acctBusy || confirmText.trim() !== t('acct.confirmWord')} label={acctBusy ? t('acct.deleting') : t('acct.deleteConfirmBtn')}
+              onPress={async () => {
+                setAcctBusy(true);
+                try { await deleteMyAccount(household?.id ?? null); } catch (e) { Alert.alert(t('common.error'), e instanceof Error ? e.message : String(e)); setAcctBusy(false); }
+              }} />
+            <Btn label={t('common.cancel')} onPress={() => { setDeleting(false); setConfirmText(''); }} />
+          </>
+        ) : <Btn danger label={t('acct.delete')} onPress={() => setDeleting(true)} />}
+      </Card>
+
       <Btn danger label={t('auth.signOut')} onPress={() => supabase.auth.signOut()} />
+      <Muted>{t('set.version')}: {Constants.expoConfig?.version ?? '?'}</Muted>
     </ScrollView>
   );
 }

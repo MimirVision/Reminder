@@ -7,6 +7,7 @@ import {
   requestSuggestion, softDelete, statusFor, subscribeHousehold, updateMemory,
 } from '@/lib/api';
 import { AddBar } from '@/lib/AddBar';
+import { Chip } from '@/lib/Chip';
 import { Glass } from '@/lib/glass';
 import { useI18n } from '@/lib/i18n';
 import { flush, pending, queuedToMemory } from '@/lib/outbox';
@@ -50,6 +51,7 @@ export default function Todo() {
   const [loaded, setLoaded] = useState(false);
   const [tour, setTour] = useState(false);
   const [doneTicks, setDoneTicks] = useState(0);
+  const [who, setWho] = useState<'all' | 'mine' | 'theirs'>('all');
   const uid = session?.user.id ?? '';
 
   const load = useCallback(async () => {
@@ -115,10 +117,18 @@ export default function Todo() {
   const labelOf = useCallback((p: Place) => placeLabel(p, t), [t]);
   const placeName = (id: string | null) => { const p = places.find((x) => x.id === id); return p ? labelOf(p) : undefined; };
 
+  // "For me" / "For Kari" keep what is for that person and what is for anyone.
+  const partner = members.find((m) => m.user_id !== uid) ?? null;
+  const visible = useMemo(
+    () => (who === 'all' || !partner ? memories : memories.filter((m) => !m.assignee_id || m.assignee_id === (who === 'mine' ? uid : partner.user_id))),
+    [memories, who, partner, uid],
+  );
+
   const { today, upcoming, near, atPlace, anytime } = useMemo(() => {
-    const today = memories.filter((m) => dueBucket(m) === 'today').sort(compareDue);
-    const upcoming = memories.filter((m) => dueBucket(m) === 'upcoming').sort(compareDue);
-    const undated = memories.filter((m) => dueBucket(m) === 'none');
+    const pinFirst = (a: Memory, b: Memory) => Number(!!b.pinned) - Number(!!a.pinned);
+    const today = visible.filter((m) => dueBucket(m) === 'today').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
+    const upcoming = visible.filter((m) => dueBucket(m) === 'upcoming').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
+    const undated = visible.filter((m) => dueBucket(m) === 'none').sort(pinFirst);
     const byPlace = new Map<string, Memory[]>();
     const anytime: Memory[] = [];
     for (const m of undated) {
@@ -138,7 +148,7 @@ export default function Todo() {
     }
     near.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
     return { today, upcoming, near, atPlace, anytime };
-  }, [memories, places, pins, here, labelOf, t]);
+  }, [visible, places, pins, here, labelOf, t]);
 
   const nameOf = (id: string) => members.find((m) => m.user_id === id)?.display_name ?? null;
   const ago = (iso: string) => {
@@ -179,7 +189,7 @@ export default function Todo() {
     const due = dueLabel(m, t, locale);
     return (
       <TodoRow key={m.id} m={m} photos={photos[m.id]} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
-        place={o.place ? placeName(m.place_id) : undefined} byline={o.meta === false ? undefined : byline(m)}
+        place={o.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === uid ? t('row.forYou') : t('row.for', { name: nameOf(m.assignee_id) ?? t('common.partner') })) : undefined} byline={o.meta === false ? undefined : byline(m)}
         author={members.length > 1 ? { id: m.author_id, name: nameOf(m.author_id) } : null}
         onToggle={() => void complete(m)} onEdit={() => router.push({ pathname: '/add', params: { id: m.id } })} onDelete={() => void remove(m)}>
         {m.suggestion && (
@@ -266,6 +276,13 @@ export default function Todo() {
           {segmented}
         </View>
         {queued > 0 && <Muted>{tn('sync.waiting', queued)}</Muted>}
+        <View style={styles.row}>
+          {partner && (['all', 'mine', 'theirs'] as const).map((id) => (
+            <Chip key={id} on={who === id} onPress={() => setWho(id)}
+              label={id === 'all' ? t('filter.all') : id === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partner.display_name || t('common.partner') })} />
+          ))}
+          <Chip icon="location.north" label={t('route.open')} onPress={() => router.push('/route')} />
+        </View>
         {household && <RecapCard household={household} members={members} refreshKey={doneTicks} />}
         {loaded && memories.length === 0 && (
           <View style={{ alignItems: 'center', gap: 6, paddingVertical: 36 }}>

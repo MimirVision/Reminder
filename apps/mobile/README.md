@@ -36,7 +36,8 @@ Frosted (and older iOS) use a blur with a wash for readability.
 
 ## Status
 Type-checks, unit tests pass and the iOS JS bundle builds. Not yet run on a device; expect first-run fixes.
-Known gaps: no background push between partners; notification "Done" opens the app; no AI suggestions yet.
+Version 0.2.0 has the web app's newer features (smart add, assign, pin, shopping view, moving, route planner).
+Known gaps: no background push between partners (use the web app on the Home Screen for those); notification "Done" opens the app.
 
 ## Same features as the web app
 The phone app now matches the web app: to-dos with a date, time and repeat (a normal notification rings at the due time), one

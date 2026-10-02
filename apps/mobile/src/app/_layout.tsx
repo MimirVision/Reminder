@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { ActivityIndicator, AppState, View } from 'react-native';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { Stack, useRouter, useSegments, type ErrorBoundaryProps } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
@@ -113,8 +113,9 @@ function Gate() {
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="add" options={{ presentation: 'modal' }} />
       <Stack.Screen name="list/[placeId]" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="route" options={{ presentation: 'modal' }} />
     </Stack>
-    {session && household && !(segments as string[]).some((x) => x === 'add' || x === 'list') ? <HereBanner /> : null}
+    {session && household && !(segments as string[]).some((x) => x === 'add' || x === 'list' || x === 'route') ? <HereBanner /> : null}
     </>
   );
 }
@@ -128,6 +129,19 @@ function Themed() {
         <Gate />
       </ToastProvider>
     </>
+  );
+}
+
+// If a screen throws, show what happened and a way out instead of a blank screen (shown by expo-router).
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', padding: 24, gap: 12, backgroundColor: '#F2F3F5' }}>
+      <Text style={{ fontSize: 22, fontWeight: '700', color: '#161A22' }}>Something went wrong</Text>
+      <Text style={{ fontSize: 15, color: '#5B6472' }}>{error.message}</Text>
+      <Pressable accessibilityRole="button" onPress={retry} style={{ backgroundColor: '#C8431F', borderRadius: 999, paddingVertical: 14, alignItems: 'center' }}>
+        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Try again</Text>
+      </Pressable>
+    </View>
   );
 }
 

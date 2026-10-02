@@ -24,6 +24,8 @@ export type Memory = MemoryRow & {
   due_on: string | null;
   due_time: string | null;
   repeat_rule?: 'daily' | 'weekly' | 'monthly' | 'yearly' | null;
+  assignee_id?: string | null; // who it is for (null = anyone)
+  pinned?: boolean;
   pending?: boolean; // saved on this phone, waiting for a connection
 };
 
