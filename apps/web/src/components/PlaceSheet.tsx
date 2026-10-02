@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { addMemory, listFacts, listMembers, listMemories, listPhotoUrls, listPlaces, markDone, notifyPartnerIfSet, reopen, subscribeHousehold } from '../lib/api';
 import { tap } from '../lib/haptics';
+import { splitShoppingLine } from '../lib/quickAdd';
 import { factsForCategory, type Fact } from '../lib/facts';
 import type { Household, Member, Memory } from '../lib/types';
 import { useI18n } from '../i18n';
@@ -63,7 +64,8 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
 
   async function add(e: FormEvent) {
     e.preventDefault();
-    const lines = draft.split('\n').map((l) => l.trim()).filter(Boolean);
+    // "milk, eggs and bread" on one line becomes three items.
+    const lines = draft.split('\n').map((l) => l.trim()).filter(Boolean).flatMap(splitShoppingLine);
     setDraft('');
     const ids = await act(async () => { const out: string[] = []; for (const body of lines) out.push((await addMemory({ household_id: household.id, body, place_id: placeId })).id); return out; });
     if (ids) notifyPartnerIfSet(ids);

@@ -601,5 +601,6 @@
   "route.estimated": "Fikk ikke kontakt med rutetjenesten, så avstandene er grove anslag.",
   "route.change": "Endre valg",
   "route.clear": "Fjern rute",
-  "route.legTo": "Kjøring {n} min"
+  "route.legTo": "Kjøring {n} min",
+  "error.reload": "Last på nytt"
 }

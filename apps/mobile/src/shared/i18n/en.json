@@ -601,5 +601,6 @@
   "route.estimated": "The routing service could not be reached, so distances are rough estimates.",
   "route.change": "Change choices",
   "route.clear": "Clear route",
-  "route.legTo": "Drive {n} min"
+  "route.legTo": "Drive {n} min",
+  "error.reload": "Reload"
 }

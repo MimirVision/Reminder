@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isInteresting, parseTasks, type ParseContext } from './quickAdd.ts';
+import { isInteresting, parseTasks, splitShoppingLine, type ParseContext } from './quickAdd.ts';
 
 // Thursday 1 Oct 2026, 14:30
 const now = new Date(2026, 9, 1, 14, 30);
@@ -102,4 +102,30 @@ test('quantities are not times', () => {
 test('empty and junk input', () => {
   assert.deepEqual(parseTasks('', ctx), []);
   assert.deepEqual(parseTasks('   \n  ', ctx), []);
+});
+
+test('a shopping list: items split, place and day stay with each', () => {
+  const r = parseTasks('buy milk, eggs and bread at kiwi tomorrow', ctx);
+  assert.deepEqual(r.map((t) => t.title), ['Milk', 'Eggs', 'Bread']);
+  assert.ok(r.every((t) => t.placeId === 'kiwi' && t.due_on === '2026-10-02'));
+  const nb = parseTasks('handleliste: melk, egg og brød på kiwi', ctx);
+  assert.deepEqual(nb.map((t) => t.title), ['Melk', 'Egg', 'Brød']);
+  assert.ok(nb.every((t) => t.placeId === 'kiwi'));
+  assert.deepEqual(parseTasks('buy paint and brushes', ctx).map((t) => t.title), ['Paint', 'Brushes']);
+  assert.equal(isInteresting(parseTasks('buy milk, eggs', ctx)), true);
+});
+
+test('lists are only split for shopping, and never when an item is really another task', () => {
+  assert.equal(parseTasks('buy milk and call mum', ctx).length, 1);
+  assert.equal(parseTasks('pick up the kids and the dog', ctx).length, 1);
+  assert.equal(parseTasks('buy a new vacuum cleaner for the whole house and garage today', ctx).length, 1);
+  const two = parseTasks('buy milk, eggs. then call dad tomorrow', ctx);
+  assert.deepEqual(two.map((t) => t.title), ['Milk', 'Eggs', 'Call dad']);
+});
+
+test('a line typed into a place list', () => {
+  assert.deepEqual(splitShoppingLine('milk, eggs and bread'), ['Milk', 'Eggs', 'Bread']);
+  assert.deepEqual(splitShoppingLine('buy milk and bread'), ['Milk', 'Bread']);
+  assert.deepEqual(splitShoppingLine('call the plumber and ask about the tap'), ['call the plumber and ask about the tap']);
+  assert.deepEqual(splitShoppingLine('2 kg potatoes'), ['2 kg potatoes']);
 });

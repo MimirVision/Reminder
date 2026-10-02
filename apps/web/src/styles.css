@@ -334,3 +334,4 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 .map-route-clear { position: absolute; z-index: 5; top: calc(env(safe-area-inset-top, 0px) + 64px); left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 0; font: 600 14px var(--font-body); color: var(--ink); cursor: pointer; }
 .chips.filter .route-chip { margin-left: auto; }
 .head h1 { white-space: nowrap; }
+.card.crash { position: fixed; z-index: 60; left: 16px; right: 16px; bottom: 24px; gap: 8px; }

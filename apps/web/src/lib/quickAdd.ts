@@ -225,6 +225,37 @@ function parseSegment(seg: string, ctx: ParseContext, now: Date, today: string, 
   return { title: cleanTitle(s), meta };
 }
 
+const LIST_HEAD = /^(?:(?:shopping|grocery|groceries|shop)\s+list|handleliste(?:n)?|handlekurv)\s*[:\-\u2013]?\s*/i;
+const SHOP_VERB = /^(buy|get|grab|purchase|pick up|kj\u00f8p|kj\u00f8pe|handle|hent|ta med)\s+/i;
+const PLAIN_BUY = /^(?:buy|purchase|kj\u00f8p|kj\u00f8pe|handle)$/i;
+const ACTION_START = /^(?:call|ring|book|bestill|clean|vask|fix|fiks|pay|betal|send|check|sjekk|take|ta|pick|hent|visit|meet|finish|do|make)\b/i;
+
+/** "buy milk, eggs and bread" or "shopping list: milk, eggs, bread" becomes one item each (the place and date stay with every item).
+ *  Only for shopping: a buying verb or a list heading, or a place was named. "buy milk and call mum" stays one to-do. */
+export function expandList(title: string, hasPlace: boolean): string[] {
+  let rest = title;
+  let listed = false;
+  const head = rest.match(LIST_HEAD);
+  if (head) { rest = rest.slice(head[0].length); listed = true; }
+  else {
+    const verb = rest.match(SHOP_VERB);
+    if (!verb) return [title];
+    if (!hasPlace && !PLAIN_BUY.test(verb[1])) return [title];
+    rest = rest.slice(verb[0].length);
+    listed = true;
+  }
+  if (!listed) return [title];
+  const items = rest.split(/\s*,\s*|\s+(?:and|og|&)\s+/i).map((x) => x.trim().replace(/[.;:]+$/, '')).filter(Boolean);
+  if (items.length < 2 || items.some((i) => i.split(/\s+/).length > 4 || ACTION_START.test(i))) return [title];
+  return items.map((i) => i.replace(/^(\p{Ll}+)(?=\s|$)/u, (w) => w[0].toLocaleUpperCase('nb') + w.slice(1)));
+}
+
+/** One line typed into a place's own list: "milk, eggs and bread" is three items; anything else stays as written. */
+export function splitShoppingLine(line: string): string[] {
+  const items = expandList(SHOP_VERB.test(line) || LIST_HEAD.test(line) ? line : `buy ${line}`, true);
+  return items.length > 1 ? items : [line];
+}
+
 /** Splits free text into to-dos and pulls out place, day, time, repeat and who it is for. Plain text comes back as plain to-dos. */
 export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
   const now = ctx.now ?? new Date();
@@ -253,7 +284,7 @@ export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
     out.push(p);
   }
   if (carry && out.length > 0) fill(out[out.length - 1].meta, carry);
-  return out.map((p) => ({ title: p.title, ...p.meta }));
+  return out.flatMap((p) => expandList(p.title, !!(p.meta.placeId || p.meta.category)).map((title) => ({ title, ...p.meta })));
 }
 
 /** True when the parse found something worth showing (a date, a place, several to-dos...), not just the text again. */

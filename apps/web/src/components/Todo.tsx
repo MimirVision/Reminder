@@ -19,6 +19,7 @@ import { compareDue, dueBucket, dueLabel, formatDay, todayISO } from '../lib/whe
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { AddBar } from './AddBar';
+import { ErrorBoundary } from './ErrorBoundary';
 import { Icon } from './icons';
 import { InstallBanner } from './InstallBanner';
 import { MapSheet } from './MapSheet';
@@ -401,7 +402,11 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       {planning && <RouteSheet places={places} memories={memories} onClose={() => setPlanning(false)} onShow={(r) => { setRoute(r); setMode('map'); setShowDone(false); setSnap('peek'); }} />}
       {tour && <Tour household={household} onClose={() => setTour(false)} onChanged={() => { void load(); loadPlaces(); }} />}
       {editing && <TodoSheet key={editing.id} household={household} places={places} members={members} userId={userId} memory={editing} photos={photos.get(editing.id)} onClose={() => setEditing(null)} onSaved={saved} onDelete={remove} />}
-      {openPlace && <PlaceSheet household={household} placeId={openPlace.id} label={openPlace.label} onClose={() => setOpenPlace(null)} onChanged={() => void load()} onEdit={(m) => setEditing(m)} />}
+      {openPlace && (
+        <ErrorBoundary key={openPlace.id} label={t('common.error')} closeLabel={t('common.close')} reloadLabel={t('error.reload')} onClose={() => setOpenPlace(null)}>
+          <PlaceSheet household={household} placeId={openPlace.id} label={openPlace.label} onClose={() => setOpenPlace(null)} onChanged={() => void load()} onEdit={(m) => setEditing(m)} />
+        </ErrorBoundary>
+      )}
     </main>
   );
 }

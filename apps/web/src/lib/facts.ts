@@ -8,7 +8,7 @@ export const FACT_LABELS: Record<FactCategory, string> = {
 export const FACT_ORDER: FactCategory[] = ['emergency', 'measurement', 'paint', 'appliance', 'other'];
 
 export function factsForCategory(facts: Fact[], category: string | null): Fact[] {
-  return category ? facts.filter((f) => f.surface_at.includes(category)) : [];
+  return category ? facts.filter((f) => (f.surface_at ?? []).includes(category)) : [];
 }
 
 export function groupFacts(facts: Fact[]) {
