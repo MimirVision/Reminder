@@ -42,14 +42,28 @@ jobs:
         run: |
           WS=$(ls -d ios/*.xcworkspace | head -1)
           SCHEME=$(basename "$WS" .xcworkspace)
-          xcodebuild -workspace "$WS" -scheme "$SCHEME" -configuration Release -sdk iphoneos \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -n 40
+          # The whole log goes to a file (uploaded below); a failed build must fail this step, and its errors are printed here.
+          if ! xcodebuild -workspace "$WS" -scheme "$SCHEME" -configuration Release -sdk iphoneos \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > build.log 2>&1; then
+            echo "::error::xcodebuild failed. The first errors are below; the full log is in the 'build-log' artifact."
+            grep -n -E "error:|Error:|failed|FAILED|fatal" build.log | cut -c1-400 | head -60
+            echo "----- last 80 lines -----"; tail -n 80 build.log | cut -c1-400
+            exit 1
+          fi
       - name: Package the .ipa
         working-directory: apps/mobile
         run: |
           APP=$(ls -d build/Build/Products/Release-iphoneos/*.app | head -1)
+          test -f "$APP/Info.plist" || { echo "::error::The built app has no Info.plist, so the build is incomplete: $APP"; ls -la "$APP"; exit 1; }
           mkdir -p Payload && cp -R "$APP" Payload/ && zip -qry HomeMemory-unsigned.ipa Payload
           ls -la HomeMemory-unsigned.ipa
+          test "$(stat -f%z HomeMemory-unsigned.ipa)" -gt 1000000 || { echo "::error::The .ipa is suspiciously small"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: apps/mobile/build.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: HomeMemory-unsigned-ipa
