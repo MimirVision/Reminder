@@ -6,6 +6,9 @@ name: Build iPhone app (unsigned)
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: "GitHub runner image (macos-15 or macos-26)"
+        default: macos-26
       xcode:
         description: "Xcode version to build with (latest-stable, or e.g. 26.2)"
         default: latest-stable
@@ -15,7 +18,7 @@ on:
 
 jobs:
   ios:
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 60
     env:
       EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
