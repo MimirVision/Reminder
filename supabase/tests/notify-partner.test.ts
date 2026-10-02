@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH, createCipheriv, createDecipheriv, hkdfSync, createHmac, createPublicKey, verify } from 'node:crypto';
-import { b64uToBytes, buildMessage, bytesToB64u, encryptPayload, isGone, sendPush, vapidAuthorization } from '../functions/notify-partner/logic.ts';
+import { b64uToBytes, buildDueMessage, buildMessage, dueNow, localNow, recipientsFor, bytesToB64u, encryptPayload, isGone, sendPush, vapidAuthorization } from '../functions/notify-partner/logic.ts';
 
 // RFC 8291 appendix A example keys.
 const AS_PRIVATE = 'yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw';
@@ -119,4 +119,25 @@ test('the key generator in docs/ makes keys that the sender accepts', async () =
   assert.equal(b64uToBytes(priv).length, 32);
   const header = await vapidAuthorization('https://web.push.apple.com/abc', 'mailto:me@example.com', b64uToBytes(pub), b64uToBytes(priv));
   assert.match(header, /^vapid t=.+, k=/);
+});
+
+test('due reminders: local time in Oslo, a window after the due time, and who is told', () => {
+  // 2026-10-01 16:30 UTC is 18:30 in Oslo (summer time ended 25 Oct, so still +2).
+  const now = new Date('2026-10-01T16:30:00Z');
+  assert.deepEqual(localNow(now, 'Europe/Oslo'), { date: '2026-10-01', minutes: 18 * 60 + 30 });
+  assert.deepEqual(localNow(new Date('2026-12-01T16:30:00Z'), 'Europe/Oslo'), { date: '2026-12-01', minutes: 17 * 60 + 30 });
+  assert.equal(localNow(new Date('2026-10-01T22:30:00Z'), 'Europe/Oslo').date, '2026-10-02', 'the local day, not the UTC day');
+  const m = (id: string, due_on: string | null, due_time: string | null) => ({ id, household_id: 'h', body: id, due_on, due_time, assignee_id: null });
+  const list = [m('late', '2026-10-01', '18:00:00'), m('now', '2026-10-01', '18:10:00'), m('early', '2026-10-01', '19:00'), m('old', '2026-10-01', '17:30'), m('tomorrow', '2026-10-02', '18:00'), m('notime', '2026-10-01', null), m('edge', '2026-10-01', '18:30')];
+  assert.deepEqual(dueNow(list, now, 'Europe/Oslo').map((x) => x.id), ['now', 'edge']);
+  assert.deepEqual(recipientsFor({ assignee_id: 'b' }, ['a', 'b']), ['b']);
+  assert.deepEqual(recipientsFor({ assignee_id: null }, ['a', 'b']), ['a', 'b']);
+  assert.deepEqual(recipientsFor({ assignee_id: 'gone' }, ['a', 'b']), ['a', 'b']);
+});
+
+test('due reminder text', () => {
+  assert.equal(buildDueMessage('en', ['Call the plumber\nabout the tap']).body, 'Now: Call the plumber');
+  assert.equal(buildDueMessage('nb', ['Ring tannlegen']).body, 'N\u00e5: Ring tannlegen');
+  assert.equal(buildDueMessage('en', ['a', 'b', 'c']).body, '3 to-dos are due now');
+  assert.equal(buildDueMessage('nb', ['a', 'b']).body, '2 oppgaver skal gj\u00f8res n\u00e5');
 });

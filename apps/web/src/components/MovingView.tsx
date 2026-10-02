@@ -63,7 +63,7 @@ export function MovingView({ household }: { household: Household }) {
             {MOVE_ITEMS.filter((i) => i.group === g).map((i) => (
               <label key={i.key} className="row checkrow">
                 <input type="checkbox" checked={picked.has(i.key)} onChange={() => flip(i.key)} />
-                {lang === 'nb' ? i.nb : i.en}
+                <span>{lang === 'nb' ? i.nb : i.en}</span>
               </label>
             ))}
           </div>

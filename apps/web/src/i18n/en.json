@@ -411,7 +411,7 @@
   "tour.finish": "Start using it",
   "tour.added": "Added",
   "push.title": "Notifications",
-  "push.intro": "Get a notification on this device when your partner adds a to-do.",
+  "push.intro": "Get a notification on this device when your partner adds a to-do, and when a to-do with a time is due.",
   "push.enable": "Turn on notifications",
   "push.disable": "Turn off",
   "push.on": "Notifications are on for this device.",

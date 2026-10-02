@@ -116,7 +116,7 @@ export function RouteSheet({ places, memories, onClose, onShow }: { places: Plac
                   const tasks = open.filter((m) => m.place_id === p.id);
                   return (
                     <label key={p.id} className="route-pick">
-                      <span className="row checkrow">
+                      <span className="row checkrow route-head">
                         <input type="checkbox" checked={picked.has(p.id)} onChange={() => flip(p.id)} />
                         <strong>{placeLabel(p, t)}</strong>
                         <span className="chip plain">{tn('map.todos', tasks.length)}</span>
