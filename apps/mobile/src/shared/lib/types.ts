@@ -43,6 +43,8 @@ export type Memory = {
   due_time: string | null;
   repeat_rule?: RepeatRule | null;
   done_by?: string | null;
+  assignee_id?: string | null; // who it is for (null = anyone)
+  pinned?: boolean; // kept at the top of its list
   pending?: boolean; // saved on this device, waiting for a connection
 };
 

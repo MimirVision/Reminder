@@ -101,6 +101,8 @@ test('messages are worded in the recipient language', () => {
   assert.equal(buildMessage('nb', 'Anna', ['a', 'b', 'c']).body, 'Anna la til 3 oppgaver');
   assert.equal(buildMessage('en', 'Anna', ['a', 'b']).body, 'Anna added 2 to-dos');
   assert.equal(buildMessage('en', '', ['']).body, 'Your partner added a photo');
+  assert.equal(buildMessage('en', 'Anna', ['Milk'], true).body, 'Anna gave you: Milk');
+  assert.equal(buildMessage('nb', 'Anna', ['a', 'b'], true).body, 'Anna ga deg 2 oppgaver');
   assert.ok(buildMessage('en', 'A'.repeat(100), ['x'.repeat(500)]).body.length < 170);
 });
 

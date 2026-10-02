@@ -1,0 +1,105 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { isInteresting, parseTasks, type ParseContext } from './quickAdd.ts';
+
+// Thursday 1 Oct 2026, 14:30
+const now = new Date(2026, 9, 1, 14, 30);
+const places: ParseContext['places'] = [
+  { id: 'work', name: 'Jobb Aker Brygge', kind: 'fixed', category: null },
+  { id: 'kiwi', name: 'Kiwi Myren', kind: 'fixed', category: 'grocery' },
+  { id: 'home', name: 'Home', kind: 'fixed', category: null },
+];
+const ctx: ParseContext = { places, partnerName: 'Kari', now };
+const one = (text: string, c = ctx) => { const r = parseTasks(text, c); assert.equal(r.length, 1, JSON.stringify(r)); return r[0]; };
+
+test('plain text stays plain', () => {
+  const t = one('buy milk');
+  assert.equal(t.title, 'Buy milk');
+  assert.deepEqual([t.due_on, t.due_time, t.placeId, t.category, t.assignee], [null, null, null, null, null]);
+  assert.equal(isInteresting([t]), false);
+});
+
+test('tomorrow with a deadline time and a saved shop', () => {
+  const t = one('buy milk at kiwi tomorrow before 18:00');
+  assert.deepEqual([t.title, t.due_on, t.due_time, t.placeId], ['Buy milk', '2026-10-02', '18:00', 'kiwi']);
+});
+
+test('norwegian: i morgen, kl, apotek', () => {
+  const t = one('husk å hente resept på apoteket i morgen kl 10');
+  assert.deepEqual([t.title, t.due_on, t.due_time, t.category], ['Hente resept', '2026-10-02', '10:00', 'pharmacy']);
+});
+
+test('a saved kind-of-shop place is reused instead of a new category', () => {
+  const t = one('buy ibuprofen at the pharmacy', { ...ctx, places: [...places, { id: 'ph', name: 'Any pharmacy', kind: 'category', category: 'pharmacy' }] });
+  assert.deepEqual([t.placeId, t.category], ['ph', null]);
+});
+
+test('"paint the fence" is not a shop', () => {
+  const t = one('paint the fence');
+  assert.deepEqual([t.category, t.placeId], [null, null]);
+});
+
+test('weekdays are the next one, never today', () => {
+  assert.equal(one('call the plumber on wednesday').due_on, '2026-10-07');
+  assert.equal(one('ring rørlegger fredag').due_on, '2026-10-02');
+});
+
+test('times: pm, bare at, rolled to tomorrow when already past', () => {
+  assert.equal(one('call mum at 6pm today').due_time, '18:00');
+  const early = one('wake the kids at 07:00');
+  assert.deepEqual([early.due_on, early.due_time], ['2026-10-02', '07:00']);
+  const late = one('finish report before 21.00');
+  assert.deepEqual([late.due_on, late.due_time], ['2026-10-01', '21:00']);
+});
+
+test('repeat', () => {
+  const t = one('water the plants every week on friday');
+  assert.deepEqual([t.repeat_rule, t.due_on], ['weekly', '2026-10-02']);
+  assert.equal(one('betal husleie hver måned').repeat_rule, 'monthly');
+});
+
+test('who it is for', () => {
+  assert.equal(one('take out the bins for Kari').assignee, 'partner');
+  assert.equal(one('ask my wife to book the dentist').assignee, 'partner');
+  assert.equal(one('Kari: pick up the kids').assignee, 'partner');
+  assert.equal(one('fix the shelf for me').assignee, 'me');
+  assert.equal(one('book a table for both of us on friday').assignee, 'both');
+});
+
+test('the long sentence: several to-dos, a leave-work trigger and a deadline for "that"', () => {
+  const r = parseTasks('I need to pick up the parcel at that store when I leave work and then later today I need to do the taxes, I need to do that before 21.00', ctx);
+  assert.equal(r.length, 2);
+  assert.deepEqual([r[0].title, r[0].placeId, r[0].leaving, r[0].due_on], ['Pick up the parcel at that store', 'work', true, null]);
+  assert.deepEqual([r[1].title, r[1].due_on, r[1].due_time], ['Do the taxes', '2026-10-01', '21:00']);
+});
+
+test('a list on separate lines and "then" splits', () => {
+  const r = parseTasks('buy bread\nbuy eggs then call dad tomorrow', ctx);
+  assert.deepEqual(r.map((t) => t.title), ['Buy bread', 'Buy eggs', 'Call dad']);
+  assert.equal(r[2].due_on, '2026-10-02');
+  assert.equal(isInteresting(r), true);
+});
+
+test('norwegian multi-task with når jeg forlater jobben', () => {
+  const r = parseTasks('jeg må hente pakken når jeg forlater jobben, og så må jeg ringe tannlegen i dag før kl 16', ctx);
+  assert.equal(r.length, 2);
+  assert.deepEqual([r[0].title, r[0].placeId, r[0].leaving], ['Hente pakken', 'work', true]);
+  assert.deepEqual([r[1].title, r[1].due_on, r[1].due_time], ['Ringe tannlegen', '2026-10-01', '16:00']);
+});
+
+test('an unknown place stays in the text rather than being lost', () => {
+  const t = one('buy a drill at biltema');
+  assert.equal(t.title, 'Buy a drill at biltema');
+  assert.equal(t.placeId, null);
+});
+
+test('quantities are not times', () => {
+  const t = one('buy 2 kg potatoes');
+  assert.equal(t.due_time, null);
+  assert.equal(one('get at 3 kg of flour').due_time, null);
+});
+
+test('empty and junk input', () => {
+  assert.deepEqual(parseTasks('', ctx), []);
+  assert.deepEqual(parseTasks('   \n  ', ctx), []);
+});

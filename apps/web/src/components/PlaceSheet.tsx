@@ -20,6 +20,8 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
   const [err, setErr] = useState<string | null>(null);
   const [useful, setUseful] = useState<Fact[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [shop, setShop] = useState(() => { try { return localStorage.getItem('hm.shopView') !== '0'; } catch { return true; } });
+  const setShopView = (v: boolean) => { setShop(v); try { localStorage.setItem('hm.shopView', v ? '1' : '0'); } catch { /* ignore */ } };
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +71,22 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
 
   const open = items.filter((m) => m.status !== 'done');
   const done = items.filter((m) => m.status === 'done');
+  const toggleItem = (m: Memory) => { tap(m.status === 'done' ? 'light' : 'success'); void act(async () => { if (m.status === 'done') await reopen(m.id, m); else await markDone(m.id); }); };
+  // Shopping view: big rows you tick with a thumb, and a bar that fills as you go.
+  const big = (m: Memory) => {
+    const isDone = m.status === 'done';
+    const sub = [dueLabel(m, t, locale), m.pinned ? t('row.pinned') : ''].filter(Boolean).join(' · ');
+    return (
+      <div className={`shoprow${isDone ? ' done' : ''}`} key={m.id}>
+        <button type="button" className="shoptap" aria-pressed={isDone} onClick={() => toggleItem(m)}>
+          <span className={`check big${isDone ? ' on' : ''}`}>{isDone && <Icon name="check" size={18} />}</span>
+          <span className="shoptext"><span className="shopname">{m.body || t('todo.photo')}</span>{sub && <span className="muted">{sub}</span>}</span>
+        </button>
+        <button type="button" className="mini" aria-label={t('shop.edit', { title: (m.body || t('todo.photo')).split('\n')[0] })} onClick={() => onEdit(m)}><Icon name="chevron" size={14} /></button>
+      </div>
+    );
+  };
+  const total = open.length + done.length;
   const row = (m: Memory) => (
     <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={m.status === 'done'} due={dueLabel(m, t, locale) || undefined}
       doneBy={m.status === 'done' && m.done_by ? nameOf(m.done_by) : null}
@@ -84,7 +102,13 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
         <button className="btn small icon" onClick={onClose} aria-label={t('common.close')}><Icon name="x" size={16} /></button>
       </div>
       {err && <p className="error">{err}</p>}
-      <div className="list">{open.map(row)}</div>
+      {shop && total > 0 && (
+        <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done.length} aria-label={t('shop.progress', { done: done.length, total })}>
+          <span style={{ width: `${(done.length / total) * 100}%` }} />
+          <em>{t('shop.progress', { done: done.length, total })}</em>
+        </div>
+      )}
+      <div className={shop ? 'shoplist' : 'list'}>{open.map(shop ? big : row)}</div>
       {useful.length > 0 && (
         <div className="suggest" role="note" aria-label={t('list.useful')}>
           <div className="label nopad">{t('list.useful')}</div>
@@ -96,7 +120,8 @@ export function PlaceSheet({ household, placeId, label, onClose, onChanged, onEd
         <button className="btn" disabled={!draft.trim()}>{t('common.add')}</button>
       </form>
       {done.length > 0 && <div className="label">{t('list.gotIt')}</div>}
-      <div className="list">{done.map(row)}</div>
+      <div className={shop ? 'shoplist' : 'list'}>{done.map(shop ? big : row)}</div>
+      <button type="button" className="link" onClick={() => setShopView(!shop)}>{shop ? t('shop.detail') : t('shop.mode')}</button>
       <button className="btn primary" onClick={onClose}>{t('list.doneHere')}</button>
     </Sheet>
   );

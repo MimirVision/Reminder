@@ -9,6 +9,8 @@ export type QueuedTodo = {
   due_on: string | null;
   due_time: string | null;
   repeat_rule: string | null;
+  assignee_id?: string | null;
+  pinned?: boolean;
   author_id: string;
   created_at: string;
 };

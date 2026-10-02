@@ -9,8 +9,8 @@ export type Who = { id: string; name: string | null } | null;
 
 // One to-do: tick to finish, tap the text to edit, swipe right to finish or left to delete. Due date, repeat and place show
 // as small chips; who added it shows as a small avatar once the household has more than one person.
-export function TodoRow({ m, photos, done, due, dueLate, place, author, doneBy, byline, onToggle, onEdit, onDelete, children }: {
-  m: Memory; photos?: string[]; done?: boolean; due?: string; dueLate?: boolean; place?: string; author?: Who; doneBy?: string | null; byline?: string;
+export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, children }: {
+  m: Memory; photos?: string[]; done?: boolean; due?: string; dueLate?: boolean; place?: string; forName?: string; author?: Who; doneBy?: string | null; byline?: string;
   onToggle: () => void; onEdit: () => void; onDelete?: () => void; children?: ReactNode;
 }) {
   const { t } = useI18n();
@@ -22,10 +22,12 @@ export function TodoRow({ m, photos, done, due, dueLate, place, author, doneBy, 
       </button>
       <div className="text">
         <button type="button" className="body" aria-label={t('todo.edit', { title: title.split('\n')[0] })} onClick={onEdit}>{title}</button>
-        {(due || place || byline || m.repeat_rule || m.pending || doneBy) && (
+        {(due || place || byline || m.repeat_rule || m.pending || doneBy || forName || m.pinned) && (
           <div className="meta">
             {due && <span className={`chip${dueLate ? ' warm' : ''}`}><Icon name="calendar" size={12} />{due}</span>}
             {m.repeat_rule && <span className="chip plain"><Icon name="repeat" size={12} />{t(`repeat.short.${m.repeat_rule}` as 'repeat.short.daily')}</span>}
+            {m.pinned && !done && <span className="chip plain">{t('row.pinned')}</span>}
+            {forName && <span className="chip plain">{forName}</span>}
             {place && <span className="chip plain"><Icon name="pin" size={12} />{place}</span>}
             {m.pending && <span className="chip plain">{t('row.pending')}</span>}
             {doneBy && <span className="muted">{t('row.doneBy', { name: doneBy })}</span>}

@@ -2,7 +2,7 @@
 // editor (Edge Functions > Deploy a new function > Via Editor), for people without the Supabase CLI.
 import { readFileSync, writeFileSync } from 'node:fs';
 
-export const FUNCTIONS = ['suggest', 'import-report', 'notify-partner', 'read-label'];
+export const FUNCTIONS = ['suggest', 'import-report', 'notify-partner', 'read-label', 'parse-tasks'];
 
 export function bundle(name) {
   const dir = new URL(`./functions/${name}/`, import.meta.url);

@@ -20,6 +20,7 @@ import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { AddBar } from './AddBar';
 import { Icon } from './icons';
+import { InstallBanner } from './InstallBanner';
 import { MapSheet } from './MapSheet';
 import { PlaceSheet } from './PlaceSheet';
 import { RecapCard } from './RecapCard';
@@ -49,6 +50,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const toast = useToast();
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [showDone, setShowDone] = useState(false);
+  const [filterWho, setWho] = useState<'all' | 'mine' | 'theirs'>('all');
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
@@ -181,10 +183,18 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   };
   const byline = (m: Memory) => { const w = who(m.author_id); return w ? `${w} · ${ago(m.created_at)}` : undefined; };
 
+  // "For me" / "For Kari" keep what is for that person and what is for anyone.
+  const partner = members.find((m) => m.user_id !== userId) ?? null;
+  const visible = useMemo(() => {
+    const keep = filterWho === 'all' || !partner || showDone ? memories : memories.filter((m) => !m.assignee_id || m.assignee_id === (filterWho === 'mine' ? userId : partner.user_id));
+    return keep;
+  }, [memories, filterWho, partner, userId, showDone]);
+
   const groups = useMemo(() => {
-    const today = memories.filter((m) => dueBucket(m) === 'today').sort(compareDue);
-    const upcoming = memories.filter((m) => dueBucket(m) === 'upcoming').sort(compareDue);
-    const undated = memories.filter((m) => dueBucket(m) === 'none');
+    const pinFirst = (a: Memory, b: Memory) => Number(!!b.pinned) - Number(!!a.pinned);
+    const today = visible.filter((m) => dueBucket(m) === 'today').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
+    const upcoming = visible.filter((m) => dueBucket(m) === 'upcoming').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
+    const undated = visible.filter((m) => dueBucket(m) === 'none').sort(pinFirst);
     const byPlace = new Map<string, Memory[]>();
     const anytime: Memory[] = [];
     for (const m of undated) {
@@ -192,7 +202,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       else byPlace.set(m.place_id, [...(byPlace.get(m.place_id) ?? []), m]);
     }
     return { today, upcoming, byPlace, anytime };
-  }, [memories]);
+  }, [visible]);
 
   const countByPlace = useMemo(() => {
     const c = new Map<string, number>();
@@ -250,7 +260,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     const due = dueLabel(m, t, locale);
     return (
       <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={showDone} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
-        place={opts.place ? placeName(m.place_id) : undefined} byline={opts.meta === false ? undefined : byline(m)}
+        place={opts.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === userId ? t('row.forYou') : t('row.for', { name: members.find((x) => x.user_id === m.assignee_id)?.display_name || t('common.partner') })) : undefined} byline={opts.meta === false ? undefined : byline(m)}
         author={members.length > 1 && m.author_id !== userId ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
         onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}>
         {m.suggestion && !showDone && (
@@ -325,6 +335,13 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       {searching && !mapOn && !showDone && (
         <label className="searchfield"><Icon name="search" size={18} /><input autoFocus type="search" placeholder={t('search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />{query && <button type="button" className="mini" aria-label={t('search.clear')} onClick={() => setQuery('')}><Icon name="x" size={14} /></button>}</label>
       )}
+      {partner && !mapOn && !showDone && !searching && (
+        <div className="chips filter" role="group" aria-label={t('filter.label')}>
+          {([['all', t('filter.all')], ['mine', t('filter.mine')], ['theirs', t('filter.theirs', { name: partner.display_name || t('common.partner') })]] as const).map(([id, label]) => (
+            <button key={id} type="button" className={`chipbtn${filterWho === id ? ' on' : ''}`} aria-pressed={filterWho === id} onClick={() => setWho(id)}>{label}</button>
+          ))}
+        </div>
+      )}
       {(!online || loadFailed) && !mapOn && <p className="offline-banner" role="status">{t('offline.banner')}</p>}
       {err && (
         <p className="error" role="alert">{err} <button className="link" onClick={() => void load()}>{t('common.retry')}</button></p>
@@ -356,6 +373,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       ) : (
         <>
           <SetupChecklist household={household} onNavigate={onNavigate} />
+          {memories.length > 0 && <InstallBanner />}
           <RecapCard household={household} members={members} refreshKey={doneTicks} />
           {empty && (
             <div className="empty">
@@ -374,9 +392,9 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
 
       {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
-      {adding && <TodoSheet household={household} places={places} initialBody={sharedText ?? undefined} onClose={() => { setAdding(false); setSharedText(null); }} onSaved={saved} />}
+      {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} onClose={() => { setAdding(false); setSharedText(null); }} onSaved={saved} />}
       {tour && <Tour household={household} onClose={() => setTour(false)} onChanged={() => { void load(); loadPlaces(); }} />}
-      {editing && <TodoSheet key={editing.id} household={household} places={places} memory={editing} photos={photos.get(editing.id)} onClose={() => setEditing(null)} onSaved={saved} onDelete={remove} />}
+      {editing && <TodoSheet key={editing.id} household={household} places={places} members={members} userId={userId} memory={editing} photos={photos.get(editing.id)} onClose={() => setEditing(null)} onSaved={saved} onDelete={remove} />}
       {openPlace && <PlaceSheet household={household} placeId={openPlace.id} label={openPlace.label} onClose={() => setOpenPlace(null)} onChanged={() => void load()} onEdit={(m) => setEditing(m)} />}
     </main>
   );

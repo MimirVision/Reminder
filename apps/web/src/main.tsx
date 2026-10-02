@@ -4,9 +4,11 @@ import App from './App';
 import { I18nProvider } from './i18n';
 import { ThemeProvider } from './theme';
 import { installLens } from './lib/lens';
+import { watchInstallPrompt } from './lib/install';
 import './styles.css';
 
 installLens();
+watchInstallPrompt();
 
 // Offline shell and notifications. Only in the built app, so `npm run dev` is never served from a cache.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

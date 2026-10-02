@@ -294,3 +294,25 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 .me::before { content: ''; position: absolute; inset: -6px; border-radius: 50%; background: rgba(47, 107, 255, 0.22); }
 @media (prefers-reduced-motion: no-preference) { .me::before { animation: pulse 2.2s ease-out infinite; } }
 .mapwrap .map { position: absolute; inset: 0; background: var(--bg); }
+
+/* Smart add preview, who-it's-for filter, shopping view, install card */
+.smart { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+.smart .label.nopad { margin: 0; }
+.smart-item { display: flex; align-items: flex-start; gap: 10px; }
+.smart-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.smart-main strong { font: 600 16px/22px var(--font-body); overflow-wrap: anywhere; }
+.smart .link { align-self: flex-start; }
+.chips.filter { margin: -4px 0 4px; }
+.progress { position: relative; height: 26px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 4px 0 10px; }
+.progress span { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 999px; transition: width 0.25s ease; }
+.progress em { position: relative; display: block; text-align: center; font: 600 13px/26px var(--font-body); font-style: normal; color: var(--ink); mix-blend-mode: normal; }
+.shoplist { display: flex; flex-direction: column; gap: 8px; }
+.shoprow { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding-right: 8px; }
+.shoptap { flex: 1; display: flex; align-items: center; gap: 14px; text-align: left; border: 0; background: none; padding: 14px 12px 14px 14px; min-height: 60px; color: var(--ink); cursor: pointer; font: inherit; min-width: 0; }
+.shoptext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.shopname { font: 600 18px/24px var(--font-body); overflow-wrap: anywhere; white-space: pre-wrap; }
+.check.big { width: 32px; height: 32px; margin: 0; }
+.shoprow.done { opacity: 0.55; }
+.shoprow.done .shopname { text-decoration: line-through; }
+.card.install { gap: 8px; }
+.card.install .steps { margin: 4px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }

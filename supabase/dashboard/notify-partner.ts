@@ -89,12 +89,13 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 const firstLine = (s: string) => s.split('\n')[0].trim();
 
 /** The notification a partner sees, in their language. */
-export function buildMessage(lang: 'en' | 'nb', who: string, bodies: string[]): { title: string; body: string; url: string } {
+export function buildMessage(lang: 'en' | 'nb', who: string, bodies: string[], forYou = false): { title: string; body: string; url: string } {
   const name = clip(who.trim() || (lang === 'nb' ? 'Partneren din' : 'Your partner'), 30);
   const texts = bodies.map(firstLine).filter(Boolean);
+  const verb = lang === 'nb' ? (forYou ? 'ga deg' : 'la til') : forYou ? 'gave you' : 'added';
   let body: string;
-  if (bodies.length === 1) body = texts[0] ? (lang === 'nb' ? `${name} la til: ${clip(texts[0], 120)}` : `${name} added: ${clip(texts[0], 120)}`) : (lang === 'nb' ? `${name} la til et bilde` : `${name} added a photo`);
-  else body = lang === 'nb' ? `${name} la til ${bodies.length} oppgaver` : `${name} added ${bodies.length} to-dos`;
+  if (bodies.length === 1) body = texts[0] ? `${name} ${verb}: ${clip(texts[0], 120)}` : (lang === 'nb' ? `${name} la til et bilde` : `${name} added a photo`);
+  else body = lang === 'nb' ? `${name} ${verb} ${bodies.length} oppgaver` : `${name} ${verb} ${bodies.length} to-dos`;
   return { title: 'Home Memory', body, url: '/' };
 }
 
@@ -132,7 +133,7 @@ Deno.serve(async (req) => {
   if (ids.length === 0) return json({ error: 'bad_request' }, 400);
 
   // Row level security decides what the caller may see; only their own fresh to-dos are announced.
-  const { data: memories } = await asCaller.from('memories').select('id, household_id, body, author_id, created_at').in('id', ids);
+  const { data: memories } = await asCaller.from('memories').select('id, household_id, body, author_id, created_at, assignee_id').in('id', ids);
   const fresh = (memories ?? []).filter((m) => m.author_id === me && Date.now() - new Date(m.created_at).getTime() < 10 * 60_000);
   if (fresh.length === 0) return json({ sent: 0, removed: 0 });
   const householdId = fresh[0].household_id;
@@ -143,13 +144,17 @@ Deno.serve(async (req) => {
   const others = (members ?? []).filter((m) => m.user_id !== me).map((m) => m.user_id);
   if (others.length === 0) return json({ sent: 0, removed: 0 });
   const name = (members ?? []).find((m) => m.user_id === me)?.display_name ?? '';
-  const { data: subs } = await admin.from('web_push_subscriptions').select('id, endpoint, p256dh, auth, lang').in('user_id', others);
+  const { data: subs } = await admin.from('web_push_subscriptions').select('id, user_id, endpoint, p256dh, auth, lang').in('user_id', others);
 
   let sent = 0;
   const gone: string[] = [];
   await Promise.all((subs ?? []).map(async (s) => {
+    // Something given to the writer themselves is not for the partner; something given to this person says so.
+    const relevant = mine.filter((m) => !m.assignee_id || m.assignee_id === s.user_id);
+    if (relevant.length === 0) return;
     try {
-      const status = await sendPush(s, buildMessage(s.lang === 'nb' ? 'nb' : 'en', name, mine.map((m) => m.body)), vapid);
+      const forYou = relevant.every((m) => m.assignee_id === s.user_id);
+      const status = await sendPush(s, buildMessage(s.lang === 'nb' ? 'nb' : 'en', name, relevant.map((m) => m.body), forYou), vapid);
       if (status >= 200 && status < 300) sent++;
       else if (isGone(status)) gone.push(s.id);
     } catch (e) {

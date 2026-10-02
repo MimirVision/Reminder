@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -421,6 +421,21 @@ await as(A, async () => {
   assert.ok(kept && kept.author_id !== E, 'a shared household keeps the to-do, handed to a remaining member');
   assert.equal((await db.query(`select count(*)::int as n from household_members where user_id = $1`, [E])).rows[0].n, 0);
   assert.equal((await db.query(`select count(*)::int as n from households where id = $1`, [hid])).rows[0].n, 1, 'the shared household survives');
+}
+
+// 0011: giving a to-do to someone, and pinning.
+{
+  await as(A, async () => {
+    await db.query(`insert into memories (household_id, body, assignee_id, pinned) values ($1, 'for the wife', $2, true)`, [hid, B]);
+    await rejects(() => db.query(`insert into memories (household_id, body, assignee_id) values ($1, 'for a stranger', $2)`, [hid, C]), /assignee is not in this household/);
+    const id = (await db.query(`insert into memories (household_id, body, assignee_id, due_on, repeat_rule) values ($1, 'weekly bins', $2, current_date, 'weekly') returning id`, [hid, B])).rows[0].id;
+    const next = (await db.query(`select public.complete_memory($1) as n`, [id])).rows[0].n;
+    assert.equal((await db.query(`select assignee_id from memories where id = $1`, [next])).rows[0].assignee_id, B, 'a repeating to-do keeps who it is for');
+  });
+  await as(B, async () => {
+    const r = (await db.query(`select assignee_id, pinned from memories where body = 'for the wife'`)).rows[0];
+    assert.deepEqual([r.assignee_id, r.pinned], [B, true], 'the partner sees it');
+  });
 }
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');

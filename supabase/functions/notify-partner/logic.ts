@@ -81,11 +81,12 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 const firstLine = (s: string) => s.split('\n')[0].trim();
 
 /** The notification a partner sees, in their language. */
-export function buildMessage(lang: 'en' | 'nb', who: string, bodies: string[]): { title: string; body: string; url: string } {
+export function buildMessage(lang: 'en' | 'nb', who: string, bodies: string[], forYou = false): { title: string; body: string; url: string } {
   const name = clip(who.trim() || (lang === 'nb' ? 'Partneren din' : 'Your partner'), 30);
   const texts = bodies.map(firstLine).filter(Boolean);
+  const verb = lang === 'nb' ? (forYou ? 'ga deg' : 'la til') : forYou ? 'gave you' : 'added';
   let body: string;
-  if (bodies.length === 1) body = texts[0] ? (lang === 'nb' ? `${name} la til: ${clip(texts[0], 120)}` : `${name} added: ${clip(texts[0], 120)}`) : (lang === 'nb' ? `${name} la til et bilde` : `${name} added a photo`);
-  else body = lang === 'nb' ? `${name} la til ${bodies.length} oppgaver` : `${name} added ${bodies.length} to-dos`;
+  if (bodies.length === 1) body = texts[0] ? `${name} ${verb}: ${clip(texts[0], 120)}` : (lang === 'nb' ? `${name} la til et bilde` : `${name} added a photo`);
+  else body = lang === 'nb' ? `${name} ${verb} ${bodies.length} oppgaver` : `${name} ${verb} ${bodies.length} to-dos`;
   return { title: 'Home Memory', body, url: '/' };
 }

@@ -76,6 +76,8 @@ export type NewMemory = {
   due_on?: string | null;
   due_time?: string | null;
   repeat_rule?: RepeatRule | null;
+  assignee_id?: string | null;
+  pinned?: boolean;
   capture_lat?: number | null;
   capture_lon?: number | null;
   capture_accuracy_m?: number | null;
@@ -94,7 +96,7 @@ export function queuedToMemory(q: QueuedTodo): Memory {
   return {
     id: q.id, household_id: q.household_id, author_id: q.author_id, body: q.body, status: q.due_on || q.place_id ? 'active' : 'inbox',
     place_id: q.place_id, place_category: null, created_at: q.created_at, done_at: null, suggestion: null, suggested_at: new Date().toISOString(),
-    due_on: q.due_on, due_time: q.due_on ? q.due_time : null, repeat_rule: (q.repeat_rule as RepeatRule | null) ?? null, pending: true,
+    due_on: q.due_on, due_time: q.due_on ? q.due_time : null, repeat_rule: (q.repeat_rule as RepeatRule | null) ?? null, assignee_id: q.assignee_id ?? null, pinned: !!q.pinned, pending: true,
   };
 }
 
@@ -108,7 +110,7 @@ export async function addMemory(m: NewMemory): Promise<Memory> {
     const { data } = await supabase.auth.getSession();
     const q: QueuedTodo = {
       id: row.id, household_id: m.household_id, body: m.body, place_id: m.place_id ?? null, due_on: row.due_on ?? null, due_time: row.due_time,
-      repeat_rule: row.repeat_rule, author_id: data.session?.user.id ?? '', created_at: new Date().toISOString(),
+      repeat_rule: row.repeat_rule, assignee_id: m.assignee_id ?? null, pinned: !!m.pinned, author_id: data.session?.user.id ?? '', created_at: new Date().toISOString(),
     };
     enqueue(safeKV, q);
     return queuedToMemory(q);
@@ -122,20 +124,21 @@ export async function flushOutbox(): Promise<string[]> {
   const r = await flushQueue(safeKV, async (q) => {
     const { error } = await supabase.from('memories').insert(toRow({
       id: q.id, household_id: q.household_id, body: q.body, place_id: q.place_id, due_on: q.due_on, due_time: q.due_time, repeat_rule: q.repeat_rule as RepeatRule | null,
+      ...(q.assignee_id ? { assignee_id: q.assignee_id } : {}), ...(q.pinned ? { pinned: true } : {}), // only sent when used, so it works before the 0011 upgrade is run
     }));
     if (error && !/duplicate key|23505/.test(error.message + (error as { code?: string }).code)) throw new Error(error.message);
   }, navigator.onLine);
   return r.sent;
 }
 
-type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by'>>;
+type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned'>>;
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
 }
 
 /** Edit text, place and date together. The status follows what the to-do now has. */
-export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: RepeatRule | null }) {
+export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: RepeatRule | null; assignee_id?: string | null; pinned?: boolean }) {
   await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, repeat_rule: f.due_on ? f.repeat_rule ?? null : null, status: statusFor(f) });
 }
 
@@ -448,4 +451,18 @@ export async function deleteMyAccount(householdId: string | null) {
   }
   check(await supabase.rpc('delete_my_account'));
   await supabase.auth.signOut().catch(() => {});
+}
+
+
+/** "Smart add": the AI reads free text into a list of to-dos. `unavailable` when the function is not set up (the caller falls back to the local reader). */
+export async function parseTasksAI(householdId: string, text: string, lang: 'en' | 'nb', partner: string | null): Promise<{ tasks: import('./quickAdd').ParsedTask[] | null; error: 'unavailable' | 'limit' | 'failed' | null }> {
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const { data, error } = await supabase.functions.invoke('parse-tasks', { body: { household_id: householdId, text, lang, today: iso, partner } });
+  if (error) {
+    let code = '';
+    try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
+    return { tasks: null, error: code === 'limit' ? 'limit' : code === 'not_configured' || /not found|404|Failed to send/i.test(String(error.message)) ? 'unavailable' : 'failed' };
+  }
+  return { tasks: (data as { tasks?: import('./quickAdd').ParsedTask[] } | null)?.tasks ?? [], error: null };
 }
