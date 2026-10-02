@@ -170,10 +170,12 @@ export async function deleteMemory(id: string) {
   check(await supabase.from('memories').delete().eq('id', id));
 }
 
+let channelCount = 0;
+
 /** Live updates: calls onChange when anything in this household's to-dos or places changes (partner added something). */
 export function subscribeHousehold(householdId: string, onChange: () => void): () => void {
   const ch = supabase
-    .channel(`hm-${householdId}`)
+    .channel(`hm-${householdId}-${++channelCount}`) // each subscriber needs its own channel: supabase-js reuses a topic that is already subscribed
     .on('postgres_changes', { event: '*', schema: 'public', table: 'memories', filter: `household_id=eq.${householdId}` }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'places', filter: `household_id=eq.${householdId}` }, onChange)
     .subscribe();

@@ -75,8 +75,10 @@ const CAT_WORDS: Record<string, string> = {
   garden: 'garden centre|garden center|hagesenter|plantesenter',
 };
 const PREP = '(?:(?:at|in|from|to|on|the|a|any|på|hos|ved|fra|til|i|det|den|en|et|noen)\\s+)*';
-const TRIGGER = '(?:(?:when|once|as soon as|after|når|etter at)\\s+(?:(?:i|we|jeg|vi)\\s+)?(?:leave|leaving|left|forlater|drar fra|går fra|kommer fra|get to|arrive at|arrive in|arrive|reach|get|kommer til|kommer|er på|er hos|er)\\s+)';
-const LEAVE_WORDS = /(?:leave|leaving|left|forlater|drar fra|går fra|kommer fra)/i;
+const ARRIVE_TRIG = '(?:when|once|as soon as|after|n\u00e5r|etter at)\\s+(?:(?:i|we|jeg|vi)\\s+)?(?:leave|leaving|left|forlater|drar fra|g\u00e5r fra|kommer fra|get to|arrive at|arrive in|arrive|reach|get|kommer til|kommer|er p\u00e5|er hos|er)\\s+';
+const LEAVE_TRIG = '(?:etter (?:at )?jeg (?:er )?ferdig p\u00e5|p\u00e5 vei fra|on my way from|after i finish at|after i am done at|after i\u2019m done at|after i\'m done at)\\s+';
+const TRIGGER = `(?:(?:${ARRIVE_TRIG})|(?:${LEAVE_TRIG}))`;
+const LEAVE_WORDS = /(?:leave|leaving|left|forlater|drar fra|g\u00e5r fra|kommer fra|ferdig p\u00e5|p\u00e5 vei fra|on my way from|finish at|done at)/i;
 
 function matchAt(s: string, re: RegExp): { m: RegExpMatchArray; rest: string } | null {
   const m = s.match(re);
@@ -192,19 +194,31 @@ function readAssignee(s: string, partner: string | null | undefined): { s: strin
   return { s, who: null };
 }
 
-function parseSegment(seg: string, ctx: ParseContext, now: Date, today: string, quick: ReturnType<typeof quickDates>): { title: string; meta: Meta } {
+function parseSegment(seg: string, ctx: ParseContext, now: Date, today: string, quick: ReturnType<typeof quickDates>): { title: string; meta: Meta; there: boolean } {
   const meta = noMeta();
-  let s = ` ${seg} `;
+  // "on my way home from work" is about work, not home.
+  let s = ` ${seg} `.replace(/(p\u00e5 vei|on my way) (?:hjem|home) (fra|from)/gi, '$1 $2');
+  // "... there" / "... der" at the end points back at the place named just before.
+  let there = false;
+  s = s.replace(/\s+(?:der|there|dit)\s*[.!]?\s*$/i, () => { there = true; return ' '; });
 
-  // Where: "when I leave work", "at the pharmacy", "kiwi".
-  const found = findPlace(s, ctx.places);
-  if (found) {
-    meta.placeId = found.place?.id ?? null;
-    meta.category = found.category;
-    const trig = new RegExp(`${TRIGGER}${found.re.source}`, 'iu');
+  // Where: "when I leave work", "at the pharmacy", "kiwi". A place named only as a moment ("when I leave work") is a trigger;
+  // when a shop is named too, the to-do belongs at the shop ("buy milk at kiwi on my way home from work").
+  let shop: { place: Pl | null; category: string | null } | null = null;
+  let trigger: { place: Pl | null; category: string | null; leaving: boolean } | null = null;
+  for (let i = 0; i < 3; i++) {
+    const f = findPlace(s, ctx.places);
+    if (!f) break;
+    const trig = new RegExp(`${TRIGGER}${f.re.source}`, 'iu');
     const t = trig.exec(s);
-    if (t) { meta.leaving = LEAVE_WORDS.test(t[0]); s = s.replace(trig, ' '); } else s = s.replace(found.re, ' ');
+    const next = t ? s.replace(trig, ' ') : s.replace(f.re, ' ');
+    if (next === s) break;
+    s = next;
+    if (t) trigger = trigger ?? { place: f.place, category: f.category, leaving: LEAVE_WORDS.test(t[0]) };
+    else shop = shop ?? { place: f.place, category: f.category };
   }
+  const where = shop ?? trigger;
+  if (where) { meta.placeId = where.place?.id ?? null; meta.category = where.category; meta.leaving = !shop && !!trigger?.leaving; }
 
   for (const [re, rule] of REPEATS) { const r = matchAt(s, re); if (r) { meta.repeat_rule = rule; s = r.rest; break; } }
 
@@ -222,7 +236,7 @@ function parseSegment(seg: string, ctx: ParseContext, now: Date, today: string, 
     const nowT = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     meta.due_on = t.explicit && !t.deadline && t.time < nowT ? addDays(today, 1) : today;
   }
-  return { title: cleanTitle(s), meta };
+  return { title: cleanTitle(s), meta, there };
 }
 
 const LIST_HEAD = /^(?:(?:shopping|grocery|groceries|shop)\s+list|handleliste(?:n)?|handlekurv)\s*[:\-\u2013]?\s*/i;
@@ -261,7 +275,8 @@ export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
   const now = ctx.now ?? new Date();
   const today = todayISO(now);
   const quick = quickDates(now);
-  const segs = text.split(SPLIT).map((x) => x?.trim()).filter((x): x is string => !!x);
+  // "...hjem.Jeg må..." (no space after the full stop) is two sentences too.
+  const segs = text.replace(/([a-z\u00e6\u00f8\u00e5)])\.(?=[A-Z\u00c6\u00d8\u00c5])/g, '$1. ').split(SPLIT).map((x) => x?.trim()).filter((x): x is string => !!x);
   const parts = segs.map((seg) => parseSegment(seg, ctx, now, today, quick));
 
   const fill = (to: Meta, from: Meta) => {
@@ -271,9 +286,12 @@ export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
     }
   };
 
-  const out: { title: string; meta: Meta }[] = [];
+  const out: { title: string; meta: Meta; there: boolean }[] = [];
   let carry: Meta | null = null; // "later today" on its own applies to the next to-do
-  for (const p of parts) {
+  const BARE_SHOP = /^(?:handle(?: inn)?|buy|shop|shopping|go shopping|do the (?:grocery )?shopping|kj\u00f8p|g\u00e5 og handle)$/i;
+  for (const [i, p] of parts.entries()) {
+    // "Handle på kiwi." with the list in the next sentence: the place and time carry over to that sentence.
+    if (BARE_SHOP.test(p.title) && i < parts.length - 1 && hasMeta(p.meta)) p.title = '';
     if (!p.title && hasMeta(p.meta)) {
       if (carry) fill(carry, p.meta); else carry = { ...p.meta };
       continue;
@@ -281,6 +299,8 @@ export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
     if (!p.title) continue;
     if (out.length > 0 && PRONOUN.test(p.title)) { fill(out[out.length - 1].meta, p.meta); continue; } // "do that before 21.00"
     if (carry) { fill(p.meta, carry); carry = null; }
+    const prev = out[out.length - 1];
+    if (p.there && prev && !p.meta.placeId && !p.meta.category) { p.meta.placeId = prev.meta.placeId; p.meta.category = prev.meta.category; }
     out.push(p);
   }
   if (carry && out.length > 0) fill(out[out.length - 1].meta, carry);

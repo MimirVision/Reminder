@@ -129,3 +129,20 @@ test('a line typed into a place list', () => {
   assert.deepEqual(splitShoppingLine('call the plumber and ask about the tap'), ['call the plumber and ask about the tap']);
   assert.deepEqual(splitShoppingLine('2 kg potatoes'), ['2 kg potatoes']);
 });
+
+test('norwegian: no space after the full stop, "der" points at the place, "på vei hjem fra jobb" is leaving work', () => {
+  const r = parseTasks('Handle på kiwi på vei hjem fra jobb.Jeg må handle melk, mel, yoghurt og tomater der', ctx);
+  assert.deepEqual(r.map((t) => t.title), ['Melk', 'Mel', 'Yoghurt', 'Tomater']);
+  assert.ok(r.every((t) => t.placeId === 'kiwi'));
+  const w = parseTasks('hente pakken etter jeg er ferdig på jobb', ctx);
+  assert.deepEqual([w[0].placeId, w[0].leaving, w[0].title], ['work', true, 'Hente pakken']);
+  const h = parseTasks('buy bread on my way home from work', ctx);
+  assert.deepEqual([h[0].placeId, h[0].leaving], ['work', true]);
+});
+
+test('the sentence from real use: shop named, work not saved', () => {
+  const c: ParseContext = { ...ctx, places: [{ id: 'meny', name: 'Meny Saga', kind: 'fixed', category: 'grocery' }, { id: 'home', name: 'Home', kind: 'fixed', category: null }] };
+  const r = parseTasks('Handle på meny saga på vei hjem fra jobb.Jeg må handle melk, mel, yoghurt og tomater der', c);
+  assert.deepEqual(r.map((t) => t.title), ['Melk', 'Mel', 'Yoghurt', 'Tomater']);
+  assert.ok(r.every((t) => t.placeId === 'meny'), JSON.stringify(r));
+});
