@@ -316,3 +316,21 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 .shoprow.done .shopname { text-decoration: line-through; }
 .card.install { gap: 8px; }
 .card.install .steps { margin: 4px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+
+/* Route planner */
+.rstop { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font: 700 14px/28px var(--font-body); text-align: center; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
+.route-stop { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; }
+.route-stop + .route-stop { border-top: 1px solid var(--line); }
+.route-stop .num { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font: 700 14px/28px var(--font-body); text-align: center; }
+.route-stop .num.end { background: var(--ink); }
+.route-stop .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.route-stop .eta { font: 600 15px var(--font-body); }
+.route-sum { display: flex; flex-wrap: wrap; gap: 8px 18px; font: 600 15px var(--font-body); }
+.route-pick { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
+.route-pick + .route-pick { border-top: 1px solid var(--line); }
+.stepper { display: inline-flex; align-items: center; gap: 6px; }
+.stepper button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: 700 16px/1 var(--font-body); cursor: pointer; }
+.warn { color: var(--warm, #B45309); font-weight: 600; }
+.map-route-clear { position: absolute; z-index: 5; top: calc(env(safe-area-inset-top, 0px) + 64px); left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 0; font: 600 14px var(--font-body); color: var(--ink); cursor: pointer; }
+.chips.filter .route-chip { margin-left: auto; }
+.head h1 { white-space: nowrap; }

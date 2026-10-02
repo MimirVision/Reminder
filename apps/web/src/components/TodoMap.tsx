@@ -19,10 +19,12 @@ type Props = {
   pins: MapPin[]; here: LatLon | null; selectedKey: string | null; resolved: 'light' | 'dark';
   /** Pixels at the bottom covered by the sheet, so pins are kept clear of it. */
   bottomInset: number; onSelect: (p: MapPin) => void; onLocate: () => void; onAdd: () => void;
+  /** A planned day route: the line to draw and the numbered stops along it. */
+  route?: { line: [number, number][]; stops: { lat: number; lon: number; n: number }[] } | null;
 };
 
 /** A modern vector map (OpenFreeMap, no key needed) behind the to-do screen. Created once; pins, circles and position are updated in place. */
-export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset, onSelect, onLocate, onAdd }: Props) {
+export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset, onSelect, onLocate, onAdd, route }: Props) {
   const { t } = useI18n();
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -30,6 +32,7 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
   const [failed, setFailed] = useState(false);
   const markers = useRef<maplibregl.Marker[]>([]);
   const me = useRef<maplibregl.Marker | null>(null);
+  const stopMarkers = useRef<maplibregl.Marker[]>([]);
   const fitted = useRef('');
   const flyToMe = useRef(false);
   const inset = useRef(bottomInset);
@@ -64,6 +67,9 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
         m!.addSource('radius', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         m!.addLayer({ id: 'radius-fill', type: 'fill', source: 'radius', paint: { 'fill-color': '#C8431F', 'fill-opacity': ['case', ['==', ['get', 'sel'], 1], 0.18, 0.08] } });
         m!.addLayer({ id: 'radius-line', type: 'line', source: 'radius', paint: { 'line-color': '#C8431F', 'line-opacity': ['case', ['==', ['get', 'sel'], 1], 0.9, 0.45], 'line-width': 1.5 } });
+        m!.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        m!.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.9 } });
+        m!.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#C8431F', 'line-width': 5 } });
         setReady(true);
       });
       const failTimer = setTimeout(() => { if (m && !m.loaded()) setFailed(true); }, 9000);
@@ -106,6 +112,30 @@ export default function TodoMap({ pins, here, selectedKey, resolved, bottomInset
       })),
     });
   }, [pins, selectedKey, ready]);
+
+  // A planned route: the line, numbered stops, and the view framed around it.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    stopMarkers.current.forEach((x) => x.remove());
+    stopMarkers.current = [];
+    const src = m.getSource('route') as maplibregl.GeoJSONSource | undefined;
+    src?.setData({ type: 'FeatureCollection', features: route && route.line.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: route.line } }] : [] });
+    if (!route) return;
+    stopMarkers.current = route.stops.map((s) => {
+      const node = document.createElement('div');
+      node.className = 'rstop';
+      node.textContent = String(s.n);
+      return new maplibregl.Marker({ element: node, anchor: 'center' }).setLngLat([s.lon, s.lat]).addTo(m);
+    });
+    const pts = route.line.length > 1 ? route.line : route.stops.map((s) => [s.lon, s.lat] as [number, number]);
+    if (pts.length > 1) {
+      const b = new maplibregl.LngLatBounds(pts[0], pts[0]);
+      pts.forEach((c) => b.extend(c));
+      m.fitBounds(b, { padding: { top: 120, left: 28, right: 28, bottom: inset.current + 24 }, maxZoom: 16, duration: 500 });
+    }
+    return () => { stopMarkers.current.forEach((x) => x.remove()); stopMarkers.current = []; };
+  }, [route, ready]);
 
   // Where you are.
   useEffect(() => {

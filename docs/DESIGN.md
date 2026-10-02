@@ -244,3 +244,14 @@ Required due dates, priorities, tags/projects/folders, streaks, overdue red coun
   report imports 3; `ai_take`), so credits cannot run away. "Delete my account" in Settings removes the login and, if you are alone
   in the household, all of its data and files; in a shared household the to-dos go to the partner. A privacy page is at
   `/privacy.html` (add your contact email there).
+- **Smart add, assigning, pinning, shopping view, moving, install, routes (migration 0011).** The add sheet reads free text on the device
+  (`lib/quickAdd.ts`, English and Norwegian: places by name or "work/home" words, kinds of shop, today/tomorrow/weekdays/"in 3 days",
+  "before 21.00", repeats, "for Kari", several to-dos split on "then", "I need to", new lines; "do that before 21.00" attaches to the
+  earlier to-do). A "Sort with AI" button calls the `parse-tasks` function for harder text. `memories.assignee_id` and `pinned` (a
+  trigger keeps the assignee inside the household; partner pushes say "gave you"). A place sheet opens in a big-rows shopping view with
+  a progress bar. House has a Moving tab (`lib/moving.ts`): a Norwegian checklist with dates counted from moving day. An install card
+  offers Chrome's prompt or the iPhone Share steps. **Plan a route** (`lib/route.ts`, `routing.ts`, `RouteSheet`): tick places, pick
+  start (default your position) and finish (default a place called home), get the best order (exact up to 8 stops) counting drive
+  time from the public OSRM server, time at each stop by kind of shop, rush-hour factors by time of day, and today's "before HH:MM"
+  deadlines; draws the line and numbered stops on the map and hands the ordered stops to Google or Apple Maps. Limit: OSRM has no
+  live traffic; the rush-hour factors are estimates and the maps apps use live traffic when you drive.

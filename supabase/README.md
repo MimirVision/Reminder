@@ -45,6 +45,7 @@ Two functions use it:
   `npx supabase functions deploy import-report` (the API key secret is shared). The PDF is stored in your private bucket and sent to Anthropic's API.
 
 - `read-label`: reads a photo of a paint tin, light-bulb box, rating plate, receipt or warranty and proposes a house fact to save (web app: House, Facts, "Add from a photo"). Deploy it the same way (`npx supabase functions deploy read-label`, or paste `dashboard/read-label.ts` under the name `read-label`).
+- `parse-tasks`: the "Sort with AI" button in the add sheet. It turns a sentence or two ("pick up X at the pharmacy when I leave work, then later today do Y before 21.00") into separate to-dos with place, day, time and who it is for. Deploy it the same way (`npx supabase functions deploy parse-tasks`, or paste `dashboard/parse-tasks.ts` under the name `parse-tasks`). Without it the add sheet still understands most sentences on the device; the button then says the AI is not set up. Limit: 60 uses per person per day.
 
 Not AI, but also an edge function: `notify-partner` sends the "your partner added a to-do" notifications (needs VAPID keys, not the Anthropic key). See `docs/NOTIFICATIONS.md`.
 

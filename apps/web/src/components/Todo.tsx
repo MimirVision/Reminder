@@ -23,6 +23,7 @@ import { Icon } from './icons';
 import { InstallBanner } from './InstallBanner';
 import { MapSheet } from './MapSheet';
 import { PlaceSheet } from './PlaceSheet';
+import { RouteSheet, type RouteView } from './RouteSheet';
 import { RecapCard } from './RecapCard';
 import { Tour, tourKey } from './Tour';
 import { SetupChecklist } from './SetupChecklist';
@@ -50,6 +51,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const toast = useToast();
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [showDone, setShowDone] = useState(false);
+  const [planning, setPlanning] = useState(false);
+  const [route, setRoute] = useState<RouteView | null>(null);
   const [filterWho, setWho] = useState<'all' | 'mine' | 'theirs'>('all');
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -331,15 +334,16 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
   return (
     <main className={`page${mapOn ? ' map-mode' : ''}`}>
-      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{!mapOn && <button className={`btn small icon glass${showDone ? ' on' : ''}`} aria-label={showDone ? t('todo.back') : t('todo.showDone')} aria-pressed={showDone} onClick={() => { setShowDone(!showDone); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{!showDone && seg}</div></div>
+      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{!mapOn && <button className={`btn small icon glass${showDone ? ' on' : ''}`} aria-label={showDone ? t('todo.back') : t('todo.showDone')} aria-pressed={showDone} onClick={() => { setShowDone(!showDone); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{mapOn && <button className={`btn small icon glass${route ? ' on' : ''}`} aria-label={t('route.open')} onClick={() => setPlanning(true)}><Icon name="navigate" size={16} /></button>}{!showDone && seg}</div></div>
       {searching && !mapOn && !showDone && (
         <label className="searchfield"><Icon name="search" size={18} /><input autoFocus type="search" placeholder={t('search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />{query && <button type="button" className="mini" aria-label={t('search.clear')} onClick={() => setQuery('')}><Icon name="x" size={14} /></button>}</label>
       )}
-      {partner && !mapOn && !showDone && !searching && (
+      {!mapOn && !showDone && !searching && (
         <div className="chips filter" role="group" aria-label={t('filter.label')}>
-          {([['all', t('filter.all')], ['mine', t('filter.mine')], ['theirs', t('filter.theirs', { name: partner.display_name || t('common.partner') })]] as const).map(([id, label]) => (
+          {partner && ([['all', t('filter.all')], ['mine', t('filter.mine')], ['theirs', t('filter.theirs', { name: partner.display_name || t('common.partner') })]] as const).map(([id, label]) => (
             <button key={id} type="button" className={`chipbtn${filterWho === id ? ' on' : ''}`} aria-pressed={filterWho === id} onClick={() => setWho(id)}>{label}</button>
           ))}
+          <button type="button" className="chipbtn route-chip" onClick={() => setPlanning(true)}><Icon name="navigate" size={15} /> {t('route.open')}</button>
         </div>
       )}
       {(!online || loadFailed) && !mapOn && <p className="offline-banner" role="status">{t('offline.banner')}</p>}
@@ -350,7 +354,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       {mapOn ? (
         <>
           <Suspense fallback={<div className="mapwrap"><div className="map" /></div>}>
-            <TodoMap pins={pins} here={here} selectedKey={selectedKey} resolved={resolved} bottomInset={sheetH} onSelect={selectPin} onLocate={locate} onAdd={() => setAdding(true)} />
+            <TodoMap pins={pins} here={here} selectedKey={selectedKey} resolved={resolved} bottomInset={sheetH} onSelect={selectPin} onLocate={locate} onAdd={() => setAdding(true)} route={route} />
           </Suspense>
           <MapSheet snap={snap} onSnap={setSnap} onHeight={setSheetH} title={here ? t('map.nearYou') : t('map.places')}>
             {!here && locState !== 'unsupported' && (locState === 'denied'
@@ -391,8 +395,10 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       )}
 
 
+      {mapOn && route && <button className="glass map-route-clear" onClick={() => setRoute(null)}><Icon name="x" size={14} /> {t('route.clear')}</button>}
       {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
       {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} onClose={() => { setAdding(false); setSharedText(null); }} onSaved={saved} />}
+      {planning && <RouteSheet places={places} memories={memories} onClose={() => setPlanning(false)} onShow={(r) => { setRoute(r); setMode('map'); setShowDone(false); setSnap('peek'); }} />}
       {tour && <Tour household={household} onClose={() => setTour(false)} onChanged={() => { void load(); loadPlaces(); }} />}
       {editing && <TodoSheet key={editing.id} household={household} places={places} members={members} userId={userId} memory={editing} photos={photos.get(editing.id)} onClose={() => setEditing(null)} onSaved={saved} onDelete={remove} />}
       {openPlace && <PlaceSheet household={household} placeId={openPlace.id} label={openPlace.label} onClose={() => setOpenPlace(null)} onChanged={() => void load()} onEdit={(m) => setEditing(m)} />}
