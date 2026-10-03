@@ -1,7 +1,7 @@
 // Natural-language add, the part that works on the device with no network and no AI: "buy milk at kiwi tomorrow before 18"
 // and longer text with several to-dos ("pick up X at the pharmacy when I leave work, then later today do Y before 21.00").
 // English and Norwegian are both understood, whichever language the app is in. Pure functions, unit tested.
-import type { Place, RepeatRule } from './types';
+import type { Place, Priority, RepeatRule } from './types';
 import { addDays, parseISODate, quickDates, todayISO } from './when.ts';
 
 export type Assignee = 'me' | 'partner' | 'both';
@@ -15,6 +15,7 @@ export type ParsedTask = {
   category: string | null; // a kind of shop that is not saved yet (the app creates "Any pharmacy" etc.)
   leaving: boolean; // "when I leave work": the app reminds at the place, this only labels it
   assignee: Assignee | null;
+  priority: Priority; // 0 = none
 };
 
 export type ParseContext = {
@@ -24,8 +25,8 @@ export type ParseContext = {
 };
 
 type Meta = Omit<ParsedTask, 'title'>;
-const noMeta = (): Meta => ({ due_on: null, due_time: null, repeat_rule: null, placeId: null, category: null, leaving: false, assignee: null });
-export const hasMeta = (t: Pick<ParsedTask, keyof Meta>) => !!(t.due_on || t.due_time || t.repeat_rule || t.placeId || t.category || t.leaving || t.assignee);
+const noMeta = (): Meta => ({ due_on: null, due_time: null, repeat_rule: null, placeId: null, category: null, leaving: false, assignee: null, priority: 0 });
+export const hasMeta = (t: Pick<ParsedTask, keyof Meta>) => !!(t.due_on || t.due_time || t.repeat_rule || t.placeId || t.category || t.leaving || t.assignee || t.priority);
 
 const L = '\\p{L}\\p{N}';
 /** Whole-word, case-insensitive, Unicode aware (JS \b does not know å, ø, æ). */
@@ -50,6 +51,8 @@ const DAYS: [RegExp, number][] = [
 const DAY_WORDS = 'sunday|søndag|monday|mandag|tuesday|tirsdag|wednesday|onsdag|thursday|torsdag|friday|fredag|saturday|lørdag';
 
 const REPEATS: [RegExp, RepeatRule][] = [
+  [W('every weekday|every weekdays|on weekdays|weekdays|hver ukedag|hver hverdag|p\u00e5 hverdager|hverdager|hver dag p\u00e5 hverdager'), 'weekdays'],
+  [W('every other week|every 2 weeks|every two weeks|biweekly|fortnightly|annenhver uke|hver andre uke|hver 14\\. dag'), 'biweekly'],
   [W('every day|daily|each day|hver dag|daglig'), 'daily'],
   [W('every week|weekly|each week|hver uke|ukentlig'), 'weekly'],
   [W('every month|monthly|each month|hver måned|månedlig'), 'monthly'],
@@ -182,6 +185,19 @@ function cleanTitle(raw: string): string {
   return s.replace(/^(\p{Ll}+)(?=\s|$)/u, (w) => w[0].toLocaleUpperCase('nb') + w.slice(1));
 }
 
+const PRIORITY: [RegExp, Priority][] = [
+  [/(?<![\p{L}\p{N}!])!!!(?!!)|(?<![\p{L}\p{N}])p1(?![\p{L}\p{N}])/iu, 3],
+  [W('urgent|asap|high priority|h\u00f8y prioritet|haster'), 3],
+  [/(?<![\p{L}\p{N}!])!!(?!!)|(?<![\p{L}\p{N}])p2(?![\p{L}\p{N}])/iu, 2],
+  [W('medium priority|middels prioritet'), 2],
+  [/(?<![\p{L}\p{N}])p3(?![\p{L}\p{N}])/iu, 1],
+  [W('low priority|lav prioritet'), 1],
+];
+function readPriority(s: string): { s: string; priority: Priority } {
+  for (const [re, p] of PRIORITY) { const r = matchAt(s, re); if (r) return { s: r.rest, priority: p }; }
+  return { s, priority: 0 };
+}
+
 function readAssignee(s: string, partner: string | null | undefined): { s: string; who: Assignee | null } {
   let r;
   if ((r = matchAt(s, W('for (?:both of us|us|oss|begge)|til (?:oss|begge)|for both')))) return { s: r.rest, who: 'both' };
@@ -224,6 +240,8 @@ function parseSegment(seg: string, ctx: ParseContext, now: Date, today: string, 
 
   const a = readAssignee(s, ctx.partnerName);
   s = a.s; meta.assignee = a.who;
+  const pr = readPriority(s);
+  s = pr.s; meta.priority = pr.priority;
 
   const d = readDate(s, today, quick);
   s = d.s;
@@ -282,6 +300,7 @@ export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
   const fill = (to: Meta, from: Meta) => {
     for (const k of Object.keys(from) as (keyof Meta)[]) {
       if (k === 'leaving') { if (from.leaving && !to.leaving && !to.placeId) to.leaving = true; continue; }
+      if (k === 'priority') { if (!to.priority && from.priority) to.priority = from.priority; continue; }
       if (to[k] == null && from[k] != null) (to as Record<string, unknown>)[k] = from[k];
     }
   };

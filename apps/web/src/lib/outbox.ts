@@ -11,6 +11,10 @@ export type QueuedTodo = {
   repeat_rule: string | null;
   assignee_id?: string | null;
   pinned?: boolean;
+  notes?: string | null;
+  checklist?: { id: string; text: string; done: boolean }[];
+  priority?: number;
+  remind_before?: number | null;
   author_id: string;
   created_at: string;
 };

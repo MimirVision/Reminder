@@ -194,3 +194,10 @@ test('repeating to-dos become repeating calendar events; the digest mentions wha
   assert.match(digestText(f, { now, lang: 'nb' }), /Ferdig denne uken: 7$/);
   assert.doesNotMatch(digestText({ ...f, done_week: 0 }, { now }), /Done this week/);
 });
+
+test('weekdays and every-other-week become the matching calendar rules', () => {
+  const f = { ...feed, todos: ['weekdays', 'biweekly'].map((r, i) => ({ id: `x${i}`, body: r, place_id: null, created_at: '2026-09-29', due_on: '2026-10-06', due_time: null, repeat_rule: r })) };
+  const ics = buildIcs(f, { now: new Date('2026-09-30T08:00:00Z') });
+  assert.match(ics, /RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR/);
+  assert.match(ics, /RRULE:FREQ=WEEKLY;INTERVAL=2/);
+});

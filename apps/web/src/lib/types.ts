@@ -1,4 +1,8 @@
-export type RepeatRule = 'daily' | 'weekly' | 'monthly' | 'yearly';
+export type RepeatRule = 'daily' | 'weekdays' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
+
+export type ChecklistItem = { id: string; text: string; done: boolean };
+/** 0 = none, 1 = low, 2 = medium, 3 = high. */
+export type Priority = 0 | 1 | 2 | 3;
 
 export type MemoryStatus = 'inbox' | 'active' | 'done' | 'dismissed';
 
@@ -44,6 +48,10 @@ export type Memory = {
   done_by?: string | null;
   assignee_id?: string | null; // who it is for (null = anyone)
   pinned?: boolean; // kept at the top of its list
+  notes?: string | null;
+  checklist?: ChecklistItem[];
+  priority?: Priority;
+  remind_before?: number | null; // minutes before the due time (null = at the due time)
   pending?: boolean; // saved on this device, waiting for a connection
 };
 

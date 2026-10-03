@@ -8,7 +8,7 @@ import { dirname } from 'node:path';
 export const SHARED = [
   'i18n/core.ts', 'i18n/en.json', 'i18n/nb.json', 'i18n/houseTasks.nb.json',
   'lib/when.ts', 'lib/labels.ts', 'lib/recurrence.ts', 'lib/placeSearch.ts', 'lib/geo.ts', 'lib/avatar.ts', 'lib/swipe.ts', 'lib/calendar.ts', 'lib/types.ts',
-  'lib/quickAdd.ts', 'lib/moving.ts', 'lib/route.ts', 'lib/routing.ts',
+  'lib/quickAdd.ts', 'lib/checklist.ts', 'lib/todoGroups.ts', 'lib/details.ts', 'lib/moving.ts', 'lib/route.ts', 'lib/routing.ts',
 ];
 const root = new URL('../', import.meta.url);
 export const source = (f) => new URL(`apps/web/src/${f}`, root);

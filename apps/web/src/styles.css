@@ -337,3 +337,30 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 .head > .row.nowrap { flex-shrink: 0; }
 .card.crash { position: fixed; z-index: 60; left: 16px; right: 16px; bottom: 24px; gap: 8px; }
 .row.checkrow.route-head { flex-wrap: wrap; align-items: center; padding: 0; }
+
+/* To-do details: priority, checklist, notes, move-to, late banner */
+.check.prio-1 { border-color: #3B82F6; } .check.prio-2 { border-color: #E08A00; } .check.prio-3 { border-color: #D6341F; }
+.check.prio-1:not(.on) { background: rgba(59, 130, 246, 0.1); } .check.prio-2:not(.on) { background: rgba(224, 138, 0, 0.12); } .check.prio-3:not(.on) { background: rgba(214, 52, 31, 0.12); }
+.chip.prio-chip.prio-1 { color: #2563EB; } .chip.prio-chip.prio-2 { color: #B26A00; } .chip.prio-chip.prio-3 { color: #C22B18; }
+:root[data-resolved='dark'] .chip.prio-chip.prio-1 { color: #7FB0FF; } :root[data-resolved='dark'] .chip.prio-chip.prio-2 { color: #F0B050; } :root[data-resolved='dark'] .chip.prio-chip.prio-3 { color: #FF8A78; }
+.chipbtn.prio-1.on { background: #3B82F6; border-color: #3B82F6; } .chipbtn.prio-2.on { background: #E08A00; border-color: #E08A00; } .chipbtn.prio-3.on { background: #D6341F; border-color: #D6341F; }
+.chipbtn-lite { cursor: pointer; font: inherit; border: 0; }
+.chip.chipbtn-lite:hover { filter: brightness(0.96); }
+.check.small { width: 20px; height: 20px; border-width: 1.5px; margin-top: 0; }
+.check.small::after { inset: -8px; }
+.steps-inline, .steps-edit { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.steps-inline li, .steps-edit li { display: flex; align-items: center; gap: 10px; font: 400 15px/20px var(--font-body); }
+.steps-inline li.done span, .steps-edit .done { text-decoration: line-through; color: var(--muted); }
+.steps-edit li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.todo-notes { margin: 0; color: var(--muted); font: 400 14px/20px var(--font-body); display: flex; gap: 6px; align-items: flex-start; overflow-wrap: anywhere; }
+.todo-notes svg { margin-top: 3px; flex: 0 0 auto; }
+.details { display: flex; flex-direction: column; gap: 8px; }
+.late-banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 16px; background: var(--tint, #FBEAE4); color: var(--tint-ink, #8F2F14); font: 600 14px var(--font-body); }
+.quiet-line { margin: 0 4px; }
+.resched { display: flex; flex-direction: column; gap: 8px; }
+.resched .btn { justify-content: flex-start; gap: 10px; }
+.resched .btn .muted { margin-left: auto; }
+.btn.datepick { position: relative; cursor: pointer; }
+.btn.datepick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.late-banner .btn { white-space: nowrap; flex: 0 0 auto; }
+.resched .btn.primary .muted { color: rgba(255, 255, 255, 0.85); }

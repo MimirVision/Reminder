@@ -12,8 +12,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 export const CATEGORIES = ['pharmacy', 'hardware', 'grocery', 'paint', 'garden'] as const;
 export type PlaceInfo = { id: string; name: string; kind: 'fixed' | 'category'; category: string | null };
 export type ParsedTask = {
-  title: string; due_on: string | null; due_time: string | null; repeat_rule: 'daily' | 'weekly' | 'monthly' | 'yearly' | null;
-  placeId: string | null; category: string | null; leaving: boolean; assignee: 'me' | 'partner' | 'both' | null;
+  title: string; due_on: string | null; due_time: string | null; repeat_rule: 'daily' | 'weekdays' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | null;
+  placeId: string | null; category: string | null; leaving: boolean; assignee: 'me' | 'partner' | 'both' | null; priority: 0 | 1 | 2 | 3;
 };
 
 export const SCHEMA = {
@@ -29,11 +29,12 @@ export const SCHEMA = {
           category: { type: 'string', enum: [...CATEGORIES, 'none'] },
           due_on: { type: 'string' },
           due_time: { type: 'string' },
-          repeat: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly', 'none'] },
+          repeat: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'biweekly', 'monthly', 'yearly', 'none'] },
+          priority: { type: 'string', enum: ['none', 'low', 'medium', 'high'] },
           assignee: { type: 'string', enum: ['me', 'partner', 'both', 'none'] },
           leaving: { type: 'boolean' },
         },
-        required: ['title', 'place_id', 'category', 'due_on', 'due_time', 'repeat', 'assignee', 'leaving'],
+        required: ['title', 'place_id', 'category', 'due_on', 'due_time', 'repeat', 'priority', 'assignee', 'leaving'],
         additionalProperties: false,
       },
     },
@@ -51,7 +52,8 @@ Return one entry per separate thing to do, in the order they were mentioned.
 - category: only when the task belongs at a kind of shop that is NOT saved (pharmacy, hardware, grocery, paint, garden), else "none". Never both place_id and category.
 - due_on: a date YYYY-MM-DD when the text gives or implies one (today, tomorrow, weekday, "next week", "by Friday"), else "". Weekdays mean the next such day after today. Resolve dates from "Today" below.
 - due_time: HH:MM (24 hours) when a time or deadline time is given ("before 21.00" -> 21:00, "at 6 pm" -> 18:00), else "". If only a time is given and it already passed today, use tomorrow's date.
-- repeat: daily, weekly, monthly or yearly only when the text says it repeats, else "none". A repeat needs a due_on; use the first occurrence.
+- repeat: daily, weekdays (Monday to Friday), weekly, biweekly (every other week), monthly or yearly only when the text says it repeats, else "none". A repeat needs a due_on; use the first occurrence.
+- priority: high for urgent or must-not-forget things ("urgent", "asap", "haster", "!!!"), medium or low only when stated, else "none".
 - assignee: "me" when it is for the writer, "partner" when it is for their partner (or the partner's name), "both" for both of them, else "none".
 - leaving: true when the text says to be reminded when LEAVING a place ("when I leave work", "når jeg forlater jobben"), else false.
 A shopping list ("buy milk, eggs and bread at Kiwi", "handleliste: melk, egg, brød") is one entry per item, each with the same place and day, titled just the item ("Milk"). Do not split a task that is not a list of things to buy.
@@ -87,11 +89,12 @@ export function validate(raw: unknown, places: PlaceInfo[], today: string): Pars
     const place = places.find((p) => p.id === o.place_id);
     const category = !place && typeof o.category === 'string' && (CATEGORIES as readonly string[]).includes(o.category) ? o.category : null;
     const due_on = validDate(o.due_on) && o.due_on >= addDays(today, -1) ? o.due_on : null;
-    const rep = o.repeat === 'daily' || o.repeat === 'weekly' || o.repeat === 'monthly' || o.repeat === 'yearly' ? o.repeat : null;
+    const rep = (['daily', 'weekdays', 'weekly', 'biweekly', 'monthly', 'yearly'] as const).find((r) => r === o.repeat) ?? null;
+    const priority = ({ low: 1, medium: 2, high: 3 } as const)[o.priority as 'low'] ?? 0;
     out.push({
       title, due_on, due_time: due_on && validTime(o.due_time) ? o.due_time : null, repeat_rule: due_on ? rep : null,
       placeId: place?.id ?? null, category, leaving: !!place && o.leaving === true,
-      assignee: o.assignee === 'me' || o.assignee === 'partner' || o.assignee === 'both' ? o.assignee : null,
+      assignee: o.assignee === 'me' || o.assignee === 'partner' || o.assignee === 'both' ? o.assignee : null, priority,
     });
   }
   return out;

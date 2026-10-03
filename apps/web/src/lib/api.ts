@@ -3,6 +3,7 @@ import type { Fact, FactCategory } from './facts';
 import type { ReportSummary } from './report';
 import type { Hit } from './placeSearch';
 import { enqueue, flushQueue, isNetworkError, pendingFor, type KV, type QueuedTodo } from './outbox.ts';
+import type { DetailFields } from './details.ts';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, RepeatRule, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -78,6 +79,10 @@ export type NewMemory = {
   repeat_rule?: RepeatRule | null;
   assignee_id?: string | null;
   pinned?: boolean;
+  notes?: string | null;
+  checklist?: Memory['checklist'];
+  priority?: Memory['priority'];
+  remind_before?: number | null;
   capture_lat?: number | null;
   capture_lon?: number | null;
   capture_accuracy_m?: number | null;
@@ -96,7 +101,7 @@ export function queuedToMemory(q: QueuedTodo): Memory {
   return {
     id: q.id, household_id: q.household_id, author_id: q.author_id, body: q.body, status: q.due_on || q.place_id ? 'active' : 'inbox',
     place_id: q.place_id, place_category: null, created_at: q.created_at, done_at: null, suggestion: null, suggested_at: new Date().toISOString(),
-    due_on: q.due_on, due_time: q.due_on ? q.due_time : null, repeat_rule: (q.repeat_rule as RepeatRule | null) ?? null, assignee_id: q.assignee_id ?? null, pinned: !!q.pinned, pending: true,
+    due_on: q.due_on, due_time: q.due_on ? q.due_time : null, repeat_rule: (q.repeat_rule as RepeatRule | null) ?? null, assignee_id: q.assignee_id ?? null, pinned: !!q.pinned, notes: q.notes ?? null, checklist: (q.checklist as Memory['checklist']) ?? [], priority: (q.priority as Memory['priority']) ?? 0, remind_before: q.remind_before ?? null, pending: true,
   };
 }
 
@@ -110,7 +115,7 @@ export async function addMemory(m: NewMemory): Promise<Memory> {
     const { data } = await supabase.auth.getSession();
     const q: QueuedTodo = {
       id: row.id, household_id: m.household_id, body: m.body, place_id: m.place_id ?? null, due_on: row.due_on ?? null, due_time: row.due_time,
-      repeat_rule: row.repeat_rule, assignee_id: m.assignee_id ?? null, pinned: !!m.pinned, author_id: data.session?.user.id ?? '', created_at: new Date().toISOString(),
+      repeat_rule: row.repeat_rule, assignee_id: m.assignee_id ?? null, pinned: !!m.pinned, ...(m.notes ? { notes: m.notes } : {}), ...(m.checklist?.length ? { checklist: m.checklist } : {}), ...(m.priority ? { priority: m.priority } : {}), ...(m.remind_before != null ? { remind_before: m.remind_before } : {}), author_id: data.session?.user.id ?? '', created_at: new Date().toISOString(),
     };
     enqueue(safeKV, q);
     return queuedToMemory(q);
@@ -124,21 +129,22 @@ export async function flushOutbox(): Promise<string[]> {
   const r = await flushQueue(safeKV, async (q) => {
     const { error } = await supabase.from('memories').insert(toRow({
       id: q.id, household_id: q.household_id, body: q.body, place_id: q.place_id, due_on: q.due_on, due_time: q.due_time, repeat_rule: q.repeat_rule as RepeatRule | null,
-      ...(q.assignee_id ? { assignee_id: q.assignee_id } : {}), ...(q.pinned ? { pinned: true } : {}), // only sent when used, so it works before the 0011 upgrade is run
+      ...(q.assignee_id ? { assignee_id: q.assignee_id } : {}), ...(q.pinned ? { pinned: true } : {}),
+      ...(q.notes ? { notes: q.notes } : {}), ...(q.checklist?.length ? { checklist: q.checklist } : {}), ...(q.priority ? { priority: q.priority as Memory["priority"] } : {}), ...(q.remind_before != null ? { remind_before: q.remind_before } : {}), // only sent when used, so it works before the 0011 upgrade is run
     }));
     if (error && !/duplicate key|23505/.test(error.message + (error as { code?: string }).code)) throw new Error(error.message);
   }, navigator.onLine);
   return r.sent;
 }
 
-type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned'>>;
+type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned' | 'notes' | 'checklist' | 'priority' | 'remind_before'>>;
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
 }
 
 /** Edit text, place and date together. The status follows what the to-do now has. */
-export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: RepeatRule | null; assignee_id?: string | null; pinned?: boolean }) {
+export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: RepeatRule | null; assignee_id?: string | null; pinned?: boolean } & DetailFields) {
   await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, repeat_rule: f.due_on ? f.repeat_rule ?? null : null, status: statusFor(f) });
 }
 

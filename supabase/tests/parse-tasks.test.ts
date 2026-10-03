@@ -7,11 +7,11 @@ const places: PlaceInfo[] = [
   { id: 'p-ph', name: 'Any pharmacy', kind: 'category', category: 'pharmacy' },
 ];
 const today = '2026-10-01';
-const t = (o: object) => ({ title: 'x', place_id: '', category: 'none', due_on: '', due_time: '', repeat: 'none', assignee: 'none', leaving: false, ...o });
+const t = (o: object) => ({ title: 'x', place_id: '', category: 'none', due_on: '', due_time: '', repeat: 'none', priority: 'none', assignee: 'none', leaving: false, ...o });
 
 test('a good answer becomes safe to-dos', () => {
   const r = validate({ tasks: [t({ title: ' Pick up parcel ', place_id: 'p-work', leaving: true }), t({ title: 'Do taxes', due_on: '2026-10-01', due_time: '21:00', assignee: 'partner' })] }, places, today);
-  assert.deepEqual(r[0], { title: 'Pick up parcel', due_on: null, due_time: null, repeat_rule: null, placeId: 'p-work', category: null, leaving: true, assignee: null });
+  assert.deepEqual(r[0], { title: 'Pick up parcel', due_on: null, due_time: null, repeat_rule: null, placeId: 'p-work', category: null, leaving: true, assignee: null, priority: 0 });
   assert.deepEqual([r[1].due_on, r[1].due_time, r[1].assignee], ['2026-10-01', '21:00', 'partner']);
 });
 
@@ -48,5 +48,10 @@ test('the prompt carries today, the places and the partner; the schema matches v
   assert.match(m, /Norwegian/);
   assert.match(m, /Kari/);
   assert.match(m, /id=p-work/);
-  assert.deepEqual([...SCHEMA.properties.tasks.items.required].sort(), ['assignee', 'category', 'due_on', 'due_time', 'leaving', 'place_id', 'repeat', 'title']);
+  assert.deepEqual([...SCHEMA.properties.tasks.items.required].sort(), ['assignee', 'category', 'due_on', 'due_time', 'leaving', 'place_id', 'priority', 'repeat', 'title']);
+});
+
+test('priority and the extra repeat rules', () => {
+  const r = validate({ tasks: [t({ title: 'a', priority: 'high', due_on: '2026-10-02', repeat: 'weekdays' }), t({ title: 'b', priority: 'medium', due_on: '2026-10-02', repeat: 'biweekly' }), t({ title: 'c', priority: 'urgent' })] }, places, today);
+  assert.deepEqual(r.map((x) => [x.priority, x.repeat_rule]), [[3, 'weekdays'], [2, 'biweekly'], [0, null]]);
 });

@@ -242,8 +242,8 @@ export function buildIcs(feed, { now = new Date(), lang = 'en' } = {}) {
     } else {
       lines.push(`DTSTART;VALUE=DATE:${compact(t.due_on)}`, `DTEND;VALUE=DATE:${compact(addDays(t.due_on, 1))}`);
     }
-    const rrule = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' }[t.repeat_rule ?? ''];
-    if (rrule) lines.push(`RRULE:FREQ=${rrule}`);
+    const rrule = { daily: 'FREQ=DAILY', weekdays: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', weekly: 'FREQ=WEEKLY', biweekly: 'FREQ=WEEKLY;INTERVAL=2', monthly: 'FREQ=MONTHLY', yearly: 'FREQ=YEARLY' }[t.repeat_rule ?? ''];
+    if (rrule) lines.push(`RRULE:${rrule}`);
     lines.push(`SUMMARY:${escapeText(title)}`);
     if (where) lines.push(`LOCATION:${escapeText(where)}`);
     lines.push('TRANSP:TRANSPARENT', 'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeText(title)}`, time ? 'TRIGGER:PT0S' : 'TRIGGER:PT9H', 'END:VALARM', 'END:VEVENT');

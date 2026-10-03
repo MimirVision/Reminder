@@ -26,3 +26,10 @@ test('the place name and the date words count too', () => {
 test('an empty search matches nothing (the normal list shows instead)', () => {
   assert.deepEqual(matchTodos(todos, '   ', place), []);
 });
+
+test('notes and checklist steps are searchable too', () => {
+  const list = [{ body: 'Camping trip', place_id: null, notes: 'key to the cabin is in the drawer', checklist: [{ text: 'sleeping bags' }, { text: 'stove' }] }, { body: 'Milk', place_id: null }];
+  assert.deepEqual(matchTodos(list, 'cabin', () => undefined).map((m) => m.body), ['Camping trip']);
+  assert.deepEqual(matchTodos(list, 'stove camping', () => undefined).map((m) => m.body), ['Camping trip']);
+  assert.deepEqual(matchTodos(list, 'cabin milk', () => undefined), []);
+});

@@ -102,7 +102,7 @@ export function buildMessage(lang: 'en' | 'nb', who: string, bodies: string[], f
 
 // ---- reminders at the due time (called every few minutes by a schedule, see docs/NOTIFICATIONS.md) ----
 
-export type DueMemory = { id: string; household_id: string; body: string; due_on: string | null; due_time: string | null; assignee_id: string | null };
+export type DueMemory = { id: string; household_id: string; body: string; due_on: string | null; due_time: string | null; assignee_id: string | null; remind_before?: number | null };
 
 /** The date (YYYY-MM-DD) and minutes since midnight at `now` in a time zone, e.g. "Europe/Oslo". */
 export function localNow(now: Date, tz: string): { date: string; minutes: number } {
@@ -111,13 +111,16 @@ export function localNow(now: Date, tz: string): { date: string; minutes: number
   return { date: `${get('year')}-${get('month')}-${get('day')}`, minutes: Number(get('hour')) * 60 + Number(get('minute')) };
 }
 
-/** To-dos whose time has come: due today, the time has passed, but by less than `windowMin` (so a missed run still catches up). */
+const wallMinutes = (date: string, hhmm: string) => Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10), +hhmm.slice(0, 2), +hhmm.slice(3, 5)) / 60_000;
+
+/** To-dos whose time has come: the reminder moment (the due time minus "remind me before") has passed, but by less than `windowMin`, so a missed run still catches up. */
 export function dueNow(list: DueMemory[], now: Date, tz: string, windowMin = 30): DueMemory[] {
   const { date, minutes } = localNow(now, tz);
+  const nowMin = wallMinutes(date, '00:00') + minutes;
   return list.filter((m) => {
-    if (m.due_on !== date || !m.due_time || !/^\d\d:\d\d/.test(m.due_time)) return false;
-    const at = Number(m.due_time.slice(0, 2)) * 60 + Number(m.due_time.slice(3, 5));
-    return minutes >= at && minutes < at + windowMin;
+    if (!m.due_on || !m.due_time || !/^\d\d:\d\d/.test(m.due_time)) return false;
+    const at = wallMinutes(m.due_on, m.due_time) - (m.remind_before ?? 0);
+    return nowMin >= at && nowMin < at + windowMin;
   });
 }
 
@@ -125,11 +128,19 @@ export function dueNow(list: DueMemory[], now: Date, tz: string, windowMin = 30)
 export const recipientsFor = (m: Pick<DueMemory, 'assignee_id'>, memberIds: string[]): string[] =>
   m.assignee_id && memberIds.includes(m.assignee_id) ? [m.assignee_id] : memberIds;
 
-export function buildDueMessage(lang: 'en' | 'nb', bodies: string[]): { title: string; body: string; url: string } {
+/** "30 min", "2 h", "1 day" in the reader's language. */
+export function leadText(lang: 'en' | 'nb', minutes: number): string {
+  if (minutes % 1440 === 0) { const d = minutes / 1440; return lang === 'nb' ? `${d} ${d === 1 ? 'dag' : 'dager'}` : `${d} ${d === 1 ? 'day' : 'days'}`; }
+  if (minutes % 60 === 0) return lang === 'nb' ? `${minutes / 60} t` : `${minutes / 60} h`;
+  return `${minutes} min`;
+}
+
+export function buildDueMessage(lang: 'en' | 'nb', bodies: string[], lead = 0): { title: string; body: string; url: string } {
   const texts = bodies.map(firstLine).filter(Boolean);
+  const when = lead > 0 ? (lang === 'nb' ? `Om ${leadText(lang, lead)}` : `In ${leadText(lang, lead)}`) : lang === 'nb' ? 'N\u00e5' : 'Now';
   const body = bodies.length === 1 && texts[0]
-    ? `${lang === 'nb' ? 'N\u00e5' : 'Now'}: ${clip(texts[0], 120)}`
-    : lang === 'nb' ? `${bodies.length} oppgaver skal gj\u00f8res n\u00e5` : `${bodies.length} to-dos are due now`;
+    ? `${when}: ${clip(texts[0], 120)}`
+    : lang === 'nb' ? `${bodies.length} oppgaver skal gj\u00f8res ${lead > 0 ? `om ${leadText(lang, lead)}` : 'n\u00e5'}` : `${bodies.length} to-dos are due ${lead > 0 ? `in ${leadText(lang, lead)}` : 'now'}`;
   return { title: 'Home Memory', body, url: '/' };
 }
 
@@ -149,8 +160,8 @@ async function sendDue(req: Request, vapid: { publicKey: string; privateKey: str
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const tz = Deno.env.get('HOME_TZ') ?? 'Europe/Oslo';
   const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-  const { data: rows } = await admin.from('memories').select('id, household_id, body, due_on, due_time, assignee_id')
-    .eq('status', 'active').not('due_time', 'is', null).gte('due_on', day(-1)).lte('due_on', day(1));
+  const { data: rows } = await admin.from('memories').select('id, household_id, body, due_on, due_time, assignee_id, remind_before')
+    .eq('status', 'active').not('due_time', 'is', null).gte('due_on', day(-1)).lte('due_on', day(15)); // reminders can be set up to 14 days ahead
   const due = dueNow((rows ?? []) as DueMemory[], new Date(), tz);
   if (due.length === 0) return json({ due: 0, sent: 0 });
 
@@ -160,17 +171,17 @@ async function sendDue(req: Request, vapid: { publicKey: string; privateKey: str
   if (fresh.length === 0) return json({ due: due.length, sent: 0 });
 
   const { data: members } = await admin.from('household_members').select('household_id, user_id').in('household_id', [...new Set(fresh.map((m) => m.household_id))]);
-  const byUser = new Map<string, string[]>();
+  const byUser = new Map<string, { body: string; lead: number }[]>();
   for (const m of fresh) {
     const ids = (members ?? []).filter((x) => x.household_id === m.household_id).map((x) => x.user_id);
-    for (const u of recipientsFor(m, ids)) byUser.set(u, [...(byUser.get(u) ?? []), m.body]);
+    for (const u of recipientsFor(m, ids)) byUser.set(u, [...(byUser.get(u) ?? []), { body: m.body, lead: m.remind_before ?? 0 }]);
   }
   const { data: subs } = await admin.from('web_push_subscriptions').select('id, user_id, endpoint, p256dh, auth, lang').in('user_id', [...byUser.keys()]);
   let sent = 0;
   const gone: string[] = [];
   await Promise.all((subs ?? []).map(async (s) => {
     try {
-      const status = await sendPush(s, buildDueMessage(s.lang === 'nb' ? 'nb' : 'en', byUser.get(s.user_id) ?? []), vapid);
+      const status = await sendPush(s, buildDueMessage(s.lang === 'nb' ? 'nb' : 'en', (byUser.get(s.user_id) ?? []).map((x) => x.body), Math.max(0, ...(byUser.get(s.user_id) ?? []).map((x) => x.lead))), vapid);
       if (status >= 200 && status < 300) sent++;
       else if (isGone(status)) gone.push(s.id);
     } catch (e) {

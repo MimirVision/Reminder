@@ -17,6 +17,9 @@ const P: Record<string, string> = {
   minus: 'M5 12h14',
   repeat: 'M4 12a6 6 0 016-6h9M16 3l3 3-3 3M20 12a6 6 0 01-6 6H5M8 21l-3-3 3-3',
   chevron: 'M9 6l6 6-6 6',
+  flag: 'M6 21V4M6 5h11l-2 4 2 4H6',
+  list: 'M9 7h10M9 12h10M9 17h10M5 7h.01M5 12h.01M5 17h.01',
+  note: 'M6 4h12v16H6zM9 9h6M9 13h6',
   store: 'M4 9l1.5-4h13L20 9M4.5 9v10h15V9M4 9a2.7 2.7 0 005.3 0 2.7 2.7 0 005.4 0A2.7 2.7 0 0020 9M10 19v-5h4v5',
 };
 

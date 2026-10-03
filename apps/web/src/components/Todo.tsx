@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   acceptSuggestion, cachedOpenMemories, deleteMemory, dismissSuggestion, flushOutbox, listMembers, listMemories, listPhotoUrls, listPlaces, markDone,
-  notifyPartnerIfSet, pendingTodos, purgeDismissed, reopen, requestSuggestion, restoreMemory, softDelete, subscribeHousehold,
+  notifyPartnerIfSet, pendingTodos, purgeDismissed, reopen, requestSuggestion, restoreMemory, softDelete, subscribeHousehold, updateMemory,
 } from '../lib/api';
 import { tap } from '../lib/haptics';
+import { statusFor } from '../lib/api';
 import { nextOccurrence } from '../lib/recurrence';
 import { hasShare, shareToText } from '../lib/share';
 import { distanceM, fetchPois, type LatLon, type Poi } from '../lib/geo';
@@ -15,7 +16,8 @@ import type { Snap } from '../lib/sheetSnap';
 import type { Household, Member, Memory, Place } from '../lib/types';
 import { useHere } from '../lib/useHere';
 import { matchTodos } from '../lib/search';
-import { compareDue, dueBucket, dueLabel, formatDay, todayISO } from '../lib/when';
+import { addDays, dueBucket, dueLabel, formatDay, todayISO } from '../lib/when';
+import { compareTodos, groupUpcoming, isLate } from '../lib/todoGroups';
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { AddBar } from './AddBar';
@@ -24,6 +26,7 @@ import { Icon } from './icons';
 import { InstallBanner } from './InstallBanner';
 import { MapSheet } from './MapSheet';
 import { PlaceSheet } from './PlaceSheet';
+import { RescheduleSheet } from './RescheduleSheet';
 import { RouteSheet, type RouteView } from './RouteSheet';
 import { RecapCard } from './RecapCard';
 import { Tour, tourKey } from './Tour';
@@ -53,6 +56,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [showDone, setShowDone] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [rescheduling, setRescheduling] = useState<Memory | null>(null);
   const [route, setRoute] = useState<RouteView | null>(null);
   const [filterWho, setWho] = useState<'all' | 'mine' | 'theirs'>('all');
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -114,6 +118,19 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     document.addEventListener('visibilitychange', sync);
     return () => { window.removeEventListener('online', sync); window.removeEventListener('offline', off); document.removeEventListener('visibilitychange', sync); };
   }, [toast, tn]);
+
+  // Keyboard (computer): n = new to-do, / = search. Ignored while typing or when a sheet is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable))) return;
+      if (document.querySelector('.sheet')) return;
+      if (e.key === 'n') { e.preventDefault(); setAdding(true); }
+      else if (e.key === '/') { e.preventDefault(); setSearching(true); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Something shared into the app (Web Share Target) opens the add sheet with the text ready.
   useEffect(() => {
@@ -195,10 +212,9 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   }, [memories, filterWho, partner, userId, showDone]);
 
   const groups = useMemo(() => {
-    const pinFirst = (a: Memory, b: Memory) => Number(!!b.pinned) - Number(!!a.pinned);
-    const today = visible.filter((m) => dueBucket(m) === 'today').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
-    const upcoming = visible.filter((m) => dueBucket(m) === 'upcoming').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
-    const undated = visible.filter((m) => dueBucket(m) === 'none').sort(pinFirst);
+    const today = visible.filter((m) => dueBucket(m) === 'today').sort(compareTodos);
+    const upcoming = groupUpcoming(visible, todayISO());
+    const undated = visible.filter((m) => dueBucket(m) === 'none').sort(compareTodos);
     const byPlace = new Map<string, Memory[]>();
     const anytime: Memory[] = [];
     for (const m of undated) {
@@ -247,6 +263,32 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     void act(() => softDelete(m.id)).then(() => toast({ text: t('toast.deleted'), undo: () => void act(() => restoreMemory(m.id, m)) }));
   };
 
+  // Move to another day (or no day), with an undo.
+  const moveTo = (m: Memory, date: string | null) => {
+    setRescheduling(null);
+    const was = { due_on: m.due_on, due_time: m.due_time, repeat_rule: m.repeat_rule ?? null, remind_before: m.remind_before ?? null };
+    const patch = (d: typeof was & { status?: Memory['status'] }) => ({
+      due_on: d.due_on, due_time: d.due_on ? d.due_time : null, repeat_rule: d.due_on ? d.repeat_rule : null,
+      ...(d.remind_before != null || m.remind_before != null ? { remind_before: d.due_on ? d.remind_before : null } : {}),
+      status: statusFor({ place_id: m.place_id, due_on: d.due_on }),
+    });
+    setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, due_on: date, due_time: date ? x.due_time : null } : x)));
+    void act(() => updateMemory(m.id, patch({ ...was, due_on: date }))).then(() => toast({ text: t('toast.saved'), undo: () => void act(() => updateMemory(m.id, patch(was))) }));
+  };
+
+  const tickStep = (m: Memory, items: NonNullable<Memory['checklist']>) => {
+    setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, checklist: items } : x)));
+    void act(() => updateMemory(m.id, { checklist: items }));
+  };
+
+  const lateOnes = visible.filter((m) => !m.pending && isLate(m, todayISO()));
+  const moveLateToToday = () => {
+    const today = todayISO();
+    const ids = lateOnes.map((m) => m.id);
+    setMemories((cur) => cur.map((x) => (ids.includes(x.id) ? { ...x, due_on: today } : x)));
+    void act(async () => { for (const m of lateOnes) await updateMemory(m.id, { due_on: today }); }).then(() => toast({ text: t('late.moved') }));
+  };
+
   const saved = (info: SavedInfo) => {
     setAdding(false);
     setEditing(null);
@@ -266,7 +308,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={showDone} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
         place={opts.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === userId ? t('row.forYou') : t('row.for', { name: members.find((x) => x.user_id === m.assignee_id)?.display_name || t('common.partner') })) : undefined} byline={opts.meta === false ? undefined : byline(m)}
         author={members.length > 1 && m.author_id !== userId ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
-        onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}>
+        onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}
+        onReschedule={m.pending ? undefined : () => setRescheduling(m)} onChecklist={(items) => tickStep(m, items)}>
         {m.suggestion && !showDone && (
           <div className="suggest" role="group" aria-label={t('suggest.aria')}>
             <span className="chip"><Icon name={m.suggestion.kind === 'recurring' ? 'house' : 'pin'} size={13} />
@@ -281,6 +324,9 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       </TodoRow>
     );
   };
+
+  // "Tomorrow", then the weekday and date.
+  const dayHeading = (iso: string) => (iso === addDays(todayISO(), 1) ? t('when.tomorrow') : formatDay(iso, locale));
 
   const section = (title: string, items: Memory[], opts?: { place?: boolean }) => items.length === 0 ? null : (
     <section className="group" aria-label={title}>
@@ -387,8 +433,15 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
               <span className="muted">{t('todo.empty.body')}</span>
             </div>
           )}
+          {lateOnes.length > 0 && (
+            <div className="late-banner" role="status">
+              <span>{tn('late.banner', lateOnes.length)}</span>
+              <button className="btn small" onClick={moveLateToToday}>{t('late.moveToday')}</button>
+            </div>
+          )}
           {section(t('todo.sec.today'), groups.today)}
-          {section(t('todo.sec.upcoming'), groups.upcoming)}
+          {!empty && groups.today.length === 0 && <p className="muted quiet-line">{t('todo.nothingToday')}</p>}
+          {groups.upcoming.map((g) => section(dayHeading(g.date), g.items))}
           {groups.byPlace.size > 0 && <div className="label">{t('todo.sec.place')}</div>}
           {[...groups.byPlace].map(([id, items]) => placeCard(id, items))}
           {section(t('todo.sec.anytime'), groups.anytime, { place: false })}
@@ -399,6 +452,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       {mapOn && route && <button className="glass map-route-clear" onClick={() => setRoute(null)}><Icon name="x" size={14} /> {t('route.clear')}</button>}
       {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
       {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} onClose={() => { setAdding(false); setSharedText(null); }} onSaved={saved} />}
+      {rescheduling && <RescheduleSheet title={(rescheduling.body || t('todo.photo')).split('\n')[0]} dueOn={rescheduling.due_on} onPick={(d) => moveTo(rescheduling, d)} onClose={() => setRescheduling(null)} />}
       {planning && <RouteSheet places={places} memories={memories} onClose={() => setPlanning(false)} onShow={(r) => { setRoute(r); setMode('map'); setShowDone(false); setSnap('peek'); }} />}
       {tour && <Tour household={household} onClose={() => setTour(false)} onChanged={() => { void load(); loadPlaces(); }} />}
       {editing && <TodoSheet key={editing.id} household={household} places={places} members={members} userId={userId} memory={editing} photos={photos.get(editing.id)} onClose={() => setEditing(null)} onSaved={saved} onDelete={remove} />}

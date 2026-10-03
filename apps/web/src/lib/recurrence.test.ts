@@ -22,3 +22,14 @@ test('rule check', () => {
   assert.equal(isRepeatRule('hourly'), false);
   assert.equal(isRepeatRule(null), false);
 });
+
+test('weekdays skip the weekend and every other week steps 14 days', () => {
+  assert.equal(stepDate('2026-10-01', 'weekdays'), '2026-10-02'); // Thursday -> Friday
+  assert.equal(stepDate('2026-10-02', 'weekdays'), '2026-10-05'); // Friday -> Monday
+  assert.equal(stepDate('2026-10-03', 'weekdays'), '2026-10-05'); // Saturday -> Monday
+  assert.equal(stepDate('2026-10-04', 'weekdays'), '2026-10-05'); // Sunday -> Monday
+  assert.equal(stepDate('2026-12-28', 'biweekly'), '2027-01-11');
+  assert.equal(nextOccurrence('2026-09-18', 'weekdays', '2026-10-02'), '2026-10-05');
+  assert.equal(nextOccurrence('2026-09-18', 'biweekly', '2026-10-02'), '2026-10-16');
+  assert.equal(isRepeatRule('weekdays'), true);
+});

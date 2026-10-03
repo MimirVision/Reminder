@@ -20,8 +20,8 @@ async function sendDue(req: Request, vapid: { publicKey: string; privateKey: str
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const tz = Deno.env.get('HOME_TZ') ?? 'Europe/Oslo';
   const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-  const { data: rows } = await admin.from('memories').select('id, household_id, body, due_on, due_time, assignee_id')
-    .eq('status', 'active').not('due_time', 'is', null).gte('due_on', day(-1)).lte('due_on', day(1));
+  const { data: rows } = await admin.from('memories').select('id, household_id, body, due_on, due_time, assignee_id, remind_before')
+    .eq('status', 'active').not('due_time', 'is', null).gte('due_on', day(-1)).lte('due_on', day(15)); // reminders can be set up to 14 days ahead
   const due = dueNow((rows ?? []) as DueMemory[], new Date(), tz);
   if (due.length === 0) return json({ due: 0, sent: 0 });
 
@@ -31,17 +31,17 @@ async function sendDue(req: Request, vapid: { publicKey: string; privateKey: str
   if (fresh.length === 0) return json({ due: due.length, sent: 0 });
 
   const { data: members } = await admin.from('household_members').select('household_id, user_id').in('household_id', [...new Set(fresh.map((m) => m.household_id))]);
-  const byUser = new Map<string, string[]>();
+  const byUser = new Map<string, { body: string; lead: number }[]>();
   for (const m of fresh) {
     const ids = (members ?? []).filter((x) => x.household_id === m.household_id).map((x) => x.user_id);
-    for (const u of recipientsFor(m, ids)) byUser.set(u, [...(byUser.get(u) ?? []), m.body]);
+    for (const u of recipientsFor(m, ids)) byUser.set(u, [...(byUser.get(u) ?? []), { body: m.body, lead: m.remind_before ?? 0 }]);
   }
   const { data: subs } = await admin.from('web_push_subscriptions').select('id, user_id, endpoint, p256dh, auth, lang').in('user_id', [...byUser.keys()]);
   let sent = 0;
   const gone: string[] = [];
   await Promise.all((subs ?? []).map(async (s) => {
     try {
-      const status = await sendPush(s, buildDueMessage(s.lang === 'nb' ? 'nb' : 'en', byUser.get(s.user_id) ?? []), vapid);
+      const status = await sendPush(s, buildDueMessage(s.lang === 'nb' ? 'nb' : 'en', (byUser.get(s.user_id) ?? []).map((x) => x.body), Math.max(0, ...(byUser.get(s.user_id) ?? []).map((x) => x.lead))), vapid);
       if (status >= 200 && status < 300) sent++;
       else if (isGone(status)) gone.push(s.id);
     } catch (e) {

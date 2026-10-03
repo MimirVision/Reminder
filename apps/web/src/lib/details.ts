@@ -1,0 +1,38 @@
+// The extra details of a to-do (notes, checklist, priority, reminder). What to send to the database: only what is used on a new
+// to-do (so it keeps working before the database upgrade), and only what changed on an edit. Pure, unit tested.
+import { cleanChecklist } from './checklist.ts';
+import type { ChecklistItem, Memory, Priority } from './types';
+
+export type Details = { notes: string; checklist: ChecklistItem[]; priority: Priority; remind_before: number | null };
+export const emptyDetails = (): Details => ({ notes: '', checklist: [], priority: 0, remind_before: null });
+
+export const detailsOf = (m?: Pick<Memory, 'notes' | 'checklist' | 'priority' | 'remind_before'> | null): Details => ({
+  notes: m?.notes ?? '', checklist: cleanChecklist(m?.checklist), priority: m?.priority ?? 0, remind_before: m?.remind_before ?? null,
+});
+
+export type DetailFields = { notes?: string | null; checklist?: ChecklistItem[]; priority?: Priority; remind_before?: number | null };
+
+/** For a new to-do: only the details that are set. A reminder needs a date. */
+export function newFields(d: Details, hasDate: boolean): DetailFields {
+  return {
+    ...(d.notes.trim() ? { notes: d.notes.trim() } : {}),
+    ...(d.checklist.length ? { checklist: d.checklist } : {}),
+    ...(d.priority ? { priority: d.priority } : {}),
+    ...(hasDate && d.remind_before != null ? { remind_before: d.remind_before } : {}),
+  };
+}
+
+/** For an edit: only what differs from the saved to-do (a cleared note or reminder is sent as null). */
+export function changedFields(d: Details, was: Details, hasDate: boolean): DetailFields {
+  const out: DetailFields = {};
+  const notes = d.notes.trim();
+  if (notes !== was.notes.trim()) out.notes = notes || null;
+  if (JSON.stringify(d.checklist) !== JSON.stringify(was.checklist)) out.checklist = d.checklist;
+  if (d.priority !== was.priority) out.priority = d.priority;
+  const lead = hasDate ? d.remind_before : null;
+  if (lead !== was.remind_before) out.remind_before = lead;
+  return out;
+}
+
+/** "Remind me" choices, in minutes before the due time. */
+export const REMIND_CHOICES = [0, 5, 10, 30, 60, 120, 1440, 2880] as const;

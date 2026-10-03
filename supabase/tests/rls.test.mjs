@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -440,6 +440,28 @@ await as(A, async () => {
 
 // 0012: the table that remembers announced reminders is for the server only.
 await as(A, async () => { await rejects(() => db.query(`select * from due_pushes`), /permission denied/); });
+
+// 0013: notes, checklist, priority, reminder lead time, and the new repeat rules.
+{
+  await as(A, async () => {
+    const mk = async (rule, due) => (await db.query(`insert into memories (household_id, body, due_on, repeat_rule, notes, checklist, priority, remind_before) values ($1, $2, $3, $4, 'remember the keys', '[{"id":"a","text":"one","done":true},{"id":"b","text":"two","done":false}]', 2, 30) returning id`, [hid, `rep ${rule}`, due, rule])).rows[0].id;
+    const dueOf = async (id) => (await db.query(`select due_on::text as d from memories where id = $1`, [id])).rows[0].d;
+    // Friday -> Monday for weekdays; two weeks for biweekly. (Dates are in the past, so the loop steps until it passes today.)
+    const fri = await mk('weekdays', '2026-01-02');
+    const next = (await db.query(`select public.complete_memory($1) as n`, [fri])).rows[0].n;
+    const nd = await dueOf(next);
+    assert.ok(!['Saturday', 'Sunday'].includes(new Date(`${nd}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })), 'weekdays never lands on a weekend');
+    const bi = await mk('biweekly', '2026-01-02');
+    const nb = (await db.query(`select public.complete_memory($1) as n`, [bi])).rows[0].n;
+    assert.equal(((new Date(`${await dueOf(nb)}T00:00:00Z`) - new Date('2026-01-02T00:00:00Z')) / 86400000) % 14, 0, 'every other week steps in 14 days');
+    const row = (await db.query(`select notes, priority, remind_before, checklist from memories where id = $1`, [nb])).rows[0];
+    assert.deepEqual([row.notes, row.priority, row.remind_before], ['remember the keys', 2, 30], 'details carry over');
+    assert.deepEqual(row.checklist.map((c) => c.done), [false, false], 'the checklist starts unticked again');
+    await rejects(() => db.query(`insert into memories (household_id, body, priority) values ($1, 'x', 9)`, [hid]), /memories_priority_valid|check constraint/);
+    await rejects(() => db.query(`insert into memories (household_id, body, checklist) values ($1, 'x', '{"a":1}')`, [hid]), /memories_checklist_valid|check constraint/);
+    await rejects(() => db.query(`insert into memories (household_id, body, due_on, repeat_rule) values ($1, 'x', '2026-10-10', 'hourly')`, [hid]), /memories_repeat_rule_valid|check constraint/);
+  });
+}
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
 assert.equal(readFileSync(new URL('../upgrade.sql', import.meta.url), 'utf8'), buildSetup(UPGRADE_AFTER), 'upgrade.sql is stale: run npm run build:setup');

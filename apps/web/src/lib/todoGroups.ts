@@ -1,0 +1,36 @@
+// How the to-do list is laid out: what is late, what is today, and what is coming up day by day. Pure, unit tested.
+import type { Memory, Priority } from './types';
+import { addDays, compareDue } from './when.ts';
+
+type Dated = Pick<Memory, 'due_on' | 'due_time' | 'pinned' | 'priority'>;
+
+/** Pinned first, then higher priority, then the earliest due. Stable for equal items. */
+export function compareTodos(a: Dated, b: Dated): number {
+  return Number(!!b.pinned) - Number(!!a.pinned) || (b.priority ?? 0) - (a.priority ?? 0) || compareDue(a, b);
+}
+
+export const isLate = (m: Pick<Memory, 'due_on'>, today: string) => !!m.due_on && m.due_on < today;
+
+export type DayGroup<T> = { date: string; items: T[] };
+
+/** Things after today, grouped by day (soonest first), each day sorted by pin, priority and time. */
+export function groupUpcoming<T extends Dated>(list: T[], today: string): DayGroup<T>[] {
+  const by = new Map<string, T[]>();
+  for (const m of list) if (m.due_on && m.due_on > today) by.set(m.due_on, [...(by.get(m.due_on) ?? []), m]);
+  return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, items]) => ({ date, items: [...items].sort(compareTodos) }));
+}
+
+export const PRIORITY_KEYS = ['none', 'low', 'medium', 'high'] as const;
+export const isPriority = (v: unknown): v is Priority => v === 0 || v === 1 || v === 2 || v === 3;
+
+/** The day choices when moving a to-do: tomorrow, this weekend, next week, in a month. */
+export function rescheduleTargets(today: string, dow: number): { id: string; date: string }[] {
+  const toSat = (6 - dow + 7) % 7 || 7;
+  const toMon = (1 - dow + 7) % 7 || 7;
+  const out = [
+    { id: 'today', date: today }, { id: 'tomorrow', date: addDays(today, 1) },
+    { id: 'weekend', date: addDays(today, dow === 6 || dow === 0 ? 0 : toSat) }, { id: 'nextWeek', date: addDays(today, toMon) },
+  ];
+  const seen = new Set<string>();
+  return out.filter((o) => (seen.has(o.date) ? false : (seen.add(o.date), true)));
+}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH, createCipheriv, createDecipheriv, hkdfSync, createHmac, createPublicKey, verify } from 'node:crypto';
-import { b64uToBytes, buildDueMessage, buildMessage, dueNow, localNow, recipientsFor, bytesToB64u, encryptPayload, isGone, sendPush, vapidAuthorization } from '../functions/notify-partner/logic.ts';
+import { b64uToBytes, buildDueMessage, leadText, buildMessage, dueNow, localNow, recipientsFor, bytesToB64u, encryptPayload, isGone, sendPush, vapidAuthorization } from '../functions/notify-partner/logic.ts';
 
 // RFC 8291 appendix A example keys.
 const AS_PRIVATE = 'yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw';
@@ -140,4 +140,22 @@ test('due reminder text', () => {
   assert.equal(buildDueMessage('nb', ['Ring tannlegen']).body, 'N\u00e5: Ring tannlegen');
   assert.equal(buildDueMessage('en', ['a', 'b', 'c']).body, '3 to-dos are due now');
   assert.equal(buildDueMessage('nb', ['a', 'b']).body, '2 oppgaver skal gj\u00f8res n\u00e5');
+});
+
+test('remind me before: the reminder moment moves earlier, even across midnight', () => {
+  const m = (id: string, due_on: string, due_time: string, remind_before: number | null) => ({ id, household_id: 'h', body: id, due_on, due_time, assignee_id: null, remind_before });
+  // 2026-10-01 16:30 UTC = 18:30 in Oslo
+  const now = new Date('2026-10-01T16:30:00Z');
+  const list = [m('in30', '2026-10-01', '19:00', 30), m('dayBefore', '2026-10-02', '18:30', 1440), m('hourBefore', '2026-10-01', '19:30', 60), m('notYet', '2026-10-01', '21:00', 30), m('atTime', '2026-10-01', '18:30', null)];
+  assert.deepEqual(dueNow(list, now, 'Europe/Oslo').map((x) => x.id).sort(), ['atTime', 'dayBefore', 'hourBefore', 'in30']);
+});
+
+test('lead time wording', () => {
+  assert.equal(leadText('en', 30), '30 min');
+  assert.equal(leadText('en', 120), '2 h');
+  assert.equal(leadText('en', 1440), '1 day');
+  assert.equal(leadText('nb', 2880), '2 dager');
+  assert.equal(buildDueMessage('en', ['Call the plumber'], 30).body, 'In 30 min: Call the plumber');
+  assert.equal(buildDueMessage('nb', ['Ring tannlegen'], 60).body, 'Om 1 t: Ring tannlegen');
+  assert.equal(buildDueMessage('en', ['a', 'b'], 1440).body, '2 to-dos are due in 1 day');
 });

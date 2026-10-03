@@ -146,3 +146,18 @@ test('the sentence from real use: shop named, work not saved', () => {
   assert.deepEqual(r.map((t) => t.title), ['Melk', 'Mel', 'Yoghurt', 'Tomater']);
   assert.ok(r.every((t) => t.placeId === 'meny'), JSON.stringify(r));
 });
+
+test('priority and the new repeat rules', () => {
+  assert.equal(one('pay the electricity bill !!! tomorrow').priority, 3);
+  assert.equal(one('urgent: call the plumber').priority, 3);
+  assert.equal(one('haster: ring tannlegen').priority, 3);
+  assert.equal(one('book dentist p2').priority, 2);
+  assert.equal(one('sort the garage low priority').priority, 1);
+  assert.equal(one('buy milk!').priority, 0, 'a single exclamation mark is just punctuation');
+  assert.equal(one('take the bins out every weekday').repeat_rule, 'weekdays');
+  assert.equal(one('ta ut søpla på hverdager').repeat_rule, 'weekdays');
+  assert.equal(one('water the plants every other week').repeat_rule, 'biweekly');
+  assert.equal(one('støvsuge annenhver uke').repeat_rule, 'biweekly');
+  assert.equal(one('water the plants every week').repeat_rule, 'weekly');
+  assert.equal(one('urgent: call the plumber').title, 'Call the plumber');
+});
