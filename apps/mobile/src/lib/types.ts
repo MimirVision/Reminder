@@ -29,6 +29,8 @@ export type Memory = MemoryRow & {
   checklist?: ChecklistItem[];
   priority?: Priority;
   remind_before?: number | null;
+  tags?: string[];
+  sort_order?: number | null;
   assignee_id?: string | null; // who it is for (null = anyone)
   pinned?: boolean;
   pending?: boolean; // saved on this phone, waiting for a connection

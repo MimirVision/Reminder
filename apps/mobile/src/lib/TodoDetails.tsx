@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { addMany, removeItem, toggleItem } from '../shared/lib/checklist';
+import { addTags, removeTag } from '../shared/lib/tags';
 import { REMIND_CHOICES, type Details } from '../shared/lib/details';
 import type { Priority } from '../shared/lib/types';
 import { Chip } from './Chip';
@@ -16,6 +17,8 @@ export function TodoDetails({ value, onChange, hasDate }: { value: Details; onCh
   const th = useTheme();
   const { t } = useI18n();
   const [step, setStep] = useState('');
+  const [tag, setTag] = useState('');
+  const putTag = () => { if (tag.trim()) { onChange({ ...value, tags: addTags(value.tags, tag) }); setTag(''); } };
   const addStep = () => { if (step.trim()) { onChange({ ...value, checklist: addMany(value.checklist, step) }); setStep(''); } };
 
   return (
@@ -50,6 +53,23 @@ export function TodoDetails({ value, onChange, hasDate }: { value: Details; onCh
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         <Field style={{ flex: 1 }} placeholder={t('check.placeholder')} value={step} onChangeText={setStep} onSubmitEditing={addStep} returnKeyType="done" blurOnSubmit={false} />
         <Btn small label={t('check.add')} onPress={addStep} disabled={!step.trim()} />
+      </View>
+
+      <SectionLabel>{t('tags.label')}</SectionLabel>
+      {value.tags.length > 0 && (
+        <View style={styles.row}>
+          {value.tags.map((g) => (
+            <Pressable key={g} accessibilityRole="button" accessibilityLabel={t('tags.remove', { tag: g })} onPress={() => onChange({ ...value, tags: removeTag(value.tags, g) })}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: th.card, borderWidth: 1, borderColor: th.line }}>
+              <Text style={{ color: th.ink, fontFamily: font.semi, fontSize: 14 }}>#{g}</Text>
+              <Icon name="xmark" size={11} color={th.muted} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <Field style={{ flex: 1 }} placeholder={t('tags.placeholder')} value={tag} onChangeText={setTag} onSubmitEditing={putTag} autoCapitalize="none" returnKeyType="done" blurOnSubmit={false} />
+        <Btn small label={t('tags.add')} onPress={putTag} disabled={!tag.trim()} />
       </View>
 
       <SectionLabel>{t('notes.label')}</SectionLabel>

@@ -32,12 +32,12 @@ export default function Add() {
   const toast = useToast();
   const { household, session } = useSession();
   const userId = session?.user.id ?? '';
-  const params = useLocalSearchParams<{ placeId?: string; id?: string; text?: string }>();
+  const params = useLocalSearchParams<{ placeId?: string; id?: string; text?: string; date?: string }>();
   const editId = params.id;
   const [memory, setMemory] = useState<Memory | null>(null);
   const [body, setBody] = useState(params.text ?? '');
   const [where, setWhere] = useState<Where>(params.placeId ? { kind: 'place', placeId: params.placeId } : { kind: 'none' });
-  const [due, setDue] = useState<Due>({ due_on: null, due_time: null, repeat_rule: null });
+  const [due, setDue] = useState<Due>({ due_on: params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : null, due_time: null, repeat_rule: null });
   const [places, setPlaces] = useState<Place[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [forId, setForId] = useState<string | null>(null);
@@ -71,7 +71,7 @@ export default function Add() {
       setForId(m.assignee_id ?? null);
       setPinned(!!m.pinned);
       setDetails(detailsOf(m));
-      setShowMore(!!m.notes || (m.checklist?.length ?? 0) > 0 || !!m.priority || m.remind_before != null);
+      setShowMore(!!m.notes || (m.checklist?.length ?? 0) > 0 || !!m.priority || m.remind_before != null || (m.tags?.length ?? 0) > 0);
     }).catch(() => setErr(t('offline.needsNet')));
   }, [editId, t]);
 
@@ -159,7 +159,7 @@ export default function Add() {
             due_on: dated ? task.due_on : due.due_on, due_time: dated ? task.due_time : due.due_time, repeat_rule: dated ? task.repeat_rule : due.repeat_rule,
             ...(assignee ? { assignee_id: assignee } : {}), ...(pinned ? { pinned } : {}),
             // Notes and a checklist belong to one to-do; priority and the reminder go to each.
-            ...newFields({ ...(kept.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority }, dated || !!due.due_on),
+            ...newFields({ ...(kept.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, tags: [...new Set([...details.tags, ...task.tags])] }, dated || !!due.due_on),
             capture_lat: lat, capture_lon: lon, photoUris: i === 0 ? uris : [],
           });
         }

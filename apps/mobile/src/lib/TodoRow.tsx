@@ -13,9 +13,9 @@ import { Check, Icon, Muted, styles } from './ui';
 export type Who = { id: string; name: string | null } | null;
 
 // One to-do: tick to finish, tap the text to edit, swipe right to finish or left to delete. Date, repeat and place are small chips.
-export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, children }: {
+export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, children }: {
   m: Memory; photos?: string[]; done?: boolean; due?: string; dueLate?: boolean; place?: string; forName?: string; author?: Who; doneBy?: string | null; byline?: string;
-  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; children?: ReactNode;
+  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; children?: ReactNode;
 }) {
   const th = useTheme();
   const { t } = useI18n();
@@ -35,7 +35,7 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
         <Pressable accessibilityRole="button" onPress={onEdit}>
           <Text style={{ color: done ? th.muted : th.ink, fontSize: 17, lineHeight: 24, fontFamily: font.medium, textDecorationLine: done ? 'line-through' : 'none' }}>{m.body || t('todo.photo')}</Text>
         </Pressable>
-        {(due || place || m.repeat_rule || doneBy || byline || forName || m.pinned || prio > 0 || prog.total > 0) && (
+        {(due || place || m.repeat_rule || doneBy || byline || forName || m.pinned || prio > 0 || prog.total > 0 || (m.tags?.length ?? 0) > 0) && (
           <View style={styles.row}>
             {due ? chip(due, 'calendar', true, undefined, onReschedule && !done ? onReschedule : undefined) : null}
             {prio > 0 && !done ? chip(t(`prio.short.${prio}` as 'prio.short.1'), 'flag', false, PRIO_COLOR[prio]) : null}
@@ -44,6 +44,7 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
             {m.pinned && !done ? chip(t('row.pinned'), 'pin') : null}
             {forName ? chip(forName, 'person') : null}
             {place ? chip(place, 'mappin') : null}
+            {!done ? (m.tags ?? []).map((g) => <Text key={g} style={{ color: th.muted, fontSize: 13, fontFamily: font.semi, paddingVertical: 3 }}>#{g}</Text>) : null}
             {doneBy ? <Muted>{t('row.doneBy', { name: doneBy })}</Muted> : null}
             {byline ? <Muted>{byline}</Muted> : null}
           </View>
@@ -62,8 +63,18 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
         {photos && photos.length > 0 && <View style={styles.row}>{photos.map((u) => <Image key={u} source={{ uri: u }} style={{ width: 120, height: 78, borderRadius: 12 }} />)}</View>}
         {children}
       </View>
+      {reorder && (
+        <View style={{ alignSelf: 'center', gap: 4 }}>
+          {([['up', reorder.up, 'chevron.up'], ['down', reorder.down, 'chevron.down']] as const).map(([k, fn, ic]) => (
+            <Pressable key={k} disabled={!fn} accessibilityRole="button" accessibilityLabel={t(`reorder.${k}` as 'reorder.up', { title: (m.body || '').split('\n')[0] })} hitSlop={6} onPress={fn}
+              style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: th.dark ? '#262C36' : '#ECEEF2', opacity: fn ? 1 : 0.3 }}>
+              <Icon name={ic} size={15} color={th.ink} />
+            </Pressable>
+          ))}
+        </View>
+      )}
       {author && <Avatar id={author.id} name={author.name} />}
     </View>
   );
-  return onDelete && !done ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
+  return onDelete && !done && !reorder ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
 }

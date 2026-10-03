@@ -5,10 +5,12 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   acceptSuggestion, completeMemory, deleteMemory, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, purgeDismissed, reopenMemory,
-  requestSuggestion, softDelete, statusFor, subscribeHousehold, updateMemory,
+  requestSuggestion, setOrder, softDelete, statusFor, subscribeHousehold, updateMemory,
 } from '@/lib/api';
 import { AddBar } from '@/lib/AddBar';
+import { CalendarView } from '@/lib/CalendarView';
 import { Chip } from '@/lib/Chip';
+import { FilterSheet } from '@/lib/FilterSheet';
 import { Glass } from '@/lib/glass';
 import { MapSheet, tabBarSpace, type Snap } from '@/lib/MapSheet';
 import { useI18n } from '@/lib/i18n';
@@ -27,6 +29,9 @@ import { distanceM } from '../../core/geo.ts';
 import { placeLabel, recurringLabel } from '../../shared/lib/labels';
 import { nextOccurrence } from '../../shared/lib/recurrence';
 import { addDays, dueBucket, dueLabel, formatDay, todayISO } from '../../shared/lib/when';
+import { moveStep } from '../../shared/lib/order';
+import { allTags } from '../../shared/lib/tags';
+import { activeCount, applyFilter, noFilter, type Filter } from '../../shared/lib/todoFilter';
 import { compareTodos, groupUpcoming, isLate, rescheduleTargets } from '../../shared/lib/todoGroups';
 import type { Member, Memory, Place } from '@/lib/types';
 import type { LatLon } from '../../core/types.ts';
@@ -43,7 +48,10 @@ export default function Todo() {
   const { t, tn, locale } = useI18n();
   const toast = useToast();
   const { household, session } = useSession();
-  const [mode, setMode] = useState<'list' | 'map'>('list');
+  const [mode, setMode] = useState<'list' | 'calendar' | 'map'>('list');
+  const [filter, setFilter] = useState<Filter>(noFilter);
+  const [filtering, setFiltering] = useState(false);
+  const [reordering, setReordering] = useState(false);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -55,7 +63,6 @@ export default function Todo() {
   const [loaded, setLoaded] = useState(false);
   const [tour, setTour] = useState(false);
   const [doneTicks, setDoneTicks] = useState(0);
-  const [who, setWho] = useState<'all' | 'mine' | 'theirs'>('all');
   const [sheetSnap, setSheetSnap] = useState<Snap>('half');
   const [sheetH, setSheetH] = useState(300);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -134,10 +141,8 @@ export default function Todo() {
 
   // "For me" / "For Kari" keep what is for that person and what is for anyone.
   const partner = members.find((m) => m.user_id !== uid) ?? null;
-  const visible = useMemo(
-    () => (who === 'all' || !partner ? memories : memories.filter((m) => !m.assignee_id || m.assignee_id === (who === 'mine' ? uid : partner.user_id))),
-    [memories, who, partner, uid],
-  );
+  const tagList = useMemo(() => allTags(memories), [memories]);
+  const visible = useMemo(() => applyFilter(memories, filter, uid, partner?.user_id ?? null), [memories, filter, partner, uid]);
 
   const { today, upcoming, near, atPlace, anytime } = useMemo(() => {
     const today = visible.filter((m) => dueBucket(m) === 'today').sort(compareTodos);
@@ -199,14 +204,24 @@ export default function Todo() {
 
   const openList = (placeId: string, label: string) => router.push({ pathname: '/list/[placeId]', params: { placeId, label } });
 
-  const row = (m: Memory, o: { place?: boolean; meta?: boolean } = {}) => {
+  // Reorder mode: arrows on each row move it inside its own group (today, a day, a place, anytime).
+  async function move(group: Memory[], m: Memory, dir: -1 | 1) {
+    const ups = moveStep(group, m.id, dir);
+    if (!ups) return;
+    setMemories((cur) => cur.map((x) => { const u = ups.find((y) => y.id === x.id); return u ? { ...x, sort_order: u.sort_order } : x; }));
+    try { await setOrder(ups); } finally { void load(); }
+  }
+  const reorderFor = (group: Memory[], m: Memory) => reordering && !m.pending
+    ? { up: group[0]?.id === m.id ? undefined : () => void move(group, m, -1), down: group[group.length - 1]?.id === m.id ? undefined : () => void move(group, m, 1) } : undefined;
+
+  const row = (m: Memory, o: { place?: boolean; meta?: boolean; group?: Memory[] } = {}) => {
     const due = dueLabel(m, t, locale);
     return (
       <TodoRow key={m.id} m={m} photos={photos[m.id]} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
         place={o.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === uid ? t('row.forYou') : t('row.for', { name: nameOf(m.assignee_id) ?? t('common.partner') })) : undefined} byline={o.meta === false ? undefined : byline(m)}
         author={members.length > 1 ? { id: m.author_id, name: nameOf(m.author_id) } : null}
         onToggle={() => void complete(m)} onEdit={() => router.push({ pathname: '/add', params: { id: m.id } })} onDelete={() => void remove(m)}
-        onReschedule={m.pending ? undefined : () => reschedule(m)} onChecklist={(items) => void tickStep(m, items)}>
+        onReschedule={m.pending ? undefined : () => reschedule(m)} onChecklist={(items) => void tickStep(m, items)} reorder={o.group ? reorderFor(o.group, m) : undefined}>
         {m.suggestion && (
           <View style={{ gap: 8, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: th.line, padding: 12, backgroundColor: th.tint }}>
             <PlaceChip label={m.suggestion.kind === 'recurring' ? t('suggest.recurring', { label: m.suggestion.recurring ? recurringLabel(m.suggestion.recurring, t) : m.suggestion.label }) : m.suggestion.label} icon={m.suggestion.kind === 'recurring' ? 'arrow.triangle.2.circlepath' : 'mappin'} />
@@ -267,24 +282,24 @@ export default function Todo() {
   const section = (title: string, items: Memory[]) => items.length === 0 ? null : (
     <View style={{ gap: 6 }} key={title}>
       <SectionLabel>{title}</SectionLabel>
-      <View style={{ backgroundColor: th.card, borderRadius: 20, paddingHorizontal: 16, overflow: 'hidden' }}>{items.map((m) => row(m, { place: true }))}</View>
+      <View style={{ backgroundColor: th.card, borderRadius: 20, paddingHorizontal: 16, overflow: 'hidden' }}>{items.map((m) => row(m, { place: true, group: items }))}</View>
     </View>
   );
 
   const groupCard = (g: Group) => {
-    const shown = g.items.slice(0, 3);
+    const shown = reordering ? g.items : g.items.slice(0, 3);
     return (
       <Card key={g.placeId} gap={2}>
         <Pressable onPress={() => openList(g.placeId, g.label)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 4 }}>
           <PlaceChip label={g.label} />
           {g.distance != null && <Text style={{ color: th.muted, fontSize: 13, fontFamily: font.semi }}>{km(g.distance)}</Text>}
         </Pressable>
-        {shown.map((m) => row(m, { meta: g.items.length === 1 }))}
-        <Pressable onPress={() => openList(g.placeId, g.label)} style={{ paddingTop: 6 }}>
+        {shown.map((m) => row(m, { meta: g.items.length === 1, group: g.items }))}
+        {!reordering && <Pressable onPress={() => openList(g.placeId, g.label)} style={{ paddingTop: 6 }}>
           <Text style={{ color: th.accentText, fontSize: 14, fontFamily: font.semi }}>
             {g.items.length > shown.length ? `${t('todo.moreAt', { n: g.items.length - shown.length })}` : t('todo.openList')}
           </Text>
-        </Pressable>
+        </Pressable>}
       </Card>
     );
   };
@@ -326,14 +341,25 @@ export default function Todo() {
 
   const segmented = (
     <Glass interactive style={{ borderRadius: 24, padding: 3, flexDirection: 'row' }}>
-      {(['list', 'map'] as const).map((m) => (
-        <Pressable key={m} accessibilityRole="button" accessibilityState={{ selected: mode === m }} onPress={() => setMode(m)}
-          style={{ paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20, backgroundColor: mode === m ? (th.dark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)') : 'transparent' }}>
-          <Text style={{ color: th.ink, fontSize: 14, fontFamily: font.semi }}>{t(`view.${m}` as 'view.list')}</Text>
+      {([['list', 'list.bullet'], ['calendar', 'calendar'], ['map', 'map']] as const).map(([m, ic]) => (
+        <Pressable key={m} accessibilityRole="button" accessibilityLabel={t(`view.${m}` as 'view.list')} accessibilityState={{ selected: mode === m }} onPress={() => { setMode(m); setReordering(false); }}
+          style={{ width: 46, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: mode === m ? (th.dark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)') : 'transparent' }}>
+          <Icon name={ic} size={17} color={th.ink} />
         </Pressable>
       ))}
     </Glass>
   );
+
+  const openMenu = () => {
+    const labels = [t('more.reorder'), t('more.route'), t('common.cancel')];
+    ActionSheetIOS.showActionSheetWithOptions({ options: labels, cancelButtonIndex: 2, userInterfaceStyle: th.dark ? 'dark' : 'light' }, (i) => {
+      if (i === 0) { setMode('list'); setReordering(true); }
+      else if (i === 1) router.push('/route');
+    });
+  };
+
+  const partnerName = partner ? partner.display_name || t('common.partner') : null;
+  const pill = (label: string, onPress: () => void) => <Chip key={label} on label={`${label}  ✕`} onPress={onPress} />;
 
   if (mode === 'map') {
     return (
@@ -375,16 +401,28 @@ export default function Todo() {
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 }}>
           <Title>{t('todo.title')}</Title>
-          {segmented}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('more.label')} onPress={openMenu}>
+              <Glass interactive style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}><Icon name="ellipsis" size={18} color={th.ink} /></Glass>
+            </Pressable>
+            {segmented}
+          </View>
         </View>
         {queued > 0 && <Muted>{tn('sync.waiting', queued)}</Muted>}
-        <View style={styles.row}>
-          {partner && (['all', 'mine', 'theirs'] as const).map((id) => (
-            <Chip key={id} on={who === id} onPress={() => setWho(id)}
-              label={id === 'all' ? t('filter.all') : id === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partner.display_name || t('common.partner') })} />
-          ))}
-          <Chip icon="location.north" label={t('route.open')} onPress={() => router.push('/route')} />
-        </View>
+        {reordering ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.card }}>
+            <Text style={{ flex: 1, color: th.muted, fontSize: 14, fontFamily: font.body }}>{t('reorder.hint')}</Text>
+            <Btn small primary label={t('reorder.done')} onPress={() => setReordering(false)} />
+          </View>
+        ) : (
+          <View style={styles.row}>
+            <Chip icon="line.3.horizontal.decrease" on={activeCount(filter) > 0} label={activeCount(filter) > 0 ? `${t('filter.button')} · ${activeCount(filter)}` : t('filter.button')} onPress={() => setFiltering(true)} />
+            {filter.who !== 'all' && partnerName != null && pill(filter.who === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partnerName }), () => setFilter({ ...filter, who: 'all' }))}
+            {filter.minPriority > 0 && pill(`${t(`prio.${filter.minPriority}` as 'prio.1')}+`, () => setFilter({ ...filter, minPriority: 0 }))}
+            {filter.tag && pill(`#${filter.tag}`, () => setFilter({ ...filter, tag: null }))}
+            {activeCount(filter) === 0 && <Chip icon="location.north" label={t('route.open')} onPress={() => router.push('/route')} />}
+          </View>
+        )}
         {household && <RecapCard household={household} members={members} refreshKey={doneTicks} />}
         {loaded && memories.length === 0 && (
           <View style={{ alignItems: 'center', gap: 6, paddingVertical: 36 }}>
@@ -392,6 +430,9 @@ export default function Todo() {
             <Muted>{t('todo.empty.body')}</Muted>
           </View>
         )}
+        {mode === 'calendar' ? (
+          <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => router.push({ pathname: '/add', params: { date: d } })} />
+        ) : (<>
         {lateOnes.length > 0 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.tint }}>
             <Text style={{ flex: 1, color: th.tintInk, fontSize: 14, fontFamily: font.semi }}>{tn('late.banner', lateOnes.length)}</Text>
@@ -406,8 +447,11 @@ export default function Todo() {
         {atPlace.length > 0 && <SectionLabel>{t('todo.sec.place')}</SectionLabel>}
         {atPlace.map(groupCard)}
         {section(t('todo.sec.anytime'), anytime)}
+        {memories.length > 0 && visible.length === 0 && activeCount(filter) > 0 && <Muted>{t('filter.none')}</Muted>}
+        </>)}
       </ScrollView>
       <AddBar />
+      <FilterSheet visible={filtering} value={filter} onChange={setFilter} partnerName={partnerName} tags={tagList} onClose={() => setFiltering(false)} />
       {tour && household && <Tour householdId={household.id} onClose={() => setTour(false)} onChanged={() => void load()} />}
     </View>
   );
