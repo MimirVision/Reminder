@@ -3,14 +3,14 @@
 import { cleanChecklist } from './checklist.ts';
 import type { ChecklistItem, Memory, Priority } from './types';
 
-export type Details = { notes: string; checklist: ChecklistItem[]; priority: Priority; remind_before: number | null; tags: string[] };
-export const emptyDetails = (): Details => ({ notes: '', checklist: [], priority: 0, remind_before: null, tags: [] });
+export type Details = { notes: string; checklist: ChecklistItem[]; priority: Priority; remind_before: number | null; tags: string[]; duration_min: number | null; remind_travel: boolean };
+export const emptyDetails = (): Details => ({ notes: '', checklist: [], priority: 0, remind_before: null, tags: [], duration_min: null, remind_travel: false });
 
-export const detailsOf = (m?: Pick<Memory, 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags'> | null): Details => ({
-  notes: m?.notes ?? '', checklist: cleanChecklist(m?.checklist), priority: m?.priority ?? 0, remind_before: m?.remind_before ?? null, tags: m?.tags ?? [],
+export const detailsOf = (m?: Pick<Memory, 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags' | 'duration_min' | 'remind_travel'> | null): Details => ({
+  notes: m?.notes ?? '', checklist: cleanChecklist(m?.checklist), priority: m?.priority ?? 0, remind_before: m?.remind_before ?? null, tags: m?.tags ?? [], duration_min: m?.duration_min ?? null, remind_travel: !!m?.remind_travel,
 });
 
-export type DetailFields = { notes?: string | null; checklist?: ChecklistItem[]; priority?: Priority; remind_before?: number | null; tags?: string[] };
+export type DetailFields = { notes?: string | null; checklist?: ChecklistItem[]; priority?: Priority; remind_before?: number | null; tags?: string[]; duration_min?: number | null; remind_travel?: boolean };
 
 /** For a new to-do: only the details that are set. A reminder needs a date. */
 export function newFields(d: Details, hasDate: boolean): DetailFields {
@@ -20,6 +20,8 @@ export function newFields(d: Details, hasDate: boolean): DetailFields {
     ...(d.priority ? { priority: d.priority } : {}),
     ...(hasDate && d.remind_before != null ? { remind_before: d.remind_before } : {}),
     ...(d.tags.length ? { tags: d.tags } : {}),
+    ...(d.duration_min != null ? { duration_min: d.duration_min } : {}),
+    ...(hasDate && d.remind_travel ? { remind_travel: true } : {}),
   };
 }
 
@@ -31,6 +33,9 @@ export function changedFields(d: Details, was: Details, hasDate: boolean): Detai
   if (JSON.stringify(d.checklist) !== JSON.stringify(was.checklist)) out.checklist = d.checklist;
   if (d.priority !== was.priority) out.priority = d.priority;
   if (JSON.stringify(d.tags) !== JSON.stringify(was.tags)) out.tags = d.tags;
+  if (d.duration_min !== was.duration_min) out.duration_min = d.duration_min;
+  const travel = hasDate && d.remind_travel;
+  if (travel !== was.remind_travel) out.remind_travel = travel;
   const lead = hasDate ? d.remind_before : null;
   if (lead !== was.remind_before) out.remind_before = lead;
   return out;

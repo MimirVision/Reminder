@@ -64,6 +64,9 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [filtering, setFiltering] = useState(false);
   const [menu, setMenu] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkMove, setBulkMove] = useState(false);
   const [addDate, setAddDate] = useState<string | undefined>();
   const [showDone, setShowDone] = useState(false);
   const [planning, setPlanning] = useState(false);
@@ -297,6 +300,29 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     void act(async () => { for (const m of lateOnes) await updateMemory(m.id, { due_on: today }); }).then(() => toast({ text: t('late.moved') }));
   };
 
+  // Select several to-dos and finish, move or delete them together.
+  const endPicking = () => { setPicking(false); setPicked(new Set()); setBulkMove(false); };
+  const chosen = () => memories.filter((m) => picked.has(m.id) && !m.pending);
+  const bulkDone = () => {
+    const list = chosen();
+    endPicking();
+    setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
+    setDoneTicks((n) => n + list.length);
+    void act(async () => { for (const m of list) await markDone(m.id); }).then(() => toast({ text: tn('bulk.completed', list.length) }));
+  };
+  const bulkDelete = () => {
+    const list = chosen();
+    endPicking();
+    setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
+    void act(async () => { for (const m of list) await softDelete(m.id); }).then(() => toast({ text: tn('bulk.deleted', list.length), undo: () => void act(async () => { for (const m of list) await restoreMemory(m.id, m); }) }));
+  };
+  const bulkMoveTo = (date: string | null) => {
+    const list = chosen();
+    endPicking();
+    setMemories((cur) => cur.map((x) => (list.some((l) => l.id === x.id) ? { ...x, due_on: date, due_time: date ? x.due_time : null } : x)));
+    void act(async () => { for (const m of list) await updateMemory(m.id, { due_on: date, due_time: date ? m.due_time : null, repeat_rule: date ? m.repeat_rule ?? null : null, status: statusFor({ place_id: m.place_id, due_on: date }) }); }).then(() => toast({ text: tn('bulk.moved', list.length) }));
+  };
+
   const saved = (info: SavedInfo) => {
     setAdding(false);
     setAddDate(undefined);
@@ -328,6 +354,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
         place={opts.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === userId ? t('row.forYou') : t('row.for', { name: members.find((x) => x.user_id === m.assignee_id)?.display_name || t('common.partner') })) : undefined} byline={opts.meta === false ? undefined : byline(m)}
         author={members.length > 1 && m.author_id !== userId ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
         onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}
+        select={picking && !m.pending ? { on: picked.has(m.id), toggle: () => setPicked((s) => { const n = new Set(s); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); return n; }) } : undefined}
         onReschedule={m.pending ? undefined : () => setRescheduling(m)} onChecklist={(items) => tickStep(m, items)} reorder={opts.group ? reorderFor(opts.group, m) : undefined}>
         {m.suggestion && !showDone && (
           <div className="suggest" role="group" aria-label={t('suggest.aria')}>
@@ -477,13 +504,26 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
 
       {mapOn && route && <button className="glass map-route-clear" onClick={() => setRoute(null)}><Icon name="x" size={14} /> {t('route.clear')}</button>}
-      {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
+      {picking && !showDone && !mapOn && (
+        <div className="bulkbar glass" role="toolbar" aria-label={t('bulk.select')}>
+          <span className="bulk-count">{picked.size > 0 ? tn('bulk.count', picked.size) : t('bulk.hint')}</span>
+          <div className="row nowrap">
+            <button className="btn small" disabled={picked.size === 0} onClick={bulkDone}><Icon name="check" size={14} /> {t('bulk.done')}</button>
+            <button className="btn small" disabled={picked.size === 0} onClick={() => setBulkMove(true)}><Icon name="calendar" size={14} /> {t('bulk.move')}</button>
+            <button className="btn small" disabled={picked.size === 0} onClick={bulkDelete}><Icon name="trash" size={14} /> {t('bulk.delete')}</button>
+            <button className="btn small icon" aria-label={t('bulk.cancel')} onClick={endPicking}><Icon name="x" size={14} /></button>
+          </div>
+        </div>
+      )}
+      {bulkMove && <RescheduleSheet title={tn('bulk.count', picked.size)} dueOn={null} onPick={bulkMoveTo} onClose={() => setBulkMove(false)} />}
+      {!showDone && !mapOn && !picking && <AddBar onClick={() => setAdding(true)} />}
       {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} initialDate={addDate} onClose={() => { setAdding(false); setSharedText(null); setAddDate(undefined); }} onSaved={saved} />}
       {filtering && <FilterSheet value={filter} onChange={setFilter} partnerName={partner ? partner.display_name || t('common.partner') : null} tags={tagList} onClose={() => setFiltering(false)} />}
       {menu && (
         <Sheet label={t('more.label')} onClose={() => setMenu(false)}>
           <div className="resched">
             <button className="btn" onClick={() => { setMenu(false); setShowDone(true); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /> {t('more.done')}</button>
+            <button className="btn" onClick={() => { setMenu(false); setMode('list'); setReordering(false); setPicking(true); }}><Icon name="check" size={16} /> {t('bulk.select')}</button>
             <button className="btn" onClick={() => { setMenu(false); setMode('list'); setReordering(true); }}><Icon name="up" size={16} /> {t('more.reorder')}</button>
             <button className="btn" onClick={() => { setMenu(false); setPlanning(true); }}><Icon name="navigate" size={16} /> {t('more.route')}</button>
           </div>

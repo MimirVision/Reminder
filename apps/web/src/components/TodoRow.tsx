@@ -4,6 +4,7 @@ import { progress, toggleItem } from '../lib/checklist';
 import type { ChecklistItem } from '../lib/types';
 import { Icon } from './icons';
 import { SwipeRow } from './SwipeRow';
+import { durationLabel } from '../lib/duration';
 import { useI18n } from '../i18n';
 import type { Memory } from '../lib/types';
 
@@ -11,9 +12,9 @@ export type Who = { id: string; name: string | null } | null;
 
 // One to-do: tick to finish, tap the text to edit, swipe right to finish or left to delete. Due date, repeat and place show
 // as small chips; who added it shows as a small avatar once the household has more than one person.
-export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, children }: {
+export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, select, children }: {
   m: Memory; photos?: string[]; done?: boolean; due?: string; dueLate?: boolean; place?: string; forName?: string; author?: Who; doneBy?: string | null; byline?: string;
-  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; children?: ReactNode;
+  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; select?: { on: boolean; toggle: () => void }; children?: ReactNode;
 }) {
   const { t } = useI18n();
   const title = m.body || t('todo.photo');
@@ -21,17 +22,25 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
   const prog = progress(steps);
   const prio = m.priority ?? 0;
   const row = (
-    <div className={`todo${done ? ' done' : ''}${m.pending ? ' pending' : ''}${prio ? ` has-prio prio-${prio}` : ''}`}>
+    <div className={`todo${select?.on ? ' picked' : ''}${done ? ' done' : ''}${m.pending ? ' pending' : ''}${prio ? ` has-prio prio-${prio}` : ''}`}>
+      {select ? (
+        <button type="button" className={`check${select.on ? ' on' : ''}${prio ? ` prio-${prio}` : ''}`} role="checkbox" aria-checked={select.on} aria-label={t('bulk.pick', { title: title.split('\n')[0] })} onClick={select.toggle}>
+          {select.on && <Icon name="check" size={14} />}
+        </button>
+      ) : (
       <button type="button" className={`check${done ? ' on' : ''}${prio ? ` prio-${prio}` : ''}`} aria-label={done ? t('todo.uncheck') : t('todo.check')} onClick={onToggle}>
         {done && <Icon name="check" size={14} />}
       </button>
+      )}
       <div className="text">
-        <button type="button" className="body" aria-label={t('todo.edit', { title: title.split('\n')[0] })} onClick={onEdit}>{title}</button>
-        {(due || place || byline || m.repeat_rule || m.pending || doneBy || forName || m.pinned || prio > 0 || prog.total > 0 || (m.tags?.length ?? 0) > 0) && (
+        <button type="button" className="body" aria-label={t('todo.edit', { title: title.split('\n')[0] })} onClick={select ? select.toggle : onEdit}>{title}</button>
+        {(due || place || byline || m.repeat_rule || m.pending || doneBy || forName || m.pinned || prio > 0 || prog.total > 0 || (m.tags?.length ?? 0) > 0 || !!m.duration_min || !!m.remind_travel) && (
           <div className="meta">
             {due && (onReschedule && !done
               ? <button type="button" className={`chip chipbtn-lite${dueLate ? ' warm' : ''}`} aria-label={t('resched.aria', { title: title.split('\n')[0] })} onClick={onReschedule}><Icon name="calendar" size={12} />{due}</button>
               : <span className={`chip${dueLate ? ' warm' : ''}`}><Icon name="calendar" size={12} />{due}</span>)}
+            {m.duration_min && !done ? <span className="chip plain"><Icon name="clock" size={12} />{durationLabel(m.duration_min)}</span> : null}
+            {m.remind_travel && !done ? <span className="chip plain" title={t('row.leave')}><Icon name="navigate" size={12} />{t('row.leave')}</span> : null}
             {prio > 0 && !done && <span className={`chip plain prio-chip prio-${prio}`}><Icon name="flag" size={12} />{t(`prio.short.${prio}` as 'prio.short.1')}</span>}
             {prog.total > 0 && <span className="chip plain"><Icon name="list" size={12} />{t('check.progress', { done: prog.done, total: prog.total })}</span>}
             {m.repeat_rule && <span className="chip plain"><Icon name="repeat" size={12} />{t(`repeat.short.${m.repeat_rule}` as 'repeat.short.daily')}</span>}
@@ -69,5 +78,5 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
       {author && <Avatar id={author.id} name={author.name} />}
     </div>
   );
-  return onDelete && !done && !reorder ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
+  return onDelete && !done && !reorder && !select ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
 }

@@ -2,18 +2,17 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { addMany, removeItem, toggleItem } from '../shared/lib/checklist';
 import { addTags, removeTag } from '../shared/lib/tags';
-import { REMIND_CHOICES, type Details } from '../shared/lib/details';
+import { type Details } from '../shared/lib/details';
 import type { Priority } from '../shared/lib/types';
 import { Chip } from './Chip';
 import { useI18n } from './i18n';
-import { Select } from './Select';
 import { font, useTheme } from './theme';
 import { Btn, Check, Field, Icon, SectionLabel, styles } from './ui';
 
 export const PRIO_COLOR: Record<number, string> = { 1: '#3B82F6', 2: '#E08A00', 3: '#D6341F' };
 
 // Priority, "remind me before", a checklist and notes: what makes a to-do more than a line of text.
-export function TodoDetails({ value, onChange, hasDate }: { value: Details; onChange: (d: Details) => void; hasDate: boolean }) {
+export function TodoDetails({ value, onChange }: { value: Details; onChange: (d: Details) => void }) {
   const th = useTheme();
   const { t } = useI18n();
   const [step, setStep] = useState('');
@@ -33,12 +32,6 @@ export function TodoDetails({ value, onChange, hasDate }: { value: Details; onCh
           </Pressable>
         ))}
       </View>
-
-      {hasDate && (
-        <Select<number | null> label={t('remind.label')} title={t('remind.label')} value={value.remind_before}
-          options={[{ value: null, label: t('remind.0') }, ...REMIND_CHOICES.filter((m) => m > 0).map((m) => ({ value: m as number | null, label: t(`remind.${m}` as 'remind.5') }))]}
-          onChange={(v) => onChange({ ...value, remind_before: v })} />
-      )}
 
       <SectionLabel>{t('check.label')}</SectionLabel>
       {value.checklist.map((i) => (

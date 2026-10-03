@@ -17,6 +17,7 @@ export function currentLang(): Lang {
   return isLang(stored) ? stored : detectLang(deviceLanguages());
 }
 export const tNow = (key: Key, params?: Params) => translate(currentLang(), key, params);
+export const tnNow: TN = (key, n, params) => makeTN(currentLang())(key, n, params);
 
 type Ctx = { lang: Lang; setLang: (l: Lang) => void; t: T; tn: TN; locale: string };
 const I18nContext = createContext<Ctx | null>(null);

@@ -55,3 +55,7 @@ person it is for (or to both of you when it is for anyone) and works with the ph
 Good to know: reminders come at the due time, within a few minutes (the schedule runs every 5). A to-do whose time is missed by more
 than 30 minutes (for example the phone was off) is not announced afterwards. Place reminders ("you are near the shop") cannot work
 from the web app on an iPhone; only the sideloaded phone app can do those.
+
+## Leave-by reminders and the morning briefing (phone)
+
+Both are local notifications planned on the phone, so they need no server and work offline once planned. *Tell me when to leave* needs a place, a clock time and location permission (the last known position is used; the drive time comes from the public OSRM server, with a straight-line estimate when it cannot be reached, and a rush-hour factor, not live traffic). It is re-planned whenever the app loads, so open the app before you set off for the best estimate. Web push does not do leave-by.

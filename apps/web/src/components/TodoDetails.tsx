@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { addMany, removeItem, toggleItem } from '../lib/checklist';
 import { addTags, removeTag } from '../lib/tags';
-import { REMIND_CHOICES, type Details } from '../lib/details';
+import { type Details } from '../lib/details';
 import type { Priority } from '../lib/types';
 import { useI18n } from '../i18n';
 import { Icon } from './icons';
 
 // Notes, a checklist, priority and "remind me before": the part of the add and edit sheet that makes a to-do more than a line of text.
-export function TodoDetails({ value, onChange, hasDate }: { value: Details; onChange: (d: Details) => void; hasDate: boolean }) {
+export function TodoDetails({ value, onChange }: { value: Details; onChange: (d: Details) => void }) {
   const { t } = useI18n();
   const [step, setStep] = useState('');
   const [tag, setTag] = useState('');
@@ -24,16 +24,6 @@ export function TodoDetails({ value, onChange, hasDate }: { value: Details; onCh
           </button>
         ))}
       </div>
-
-      {hasDate && (
-        <>
-          <div className="label">{t('remind.label')}</div>
-          <select value={value.remind_before ?? ''} aria-label={t('remind.label')} onChange={(e) => onChange({ ...value, remind_before: e.target.value === '' ? null : Number(e.target.value) })}>
-            <option value="">{t('remind.0')}</option>
-            {REMIND_CHOICES.filter((m) => m > 0).map((m) => <option key={m} value={m}>{t(`remind.${m}` as 'remind.5')}</option>)}
-          </select>
-        </>
-      )}
 
       <div className="label">{t('check.label')}</div>
       {value.checklist.length > 0 && (

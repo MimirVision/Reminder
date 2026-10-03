@@ -48,6 +48,6 @@ export function queuedToMemory(item: Item, authorId: string): Memory {
   return {
     id: item.id, household_id: item.household_id, author_id: authorId, body: item.body, status: item.place_id || item.due_on ? 'active' : 'inbox',
     place_id: item.place_id, snoozed_until: null, suggestion: null, suggested_at: new Date().toISOString(), created_at: new Date().toISOString(), done_at: null,
-    due_on: item.due_on ?? null, due_time: item.due_on ? item.due_time ?? null : null, repeat_rule: item.repeat_rule ?? null, assignee_id: item.assignee_id ?? null, pinned: !!item.pinned, notes: item.notes ?? null, checklist: item.checklist ?? [], priority: item.priority ?? 0, remind_before: item.remind_before ?? null, tags: item.tags ?? [], pending: true,
+    due_on: item.due_on ?? null, due_time: item.due_on ? item.due_time ?? null : null, repeat_rule: item.repeat_rule ?? null, assignee_id: item.assignee_id ?? null, pinned: !!item.pinned, notes: item.notes ?? null, checklist: item.checklist ?? [], priority: item.priority ?? 0, remind_before: item.remind_before ?? null, tags: item.tags ?? [], duration_min: item.duration_min ?? null, remind_travel: !!item.remind_travel, pending: true,
   };
 }

@@ -6,7 +6,7 @@ const list = [{ id: 'a', text: 'tent', done: false }];
 
 test('a new to-do sends only what is used', () => {
   assert.deepEqual(newFields(emptyDetails(), true), {});
-  assert.deepEqual(newFields({ notes: ' key under the mat ', checklist: list, priority: 2, remind_before: 30, tags: [] }, true), { notes: 'key under the mat', checklist: list, priority: 2, remind_before: 30 });
+  assert.deepEqual(newFields({ notes: ' key under the mat ', checklist: list, priority: 2, remind_before: 30, tags: [], duration_min: null, remind_travel: false }, true), { notes: 'key under the mat', checklist: list, priority: 2, remind_before: 30 });
   assert.deepEqual(newFields({ ...emptyDetails(), remind_before: 30 }, false), {}, 'a reminder needs a date');
   assert.deepEqual(newFields({ ...emptyDetails(), remind_before: 0 }, true), { remind_before: 0 }, '"at the time" is a real choice');
 });

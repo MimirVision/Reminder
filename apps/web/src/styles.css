@@ -396,3 +396,19 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 .seg.wide { width: 100%; margin: 2px 0 4px; }
 .seg.wide button { flex: 1; gap: 8px; padding: 9px 8px; }
 .seg.wide .lbl { display: inline; }
+
+/* Reminders block in the add/edit sheet */
+.alerts { display: grid; gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); margin-top: 8px; }
+.alert-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.alert-row > span { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 15px; }
+.alert-row select { max-width: 55%; }
+.alert-travel { display: grid; gap: 6px; justify-items: start; }
+.alert-travel .hint { margin: 0; font-size: 13px; }
+.chipbtn:disabled { opacity: 0.5; cursor: default; }
+
+/* Select several */
+.todo.picked { border-radius: 14px; background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.bulkbar { position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); z-index: 20; display: grid; gap: 8px; padding: 12px 14px; border-radius: 22px; }
+.bulk-count { font-weight: 600; font-size: 14px; }
+.bulkbar .row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; }
+.bulkbar .btn { justify-content: center; padding-left: 8px; padding-right: 8px; white-space: nowrap; }

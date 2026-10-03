@@ -4,8 +4,11 @@ import { listMemories, listPlaces } from './api';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
 import { pickDueReminders, type DueMemory } from '../core/dueReminders.ts';
-import { currentLang, tNow } from './i18n';
+import { currentLang, tNow, tnNow } from './i18n';
 import { leadShort } from '../shared/lib/details';
+import { planBriefings } from '../shared/lib/briefing';
+import { pickLeaveReminders, travelMinutes, type LeaveCandidate } from '../shared/lib/leave';
+import { driveMatrix } from '../shared/lib/routing';
 import { needsRefresh, overpassQuery, parseOverpass, type PoiCache } from '../core/pois.ts';
 import { MAX_REGIONS, selectRegions } from '../core/regions.ts';
 import type { LatLon, MemoryRow, PlaceRow, Region } from '../core/types.ts';
@@ -200,7 +203,7 @@ export async function scheduleDueReminders(all: (DueMemory & { assignee_id?: str
     for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
       if (n.identifier.startsWith('due-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
     }
-    for (const r of pickDueReminders(memories, new Date())) {
+    for (const r of pickDueReminders(memories, new Date(), 40)) {
       await Notifications.scheduleNotificationAsync({
         identifier: `due-${r.id}`,
         content: { title: r.lead > 0 ? tNow('notif.dueIn', { lead: leadShort(r.lead, currentLang()) }) : tNow('notif.due'), body: r.body, data: { memoryIds: [r.id] } },
@@ -210,6 +213,97 @@ export async function scheduleDueReminders(all: (DueMemory & { assignee_id?: str
   } catch {
     // reminders are best effort
   }
+}
+
+// ---- "Time to leave" reminders -------------------------------------------------------------------------------------------------
+type LeaveMemory = DueMemory & { assignee_id?: string | null; place_id?: string | null; remind_travel?: boolean | null };
+const driveCache = new Map<string, { at: number; sec: number }>();
+
+/** Seconds of free-flow driving between two points (cached for 15 minutes so reopening the app does not ask the server again). */
+async function driveSeconds(a: LatLon, b: LatLon): Promise<number> {
+  const key = `${a.lat.toFixed(3)},${a.lon.toFixed(3)}>${b.lat.toFixed(4)},${b.lon.toFixed(4)}`;
+  const hit = driveCache.get(key);
+  if (hit && Date.now() - hit.at < 15 * 60_000) return hit.sec;
+  const sec = (await driveMatrix([a, b])).matrix[0][1];
+  driveCache.set(key, { at: Date.now(), sec });
+  return sec;
+}
+
+/** For to-dos with "tell me when to leave": the drive from where you are to the place, and a notification that rings that long (plus 5 min)
+ *  before the time. Planned again every time the app loads, so it follows you. Silent when anything is missing. */
+export async function scheduleLeaveReminders(all: LeaveMemory[], places: PlaceRow[], here: LatLon | null, pins: Pin[]): Promise<void> {
+  try {
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
+      if (n.identifier.startsWith('leave-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    if (!here) return;
+    const now = new Date();
+    const wanted = mine(all).filter((m) => m.remind_travel && m.due_on && m.due_time && m.place_id).slice(0, 25);
+    const cands: LeaveCandidate[] = [];
+    for (const m of wanted) {
+      const place = places.find((p) => p.id === m.place_id);
+      const dest = place?.kind === 'fixed' && place.lat != null && place.lon != null
+        ? { lat: place.lat, lon: place.lon }
+        : pins.filter((p) => p.placeId === m.place_id).map((p) => ({ lat: p.lat, lon: p.lon })).sort((a, b) => distanceM(here, a) - distanceM(here, b))[0] ?? null;
+      let travelMin: number | null = null;
+      if (dest) {
+        const [h, mi] = (m.due_time as string).split(':').map(Number);
+        const arrival = new Date(+(m.due_on as string).slice(0, 4), +(m.due_on as string).slice(5, 7) - 1, +(m.due_on as string).slice(8, 10), h || 0, mi || 0);
+        if (arrival.getTime() > now.getTime()) travelMin = travelMinutes(await driveSeconds(here, dest), arrival);
+      }
+      cands.push({ id: m.id, body: m.body, status: m.status, due_on: m.due_on, due_time: m.due_time, remind_travel: true, travelMin, placeName: place ? place.name : undefined });
+    }
+    for (const r of pickLeaveReminders(cands, now)) {
+      const time = `${String(r.due.getHours()).padStart(2, '0')}:${String(r.due.getMinutes()).padStart(2, '0')}`;
+      await Notifications.scheduleNotificationAsync({
+        identifier: `leave-${r.id}`,
+        content: {
+          title: r.placeName ? tNow('notif.leaveTitle', { place: r.placeName }) : tNow('notif.leaveTitleNoPlace'),
+          body: tNow('notif.leaveBody', { title: r.body, time, n: r.travelMin }),
+          data: { memoryIds: [r.id] },
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: r.at },
+      });
+    }
+  } catch {
+    // reminders are best effort
+  }
+}
+
+// ---- Morning briefing ----------------------------------------------------------------------------------------------------------
+export type BriefingSetting = { on: boolean; time: string };
+export const readBriefing = (): BriefingSetting => readJson<BriefingSetting>('hm.briefing', { on: false, time: '07:30' });
+export const writeBriefing = (s: BriefingSetting) => writeJson('hm.briefing', s);
+
+/** One notification a day at the chosen time with what is due that day, planned a week ahead. */
+export async function scheduleBriefings(all: (DueMemory & { assignee_id?: string | null })[]): Promise<void> {
+  try {
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
+      if (n.identifier.startsWith('brief-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    const s = readBriefing();
+    if (!s.on) return;
+    for (const b of planBriefings(mine(all), new Date(), s.time)) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `brief-${b.day}`,
+        content: { title: tnNow('notif.brief', b.count), body: [b.titles.join(' · '), b.late > 0 ? tNow('notif.briefLate', { n: b.late }) : ''].filter(Boolean).join(' — ') },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: b.at },
+      });
+    }
+  } catch { /* the briefing is a nicety */ }
+}
+
+/** Plan every local notification again from the server (after changing a setting). */
+export async function replanNotifications(householdId: string): Promise<void> {
+  try {
+    const [m, p] = await Promise.all([listMemories(householdId, ['inbox', 'active']), listPlaces(householdId)]);
+    await scheduleDueReminders(m);
+    await scheduleBriefings(m);
+    const mp = await mapPins();
+    await scheduleLeaveReminders(m, p, mp.here, mp.pins);
+  } catch { /* offline */ }
 }
 
 export type NotifyStatus = 'granted' | 'denied' | 'undetermined';

@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { getMemory, listMembers, listPlaces, parseTasksAI, resolveWhere, softDelete, statusFor, updateMemory, updateMemoryFields, type Where } from '@/lib/api';
 import { Chip } from '@/lib/Chip';
+import { TodoAlerts } from '@/lib/TodoAlerts';
 import { TodoDetails } from '@/lib/TodoDetails';
 import { uuid } from '@/lib/id';
 import { useI18n } from '@/lib/i18n';
@@ -19,7 +20,8 @@ import { WhenPicker, type Due } from '@/lib/WhenPicker';
 import { categoryName, placeLabel } from '../shared/lib/labels';
 import { findExistingPlace } from '../shared/lib/placeSearch';
 import { isInteresting, parseTasks, type ParsedTask } from '../shared/lib/quickAdd';
-import { changedFields, detailsOf, newFields, type Details } from '../shared/lib/details';
+import { changedFields, detailsOf, leadShort, newFields, type Details } from '../shared/lib/details';
+import { durationLabel } from '../shared/lib/duration';
 import { dueLabel } from '../shared/lib/when';
 import type { Member, Memory, Place } from '@/lib/types';
 
@@ -71,7 +73,7 @@ export default function Add() {
       setForId(m.assignee_id ?? null);
       setPinned(!!m.pinned);
       setDetails(detailsOf(m));
-      setShowMore(!!m.notes || (m.checklist?.length ?? 0) > 0 || !!m.priority || m.remind_before != null || (m.tags?.length ?? 0) > 0);
+      setShowMore(!!m.notes || (m.checklist?.length ?? 0) > 0 || !!m.priority || (m.tags?.length ?? 0) > 0);
     }).catch(() => setErr(t('offline.needsNet')));
   }, [editId, t]);
 
@@ -159,7 +161,7 @@ export default function Add() {
             due_on: dated ? task.due_on : due.due_on, due_time: dated ? task.due_time : due.due_time, repeat_rule: dated ? task.repeat_rule : due.repeat_rule,
             ...(assignee ? { assignee_id: assignee } : {}), ...(pinned ? { pinned } : {}),
             // Notes and a checklist belong to one to-do; priority and the reminder go to each.
-            ...newFields({ ...(kept.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, tags: [...new Set([...details.tags, ...task.tags])] }, dated || !!due.due_on),
+            ...newFields({ ...(kept.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, remind_before: task.remind_before ?? details.remind_before, duration_min: task.duration_min ?? details.duration_min, tags: [...new Set([...details.tags, ...task.tags])] }, dated || !!due.due_on),
             capture_lat: lat, capture_lon: lon, photoUris: i === 0 ? uris : [],
           });
         }
@@ -220,6 +222,8 @@ export default function Add() {
                   {(task.due_on || task.due_time) ? <Muted>{task.due_on ? dueLabel({ due_on: task.due_on, due_time: task.due_time }, t, locale) : task.due_time}</Muted> : null}
                   {task.repeat_rule ? <Muted>{t(`repeat.short.${task.repeat_rule}` as 'repeat.short.daily')}</Muted> : null}
                   {(task.placeId || task.category) ? <Muted>{task.leaving ? t('smart.leaving', { place: placeText(task) }) : placeText(task)}</Muted> : null}
+                  {task.remind_before != null ? <Muted>{t('smart.remind', { lead: leadShort(task.remind_before, lang) })}</Muted> : null}
+                  {task.duration_min != null ? <Muted>{t('smart.takes', { d: durationLabel(task.duration_min) })}</Muted> : null}
                   {task.priority > 0 ? <Muted>{t(`prio.short.${task.priority}` as 'prio.short.1')}</Muted> : null}
                   {task.assignee && task.assignee !== 'both' ? <Muted>{t('row.for', { name: task.assignee === 'me' ? t('assign.me') : partner?.display_name || t('common.partner') })}</Muted> : null}
                 </View>
@@ -240,11 +244,12 @@ export default function Add() {
       <WherePicker places={places} value={where} onChange={setWhere} />
       <SectionLabel>{t('sheet.when')}</SectionLabel>
       <WhenPicker value={due} onChange={setDue} />
+      <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} />
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: showMore }} onPress={() => setShowMore(!showMore)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         <Icon name="list.bullet" size={15} color={th.accentText} />
         <Text style={{ color: th.accentText, fontFamily: font.semi, fontSize: 14 }}>{showMore ? t('todo.detailLess') : `${t('todo.detail')}: ${t('prio.label').toLowerCase()}, ${t('check.label').toLowerCase()}, ${t('notes.label').toLowerCase()}`}</Text>
       </Pressable>
-      {showMore && <TodoDetails value={details} onChange={setDetails} hasDate={!!due.due_on} />}
+      {showMore && <TodoDetails value={details} onChange={setDetails} />}
       {members.length > 1 && partner && (
         <>
           <SectionLabel>{t('assign.label')}</SectionLabel>

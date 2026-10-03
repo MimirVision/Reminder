@@ -4,6 +4,7 @@ import { Avatar } from './Avatar';
 import { progress, toggleItem } from '../shared/lib/checklist';
 import type { ChecklistItem } from '../shared/lib/types';
 import { PRIO_COLOR } from './TodoDetails';
+import { durationLabel } from '../shared/lib/duration';
 import { useI18n } from './i18n';
 import { SwipeRow } from './SwipeRow';
 import { font, useTheme } from './theme';
@@ -13,31 +14,33 @@ import { Check, Icon, Muted, styles } from './ui';
 export type Who = { id: string; name: string | null } | null;
 
 // One to-do: tick to finish, tap the text to edit, swipe right to finish or left to delete. Date, repeat and place are small chips.
-export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, children }: {
+export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, select, children }: {
   m: Memory; photos?: string[]; done?: boolean; due?: string; dueLate?: boolean; place?: string; forName?: string; author?: Who; doneBy?: string | null; byline?: string;
-  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; children?: ReactNode;
+  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; select?: { on: boolean; toggle: () => void }; children?: ReactNode;
 }) {
   const th = useTheme();
   const { t } = useI18n();
   const steps = m.checklist ?? [];
   const prog = progress(steps);
   const prio = m.priority ?? 0;
-  const chip = (text: string, icon: 'calendar' | 'repeat' | 'mappin' | 'pin' | 'person' | 'flag' | 'list.bullet', warm?: boolean, tint?: string, onPress?: () => void) => (
+  const chip = (text: string, icon: 'calendar' | 'repeat' | 'mappin' | 'pin' | 'person' | 'flag' | 'list.bullet' | 'clock' | 'location.north', warm?: boolean, tint?: string, onPress?: () => void) => (
     <Pressable key={text} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 9, backgroundColor: warm ? th.tint : 'transparent', borderWidth: warm ? 0 : 1, borderColor: th.line }}>
       <Icon name={icon} size={12} color={tint ?? (warm ? th.tintInk : th.muted)} />
       <Text style={{ color: tint ?? (warm ? th.tintInk : th.muted), fontSize: 13, fontFamily: font.semi }}>{text}</Text>
     </Pressable>
   );
   const row = (
-    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-start', paddingVertical: 12, opacity: m.pending ? 0.7 : 1 }}>
-      <Check done={done} onPress={onToggle} ring={prio ? PRIO_COLOR[prio] : undefined} />
+    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-start', paddingVertical: 12, opacity: m.pending ? 0.7 : 1, backgroundColor: select?.on ? `${th.accent}1A` : 'transparent', marginHorizontal: select ? -16 : 0, paddingHorizontal: select ? 16 : 0 }}>
+      <Check done={select ? select.on : done} onPress={select ? select.toggle : onToggle} ring={prio ? PRIO_COLOR[prio] : undefined} />
       <View style={{ flex: 1, gap: 8 }}>
-        <Pressable accessibilityRole="button" onPress={onEdit}>
+        <Pressable accessibilityRole="button" onPress={select ? select.toggle : onEdit}>
           <Text style={{ color: done ? th.muted : th.ink, fontSize: 17, lineHeight: 24, fontFamily: font.medium, textDecorationLine: done ? 'line-through' : 'none' }}>{m.body || t('todo.photo')}</Text>
         </Pressable>
-        {(due || place || m.repeat_rule || doneBy || byline || forName || m.pinned || prio > 0 || prog.total > 0 || (m.tags?.length ?? 0) > 0) && (
+        {(due || place || m.repeat_rule || doneBy || byline || forName || m.pinned || prio > 0 || prog.total > 0 || (m.tags?.length ?? 0) > 0 || !!m.duration_min || !!m.remind_travel) && (
           <View style={styles.row}>
             {due ? chip(due, 'calendar', true, undefined, onReschedule && !done ? onReschedule : undefined) : null}
+            {m.duration_min && !done ? chip(durationLabel(m.duration_min), 'clock') : null}
+            {m.remind_travel && !done ? chip(t('row.leave'), 'location.north') : null}
             {prio > 0 && !done ? chip(t(`prio.short.${prio}` as 'prio.short.1'), 'flag', false, PRIO_COLOR[prio]) : null}
             {prog.total > 0 ? chip(t('check.progress', { done: prog.done, total: prog.total }), 'list.bullet') : null}
             {m.repeat_rule ? chip(t(`repeat.short.${m.repeat_rule}` as 'repeat.short.daily'), 'repeat') : null}
@@ -76,5 +79,5 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
       {author && <Avatar id={author.id} name={author.name} />}
     </View>
   );
-  return onDelete && !done && !reorder ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
+  return onDelete && !done && !reorder && !select ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
 }

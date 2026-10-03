@@ -4,12 +4,14 @@ import { categoryName, placeLabel } from '../lib/labels';
 import { isNetworkError } from '../lib/outbox';
 import { findExistingPlace } from '../lib/placeSearch';
 import { isInteresting, parseTasks, type ParsedTask } from '../lib/quickAdd';
-import { changedFields, detailsOf, newFields, type Details } from '../lib/details';
+import { changedFields, detailsOf, leadShort, newFields, type Details } from '../lib/details';
+import { durationLabel } from '../lib/duration';
 import { dueLabel } from '../lib/when';
 import type { Household, Member, Memory, Place } from '../lib/types';
 import { useI18n } from '../i18n';
 import { Icon } from './icons';
 import { Sheet } from './Sheet';
+import { TodoAlerts } from './TodoAlerts';
 import { TodoDetails } from './TodoDetails';
 import { WhenField, type Due } from './WhenField';
 import { WhereField, whereFrom } from './WhereField';
@@ -32,7 +34,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
   const [forId, setForId] = useState<string | null>(memory?.assignee_id ?? null);
   const [pinned, setPinned] = useState(!!memory?.pinned);
   const [details, setDetails] = useState<Details>(() => detailsOf(memory));
-  const [showMore, setShowMore] = useState(() => !!memory && (!!memory.notes || (memory.checklist?.length ?? 0) > 0 || !!memory.priority || memory.remind_before != null || (memory.tags?.length ?? 0) > 0));
+  const [showMore, setShowMore] = useState(() => !!memory && (!!memory.notes || (memory.checklist?.length ?? 0) > 0 || !!memory.priority || (memory.tags?.length ?? 0) > 0));
   const [smart, setSmart] = useState(true);
   const [ai, setAi] = useState<{ text: string; tasks: ParsedTask[] } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -85,7 +87,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
         const extra = { ...(members.length > 1 && forId !== (memory.assignee_id ?? null) ? { assignee_id: forId } : {}), ...(pinned !== !!memory.pinned ? { pinned } : {}), ...changedFields(details, detailsOf(memory), !!due.due_on) };
         await updateMemoryFields(memory.id, { body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule, ...extra });
         for (const f of files) await uploadPhoto(household.id, memory.id, f);
-        onSaved({ added: [], edited: { ...memory, body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule ?? null, assignee_id: forId, pinned, notes: details.notes.trim() || null, checklist: details.checklist, priority: details.priority, remind_before: due.due_on ? details.remind_before : null, tags: details.tags }, createdPlace: created });
+        onSaved({ added: [], edited: { ...memory, body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule ?? null, assignee_id: forId, pinned, notes: details.notes.trim() || null, checklist: details.checklist, priority: details.priority, remind_before: due.due_on ? details.remind_before : null, tags: details.tags, duration_min: details.duration_min, remind_travel: !!due.due_on && details.remind_travel }, createdPlace: created });
         return;
       }
       // One to-do per line, so a pasted list becomes several.
@@ -134,7 +136,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
           due_on: dated ? task.due_on : due.due_on, due_time: dated ? task.due_time : due.due_time, repeat_rule: dated ? task.repeat_rule : due.repeat_rule,
           ...(assignee ? { assignee_id: assignee } : {}), ...(pinned ? { pinned } : {}),
           // Notes and a checklist belong to one to-do; priority and the reminder go to each.
-          ...newFields({ ...(tasks.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, tags: [...new Set([...details.tags, ...task.tags])] }, dated || !!due.due_on),
+          ...newFields({ ...(tasks.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, remind_before: task.remind_before ?? details.remind_before, duration_min: task.duration_min ?? details.duration_min, tags: [...new Set([...details.tags, ...task.tags])] }, dated || !!due.due_on),
         });
         added.push(m);
         if (i === 0 && files.length > 0) {
@@ -181,6 +183,8 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
                     {(task.due_on || task.due_time) && <span className="chip"><Icon name="calendar" size={12} />{task.due_on ? dueLabel({ due_on: task.due_on, due_time: task.due_time }, t, locale) : task.due_time}</span>}
                     {task.repeat_rule && <span className="chip plain"><Icon name="repeat" size={12} />{t(`repeat.short.${task.repeat_rule}` as 'repeat.short.daily')}</span>}
                     {(task.placeId || task.category) && <span className="chip plain"><Icon name="pin" size={12} />{task.leaving ? t('smart.leaving', { place: placeText(task) }) : placeText(task)}</span>}
+                    {task.remind_before != null && <span className="chip plain"><Icon name="clock" size={12} />{t('smart.remind', { lead: leadShort(task.remind_before, lang) })}</span>}
+                    {task.duration_min != null && <span className="chip plain">{t('smart.takes', { d: durationLabel(task.duration_min) })}</span>}
                     {task.priority > 0 && <span className="chip plain"><Icon name="flag" size={12} />{t(`prio.short.${task.priority}` as 'prio.short.1')}</span>}
                     {task.assignee && task.assignee !== 'both' && <span className="chip plain">{t('row.for', { name: whoText(task.assignee) })}</span>}
                   </div>
@@ -198,10 +202,11 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
         <WhereField places={places} value={where} onChange={setWhere} />
         <div className="label">{t('sheet.when')}</div>
         <WhenField value={due} onChange={setDue} />
+        <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} />
         <button type="button" className="link left" aria-expanded={showMore} onClick={() => setShowMore(!showMore)}>
           <Icon name="list" size={15} /> {showMore ? t('todo.detailLess') : `${t('todo.detail')}: ${t('prio.label').toLowerCase()}, ${t('check.label').toLowerCase()}, ${t('notes.label').toLowerCase()}`}
         </button>
-        {showMore && <TodoDetails value={details} onChange={setDetails} hasDate={!!due.due_on} />}
+        {showMore && <TodoDetails value={details} onChange={setDetails} />}
         {(photos?.length ?? 0) > 0 && <div className="photos">{photos!.map((u) => <img key={u} src={u} alt="" />)}</div>}
         {members.length > 1 && partner && (
           <>

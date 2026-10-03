@@ -16,7 +16,7 @@ import { MapSheet, tabBarSpace, type Snap } from '@/lib/MapSheet';
 import { useI18n } from '@/lib/i18n';
 import { flush, pending, queuedToMemory } from '@/lib/outbox';
 import { RecapCard } from '@/lib/RecapCard';
-import { ensureNotifyPermission, mapPins, refreshRegions, scheduleDueReminders, setBadge, type Pin } from '@/lib/reminders';
+import { ensureNotifyPermission, mapPins, refreshRegions, scheduleBriefings, scheduleDueReminders, scheduleLeaveReminders, setBadge, type Pin } from '@/lib/reminders';
 import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
@@ -54,6 +54,8 @@ export default function Todo() {
   const [filtering, setFiltering] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [showDone, setShowDone] = useState(false);
   const [doneList, setDoneList] = useState<Memory[]>([]);
@@ -75,6 +77,7 @@ export default function Todo() {
 
   const load = useCallback(async () => {
     if (!household) return;
+    let latest: { m: Memory[]; p: Place[] } | null = null;
     const waiting = pending().filter((p) => p.household_id === household.id).map((p) => queuedToMemory(p, uid));
     try {
       await flush();
@@ -84,6 +87,8 @@ export default function Todo() {
       setMembers(mem);
       setPhotos(await listPhotoUrls(m.map((x) => x.id)));
       void scheduleDueReminders(m);
+      void scheduleBriefings(m);
+      latest = { m, p };
       void setBadge(m, todayISO());
       await refreshRegions().catch(() => {});
     } catch {
@@ -93,6 +98,7 @@ export default function Todo() {
     const mp = await mapPins().catch(() => ({ here: null, pins: [] as Pin[] }));
     setPins(mp.pins);
     setHere(mp.here);
+    if (latest) void scheduleLeaveReminders(latest.m, latest.p, mp.here, mp.pins);
     setQueued(pending().length);
   }, [household, uid]);
 
@@ -228,7 +234,8 @@ export default function Todo() {
         place={o.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === uid ? t('row.forYou') : t('row.for', { name: nameOf(m.assignee_id) ?? t('common.partner') })) : undefined} byline={o.meta === false ? undefined : byline(m)}
         author={members.length > 1 ? { id: m.author_id, name: nameOf(m.author_id) } : null}
         onToggle={() => void complete(m)} onEdit={() => router.push({ pathname: '/add', params: { id: m.id } })} onDelete={() => void remove(m)}
-        onReschedule={m.pending ? undefined : () => reschedule(m)} onChecklist={(items) => void tickStep(m, items)} reorder={o.group ? reorderFor(o.group, m) : undefined}>
+        onReschedule={m.pending ? undefined : () => reschedule(m)} onChecklist={(items) => void tickStep(m, items)} reorder={o.group ? reorderFor(o.group, m) : undefined}
+        select={picking && !m.pending ? { on: picked.has(m.id), toggle: () => setPicked((s) => { const n = new Set(s); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); return n; }) } : undefined}>
         {m.suggestion && (
           <View style={{ gap: 8, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: th.line, padding: 12, backgroundColor: th.tint }}>
             <PlaceChip label={m.suggestion.kind === 'recurring' ? t('suggest.recurring', { label: m.suggestion.recurring ? recurringLabel(m.suggestion.recurring, t) : m.suggestion.label }) : m.suggestion.label} icon={m.suggestion.kind === 'recurring' ? 'arrow.triangle.2.circlepath' : 'mappin'} />
@@ -359,14 +366,51 @@ export default function Todo() {
   );
 
   const openMenu = () => {
-    const labels = [t('more.done'), t('more.reorder'), t('more.route'), t('common.cancel')];
-    ActionSheetIOS.showActionSheetWithOptions({ options: labels, cancelButtonIndex: 3, userInterfaceStyle: th.dark ? 'dark' : 'light' }, (i) => {
+    const labels = [t('more.done'), t('bulk.select'), t('more.reorder'), t('more.route'), t('common.cancel')];
+    ActionSheetIOS.showActionSheetWithOptions({ options: labels, cancelButtonIndex: 4, userInterfaceStyle: th.dark ? 'dark' : 'light' }, (i) => {
       if (i === 0) { setMode('list'); setSearching(false); setQuery(''); setShowDone(true); }
-      else if (i === 1) { setMode('list'); setShowDone(false); setReordering(true); }
-      else if (i === 2) router.push('/route');
+      else if (i === 1) { setMode('list'); setShowDone(false); setReordering(false); setSearching(false); setPicking(true); }
+      else if (i === 2) { setMode('list'); setShowDone(false); setReordering(true); }
+      else if (i === 3) router.push('/route');
     });
   };
   const found = searching && query.trim() && !showDone ? matchTodos(memories, query, placeName, (m) => dueLabel(m, t, locale)) : null;
+  // Select several to-dos and finish, move or delete them together.
+  const endPicking = () => { setPicking(false); setPicked(new Set()); };
+  const chosen = () => memories.filter((m) => picked.has(m.id) && !m.pending);
+  async function bulkDone() {
+    const list = chosen();
+    endPicking();
+    setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
+    setDoneTicks((n) => n + list.length);
+    try { for (const m of list) await completeMemory(m.id); toast({ text: tn('bulk.completed', list.length) }); } finally { void load(); }
+  }
+  async function bulkDelete() {
+    const list = chosen();
+    endPicking();
+    setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
+    try {
+      for (const m of list) await softDelete(m.id);
+      toast({ text: tn('bulk.deleted', list.length), undo: () => void (async () => { for (const m of list) await updateMemory(m.id, { status: statusFor(m) }).catch(() => {}); await load(); })() });
+    } finally { void load(); }
+  }
+  function bulkMove() {
+    const list = chosen();
+    const targets = rescheduleTargets(todayISO(), new Date().getDay());
+    const labels = [...targets.map((o) => `${t(`resched.${o.id}` as 'resched.today')} · ${formatDay(o.date, locale)}`), t('resched.none'), t('common.cancel')];
+    ActionSheetIOS.showActionSheetWithOptions({ title: tn('bulk.count', list.length), options: labels, cancelButtonIndex: labels.length - 1, userInterfaceStyle: th.dark ? 'dark' : 'light' }, (i) => {
+      if (i >= labels.length - 1) return;
+      const date = i < targets.length ? targets[i].date : null;
+      endPicking();
+      setMemories((cur) => cur.map((x) => (list.some((l) => l.id === x.id) ? { ...x, due_on: date, due_time: date ? x.due_time : null } : x)));
+      void (async () => {
+        try {
+          for (const m of list) await updateMemory(m.id, { due_on: date, due_time: date ? m.due_time : null, repeat_rule: date ? m.repeat_rule ?? null : null, status: statusFor({ place_id: m.place_id, due_on: date }) });
+          toast({ text: tn('bulk.moved', list.length) });
+        } finally { void load(); }
+      })();
+    });
+  }
   async function reopenDone(m: Memory) {
     setDoneList((cur) => cur.filter((x) => x.id !== m.id));
     try { await reopenMemory(m.id, m); } finally { void load(); void loadDone(); }
@@ -487,7 +531,19 @@ export default function Todo() {
         {memories.length > 0 && visible.length === 0 && activeCount(filter) > 0 && <Muted>{t('filter.none')}</Muted>}
         </>)}
       </ScrollView>
-      <AddBar />
+      {picking ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 74 }}>
+          <Glass style={{ borderRadius: 26, padding: 12, gap: 10 }}>
+            <Text style={{ color: th.ink, fontFamily: font.semi, fontSize: 15 }}>{picked.size > 0 ? tn('bulk.count', picked.size) : t('bulk.hint')}</Text>
+            <View style={styles.row}>
+              <Btn small primary disabled={picked.size === 0} label={t('bulk.done')} onPress={() => void bulkDone()} />
+              <Btn small disabled={picked.size === 0} label={t('bulk.move')} onPress={bulkMove} />
+              <Btn small danger disabled={picked.size === 0} label={t('bulk.delete')} onPress={() => void bulkDelete()} />
+              <Btn small label={t('bulk.cancel')} onPress={endPicking} />
+            </View>
+          </Glass>
+        </View>
+      ) : <AddBar />}
       <FilterSheet visible={filtering} value={filter} onChange={setFilter} partnerName={partnerName} tags={tagList} onClose={() => setFiltering(false)} />
       {tour && household && <Tour householdId={household.id} onClose={() => setTour(false)} onChanged={() => void load()} />}
     </View>

@@ -170,3 +170,18 @@ test('#tags are read and left out of the title', async () => {
   assert.ok(!r[0].title.includes('#'));
   assert.equal(r[0].due_on, '2026-10-02');
 });
+
+test('remind-me-before and how long it takes are read', async () => {
+  const { parseTasks } = await import('./quickAdd.ts');
+  const now = new Date(2026, 9, 1, 9, 0);
+  const a = parseTasks('dentist tomorrow at 14:00, remind me 30 min before, takes 45 min', { places: [], now });
+  assert.equal(a.length, 1);
+  assert.equal(a[0].remind_before, 30);
+  assert.equal(a[0].duration_min, 45);
+  assert.equal(a[0].due_time, '14:00');
+  assert.equal(a[0].title, 'Dentist');
+  const b = parseTasks('tannlege i morgen kl 14:00 påminn meg 1 time før', { places: [], now });
+  assert.equal(b[0].remind_before, 60);
+  const c = parseTasks('pay the bill 2 days before', { places: [], now });
+  assert.equal(c[0].remind_before, 2880);
+});

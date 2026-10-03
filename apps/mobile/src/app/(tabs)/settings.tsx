@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { shareExport } from '@/lib/exportData';
 import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
+import { Select } from '@/lib/Select';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
-import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, refreshRegions, sendTestNotification, type NotifyStatus } from '@/lib/reminders';
+import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, readBriefing, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
 import { font, setThemePref, useTheme, useThemePref } from '@/lib/theme';
@@ -29,6 +30,7 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [acctBusy, setAcctBusy] = useState(false);
+  const [brief, setBrief] = useState(readBriefing);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
 
@@ -82,6 +84,23 @@ export default function Settings() {
         {notif === 'undetermined' && <Btn primary label={t('set.notifTurnOn')} onPress={async () => { await ensureNotifyPermission(); await load(); }} />}
         {notif === 'denied' && <Btn primary label={t('set.openSettings')} onPress={() => void Linking.openSettings()} />}
         {notif === 'granted' && <Btn label={t('set.notifTest')} onPress={async () => { Alert.alert((await sendTestNotification()) ? t('set.notifTestSent') : t('set.notifDenied')); }} />}
+      </Card>
+
+      <Card>
+        {h(t('set.briefing'))}
+        <Muted>{t('set.briefingBody')}</Muted>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 }}>
+          <Text style={{ color: th.muted, fontFamily: font.body, fontSize: 15 }}>{brief.on ? t('set.briefingTime') : t('set.briefingOff')}</Text>
+          <Switch value={brief.on} accessibilityLabel={t('set.briefing')} onValueChange={async (on) => {
+            if (on && !(await ensureNotifyPermission())) { Alert.alert(t('set.notifDenied')); return; }
+            const next = { ...brief, on }; setBrief(next); writeBriefing(next); if (household) void replanNotifications(household.id);
+          }} />
+        </View>
+        {brief.on && (
+          <Select<string> label={t('set.briefingTime')} title={t('set.briefing')} value={brief.time}
+            options={['06:00', '06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '10:00'].map((v) => ({ value: v, label: v }))}
+            onChange={(time) => { const next = { ...brief, time }; setBrief(next); writeBriefing(next); if (household) void replanNotifications(household.id); }} />
+        )}
       </Card>
 
       <Card>

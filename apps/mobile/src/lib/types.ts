@@ -30,6 +30,8 @@ export type Memory = MemoryRow & {
   priority?: Priority;
   remind_before?: number | null;
   tags?: string[];
+  duration_min?: number | null;
+  remind_travel?: boolean;
   sort_order?: number | null;
   assignee_id?: string | null; // who it is for (null = anyone)
   pinned?: boolean;

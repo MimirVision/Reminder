@@ -15,6 +15,8 @@ export type QueuedTodo = {
   checklist?: { id: string; text: string; done: boolean }[];
   priority?: number;
   tags?: string[];
+  duration_min?: number | null;
+  remind_travel?: boolean;
   remind_before?: number | null;
   author_id: string;
   created_at: string;

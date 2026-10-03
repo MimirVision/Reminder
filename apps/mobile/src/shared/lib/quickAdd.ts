@@ -19,6 +19,8 @@ export type ParsedTask = {
   assignee: Assignee | null;
   priority: Priority; // 0 = none
   tags: string[]; // "#errands"
+  remind_before: number | null; // "remind me 30 min before"
+  duration_min: number | null; // "takes 45 min"
 };
 
 export type ParseContext = {
@@ -28,8 +30,8 @@ export type ParseContext = {
 };
 
 type Meta = Omit<ParsedTask, 'title'>;
-const noMeta = (): Meta => ({ due_on: null, due_time: null, repeat_rule: null, placeId: null, category: null, leaving: false, assignee: null, priority: 0, tags: [] });
-export const hasMeta = (t: Pick<ParsedTask, keyof Meta>) => !!(t.due_on || t.due_time || t.repeat_rule || t.placeId || t.category || t.leaving || t.assignee || t.priority || t.tags.length);
+const noMeta = (): Meta => ({ due_on: null, due_time: null, repeat_rule: null, placeId: null, category: null, leaving: false, assignee: null, priority: 0, tags: [], remind_before: null, duration_min: null });
+export const hasMeta = (t: Pick<ParsedTask, keyof Meta>) => !!(t.due_on || t.due_time || t.repeat_rule || t.placeId || t.category || t.leaving || t.assignee || t.priority || t.tags.length || t.remind_before != null || t.duration_min != null);
 
 const L = '\\p{L}\\p{N}';
 /** Whole-word, case-insensitive, Unicode aware (JS \b does not know å, ø, æ). */
@@ -201,6 +203,18 @@ function readPriority(s: string): { s: string; priority: Priority } {
   return { s, priority: 0 };
 }
 
+const UNIT_MIN = (u: string) => (/^(?:h|hours?|timer?|t)$/i.test(u) ? 60 : /^(?:days?|dag(?:er)?)$/i.test(u) ? 1440 : 1);
+const LEAD = W('(?:(?:remind|alert|påminn|varsle)(?:\\s+(?:me|meg))?\\s+)?(\\d{1,4})\\s*(min(?:utes?|utter)?|hours?|timer?|h|days?|dag(?:er)?)\\s+(?:before|ahead|early|før|i forveien)');
+const TAKES = W('(?:takes?|taking|tar|varer|duration)\\s+(?:about\\s+|ca\\.?\\s+|rundt\\s+)?(\\d{1,4})\\s*(min(?:utes?|utter)?|hours?|timer?|h|t)');
+function readLeadAndDuration(s: string): { s: string; lead: number | null; dur: number | null } {
+  let lead: number | null = null, dur: number | null = null;
+  const a = matchAt(s, LEAD);
+  if (a) { const n = +a.m[1] * UNIT_MIN(a.m[2]); if (n >= 0 && n <= 20160) { lead = n; s = a.rest; } }
+  const b = matchAt(s, TAKES);
+  if (b) { const n = +b.m[1] * UNIT_MIN(b.m[2]); if (n >= 1 && n <= 1440) { dur = n; s = b.rest; } }
+  return { s, lead, dur };
+}
+
 function readAssignee(s: string, partner: string | null | undefined): { s: string; who: Assignee | null } {
   let r;
   if ((r = matchAt(s, W('for (?:both of us|us|oss|begge)|til (?:oss|begge)|for both')))) return { s: r.rest, who: 'both' };
@@ -245,6 +259,8 @@ function parseSegment(seg: string, ctx: ParseContext, now: Date, today: string, 
 
   const a = readAssignee(s, ctx.partnerName);
   s = a.s; meta.assignee = a.who;
+  const ld = readLeadAndDuration(s);
+  s = ld.s; meta.remind_before = ld.lead; meta.duration_min = ld.dur;
   const pr = readPriority(s);
   s = pr.s; meta.priority = pr.priority;
 
