@@ -602,5 +602,11 @@
   "route.change": "Endre valg",
   "route.clear": "Fjern rute",
   "route.legTo": "Kjøring {n} min",
-  "error.reload": "Last på nytt"
+  "error.reload": "Last på nytt",
+  "set.notif": "Varsler",
+  "set.notifOn": "Varsler er på. Du får beskjed når en oppgave med klokkeslett skal gjøres.",
+  "set.notifOff": "Varsler er av. Slå dem på for å få beskjed når en oppgave skal gjøres eller du er nær et sted.",
+  "set.notifDenied": "Varsler er blokkert for Home Memory. Åpne Innstillinger på iPhone, trykk Varsler og tillat dem.",
+  "set.notifTurnOn": "Slå på varsler",
+  "set.openSettings": "Åpne iPhone-innstillinger"
 }

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
-import { enableReminders, hasBackgroundAccess, refreshRegions } from '@/lib/reminders';
+import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, refreshRegions, type NotifyStatus } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
 import { font, setThemePref, useTheme, useThemePref } from '@/lib/theme';
@@ -20,6 +20,7 @@ export default function Settings() {
   const { household } = useSession();
   const { level, setLevel } = useGlass();
   const [enabled, setEnabled] = useState(false);
+  const [notif, setNotif] = useState<NotifyStatus>('undetermined');
   const [watching, setWatching] = useState<number | null>(null);
   const [keys, setKeys] = useState<CaptureKey[]>([]);
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export default function Settings() {
 
   const load = useCallback(async () => {
     setEnabled(await hasBackgroundAccess());
+    setNotif(await notifyStatus());
     setKeys(await listCaptureKeys().catch(() => []));
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -69,6 +71,13 @@ export default function Settings() {
         <Glass style={{ borderRadius: 22, padding: 14 }}>
           <Text style={{ color: th.ink, fontSize: 15, fontFamily: font.medium }}>{t('glass.preview')}</Text>
         </Glass>
+      </Card>
+
+      <Card>
+        {h(t('set.notif'))}
+        <Muted>{notif === 'granted' ? t('set.notifOn') : notif === 'denied' ? t('set.notifDenied') : t('set.notifOff')}</Muted>
+        {notif === 'undetermined' && <Btn primary label={t('set.notifTurnOn')} onPress={async () => { await ensureNotifyPermission(); await load(); }} />}
+        {notif === 'denied' && <Btn primary label={t('set.openSettings')} onPress={() => void Linking.openSettings()} />}
       </Card>
 
       <Card>

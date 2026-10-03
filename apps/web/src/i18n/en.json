@@ -602,5 +602,11 @@
   "route.change": "Change choices",
   "route.clear": "Clear route",
   "route.legTo": "Drive {n} min",
-  "error.reload": "Reload"
+  "error.reload": "Reload",
+  "set.notif": "Notifications",
+  "set.notifOn": "Notifications are on. You will be told when a to-do with a time is due.",
+  "set.notifOff": "Notifications are off. Turn them on to be told when a to-do is due or you are near a place.",
+  "set.notifDenied": "Notifications are blocked for Home Memory. Open iPhone Settings, tap Notifications and allow them.",
+  "set.notifTurnOn": "Turn on notifications",
+  "set.openSettings": "Open iPhone Settings"
 }

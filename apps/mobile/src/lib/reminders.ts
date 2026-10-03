@@ -202,6 +202,16 @@ export async function scheduleDueReminders(memories: DueMemory[]): Promise<void>
   }
 }
 
+export type NotifyStatus = 'granted' | 'denied' | 'undetermined';
+export async function notifyStatus(): Promise<NotifyStatus> {
+  try {
+    const cur = await Notifications.getPermissionsAsync();
+    return cur.granted ? 'granted' : cur.canAskAgain ? 'undetermined' : 'denied';
+  } catch {
+    return 'denied';
+  }
+}
+
 /** Ask once for permission to notify (needed for dated to-do reminders). */
 export async function ensureNotifyPermission(): Promise<boolean> {
   try {

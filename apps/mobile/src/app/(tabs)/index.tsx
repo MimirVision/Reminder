@@ -14,7 +14,8 @@ import { MapSheet, tabBarSpace, type Snap } from '@/lib/MapSheet';
 import { useI18n } from '@/lib/i18n';
 import { flush, pending, queuedToMemory } from '@/lib/outbox';
 import { RecapCard } from '@/lib/RecapCard';
-import { mapPins, refreshRegions, scheduleDueReminders, type Pin } from '@/lib/reminders';
+import { ensureNotifyPermission, mapPins, refreshRegions, scheduleDueReminders, type Pin } from '@/lib/reminders';
+import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
 import { useToast } from '@/lib/Toast';
@@ -94,6 +95,13 @@ export default function Todo() {
     const off = subscribeHousehold(household.id, () => { clearTimeout(timer); timer = setTimeout(() => void loadRef.current(), 250); });
     return () => { clearTimeout(timer); off(); };
   }, [household]);
+
+  // Ask for notifications once, on the first visit. iOS only lists an app under Settings, Notifications after it has asked.
+  useEffect(() => {
+    if (!loaded || readJson<boolean>('hm.askedNotify', false)) return;
+    const id = setTimeout(() => { writeJson('hm.askedNotify', true); void ensureNotifyPermission(); }, 1200);
+    return () => clearTimeout(id);
+  }, [loaded]);
 
   // First visit with nothing set up: a short guided start.
   useEffect(() => {
