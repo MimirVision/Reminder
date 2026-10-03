@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   acceptSuggestion, cachedOpenMemories, deleteMemory, dismissSuggestion, flushOutbox, listMembers, listMemories, listPhotoUrls, listPlaces, markDone,
-  notifyPartnerIfSet, pendingTodos, purgeDismissed, reopen, requestSuggestion, restoreMemory, softDelete, subscribeHousehold, updateMemory,
+  notifyPartnerIfSet, pendingTodos, purgeDismissed, reopen, requestSuggestion, restoreMemory, setOrder, softDelete, subscribeHousehold, updateMemory,
 } from '../lib/api';
 import { tap } from '../lib/haptics';
 import { statusFor } from '../lib/api';
@@ -18,14 +18,20 @@ import { useHere } from '../lib/useHere';
 import { matchTodos } from '../lib/search';
 import { addDays, dueBucket, dueLabel, formatDay, todayISO } from '../lib/when';
 import { compareTodos, groupUpcoming, isLate } from '../lib/todoGroups';
+import { moveStep } from '../lib/order';
+import { allTags } from '../lib/tags';
+import { activeCount, applyFilter, noFilter, type Filter } from '../lib/todoFilter';
 import { useI18n } from '../i18n';
 import { useTheme } from '../theme';
 import { AddBar } from './AddBar';
+import { CalendarView } from './CalendarView';
+import { FilterSheet } from './FilterSheet';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Icon } from './icons';
 import { InstallBanner } from './InstallBanner';
 import { MapSheet } from './MapSheet';
 import { PlaceSheet } from './PlaceSheet';
+import { Sheet } from './Sheet';
 import { RescheduleSheet } from './RescheduleSheet';
 import { RouteSheet, type RouteView } from './RouteSheet';
 import { RecapCard } from './RecapCard';
@@ -53,12 +59,16 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const toast = useToast();
-  const [mode, setMode] = useState<'list' | 'map'>('list');
+  const [mode, setMode] = useState<'list' | 'calendar' | 'map'>('list');
+  const [filter, setFilter] = useState<Filter>(noFilter);
+  const [filtering, setFiltering] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [addDate, setAddDate] = useState<string | undefined>();
   const [showDone, setShowDone] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [rescheduling, setRescheduling] = useState<Memory | null>(null);
   const [route, setRoute] = useState<RouteView | null>(null);
-  const [filterWho, setWho] = useState<'all' | 'mine' | 'theirs'>('all');
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
@@ -206,10 +216,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
   // "For me" / "For Kari" keep what is for that person and what is for anyone.
   const partner = members.find((m) => m.user_id !== userId) ?? null;
-  const visible = useMemo(() => {
-    const keep = filterWho === 'all' || !partner || showDone ? memories : memories.filter((m) => !m.assignee_id || m.assignee_id === (filterWho === 'mine' ? userId : partner.user_id));
-    return keep;
-  }, [memories, filterWho, partner, userId, showDone]);
+  const tagList = useMemo(() => allTags(memories), [memories]);
+  const visible = useMemo(() => (showDone ? memories : applyFilter(memories, filter, userId, partner?.user_id ?? null)), [memories, filter, partner, userId, showDone]);
 
   const groups = useMemo(() => {
     const today = visible.filter((m) => dueBucket(m) === 'today').sort(compareTodos);
@@ -291,6 +299,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
   const saved = (info: SavedInfo) => {
     setAdding(false);
+    setAddDate(undefined);
     setEditing(null);
     setShowDone(false);
     setSharedText(null);
@@ -302,14 +311,24 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     void load();
   };
 
-  const row = (m: Memory, opts: { place?: boolean; meta?: boolean } = {}) => {
+  // Reorder mode: arrows on each row move it inside its own group (today, a day, a place, anytime).
+  const move = (group: Memory[], m: Memory, dir: -1 | 1) => {
+    const ups = moveStep(group, m.id, dir);
+    if (!ups) return;
+    setMemories((cur) => cur.map((x) => { const u = ups.find((y) => y.id === x.id); return u ? { ...x, sort_order: u.sort_order } : x; }));
+    void act(() => setOrder(ups));
+  };
+  const reorderFor = (group: Memory[], m: Memory) => reordering && !m.pending
+    ? { up: group[0]?.id === m.id ? undefined : () => move(group, m, -1), down: group[group.length - 1]?.id === m.id ? undefined : () => move(group, m, 1) } : undefined;
+
+  const row = (m: Memory, opts: { place?: boolean; meta?: boolean; group?: Memory[] } = {}) => {
     const due = dueLabel(m, t, locale);
     return (
       <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={showDone} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
         place={opts.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === userId ? t('row.forYou') : t('row.for', { name: members.find((x) => x.user_id === m.assignee_id)?.display_name || t('common.partner') })) : undefined} byline={opts.meta === false ? undefined : byline(m)}
         author={members.length > 1 && m.author_id !== userId ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
         onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}
-        onReschedule={m.pending ? undefined : () => setRescheduling(m)} onChecklist={(items) => tickStep(m, items)}>
+        onReschedule={m.pending ? undefined : () => setRescheduling(m)} onChecklist={(items) => tickStep(m, items)} reorder={opts.group ? reorderFor(opts.group, m) : undefined}>
         {m.suggestion && !showDone && (
           <div className="suggest" role="group" aria-label={t('suggest.aria')}>
             <span className="chip"><Icon name={m.suggestion.kind === 'recurring' ? 'house' : 'pin'} size={13} />
@@ -331,7 +350,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const section = (title: string, items: Memory[], opts?: { place?: boolean }) => items.length === 0 ? null : (
     <section className="group" aria-label={title}>
       <div className="label">{title}</div>
-      <div className="card list">{items.map((m) => row(m, { place: opts?.place ?? true }))}</div>
+      <div className="card list">{items.map((m) => row(m, { place: opts?.place ?? true, group: items }))}</div>
     </section>
   );
 
@@ -344,15 +363,15 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
           <span className="chip"><Icon name="pin" size={13} />{name}</span>
           <button className="link" onClick={() => setOpenPlace({ id: placeId, label: name })}>{t('todo.openList')}</button>
         </div>
-        {shown.map((m) => row(m, { meta: items.length === 1 }))}
-        {items.length > shown.length && <button className="link more" onClick={() => setOpenPlace({ id: placeId, label: name })}>{t('todo.moreAt', { n: items.length - shown.length })}</button>}
+        {(reordering ? items : shown).map((m) => row(m, { meta: items.length === 1, group: items }))}
+        {!reordering && items.length > shown.length && <button className="link more" onClick={() => setOpenPlace({ id: placeId, label: name })}>{t('todo.moreAt', { n: items.length - shown.length })}</button>}
       </div>
     );
   };
 
   const seg = (
     <div className="seg glass" role="group" aria-label={t('view.label')}>
-      {(['list', 'map'] as const).map((m) => <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`view.${m}` as const)}</button>)}
+      {([['list', 'list'], ['calendar', 'calendar'], ['map', 'pin']] as const).map(([m, ic]) => <button key={m} aria-pressed={mode === m} aria-label={t(`view.${m}` as const)} title={t(`view.${m}` as const)} onClick={() => { setMode(m); setReordering(false); }}><Icon name={ic} size={18} /></button>)}
     </div>
   );
 
@@ -381,18 +400,20 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
   return (
     <main className={`page${mapOn ? ' map-mode' : ''}`}>
-      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{!mapOn && <button className={`btn small icon glass${showDone ? ' on' : ''}`} aria-label={showDone ? t('todo.back') : t('todo.showDone')} aria-pressed={showDone} onClick={() => { setShowDone(!showDone); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{mapOn && <button className={`btn small icon glass${route ? ' on' : ''}`} aria-label={t('route.open')} onClick={() => setPlanning(true)}><Icon name="navigate" size={16} /></button>}{!showDone && seg}</div></div>
+      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{showDone && <button className="btn small icon glass on" aria-label={t('todo.back')} aria-pressed onClick={() => { setShowDone(false); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{mapOn && <button className={`btn small icon glass${route ? ' on' : ''}`} aria-label={t('route.open')} onClick={() => setPlanning(true)}><Icon name="navigate" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('more.label')} onClick={() => setMenu(true)}><Icon name="more" size={16} /></button>}{!showDone && seg}</div></div>
       {searching && !mapOn && !showDone && (
         <label className="searchfield"><Icon name="search" size={18} /><input autoFocus type="search" placeholder={t('search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />{query && <button type="button" className="mini" aria-label={t('search.clear')} onClick={() => setQuery('')}><Icon name="x" size={14} /></button>}</label>
       )}
-      {!mapOn && !showDone && !searching && (
+      {!mapOn && !showDone && !searching && !reordering && (
         <div className="chips filter" role="group" aria-label={t('filter.label')}>
-          {partner && ([['all', t('filter.all')], ['mine', t('filter.mine')], ['theirs', t('filter.theirs', { name: partner.display_name || t('common.partner') })]] as const).map(([id, label]) => (
-            <button key={id} type="button" className={`chipbtn${filterWho === id ? ' on' : ''}`} aria-pressed={filterWho === id} onClick={() => setWho(id)}>{label}</button>
-          ))}
-          <button type="button" className="chipbtn route-chip" onClick={() => setPlanning(true)}><Icon name="navigate" size={15} /> {t('route.open')}</button>
+          <button type="button" className={`chipbtn${activeCount(filter) ? ' on' : ''}`} onClick={() => setFiltering(true)}><Icon name="filter" size={15} /> {t('filter.button')}{activeCount(filter) > 0 && ` · ${activeCount(filter)}`}</button>
+          {filter.who !== 'all' && <button type="button" className="chipbtn pill" aria-label={t('filter.remove', { name: filter.who === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partner?.display_name || t('common.partner') }) })} onClick={() => setFilter({ ...filter, who: 'all' })}>{filter.who === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partner?.display_name || t('common.partner') })} <Icon name="x" size={12} /></button>}
+          {filter.minPriority > 0 && <button type="button" className="chipbtn pill" aria-label={t('filter.remove', { name: t(`prio.${filter.minPriority}` as 'prio.1') })} onClick={() => setFilter({ ...filter, minPriority: 0 })}><Icon name="flag" size={12} /> {t(`prio.${filter.minPriority}` as 'prio.1')}+ <Icon name="x" size={12} /></button>}
+          {filter.tag && <button type="button" className="chipbtn pill" aria-label={t('filter.remove', { name: `#${filter.tag}` })} onClick={() => setFilter({ ...filter, tag: null })}>#{filter.tag} <Icon name="x" size={12} /></button>}
+          {activeCount(filter) === 0 && <button type="button" className="chipbtn route-chip" onClick={() => setPlanning(true)}><Icon name="navigate" size={15} /> {t('route.open')}</button>}
         </div>
       )}
+      {reordering && !showDone && !mapOn && <div className="reorder-bar" role="status"><span>{t('reorder.hint')}</span><button className="btn small primary" onClick={() => setReordering(false)}>{t('reorder.done')}</button></div>}
       {(!online || loadFailed) && !mapOn && <p className="offline-banner" role="status">{t('offline.banner')}</p>}
       {err && (
         <p className="error" role="alert">{err} <button className="link" onClick={() => void load()}>{t('common.retry')}</button></p>
@@ -426,6 +447,9 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
           <SetupChecklist household={household} onNavigate={onNavigate} />
           {memories.length > 0 && <InstallBanner />}
           <RecapCard household={household} members={members} refreshKey={doneTicks} />
+          {mode === 'calendar' ? (
+            <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => { setAddDate(d); setAdding(true); }} />
+          ) : (<>
           {empty && (
             <div className="empty">
               <span className="empty-ico"><Icon name="check" size={28} /></span>
@@ -445,13 +469,25 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
           {groups.byPlace.size > 0 && <div className="label">{t('todo.sec.place')}</div>}
           {[...groups.byPlace].map(([id, items]) => placeCard(id, items))}
           {section(t('todo.sec.anytime'), groups.anytime, { place: false })}
+          {!empty && visible.length === 0 && activeCount(filter) > 0 && <p className="muted" role="status">{t('filter.none')}</p>}
+          </>)}
         </>
       )}
 
 
       {mapOn && route && <button className="glass map-route-clear" onClick={() => setRoute(null)}><Icon name="x" size={14} /> {t('route.clear')}</button>}
       {!showDone && !mapOn && <AddBar onClick={() => setAdding(true)} />}
-      {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} onClose={() => { setAdding(false); setSharedText(null); }} onSaved={saved} />}
+      {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} initialDate={addDate} onClose={() => { setAdding(false); setSharedText(null); setAddDate(undefined); }} onSaved={saved} />}
+      {filtering && <FilterSheet value={filter} onChange={setFilter} partnerName={partner ? partner.display_name || t('common.partner') : null} tags={tagList} onClose={() => setFiltering(false)} />}
+      {menu && (
+        <Sheet label={t('more.label')} onClose={() => setMenu(false)}>
+          <div className="resched">
+            <button className="btn" onClick={() => { setMenu(false); setShowDone(true); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /> {t('more.done')}</button>
+            <button className="btn" onClick={() => { setMenu(false); setMode('list'); setReordering(true); }}><Icon name="up" size={16} /> {t('more.reorder')}</button>
+            <button className="btn" onClick={() => { setMenu(false); setPlanning(true); }}><Icon name="navigate" size={16} /> {t('more.route')}</button>
+          </div>
+        </Sheet>
+      )}
       {rescheduling && <RescheduleSheet title={(rescheduling.body || t('todo.photo')).split('\n')[0]} dueOn={rescheduling.due_on} onPick={(d) => moveTo(rescheduling, d)} onClose={() => setRescheduling(null)} />}
       {planning && <RouteSheet places={places} memories={memories} onClose={() => setPlanning(false)} onShow={(r) => { setRoute(r); setMode('map'); setShowDone(false); setSnap('peek'); }} />}
       {tour && <Tour household={household} onClose={() => setTour(false)} onChanged={() => { void load(); loadPlaces(); }} />}

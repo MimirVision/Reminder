@@ -20,6 +20,11 @@ const P: Record<string, string> = {
   flag: 'M6 21V4M6 5h11l-2 4 2 4H6',
   list: 'M9 7h10M9 12h10M9 17h10M5 7h.01M5 12h.01M5 17h.01',
   note: 'M6 4h12v16H6zM9 9h6M9 13h6',
+  filter: 'M4 6h16M7 12h10M10 18h4',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
+  up: 'M6 14l6-6 6 6',
+  down: 'M6 10l6 6 6-6',
+  tag: 'M4 5h8l8 8-7 7-8-8zM8 9h.01',
   store: 'M4 9l1.5-4h13L20 9M4.5 9v10h15V9M4 9a2.7 2.7 0 005.3 0 2.7 2.7 0 005.4 0A2.7 2.7 0 0020 9M10 19v-5h4v5',
 };
 

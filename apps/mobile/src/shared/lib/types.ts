@@ -53,6 +53,8 @@ export type Memory = {
   checklist?: ChecklistItem[];
   priority?: Priority;
   remind_before?: number | null; // minutes before the due time (null = at the due time)
+  tags?: string[];
+  sort_order?: number | null; // your own order inside a list (null = by priority and time)
   pending?: boolean; // saved on this device, waiting for a connection
 };
 

@@ -14,6 +14,7 @@ export type QueuedTodo = {
   notes?: string | null;
   checklist?: { id: string; text: string; done: boolean }[];
   priority?: number;
+  tags?: string[];
   remind_before?: number | null;
   author_id: string;
   created_at: string;

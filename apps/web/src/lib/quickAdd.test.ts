@@ -161,3 +161,12 @@ test('priority and the new repeat rules', () => {
   assert.equal(one('water the plants every week').repeat_rule, 'weekly');
   assert.equal(one('urgent: call the plumber').title, 'Call the plumber');
 });
+
+test('#tags are read and left out of the title', async () => {
+  const { parseTasks } = await import('./quickAdd.ts');
+  const r = parseTasks('buy light bulbs #house #Errands tomorrow', { places: [], now: new Date(2026, 9, 1, 9, 0) });
+  assert.equal(r.length, 1);
+  assert.deepEqual(r[0].tags, ['house', 'errands']);
+  assert.ok(!r[0].title.includes('#'));
+  assert.equal(r[0].due_on, '2026-10-02');
+});

@@ -3,14 +3,14 @@
 import { cleanChecklist } from './checklist.ts';
 import type { ChecklistItem, Memory, Priority } from './types';
 
-export type Details = { notes: string; checklist: ChecklistItem[]; priority: Priority; remind_before: number | null };
-export const emptyDetails = (): Details => ({ notes: '', checklist: [], priority: 0, remind_before: null });
+export type Details = { notes: string; checklist: ChecklistItem[]; priority: Priority; remind_before: number | null; tags: string[] };
+export const emptyDetails = (): Details => ({ notes: '', checklist: [], priority: 0, remind_before: null, tags: [] });
 
-export const detailsOf = (m?: Pick<Memory, 'notes' | 'checklist' | 'priority' | 'remind_before'> | null): Details => ({
-  notes: m?.notes ?? '', checklist: cleanChecklist(m?.checklist), priority: m?.priority ?? 0, remind_before: m?.remind_before ?? null,
+export const detailsOf = (m?: Pick<Memory, 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags'> | null): Details => ({
+  notes: m?.notes ?? '', checklist: cleanChecklist(m?.checklist), priority: m?.priority ?? 0, remind_before: m?.remind_before ?? null, tags: m?.tags ?? [],
 });
 
-export type DetailFields = { notes?: string | null; checklist?: ChecklistItem[]; priority?: Priority; remind_before?: number | null };
+export type DetailFields = { notes?: string | null; checklist?: ChecklistItem[]; priority?: Priority; remind_before?: number | null; tags?: string[] };
 
 /** For a new to-do: only the details that are set. A reminder needs a date. */
 export function newFields(d: Details, hasDate: boolean): DetailFields {
@@ -19,6 +19,7 @@ export function newFields(d: Details, hasDate: boolean): DetailFields {
     ...(d.checklist.length ? { checklist: d.checklist } : {}),
     ...(d.priority ? { priority: d.priority } : {}),
     ...(hasDate && d.remind_before != null ? { remind_before: d.remind_before } : {}),
+    ...(d.tags.length ? { tags: d.tags } : {}),
   };
 }
 
@@ -29,6 +30,7 @@ export function changedFields(d: Details, was: Details, hasDate: boolean): Detai
   if (notes !== was.notes.trim()) out.notes = notes || null;
   if (JSON.stringify(d.checklist) !== JSON.stringify(was.checklist)) out.checklist = d.checklist;
   if (d.priority !== was.priority) out.priority = d.priority;
+  if (JSON.stringify(d.tags) !== JSON.stringify(was.tags)) out.tags = d.tags;
   const lead = hasDate ? d.remind_before : null;
   if (lead !== was.remind_before) out.remind_before = lead;
   return out;

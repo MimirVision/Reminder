@@ -17,14 +17,14 @@ import { WhereField, whereFrom } from './WhereField';
 export type SavedInfo = { added: Memory[]; edited: Memory | null; createdPlace: Place | null };
 
 // Add or edit a to-do: text, where (search a shop, kind of shop or address), when (date and time) and photos.
-export function TodoSheet({ household, places, members = [], userId = '', memory, photos, initialPlaceId, initialBody, onClose, onSaved, onDelete }: {
-  household: Household; places: Place[]; members?: Member[]; userId?: string; memory?: Memory; photos?: string[]; initialPlaceId?: string | null; initialBody?: string;
+export function TodoSheet({ household, places, members = [], userId = '', memory, photos, initialPlaceId, initialBody, initialDate, onClose, onSaved, onDelete }: {
+  household: Household; places: Place[]; members?: Member[]; userId?: string; memory?: Memory; photos?: string[]; initialPlaceId?: string | null; initialBody?: string; initialDate?: string;
   onClose: () => void; onSaved: (info: SavedInfo) => void; onDelete?: (m: Memory) => void;
 }) {
   const { t, tn, lang, locale } = useI18n();
   const [body, setBody] = useState(memory?.body ?? initialBody ?? '');
   const [where, setWhere] = useState<Where>(whereFrom(memory?.place_id ?? initialPlaceId ?? null));
-  const [due, setDue] = useState<Due>({ due_on: memory?.due_on ?? null, due_time: memory?.due_time ?? null, repeat_rule: memory?.repeat_rule ?? null });
+  const [due, setDue] = useState<Due>({ due_on: memory ? memory.due_on : initialDate ?? null, due_time: memory?.due_time ?? null, repeat_rule: memory?.repeat_rule ?? null });
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
   const [forId, setForId] = useState<string | null>(memory?.assignee_id ?? null);
   const [pinned, setPinned] = useState(!!memory?.pinned);
   const [details, setDetails] = useState<Details>(() => detailsOf(memory));
-  const [showMore, setShowMore] = useState(() => !!memory && (!!memory.notes || (memory.checklist?.length ?? 0) > 0 || !!memory.priority || memory.remind_before != null));
+  const [showMore, setShowMore] = useState(() => !!memory && (!!memory.notes || (memory.checklist?.length ?? 0) > 0 || !!memory.priority || memory.remind_before != null || (memory.tags?.length ?? 0) > 0));
   const [smart, setSmart] = useState(true);
   const [ai, setAi] = useState<{ text: string; tasks: ParsedTask[] } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -85,7 +85,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
         const extra = { ...(members.length > 1 && forId !== (memory.assignee_id ?? null) ? { assignee_id: forId } : {}), ...(pinned !== !!memory.pinned ? { pinned } : {}), ...changedFields(details, detailsOf(memory), !!due.due_on) };
         await updateMemoryFields(memory.id, { body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule, ...extra });
         for (const f of files) await uploadPhoto(household.id, memory.id, f);
-        onSaved({ added: [], edited: { ...memory, body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule ?? null, assignee_id: forId, pinned, notes: details.notes.trim() || null, checklist: details.checklist, priority: details.priority, remind_before: due.due_on ? details.remind_before : null }, createdPlace: created });
+        onSaved({ added: [], edited: { ...memory, body: text, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule ?? null, assignee_id: forId, pinned, notes: details.notes.trim() || null, checklist: details.checklist, priority: details.priority, remind_before: due.due_on ? details.remind_before : null, tags: details.tags }, createdPlace: created });
         return;
       }
       // One to-do per line, so a pasted list becomes several.
@@ -134,7 +134,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
           due_on: dated ? task.due_on : due.due_on, due_time: dated ? task.due_time : due.due_time, repeat_rule: dated ? task.repeat_rule : due.repeat_rule,
           ...(assignee ? { assignee_id: assignee } : {}), ...(pinned ? { pinned } : {}),
           // Notes and a checklist belong to one to-do; priority and the reminder go to each.
-          ...newFields({ ...(tasks.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority }, dated || !!due.due_on),
+          ...newFields({ ...(tasks.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, tags: [...new Set([...details.tags, ...task.tags])] }, dated || !!due.due_on),
         });
         added.push(m);
         if (i === 0 && files.length > 0) {

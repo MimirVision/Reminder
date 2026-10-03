@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { addMany, removeItem, toggleItem } from '../lib/checklist';
+import { addTags, removeTag } from '../lib/tags';
 import { REMIND_CHOICES, type Details } from '../lib/details';
 import type { Priority } from '../lib/types';
 import { useI18n } from '../i18n';
@@ -9,6 +10,8 @@ import { Icon } from './icons';
 export function TodoDetails({ value, onChange, hasDate }: { value: Details; onChange: (d: Details) => void; hasDate: boolean }) {
   const { t } = useI18n();
   const [step, setStep] = useState('');
+  const [tag, setTag] = useState('');
+  const putTag = () => { if (tag.trim()) { onChange({ ...value, tags: addTags(value.tags, tag) }); setTag(''); } };
   const addStep = () => { if (step.trim()) { onChange({ ...value, checklist: addMany(value.checklist, step) }); setStep(''); } };
 
   return (
@@ -50,6 +53,20 @@ export function TodoDetails({ value, onChange, hasDate }: { value: Details; onCh
         <input className="growfield" placeholder={t('check.placeholder')} value={step} onChange={(e) => setStep(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addStep(); } }} />
         <button type="button" className="btn small" disabled={!step.trim()} onClick={addStep}>{t('check.add')}</button>
+      </div>
+
+      <div className="label">{t('tags.label')}</div>
+      {value.tags.length > 0 && (
+        <div className="chips">
+          {value.tags.map((g) => (
+            <span key={g} className="chip tagchip">#{g}<button type="button" className="mini" aria-label={t('tags.remove', { tag: g })} onClick={() => onChange({ ...value, tags: removeTag(value.tags, g) })}><Icon name="x" size={12} /></button></span>
+          ))}
+        </div>
+      )}
+      <div className="row nowrap">
+        <input className="growfield" placeholder={t('tags.placeholder')} value={tag} onChange={(e) => setTag(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); putTag(); } }} />
+        <button type="button" className="btn small" disabled={!tag.trim()} onClick={putTag}>{t('tags.add')}</button>
       </div>
 
       <div className="label">{t('notes.label')}</div>

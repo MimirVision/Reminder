@@ -3,11 +3,14 @@
 import type { Memory, Priority } from './types';
 import { addDays, compareDue } from './when.ts';
 
-type Dated = Pick<Memory, 'due_on' | 'due_time' | 'pinned' | 'priority'>;
+type Dated = Pick<Memory, 'due_on' | 'due_time' | 'pinned' | 'priority'> & { sort_order?: number | null };
 
-/** Pinned first, then higher priority, then the earliest due. Stable for equal items. */
+const orderOf = (m: Dated) => m.sort_order ?? Infinity;
+
+/** Pinned first, then the order you set by hand, then higher priority, then the earliest due. Stable for equal items. */
 export function compareTodos(a: Dated, b: Dated): number {
-  return Number(!!b.pinned) - Number(!!a.pinned) || (b.priority ?? 0) - (a.priority ?? 0) || compareDue(a, b);
+  const byHand = orderOf(a) === orderOf(b) ? 0 : orderOf(a) < orderOf(b) ? -1 : 1;
+  return Number(!!b.pinned) - Number(!!a.pinned) || byHand || (b.priority ?? 0) - (a.priority ?? 0) || compareDue(a, b);
 }
 
 export const isLate = (m: Pick<Memory, 'due_on'>, today: string) => !!m.due_on && m.due_on < today;

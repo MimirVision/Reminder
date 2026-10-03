@@ -3,6 +3,7 @@
 // and longer text with several to-dos ("pick up X at the pharmacy when I leave work, then later today do Y before 21.00").
 // English and Norwegian are both understood, whichever language the app is in. Pure functions, unit tested.
 import type { Place, Priority, RepeatRule } from './types';
+import { extractTags } from './tags.ts';
 import { addDays, parseISODate, quickDates, todayISO } from './when.ts';
 
 export type Assignee = 'me' | 'partner' | 'both';
@@ -17,6 +18,7 @@ export type ParsedTask = {
   leaving: boolean; // "when I leave work": the app reminds at the place, this only labels it
   assignee: Assignee | null;
   priority: Priority; // 0 = none
+  tags: string[]; // "#errands"
 };
 
 export type ParseContext = {
@@ -26,8 +28,8 @@ export type ParseContext = {
 };
 
 type Meta = Omit<ParsedTask, 'title'>;
-const noMeta = (): Meta => ({ due_on: null, due_time: null, repeat_rule: null, placeId: null, category: null, leaving: false, assignee: null, priority: 0 });
-export const hasMeta = (t: Pick<ParsedTask, keyof Meta>) => !!(t.due_on || t.due_time || t.repeat_rule || t.placeId || t.category || t.leaving || t.assignee || t.priority);
+const noMeta = (): Meta => ({ due_on: null, due_time: null, repeat_rule: null, placeId: null, category: null, leaving: false, assignee: null, priority: 0, tags: [] });
+export const hasMeta = (t: Pick<ParsedTask, keyof Meta>) => !!(t.due_on || t.due_time || t.repeat_rule || t.placeId || t.category || t.leaving || t.assignee || t.priority || t.tags.length);
 
 const L = '\\p{L}\\p{N}';
 /** Whole-word, case-insensitive, Unicode aware (JS \b does not know å, ø, æ). */
@@ -214,7 +216,9 @@ function readAssignee(s: string, partner: string | null | undefined): { s: strin
 function parseSegment(seg: string, ctx: ParseContext, now: Date, today: string, quick: ReturnType<typeof quickDates>): { title: string; meta: Meta; there: boolean } {
   const meta = noMeta();
   // "on my way home from work" is about work, not home.
-  let s = ` ${seg} `.replace(/(p\u00e5 vei|on my way) (?:hjem|home) (fra|from)/gi, '$1 $2');
+  const tg = extractTags(seg);
+  meta.tags = tg.tags;
+  let s = ` ${tg.text} `.replace(/(p\u00e5 vei|on my way) (?:hjem|home) (fra|from)/gi, '$1 $2');
   // "... there" / "... der" at the end points back at the place named just before.
   let there = false;
   s = s.replace(/\s+(?:der|there|dit)\s*[.!]?\s*$/i, () => { there = true; return ' '; });
@@ -301,6 +305,7 @@ export function parseTasks(text: string, ctx: ParseContext): ParsedTask[] {
   const fill = (to: Meta, from: Meta) => {
     for (const k of Object.keys(from) as (keyof Meta)[]) {
       if (k === 'leaving') { if (from.leaving && !to.leaving && !to.placeId) to.leaving = true; continue; }
+      if (k === 'tags') { to.tags = [...new Set([...to.tags, ...from.tags])]; continue; }
       if (k === 'priority') { if (!to.priority && from.priority) to.priority = from.priority; continue; }
       if (to[k] == null && from[k] != null) (to as Record<string, unknown>)[k] = from[k];
     }

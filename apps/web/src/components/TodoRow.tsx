@@ -11,9 +11,9 @@ export type Who = { id: string; name: string | null } | null;
 
 // One to-do: tick to finish, tap the text to edit, swipe right to finish or left to delete. Due date, repeat and place show
 // as small chips; who added it shows as a small avatar once the household has more than one person.
-export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, children }: {
+export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, children }: {
   m: Memory; photos?: string[]; done?: boolean; due?: string; dueLate?: boolean; place?: string; forName?: string; author?: Who; doneBy?: string | null; byline?: string;
-  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; children?: ReactNode;
+  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; children?: ReactNode;
 }) {
   const { t } = useI18n();
   const title = m.body || t('todo.photo');
@@ -27,7 +27,7 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
       </button>
       <div className="text">
         <button type="button" className="body" aria-label={t('todo.edit', { title: title.split('\n')[0] })} onClick={onEdit}>{title}</button>
-        {(due || place || byline || m.repeat_rule || m.pending || doneBy || forName || m.pinned || prio > 0 || prog.total > 0) && (
+        {(due || place || byline || m.repeat_rule || m.pending || doneBy || forName || m.pinned || prio > 0 || prog.total > 0 || (m.tags?.length ?? 0) > 0) && (
           <div className="meta">
             {due && (onReschedule && !done
               ? <button type="button" className={`chip chipbtn-lite${dueLate ? ' warm' : ''}`} aria-label={t('resched.aria', { title: title.split('\n')[0] })} onClick={onReschedule}><Icon name="calendar" size={12} />{due}</button>
@@ -38,6 +38,7 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
             {m.pinned && !done && <span className="chip plain">{t('row.pinned')}</span>}
             {forName && <span className="chip plain">{forName}</span>}
             {place && <span className="chip plain"><Icon name="pin" size={12} />{place}</span>}
+            {!done && (m.tags ?? []).map((g) => <span key={g} className="chip plain tagchip">#{g}</span>)}
             {m.pending && <span className="chip plain">{t('row.pending')}</span>}
             {doneBy && <span className="muted">{t('row.doneBy', { name: doneBy })}</span>}
             {byline && <span className="muted">{byline}</span>}
@@ -59,8 +60,14 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
         )}
         {children}
       </div>
+      {reorder && (
+        <div className="reorder">
+          <button type="button" className="mini" disabled={!reorder.up} aria-label={t('reorder.up', { title: title.split('\n')[0] })} onClick={reorder.up}><Icon name="up" size={16} /></button>
+          <button type="button" className="mini" disabled={!reorder.down} aria-label={t('reorder.down', { title: title.split('\n')[0] })} onClick={reorder.down}><Icon name="down" size={16} /></button>
+        </div>
+      )}
       {author && <Avatar id={author.id} name={author.name} />}
     </div>
   );
-  return onDelete && !done ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
+  return onDelete && !done && !reorder ? <SwipeRow onDone={onToggle} onDelete={onDelete}>{row}</SwipeRow> : row;
 }

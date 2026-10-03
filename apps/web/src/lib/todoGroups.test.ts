@@ -27,3 +27,8 @@ test('move-to choices skip duplicates (a Saturday has no separate "weekend")', (
   // Saturday: the weekend is today
   assert.deepEqual(rescheduleTargets('2026-10-03', 6).map((x) => x.id), ['today', 'tomorrow', 'nextWeek']);
 });
+
+test('a hand-set order beats priority, but not a pin; unnumbered ones come last', () => {
+  const list = [m({ id: 'a', priority: 3 }), m({ id: 'b', sort_order: 2048 }), m({ id: 'c', sort_order: 1024 }), m({ id: 'p', pinned: true, sort_order: 9999 })];
+  assert.deepEqual([...list].sort(compareTodos).map((x) => (x as { id: string }).id), ['p', 'c', 'b', 'a']);
+});
