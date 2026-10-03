@@ -21,6 +21,7 @@ export function Settings({ household }: { household: Household }) {
   const [invite, setInvite] = useState(household.invite_code);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
+  const [recap, setRecap] = useState(() => { try { return localStorage.getItem('hm.recap') === '1'; } catch { return false; } });
   const [copied, setCopied] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -57,6 +58,14 @@ export function Settings({ household }: { household: Household }) {
         <h2>{t('push.title')}</h2>
         <span className="muted">{t('push.intro')}</span>
         <NotificationsControl />
+      </section>
+
+      <section className="card">
+        <h2>{t('set.todoList')}</h2>
+        <label className="row spread">
+          <span><strong>{t('set.recap')}</strong><span className="muted" style={{ display: 'block' }}>{t('set.recapBody')}</span></span>
+          <input type="checkbox" className="switch" checked={recap} aria-label={t('set.recap')} onChange={(e) => { setRecap(e.target.checked); try { localStorage.setItem('hm.recap', e.target.checked ? '1' : '0'); } catch { /* ignore */ } }} />
+        </label>
       </section>
 
       <section className="card">

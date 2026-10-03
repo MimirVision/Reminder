@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { getMemory, listMembers, listPlaces, parseTasksAI, resolveWhere, softDelete, statusFor, updateMemory, updateMemoryFields, type Where } from '@/lib/api';
+import { getMemory, listMembers, listPlaces, parseTasksAI, resolveWhere, softDelete, statusFor, updateMemory, updateMemoryFields, type Where, aiAvailable } from '@/lib/api';
 import { Chip } from '@/lib/Chip';
 import { TodoAlerts } from '@/lib/TodoAlerts';
 import { TodoDetails } from '@/lib/TodoDetails';
@@ -52,6 +52,7 @@ export default function Add() {
   const [smart, setSmart] = useState(true);
   const [ai, setAi] = useState<{ text: string; tasks: ParsedTask[] } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiOk, setAiOk] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [dropped, setDropped] = useState<number[]>([]);
   const partner = members.find((m) => m.user_id !== userId) ?? null;
@@ -73,7 +74,7 @@ export default function Add() {
       setForId(m.assignee_id ?? null);
       setPinned(!!m.pinned);
       setDetails(detailsOf(m));
-      setShowMore(!!m.notes || (m.checklist?.length ?? 0) > 0 || !!m.priority || (m.tags?.length ?? 0) > 0);
+      setShowMore(!!m.notes || (m.checklist?.length ?? 0) > 0 || !!m.priority || (m.tags?.length ?? 0) > 0 || !!m.assignee_id || !!m.pinned);
     }).catch(() => setErr(t('offline.needsNet')));
   }, [editId, t]);
 
@@ -84,6 +85,7 @@ export default function Add() {
     return isInteresting(tasks) ? tasks : null;
   }, [editId, smart, body, ai, places, partner?.display_name]);
   useEffect(() => { setDropped([]); setAiNote(null); }, [body]);
+  useEffect(() => { if (plan && !aiOk) void aiAvailable().then(setAiOk); }, [plan, aiOk]);
   const kept = plan ? plan.filter((_, i) => !dropped.includes(i)) : null;
 
   async function sortWithAI() {
@@ -212,7 +214,7 @@ export default function Add() {
         <Card gap={10}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={{ color: th.muted, fontSize: 13, letterSpacing: 0.8, textTransform: 'uppercase', fontFamily: font.semi }}>{aiShown ? t('smart.aiDone') : t('smart.title')}</Text>
-            {!aiShown && <Btn small label={aiBusy ? t('smart.aiBusy') : t('smart.ai')} onPress={() => void sortWithAI()} disabled={aiBusy} />}
+            {aiOk && !aiShown && <Btn small label={aiBusy ? t('smart.aiBusy') : t('smart.ai')} onPress={() => void sortWithAI()} disabled={aiBusy} />}
           </View>
           {plan.map((task, i) => dropped.includes(i) ? null : (
             <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
@@ -245,30 +247,34 @@ export default function Add() {
       <SectionLabel>{t('sheet.when')}</SectionLabel>
       <WhenPicker value={due} onChange={setDue} />
       <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} />
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: showMore }} onPress={() => setShowMore(!showMore)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Icon name="list.bullet" size={15} color={th.accentText} />
-        <Text style={{ color: th.accentText, fontFamily: font.semi, fontSize: 14 }}>{showMore ? t('todo.detailLess') : `${t('todo.detail')}: ${t('prio.label').toLowerCase()}, ${t('check.label').toLowerCase()}, ${t('notes.label').toLowerCase()}`}</Text>
-      </Pressable>
-      {showMore && <TodoDetails value={details} onChange={setDetails} />}
-      {members.length > 1 && partner && (
-        <>
-          <SectionLabel>{t('assign.label')}</SectionLabel>
-          <View style={styles.row}>
-            <Chip label={t('assign.anyone')} on={forId === null} onPress={() => setForId(null)} />
-            <Chip label={t('assign.me')} on={forId === userId} onPress={() => setForId(userId)} />
-            <Chip label={partner.display_name || t('common.partner')} on={forId === partner.user_id} onPress={() => setForId(partner.user_id)} />
-          </View>
-        </>
-      )}
-      <View style={styles.row}>
-        <Chip icon="pin" label={pinned ? t('pin.on') : t('pin.label')} on={pinned} onPress={() => setPinned(!pinned)} />
-      </View>
       {!editId && (
         <View style={styles.row}>
           <Btn small label={t('photo.take')} onPress={() => pick(true)} />
           <Btn small label={t('photo.choose')} onPress={() => pick(false)} />
           {uris.length > 0 && <Muted>{tn('sheet.photos', uris.length)}</Muted>}
         </View>
+      )}
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: showMore }} onPress={() => setShowMore(!showMore)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Icon name="list.bullet" size={15} color={th.accentText} />
+        <Text style={{ color: th.accentText, fontFamily: font.semi, fontSize: 14 }}>{showMore ? t('todo.detailLess') : `${t('todo.detail')}: ${[t('prio.label'), t('check.label'), t('tags.label'), t('notes.label')].join(', ').toLowerCase()}`}</Text>
+      </Pressable>
+      {showMore && (
+        <>
+          <TodoDetails value={details} onChange={setDetails} />
+          {members.length > 1 && partner && (
+            <>
+              <SectionLabel>{t('assign.label')}</SectionLabel>
+              <View style={styles.row}>
+                <Chip label={t('assign.anyone')} on={forId === null} onPress={() => setForId(null)} />
+                <Chip label={t('assign.me')} on={forId === userId} onPress={() => setForId(userId)} />
+                <Chip label={partner.display_name || t('common.partner')} on={forId === partner.user_id} onPress={() => setForId(partner.user_id)} />
+              </View>
+            </>
+          )}
+          <View style={styles.row}>
+            <Chip icon="pin" label={pinned ? t('pin.on') : t('pin.label')} on={pinned} onPress={() => setPinned(!pinned)} />
+          </View>
+        </>
       )}
       <Muted>{t('sheet.hint')}</Muted>
       {err && <Text style={{ color: th.danger, fontFamily: font.body }}>{err}</Text>}

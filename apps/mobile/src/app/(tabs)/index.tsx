@@ -55,6 +55,7 @@ export default function Todo() {
   const [reordering, setReordering] = useState(false);
   const [searching, setSearching] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [recapOn, setRecapOn] = useState(() => readJson<boolean>('hm.recap', false));
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [showDone, setShowDone] = useState(false);
@@ -105,7 +106,7 @@ export default function Todo() {
   useEffect(() => { void load(); }, [load]);
   const loadDone = useCallback(async () => { if (household) setDoneList(await listMemories(household.id, ['done']).catch(() => [])); }, [household]);
   useEffect(() => { if (showDone) void loadDone(); }, [showDone, loadDone]);
-  useFocusEffect(useCallback(() => { void load(); }, [load])); // after the add screen closes
+  useFocusEffect(useCallback(() => { setRecapOn(readJson<boolean>('hm.recap', false)); void load(); }, [load])); // after the add screen closes or a setting changes
   useEffect(() => { if (household) void purgeDismissed(household.id).catch(() => {}); }, [household]);
 
   // Live: a to-do your partner adds shows up without pulling to refresh.
@@ -465,6 +466,18 @@ export default function Todo() {
                 <Glass interactive style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}><Icon name="magnifyingglass" size={17} color={th.ink} /></Glass>
               </Pressable>
             )}
+            {!showDone && (
+              <Pressable accessibilityRole="button" accessibilityLabel={activeCount(filter) ? `${t('filter.button')} (${activeCount(filter)})` : t('filter.button')} onPress={() => setFiltering(true)}>
+                <Glass interactive style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="line.3.horizontal.decrease" size={17} color={activeCount(filter) ? th.accentText : th.ink} />
+                  {activeCount(filter) > 0 && (
+                    <View style={{ position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: th.accent, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: '#FFFFFF', fontSize: 11, fontFamily: font.semi }}>{activeCount(filter)}</Text>
+                    </View>
+                  )}
+                </Glass>
+              </Pressable>
+            )}
             <Pressable accessibilityRole="button" accessibilityLabel={t('more.label')} onPress={openMenu}>
               <Glass interactive style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}><Icon name="ellipsis" size={18} color={th.ink} /></Glass>
             </Pressable>
@@ -479,16 +492,14 @@ export default function Todo() {
             <Text style={{ flex: 1, color: th.muted, fontSize: 14, fontFamily: font.body }}>{t('reorder.hint')}</Text>
             <Btn small primary label={t('reorder.done')} onPress={() => setReordering(false)} />
           </View>
-        ) : (
+        ) : activeCount(filter) > 0 ? (
           <View style={styles.row}>
-            <Chip icon="line.3.horizontal.decrease" on={activeCount(filter) > 0} label={activeCount(filter) > 0 ? `${t('filter.button')} · ${activeCount(filter)}` : t('filter.button')} onPress={() => setFiltering(true)} />
             {filter.who !== 'all' && partnerName != null && pill(filter.who === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partnerName }), () => setFilter({ ...filter, who: 'all' }))}
             {filter.minPriority > 0 && pill(`${t(`prio.${filter.minPriority}` as 'prio.1')}+`, () => setFilter({ ...filter, minPriority: 0 }))}
             {filter.tag && pill(`#${filter.tag}`, () => setFilter({ ...filter, tag: null }))}
-            {activeCount(filter) === 0 && <Chip icon="location.north" label={t('route.open')} onPress={() => router.push('/route')} />}
           </View>
-        )}
-        {household && <RecapCard household={household} members={members} refreshKey={doneTicks} />}
+        ) : null}
+        {recapOn && household && <RecapCard household={household} members={members} refreshKey={doneTicks} />}
         {loaded && memories.length === 0 && (
           <View style={{ alignItems: 'center', gap: 6, paddingVertical: 36 }}>
             <Text style={{ color: th.ink, fontFamily: font.display, fontSize: 22 }}>{t('todo.empty.title')}</Text>

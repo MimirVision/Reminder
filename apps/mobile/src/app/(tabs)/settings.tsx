@@ -8,6 +8,7 @@ import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { Select } from '@/lib/Select';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
 import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, readBriefing, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
+import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
 import { font, setThemePref, useTheme, useThemePref } from '@/lib/theme';
@@ -31,6 +32,7 @@ export default function Settings() {
   const [confirmText, setConfirmText] = useState('');
   const [acctBusy, setAcctBusy] = useState(false);
   const [brief, setBrief] = useState(readBriefing);
+  const [recap, setRecap] = useState(() => readJson<boolean>('hm.recap', false));
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
 
@@ -84,6 +86,17 @@ export default function Settings() {
         {notif === 'undetermined' && <Btn primary label={t('set.notifTurnOn')} onPress={async () => { await ensureNotifyPermission(); await load(); }} />}
         {notif === 'denied' && <Btn primary label={t('set.openSettings')} onPress={() => void Linking.openSettings()} />}
         {notif === 'granted' && <Btn label={t('set.notifTest')} onPress={async () => { Alert.alert((await sendTestNotification()) ? t('set.notifTestSent') : t('set.notifDenied')); }} />}
+      </Card>
+
+      <Card>
+        {h(t('set.todoList'))}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: th.ink, fontFamily: font.semi, fontSize: 16 }}>{t('set.recap')}</Text>
+            <Muted>{t('set.recapBody')}</Muted>
+          </View>
+          <Switch value={recap} accessibilityLabel={t('set.recap')} onValueChange={(v) => { setRecap(v); writeJson('hm.recap', v); }} />
+        </View>
       </Card>
 
       <Card>

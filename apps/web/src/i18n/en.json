@@ -736,5 +736,8 @@
   "bulk.moved_other": "{n} moved",
   "bulk.pick": "Select {title}",
   "bulk.hint": "Tap to-dos to select them.",
-  "bulk.all": "Select all"
+  "bulk.all": "Select all",
+  "set.todoList": "To-do list",
+  "set.recap": "Show the weekly recap",
+  "set.recapBody": "A small card at the top of the list with what you finished this week."
 }

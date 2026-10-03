@@ -11,7 +11,7 @@ const hidden = () => { try { return localStorage.getItem(HIDE_KEY) === '1'; } ca
 // A compact card that steers a new household to the features that keep the app useful: house calendar, emergency card,
 // iPhone reminders, and the partner. It shows only the next step (all steps one tap away), ticks itself off from real
 // data, and can be hidden. It stays small so your actual to-dos are still the first thing you see.
-export function SetupChecklist({ household, onNavigate }: { household: Household; onNavigate: (t: SetupTarget) => void }) {
+export function SetupChecklist({ household, onNavigate, onVisible }: { household: Household; onNavigate: (t: SetupTarget) => void; onVisible?: (v: boolean) => void }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<Awaited<ReturnType<typeof getSetupStatus>> | null>(null);
   const [hide, setHide] = useState(hidden);
@@ -22,10 +22,11 @@ export function SetupChecklist({ household, onNavigate }: { household: Household
     getSetupStatus(household.id).then(setStatus).catch(() => setStatus(null));
   }, [household.id, hide]);
 
-  if (hide || !status) return null;
-  const steps = buildSteps(status, t);
+  const steps = status ? buildSteps(status, t) : [];
   const p = progress(steps);
-  if (p.complete) return null;
+  const visible = !hide && !!status && !p.complete;
+  useEffect(() => { onVisible?.(visible); }, [visible, onVisible]);
+  if (!visible) return null;
   const next = steps.find((s) => !s.done)!;
 
   const go = (s: SetupStep) => {

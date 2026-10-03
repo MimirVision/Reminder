@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { addMemory, notifyPartnerIfSet, parseTasksAI, resolveWhere, updateMemoryFields, uploadPhoto, type Where } from '../lib/api';
+import { addMemory, aiAvailable, notifyPartnerIfSet, parseTasksAI, resolveWhere, updateMemoryFields, uploadPhoto, type Where } from '../lib/api';
 import { categoryName, placeLabel } from '../lib/labels';
 import { isNetworkError } from '../lib/outbox';
 import { findExistingPlace } from '../lib/placeSearch';
@@ -34,10 +34,11 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
   const [forId, setForId] = useState<string | null>(memory?.assignee_id ?? null);
   const [pinned, setPinned] = useState(!!memory?.pinned);
   const [details, setDetails] = useState<Details>(() => detailsOf(memory));
-  const [showMore, setShowMore] = useState(() => !!memory && (!!memory.notes || (memory.checklist?.length ?? 0) > 0 || !!memory.priority || (memory.tags?.length ?? 0) > 0));
+  const [showMore, setShowMore] = useState(() => !!memory && (!!memory.notes || (memory.checklist?.length ?? 0) > 0 || !!memory.priority || (memory.tags?.length ?? 0) > 0 || !!memory.assignee_id || !!memory.pinned));
   const [smart, setSmart] = useState(true);
   const [ai, setAi] = useState<{ text: string; tasks: ParsedTask[] } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiOk, setAiOk] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [dropped, setDropped] = useState<number[]>([]);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -59,6 +60,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
     return isInteresting(tasks) ? tasks : null;
   }, [editing, smart, body, ai, places, partner?.display_name]);
   useEffect(() => { setDropped([]); setAiNote(null); }, [body]);
+  useEffect(() => { if (plan && !aiOk) void aiAvailable().then(setAiOk); }, [plan, aiOk]);
   const kept = plan ? plan.filter((_, i) => !dropped.includes(i)) : null;
 
   async function sortWithAI() {
@@ -173,7 +175,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
           <div className="smart" role="group" aria-label={t('smart.title')}>
             <div className="row spread">
               <span className="label nopad">{ai && ai.text === body ? t('smart.aiDone') : t('smart.title')}</span>
-              {!(ai && ai.text === body) && <button type="button" className="btn small" disabled={aiBusy} onClick={() => void sortWithAI()}>{aiBusy ? t('smart.aiBusy') : t('smart.ai')}</button>}
+              {aiOk && !(ai && ai.text === body) && <button type="button" className="btn small" disabled={aiBusy} onClick={() => void sortWithAI()}>{aiBusy ? t('smart.aiBusy') : t('smart.ai')}</button>}
             </div>
             {plan.map((task, i) => dropped.includes(i) ? null : (
               <div className="smart-item" key={i}>
@@ -203,28 +205,32 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
         <div className="label">{t('sheet.when')}</div>
         <WhenField value={due} onChange={setDue} />
         <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} />
-        <button type="button" className="link left" aria-expanded={showMore} onClick={() => setShowMore(!showMore)}>
-          <Icon name="list" size={15} /> {showMore ? t('todo.detailLess') : `${t('todo.detail')}: ${t('prio.label').toLowerCase()}, ${t('check.label').toLowerCase()}, ${t('notes.label').toLowerCase()}`}
-        </button>
-        {showMore && <TodoDetails value={details} onChange={setDetails} />}
         {(photos?.length ?? 0) > 0 && <div className="photos">{photos!.map((u) => <img key={u} src={u} alt="" />)}</div>}
-        {members.length > 1 && partner && (
+        <div className="row"><label className="chipbtn">
+          <Icon name="camera" size={16} /> {files.length > 0 ? tn('sheet.photos', files.length) : t('sheet.photo')}
+          <input type="file" accept="image/*" multiple hidden onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+        </label></div>
+        <button type="button" className="link left" aria-expanded={showMore} onClick={() => setShowMore(!showMore)}>
+          <Icon name="list" size={15} /> {showMore ? t('todo.detailLess') : `${t('todo.detail')}: ${[t('prio.label'), t('check.label'), t('tags.label'), t('notes.label')].join(', ').toLowerCase()}`}
+        </button>
+        {showMore && (
           <>
-            <div className="label">{t('assign.label')}</div>
-            <div className="chips" role="group" aria-label={t('assign.label')}>
-              {([[null, t('assign.anyone')], [userId, t('assign.me')], [partner.user_id, partner.display_name || t('common.partner')]] as [string | null, string][]).map(([id, label]) => (
-                <button key={label} type="button" className={`chipbtn${forId === id ? ' on' : ''}`} aria-pressed={forId === id} onClick={() => setForId(id)}>{label}</button>
-              ))}
+            <TodoDetails value={details} onChange={setDetails} />
+            {members.length > 1 && partner && (
+              <>
+                <div className="label">{t('assign.label')}</div>
+                <div className="chips" role="group" aria-label={t('assign.label')}>
+                  {([[null, t('assign.anyone')], [userId, t('assign.me')], [partner.user_id, partner.display_name || t('common.partner')]] as [string | null, string][]).map(([id, label]) => (
+                    <button key={label} type="button" className={`chipbtn${forId === id ? ' on' : ''}`} aria-pressed={forId === id} onClick={() => setForId(id)}>{label}</button>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="row">
+              <button type="button" className={`chipbtn${pinned ? ' on' : ''}`} aria-pressed={pinned} onClick={() => setPinned(!pinned)}><Icon name="pin" size={16} /> {pinned ? t('pin.on') : t('pin.label')}</button>
             </div>
           </>
         )}
-        <div className="row">
-          <button type="button" className={`chipbtn${pinned ? ' on' : ''}`} aria-pressed={pinned} onClick={() => setPinned(!pinned)}><Icon name="pin" size={16} /> {pinned ? t('pin.on') : t('pin.label')}</button>
-          <label className="chipbtn">
-            <Icon name="camera" size={16} /> {files.length > 0 ? tn('sheet.photos', files.length) : t('sheet.photo')}
-            <input type="file" accept="image/*" multiple hidden onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
-          </label>
-        </div>
         <p className="muted hint">{t('sheet.hint')}</p>
         {err && <p className="error" role="alert">{err}</p>}
         <button className="btn primary big" disabled={saving}>{saving ? t('sheet.saving') : editing ? t('sheet.save') : kept && kept.length > 0 ? tn('sheet.addN', kept.length) : t('sheet.add')}</button>

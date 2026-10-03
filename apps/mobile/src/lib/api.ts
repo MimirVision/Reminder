@@ -342,6 +342,15 @@ export async function readLabel(householdId: string, uri: string, lang: 'en' | '
 
 
 /** "Smart add": the AI reads free text into a list of to-dos. `unavailable` when the function is not set up (the caller falls back to the on-phone reader). */
+let aiProbe: Promise<boolean> | null = null;
+/** True when the AI reader is set up on the server (asked once per launch; the button is only offered when it will work). */
+export function aiAvailable(): Promise<boolean> {
+  aiProbe ??= (async () => {
+    try { const { error } = await supabase.functions.invoke('parse-tasks', { body: { probe: true } }); return !error; } catch { return false; }
+  })();
+  return aiProbe;
+}
+
 export async function parseTasksAI(householdId: string, text: string, lang: 'en' | 'nb', partner: string | null): Promise<{ tasks: import('../shared/lib/quickAdd').ParsedTask[] | null; error: 'unavailable' | 'limit' | 'failed' | null }> {
   const d = new Date();
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

@@ -132,8 +132,10 @@ Deno.serve(async (req) => {
   if (!auth) return json({ error: 'unauthorized' }, 401);
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } });
 
-  let body: { household_id?: string; text?: string; lang?: string; today?: string; partner?: string };
+  let body: { household_id?: string; text?: string; lang?: string; today?: string; partner?: string; probe?: boolean };
   try { body = await req.json(); } catch { return json({ error: 'bad_request' }, 400); }
+  // The app asks once whether the AI reader is set up, so it only offers the button when it will work.
+  if (body.probe === true) return json({ ok: true });
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!body.household_id || !text || !/^\d{4}-\d{2}-\d{2}$/.test(body.today ?? '')) return json({ error: 'bad_request' }, 400);
   const today = body.today as string;

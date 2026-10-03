@@ -736,5 +736,8 @@
   "bulk.moved_other": "{n} flyttet",
   "bulk.pick": "Velg {title}",
   "bulk.hint": "Trykk på oppgaver for å velge dem.",
-  "bulk.all": "Velg alle"
+  "bulk.all": "Velg alle",
+  "set.todoList": "Oppgaveliste",
+  "set.recap": "Vis ukesoppsummering",
+  "set.recapBody": "Et lite kort øverst i listen med det dere fikk gjort denne uken."
 }

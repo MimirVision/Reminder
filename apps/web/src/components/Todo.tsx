@@ -53,6 +53,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [online, setOnline] = useState(() => navigator.onLine);
   const [loadFailed, setLoadFailed] = useState(false);
   const [tour, setTour] = useState(false);
+  const [setupOn, setSetupOn] = useState(false);
+  const [recapOn] = useState(() => { try { return localStorage.getItem('hm.recap') === '1'; } catch { return false; } });
   const [placesLoaded, setPlacesLoaded] = useState(false);
   const [sharedText, setSharedText] = useState<string | null>(null);
   const [doneTicks, setDoneTicks] = useState(0);
@@ -427,18 +429,16 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
 
   return (
     <main className={`page${mapOn ? ' map-mode' : ''}`}>
-      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{showDone && <button className="btn small icon glass on" aria-label={t('todo.back')} aria-pressed onClick={() => { setShowDone(false); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{mapOn && <button className={`btn small icon glass${route ? ' on' : ''}`} aria-label={t('route.open')} onClick={() => setPlanning(true)}><Icon name="navigate" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('more.label')} onClick={() => setMenu(true)}><Icon name="more" size={16} /></button>}{!showDone && mapOn && seg}</div></div>
+      <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{showDone && <button className="btn small icon glass on" aria-label={t('todo.back')} aria-pressed onClick={() => { setShowDone(false); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{mapOn && <button className={`btn small icon glass${route ? ' on' : ''}`} aria-label={t('route.open')} onClick={() => setPlanning(true)}><Icon name="navigate" size={16} /></button>}{!showDone && !mapOn && <button className={`btn small icon glass${activeCount(filter) ? ' on' : ''}`} aria-label={activeCount(filter) ? `${t('filter.button')} (${activeCount(filter)})` : t('filter.button')} onClick={() => setFiltering(true)}><Icon name="filter" size={16} />{activeCount(filter) > 0 && <span className="badge-n">{activeCount(filter)}</span>}</button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('more.label')} onClick={() => setMenu(true)}><Icon name="more" size={16} /></button>}{!showDone && mapOn && seg}</div></div>
       {!showDone && !mapOn && seg}
       {searching && !mapOn && !showDone && (
         <label className="searchfield"><Icon name="search" size={18} /><input autoFocus type="search" placeholder={t('search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />{query && <button type="button" className="mini" aria-label={t('search.clear')} onClick={() => setQuery('')}><Icon name="x" size={14} /></button>}</label>
       )}
-      {!mapOn && !showDone && !searching && !reordering && (
+      {!mapOn && !showDone && !searching && !reordering && activeCount(filter) > 0 && (
         <div className="chips filter" role="group" aria-label={t('filter.label')}>
-          <button type="button" className={`chipbtn${activeCount(filter) ? ' on' : ''}`} onClick={() => setFiltering(true)}><Icon name="filter" size={15} /> {t('filter.button')}{activeCount(filter) > 0 && ` · ${activeCount(filter)}`}</button>
           {filter.who !== 'all' && <button type="button" className="chipbtn pill" aria-label={t('filter.remove', { name: filter.who === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partner?.display_name || t('common.partner') }) })} onClick={() => setFilter({ ...filter, who: 'all' })}>{filter.who === 'mine' ? t('filter.mine') : t('filter.theirs', { name: partner?.display_name || t('common.partner') })} <Icon name="x" size={12} /></button>}
           {filter.minPriority > 0 && <button type="button" className="chipbtn pill" aria-label={t('filter.remove', { name: t(`prio.${filter.minPriority}` as 'prio.1') })} onClick={() => setFilter({ ...filter, minPriority: 0 })}><Icon name="flag" size={12} /> {t(`prio.${filter.minPriority}` as 'prio.1')}+ <Icon name="x" size={12} /></button>}
           {filter.tag && <button type="button" className="chipbtn pill" aria-label={t('filter.remove', { name: `#${filter.tag}` })} onClick={() => setFilter({ ...filter, tag: null })}>#{filter.tag} <Icon name="x" size={12} /></button>}
-          {activeCount(filter) === 0 && <button type="button" className="chipbtn route-chip" onClick={() => setPlanning(true)}><Icon name="navigate" size={15} /> {t('route.open')}</button>}
         </div>
       )}
       {reordering && !showDone && !mapOn && <div className="reorder-bar" role="status"><span>{t('reorder.hint')}</span><button className="btn small primary" onClick={() => setReordering(false)}>{t('reorder.done')}</button></div>}
@@ -472,9 +472,9 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
         )
       ) : (
         <>
-          <SetupChecklist household={household} onNavigate={onNavigate} />
-          {memories.length > 0 && <InstallBanner />}
-          <RecapCard household={household} members={members} refreshKey={doneTicks} />
+          {!tour && <SetupChecklist household={household} onNavigate={onNavigate} onVisible={setSetupOn} />}
+          {memories.length > 0 && !tour && !setupOn && <InstallBanner />}
+          {recapOn && <RecapCard household={household} members={members} refreshKey={doneTicks} />}
           {mode === 'calendar' ? (
             <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => { setAddDate(d); setAdding(true); }} />
           ) : (<>
