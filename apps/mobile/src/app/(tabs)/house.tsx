@@ -6,6 +6,7 @@ import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
 import { AddTaskForm } from '@/lib/AddTaskForm';
 import { FactsView } from '@/lib/FactsView';
+import { ReportImport } from '@/lib/ReportImport';
 import { MovingView } from '@/lib/MovingView';
 import { BAR_SPACE, Btn, Card, Check, Field, Muted, SectionLabel, Title, styles } from '@/lib/ui';
 import { groupTasks } from '../../core/maintenance.ts';
@@ -55,6 +56,7 @@ export default function House() {
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [mode, setMode] = useState<'calendar' | 'facts' | 'moving'>('calendar');
   const [addingTask, setAddingTask] = useState(false);
@@ -191,6 +193,8 @@ export default function House() {
       {section(tr('house.soon'), groups.soon)}
       {groups.later.length > 0 && <Btn label={showLater ? tr('house.hideLater') : tr('house.laterN', { n: groups.later.length })} onPress={() => setShowLater(!showLater)} />}
       {showLater && section(tr('house.later'), groups.later)}
+      <SectionLabel>{tr('house.bought')}</SectionLabel>
+      {importing && household ? <ReportImport householdId={household.id} onClose={() => setImporting(false)} /> : <Btn label={tr('house.import')} onPress={() => setImporting(true)} />}
     </ScrollView>
   );
 }

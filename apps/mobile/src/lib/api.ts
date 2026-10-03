@@ -1,4 +1,5 @@
 import * as ImageManipulator from 'expo-image-manipulator';
+import { uuid } from './id';
 import { readJson, writeJson } from './store';
 import { supabase } from './supabase';
 import type { FactCategory } from '../core/facts.ts';
@@ -377,4 +378,19 @@ export async function deleteMyAccount(householdId: string | null) {
 /** Saves a new manual order (see shared/lib/order). */
 export async function setOrder(updates: { id: string; sort_order: number }[]) {
   for (const u of updates) await updateMemory(u.id, { sort_order: u.sort_order });
+}
+
+// Tilstandsrapport import: upload the PDF to the private bucket, then ask the edge function to read it.
+export async function importReport(householdId: string, uri: string): Promise<import('../shared/lib/report').ReportSummary> {
+  const bytes = await (await fetch(uri)).arrayBuffer();
+  const path = `${householdId}/reports/${uuid()}.pdf`;
+  const up = await supabase.storage.from('media').upload(path, bytes, { contentType: 'application/pdf' });
+  if (up.error) throw new Error(up.error.message);
+  const { data, error } = await supabase.functions.invoke('import-report', { body: { path } });
+  if (error) {
+    let code = '';
+    try { code = ((await (error as { context?: Response }).context?.json()) as { error?: string })?.error ?? ''; } catch { /* no body */ }
+    throw new Error(`report:${['not_configured', 'too_large', 'incomplete', 'unreadable', 'limit'].includes(code) ? (code === 'unreadable' ? 'incomplete' : code) : 'failed'}`);
+  }
+  return (data as { report: import('../shared/lib/report').ReportSummary }).report;
 }

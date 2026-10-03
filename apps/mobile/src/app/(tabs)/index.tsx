@@ -24,11 +24,12 @@ import { useToast } from '@/lib/Toast';
 import { TodoMap } from '@/lib/TodoMap';
 import { TodoRow } from '@/lib/TodoRow';
 import { Tour, tourSeen } from '@/lib/Tour';
-import { BAR_SPACE, Btn, Card, Icon, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
+import { BAR_SPACE, Btn, Card, Field, Icon, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
 import { distanceM } from '../../core/geo.ts';
 import { placeLabel, recurringLabel } from '../../shared/lib/labels';
 import { nextOccurrence } from '../../shared/lib/recurrence';
 import { addDays, dueBucket, dueLabel, formatDay, todayISO } from '../../shared/lib/when';
+import { matchTodos } from '../../shared/lib/search';
 import { moveStep } from '../../shared/lib/order';
 import { allTags } from '../../shared/lib/tags';
 import { activeCount, applyFilter, noFilter, type Filter } from '../../shared/lib/todoFilter';
@@ -52,6 +53,10 @@ export default function Todo() {
   const [filter, setFilter] = useState<Filter>(noFilter);
   const [filtering, setFiltering] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  const [showDone, setShowDone] = useState(false);
+  const [doneList, setDoneList] = useState<Memory[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -92,6 +97,8 @@ export default function Todo() {
   }, [household, uid]);
 
   useEffect(() => { void load(); }, [load]);
+  const loadDone = useCallback(async () => { if (household) setDoneList(await listMemories(household.id, ['done']).catch(() => [])); }, [household]);
+  useEffect(() => { if (showDone) void loadDone(); }, [showDone, loadDone]);
   useFocusEffect(useCallback(() => { void load(); }, [load])); // after the add screen closes
   useEffect(() => { if (household) void purgeDismissed(household.id).catch(() => {}); }, [household]);
 
@@ -351,12 +358,18 @@ export default function Todo() {
   );
 
   const openMenu = () => {
-    const labels = [t('more.reorder'), t('more.route'), t('common.cancel')];
-    ActionSheetIOS.showActionSheetWithOptions({ options: labels, cancelButtonIndex: 2, userInterfaceStyle: th.dark ? 'dark' : 'light' }, (i) => {
-      if (i === 0) { setMode('list'); setReordering(true); }
-      else if (i === 1) router.push('/route');
+    const labels = [t('more.done'), t('more.reorder'), t('more.route'), t('common.cancel')];
+    ActionSheetIOS.showActionSheetWithOptions({ options: labels, cancelButtonIndex: 3, userInterfaceStyle: th.dark ? 'dark' : 'light' }, (i) => {
+      if (i === 0) { setMode('list'); setSearching(false); setQuery(''); setShowDone(true); }
+      else if (i === 1) { setMode('list'); setShowDone(false); setReordering(true); }
+      else if (i === 2) router.push('/route');
     });
   };
+  const found = searching && query.trim() && !showDone ? matchTodos(memories, query, placeName, (m) => dueLabel(m, t, locale)) : null;
+  async function reopenDone(m: Memory) {
+    setDoneList((cur) => cur.filter((x) => x.id !== m.id));
+    try { await reopenMemory(m.id, m); } finally { void load(); void loadDone(); }
+  }
 
   const partnerName = partner ? partner.display_name || t('common.partner') : null;
   const pill = (label: string, onPress: () => void) => <Chip key={label} on label={`${label}  ✕`} onPress={onPress} />;
@@ -400,16 +413,22 @@ export default function Todo() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 }}>
-          <Title>{t('todo.title')}</Title>
+          <Title>{showDone ? t('todo.doneTitle') : t('todo.title')}</Title>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {!showDone && (
+              <Pressable accessibilityRole="button" accessibilityLabel={t('search.open')} accessibilityState={{ selected: searching }} onPress={() => { setSearching((v) => !v); setQuery(''); }}>
+                <Glass interactive style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}><Icon name="magnifyingglass" size={17} color={th.ink} /></Glass>
+              </Pressable>
+            )}
             <Pressable accessibilityRole="button" accessibilityLabel={t('more.label')} onPress={openMenu}>
               <Glass interactive style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}><Icon name="ellipsis" size={18} color={th.ink} /></Glass>
             </Pressable>
-            {segmented}
+            {showDone ? <Btn small label={t('todo.back')} onPress={() => setShowDone(false)} /> : segmented}
           </View>
         </View>
+        {searching && !showDone && <Field autoFocus placeholder={t('search.placeholder')} value={query} onChangeText={setQuery} returnKeyType="search" clearButtonMode="while-editing" autoCorrect={false} />}
         {queued > 0 && <Muted>{tn('sync.waiting', queued)}</Muted>}
-        {reordering ? (
+        {showDone || searching ? null : reordering ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.card }}>
             <Text style={{ flex: 1, color: th.muted, fontSize: 14, fontFamily: font.body }}>{t('reorder.hint')}</Text>
             <Btn small primary label={t('reorder.done')} onPress={() => setReordering(false)} />
@@ -430,7 +449,23 @@ export default function Todo() {
             <Muted>{t('todo.empty.body')}</Muted>
           </View>
         )}
-        {mode === 'calendar' ? (
+        {showDone ? (
+          doneList.length === 0 ? <Muted>{t('todo.done.empty')}</Muted> : (
+            <View style={{ backgroundColor: th.card, borderRadius: 20, paddingHorizontal: 16, overflow: 'hidden' }}>
+              {doneList.map((m) => (
+                <TodoRow key={m.id} m={m} done due={dueLabel(m, t, locale) || undefined} place={placeName(m.place_id)} doneBy={m.done_by && members.length > 1 ? nameOf(m.done_by) : undefined}
+                  author={null} onToggle={() => void reopenDone(m)} onEdit={() => router.push({ pathname: '/add', params: { id: m.id } })} />
+              ))}
+            </View>
+          )
+        ) : found ? (
+          found.length === 0 ? <Muted>{t('search.none', { q: query.trim() })}</Muted> : (
+            <View style={{ gap: 6 }}>
+              <SectionLabel>{tn('search.results', found.length)}</SectionLabel>
+              <View style={{ backgroundColor: th.card, borderRadius: 20, paddingHorizontal: 16, overflow: 'hidden' }}>{found.map((m) => row(m, { place: true }))}</View>
+            </View>
+          )
+        ) : mode === 'calendar' ? (
           <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => router.push({ pathname: '/add', params: { date: d } })} />
         ) : (<>
         {lateOnes.length > 0 && (

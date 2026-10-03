@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Linking, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
+import { shareExport } from '@/lib/exportData';
 import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
@@ -15,7 +16,7 @@ import type { CaptureKey } from '@/lib/types';
 export default function Settings() {
   const th = useTheme();
   const themePref = useThemePref();
-  const { t, tn, locale } = useI18n();
+  const { t, tn, locale, lang } = useI18n();
   const insets = useSafeAreaInsets();
   const { household } = useSession();
   const { level, setLevel } = useGlass();
@@ -28,6 +29,8 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [acctBusy, setAcctBusy] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
 
   const load = useCallback(async () => {
     setEnabled(await hasBackgroundAccess());
@@ -117,6 +120,20 @@ export default function Settings() {
           { text: t('common.cancel'), style: 'cancel' },
           { text: t('set.newCode'), onPress: async () => { if (household) setInvite(await rotateInviteCode(household.id)); } },
         ])} />
+      </Card>
+
+      <Card>
+        {h(t('data.title'))}
+        <Muted>{t('data.intro')}</Muted>
+        <Btn disabled={exportBusy || !household} label={t('data.export')} onPress={() => {
+          if (!household) return;
+          setExportBusy(true);
+          setExportMsg(t('data.starting'));
+          shareExport(household.id, household.name, setExportMsg, t, lang)
+            .catch((e) => setExportMsg(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
+            .finally(() => setExportBusy(false));
+        }} />
+        {exportMsg ? <Muted>{exportMsg}</Muted> : null}
       </Card>
 
       <Card>
