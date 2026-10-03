@@ -142,7 +142,7 @@ export default function PlaceList() {
 
   return (
     <View style={{ flex: 1, backgroundColor: t.sheet }}>
-      <ScrollView contentContainerStyle={{ padding: 22, paddingTop: 18, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
+      <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={{ padding: 22, paddingTop: 18, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
         <View style={{ alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: t.line, marginBottom: 14 }} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View style={{ flex: 1 }}>

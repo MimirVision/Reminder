@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -9,6 +10,7 @@ import {
 import { AddBar } from '@/lib/AddBar';
 import { Chip } from '@/lib/Chip';
 import { Glass } from '@/lib/glass';
+import { MapSheet, tabBarSpace, type Snap } from '@/lib/MapSheet';
 import { useI18n } from '@/lib/i18n';
 import { flush, pending, queuedToMemory } from '@/lib/outbox';
 import { RecapCard } from '@/lib/RecapCard';
@@ -19,7 +21,7 @@ import { useToast } from '@/lib/Toast';
 import { TodoMap } from '@/lib/TodoMap';
 import { TodoRow } from '@/lib/TodoRow';
 import { Tour, tourSeen } from '@/lib/Tour';
-import { BAR_SPACE, Btn, Card, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
+import { BAR_SPACE, Btn, Card, Icon, Muted, PlaceChip, SectionLabel, Title, styles } from '@/lib/ui';
 import { distanceM } from '../../core/geo.ts';
 import { placeLabel, recurringLabel } from '../../shared/lib/labels';
 import { nextOccurrence } from '../../shared/lib/recurrence';
@@ -52,6 +54,9 @@ export default function Todo() {
   const [tour, setTour] = useState(false);
   const [doneTicks, setDoneTicks] = useState(0);
   const [who, setWho] = useState<'all' | 'mine' | 'theirs'>('all');
+  const [sheetSnap, setSheetSnap] = useState<Snap>('half');
+  const [sheetH, setSheetH] = useState(300);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const uid = session?.user.id ?? '';
 
   const load = useCallback(async () => {
@@ -231,6 +236,41 @@ export default function Todo() {
     );
   };
 
+  // Every place on the map as a card: the ones with to-dos first, then the nearest.
+  const entries = useMemo(() => pins.map((p) => ({
+    pin: p, distance: here ? distanceM(here, { lat: p.lat, lon: p.lon }) : null,
+  })).sort((a, b) => (b.pin.count > 0 ? 1 : 0) - (a.pin.count > 0 ? 1 : 0) || (a.distance ?? 1e12) - (b.distance ?? 1e12) || a.pin.label.localeCompare(b.pin.label, locale)), [pins, here, locale]);
+  const withTodos = entries.filter((e) => e.pin.count > 0);
+  const without = entries.filter((e) => e.pin.count === 0);
+
+  const selectPin = (p: Pin) => { setSelectedKey(p.key); setSheetSnap((s) => (s === 'peek' ? 'half' : s)); };
+
+  async function locate() {
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.granted) await load();
+    } catch { /* the prompt can fail on a simulator */ }
+  }
+
+  const card = ({ pin, distance }: { pin: Pin; distance: number | null }) => (
+    <Pressable key={pin.key} accessibilityRole="button" onPress={() => selectPin(pin)}
+      style={{ borderRadius: 18, borderWidth: selectedKey === pin.key ? 2 : 1, borderColor: selectedKey === pin.key ? th.accent : th.line, backgroundColor: th.card, padding: 14, gap: 10 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: th.ink, fontSize: 17, fontFamily: font.semi }}>{pin.label}</Text>
+          {distance != null && <Muted>{t('map.away', { d: km(distance) })}</Muted>}
+        </View>
+        <View style={{ borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: pin.count ? th.tint : 'transparent', borderWidth: pin.count ? 0 : 1, borderColor: th.line }}>
+          <Text style={{ color: pin.count ? th.tintInk : th.muted, fontSize: 13, fontFamily: font.semi }}>{pin.count ? tn('map.todos', pin.count) : t('map.noTodos')}</Text>
+        </View>
+      </View>
+      <View style={styles.row}>
+        <Btn small label={t('todo.openList')} onPress={() => openList(pin.placeId, pin.label)} />
+        <Btn small label={t('where.directions')} onPress={() => void Linking.openURL(`https://maps.apple.com/?dirflg=d&daddr=${pin.lat.toFixed(6)},${pin.lon.toFixed(6)}`)} />
+      </View>
+    </Pressable>
+  );
+
   const segmented = (
     <Glass interactive style={{ borderRadius: 24, padding: 3, flexDirection: 'row' }}>
       {(['list', 'map'] as const).map((m) => (
@@ -245,22 +285,31 @@ export default function Todo() {
   if (mode === 'map') {
     return (
       <View style={{ flex: 1, backgroundColor: th.bg }}>
-        <TodoMap pins={pins} here={here} onOpen={(p) => openList(p.placeId, p.label)} />
-        <View style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, alignItems: 'center' }}>{segmented}</View>
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '38%', backgroundColor: th.sheet, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 10, paddingHorizontal: 20, paddingBottom: BAR_SPACE - 70, opacity: 0.96 }}>
-          <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: th.line, alignSelf: 'center', marginBottom: 12 }} />
-          <Text style={{ color: th.ink, fontSize: 22, fontFamily: font.display, marginBottom: 6 }}>{t('map.nearYou')}</Text>
-          <ScrollView>
-            {near.length === 0 && <Muted>{here ? t('map.nothingNear') : t('map.allowLocationSee')}</Muted>}
-            {near.map((g) => (
-              <Pressable key={g.placeId} onPress={() => openList(g.placeId, g.label)} style={{ paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth * 2, borderBottomColor: th.line }}>
-                <Text style={{ color: th.ink, fontSize: 17, fontFamily: font.medium }}>{g.label} · {tn('map.todos', g.items.length)}</Text>
-                {g.distance != null && <Muted>{km(g.distance)}</Muted>}
-              </Pressable>
-            ))}
-          </ScrollView>
+        <TodoMap pins={pins} here={here} selectedKey={selectedKey} bottomInset={sheetH} onOpen={selectPin} />
+        <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+          {segmented}
+          <Pressable accessibilityRole="button" accessibilityLabel={t('route.open')} onPress={() => router.push('/route')} style={{ position: 'absolute', right: 0 }}>
+            <Glass interactive style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}><Icon name="location.north" size={18} /></Glass>
+          </Pressable>
         </View>
-        <AddBar />
+        {sheetSnap !== 'full' && (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('todo.addAria')} onPress={() => router.push('/add')}
+            style={{ position: 'absolute', right: 16, bottom: sheetH + tabBarSpace(insets.bottom) + 14, width: 54, height: 54, borderRadius: 27, backgroundColor: th.accent, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}>
+            <Icon name="plus" size={24} color="#FFFFFF" />
+          </Pressable>
+        )}
+        <MapSheet snap={sheetSnap} onSnap={setSheetSnap} onHeight={setSheetH} title={here ? t('map.nearYou') : t('map.places')}>
+          {!here && (
+            <View style={{ gap: 8, alignItems: 'flex-start' }}>
+              <Muted>{t('map.locationOff')}</Muted>
+              <Btn small label={t('map.allowLocation')} onPress={() => void locate()} />
+            </View>
+          )}
+          {places.length === 0 && <Muted>{t('map.empty')}</Muted>}
+          {withTodos.map(card)}
+          {without.length > 0 && <SectionLabel>{t('map.otherPlaces')}</SectionLabel>}
+          {without.map(card)}
+        </MapSheet>
       </View>
     );
   }

@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 import { getHousehold } from './api';
 import { flush } from './outbox';
 import { refreshRegions, rememberHousehold } from './reminders';
+import { readJson, writeJson } from './store';
 import type { Household } from './types';
 
 type Ctx = {
@@ -24,13 +25,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const h = await getHousehold();
       setHousehold(h);
+      writeJson('hm.household', h);
       if (h) {
         rememberHousehold(h.id);
         void flush();
         void refreshRegions().catch(() => {});
       }
     } catch {
-      // offline: keep whatever we had
+      // Offline: use the household we saw last, or opening the app without a connection would show "create a household".
+      setHousehold((cur) => cur ?? readJson<Household | null>('hm.household', null));
     }
   }, []);
 
@@ -46,7 +49,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       if (userId) await reloadHousehold();
-      else setHousehold(null);
+      else { setHousehold(null); writeJson('hm.household', null); }
       if (!cancelled) setReady(true);
     })();
     return () => {

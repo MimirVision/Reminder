@@ -135,7 +135,7 @@ export default function RoutePlanner() {
   const title = (m: Memory) => (m.body || t('todo.photo')).split('\n')[0];
 
   return (
-    <ScrollView style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: 24, paddingBottom: 60 }]} keyboardShouldPersistTaps="handled">
+    <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: 24, paddingBottom: 60 }]} keyboardShouldPersistTaps="handled">
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={{ color: th.ink, fontSize: 28, fontFamily: font.display }}>{calc ? t('route.result') : t('route.title')}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.close')} onPress={() => router.back()} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: th.card, alignItems: 'center', justifyContent: 'center' }}>

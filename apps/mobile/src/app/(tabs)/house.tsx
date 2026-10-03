@@ -96,7 +96,7 @@ export default function House() {
 
   if (mode === 'moving') {
     return (
-      <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
+      <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
         <Title>{tr('house.title')}</Title>
         {toggle2}
         <MovingView />
@@ -106,7 +106,7 @@ export default function House() {
 
   if (mode === 'facts') {
     return (
-      <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
+      <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
         <Title>{tr('house.title')}</Title>
         {toggle2}
         <FactsView />
@@ -116,7 +116,7 @@ export default function House() {
 
   if (tasks.length === 0) {
     return (
-      <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]}>
+      <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]}>
         <Title>{tr('house.title')}</Title>
         {toggle2}
         <Muted>{tr('house.intro')}</Muted>
@@ -178,7 +178,7 @@ export default function House() {
     );
 
   return (
-    <ScrollView
+    <ScrollView automaticallyAdjustKeyboardInsets
       style={{ backgroundColor: t.bg }}
       contentContainerStyle={[styles.screen, pad]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}

@@ -193,7 +193,7 @@ export default function Add() {
   const label = saving ? t('sheet.saving') : editId ? t('sheet.save') : kept && kept.length > 0 ? tn('sheet.addN', kept.length) : t('sheet.add');
 
   return (
-    <ScrollView contentContainerStyle={[styles.screen, { paddingTop: 24, paddingBottom: 60 }]} keyboardShouldPersistTaps="handled" style={{ backgroundColor: th.bg }}>
+    <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={[styles.screen, { paddingTop: 24, paddingBottom: 60 }]} keyboardShouldPersistTaps="handled" style={{ backgroundColor: th.bg }}>
       <Text style={{ color: th.ink, fontSize: 28, fontFamily: font.display }}>{editId ? t('sheet.edit') : t('sheet.new')}</Text>
       <Field placeholder={t('sheet.placeholder')} multiline autoFocus={!editId} value={body} onChangeText={setBody} />
 

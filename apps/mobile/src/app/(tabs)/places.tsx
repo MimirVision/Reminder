@@ -67,7 +67,7 @@ export default function Places() {
   }
 
   return (
-    <ScrollView style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE - 60 }]} keyboardShouldPersistTaps="handled">
+    <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE - 60 }]} keyboardShouldPersistTaps="handled">
       <Title>{t('places.title')}</Title>
       <Muted>{t('places.intro')}</Muted>
 

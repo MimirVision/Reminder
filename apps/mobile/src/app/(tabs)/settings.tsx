@@ -48,7 +48,7 @@ export default function Settings() {
   const h = (s: string) => <Text style={{ color: th.ink, fontSize: 17, fontFamily: font.semi }}>{s}</Text>;
 
   return (
-    <ScrollView style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE - 60 }]}>
+    <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE - 60 }]}>
       <Title>{t('set.title')}</Title>
 
       <Card>
