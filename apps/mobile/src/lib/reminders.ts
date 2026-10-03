@@ -17,6 +17,7 @@ export const NOTIFICATION_CATEGORY = 'memory';
 
 const K = {
   household: 'hm.householdId',
+  user: 'hm.userId',
   snapshot: 'hm.snapshot',
   pois: 'hm.pois',
   regions: 'hm.regions',
@@ -26,6 +27,12 @@ const K = {
 export type Snapshot = { places: PlaceRow[]; memories: MemoryRow[] };
 
 export const rememberHousehold = (id: string) => writeJson(K.household, id);
+export const rememberUser = (id: string | null) => writeJson(K.user, id);
+/** A to-do given to your partner should not remind you: keep what is for you or for anyone. */
+const mine = <T extends { assignee_id?: string | null }>(list: T[]): T[] => {
+  const me = readJson<string | null>(K.user, null);
+  return me ? list.filter((m) => !m.assignee_id || m.assignee_id === me) : list;
+};
 export const readSnapshot = () => readJson<Snapshot>(K.snapshot, { places: [], memories: [] });
 export const readRegionLabels = () => readJson<Record<string, string>>(K.regions, {});
 export { K as storeKeys };
@@ -87,7 +94,8 @@ export async function refreshRegions(): Promise<{ watching: number }> {
   const householdId = readJson<string | null>(K.household, null);
   if (!householdId) return { watching: 0 };
 
-  const [places, memories] = await Promise.all([listPlaces(householdId), listMemories(householdId, ['active'])]);
+  const [places, all] = await Promise.all([listPlaces(householdId), listMemories(householdId, ['active'])]);
+  const memories = mine(all);
   writeJson(K.snapshot, { places, memories } satisfies Snapshot);
 
   const here = await currentPosition();
@@ -184,7 +192,8 @@ export async function mapPins(): Promise<{ here: LatLon | null; pins: Pin[] }> {
 
 // To-dos with a date get a normal notification at their time (09:00 when they only have a date). Re-planned after every change,
 // because a finished, moved or deleted to-do must not ring. Silent when notifications are not allowed.
-export async function scheduleDueReminders(memories: DueMemory[]): Promise<void> {
+export async function scheduleDueReminders(all: (DueMemory & { assignee_id?: string | null })[]): Promise<void> {
+  const memories = mine(all);
   try {
     if (!(await Notifications.getPermissionsAsync()).granted) return;
     for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
@@ -209,6 +218,20 @@ export async function notifyStatus(): Promise<NotifyStatus> {
     return cur.granted ? 'granted' : cur.canAskAgain ? 'undetermined' : 'denied';
   } catch {
     return 'denied';
+  }
+}
+
+/** A notification a few seconds from now, to check that permission, sound and the banner work. */
+export async function sendTestNotification(): Promise<boolean> {
+  try {
+    if (!(await ensureNotifyPermission())) return false;
+    await Notifications.scheduleNotificationAsync({
+      content: { title: 'Home Memory', body: tNow('set.notifTestBody') },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 5 },
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 

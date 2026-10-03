@@ -5,7 +5,7 @@ import Constants from 'expo-constants';
 import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
-import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, refreshRegions, type NotifyStatus } from '@/lib/reminders';
+import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, refreshRegions, sendTestNotification, type NotifyStatus } from '@/lib/reminders';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
 import { font, setThemePref, useTheme, useThemePref } from '@/lib/theme';
@@ -78,6 +78,7 @@ export default function Settings() {
         <Muted>{notif === 'granted' ? t('set.notifOn') : notif === 'denied' ? t('set.notifDenied') : t('set.notifOff')}</Muted>
         {notif === 'undetermined' && <Btn primary label={t('set.notifTurnOn')} onPress={async () => { await ensureNotifyPermission(); await load(); }} />}
         {notif === 'denied' && <Btn primary label={t('set.openSettings')} onPress={() => void Linking.openSettings()} />}
+        {notif === 'granted' && <Btn label={t('set.notifTest')} onPress={async () => { Alert.alert((await sendTestNotification()) ? t('set.notifTestSent') : t('set.notifDenied')); }} />}
       </Card>
 
       <Card>
@@ -85,6 +86,8 @@ export default function Settings() {
         <Muted>{enabled ? t('set.remindersOn') : t('set.remindersOff')}</Muted>
         {watching !== null && <Muted>{tn('set.watching', watching)}</Muted>}
         <Btn primary label={enabled ? t('set.refresh') : t('set.turnOn')} onPress={turnOn} />
+        {!enabled && <Muted>{t('set.alwaysHint')}</Muted>}
+        {!enabled && <Btn small label={t('set.openLocation')} onPress={() => void Linking.openSettings()} />}
       </Card>
 
       <Card>

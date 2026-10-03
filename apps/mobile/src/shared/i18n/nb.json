@@ -608,5 +608,19 @@
   "set.notifOff": "Varsler er av. Slå dem på for å få beskjed når en oppgave skal gjøres eller du er nær et sted.",
   "set.notifDenied": "Varsler er blokkert for Home Memory. Åpne Innstillinger på iPhone, trykk Varsler og tillat dem.",
   "set.notifTurnOn": "Slå på varsler",
-  "set.openSettings": "Åpne iPhone-innstillinger"
+  "set.openSettings": "Åpne iPhone-innstillinger",
+  "places.remindWithin": "Påminn meg innen",
+  "places.shopType": "Type butikk",
+  "places.pickDistance": "Hvor nær skal du være før du får en påminnelse?",
+  "places.pickType": "Hva slags butikk er dette?",
+  "places.yourPlaces": "Stedene dine",
+  "places.openTodos_one": "{n} åpen oppgave",
+  "places.openTodos_other": "{n} åpne oppgaver",
+  "places.more": "Mer",
+  "places.saveHereHelp": "Stå på stedet og lagre det, for eksempel Hjemme eller Jobb.",
+  "set.notifTest": "Send et testvarsel",
+  "set.notifTestBody": "Slik ser en påminnelse ut. Lås telefonen og vent noen sekunder.",
+  "set.notifTestSent": "Sendt. Det kommer om 5 sekunder.",
+  "set.alwaysHint": "For påminnelser når du er nær et sted, sett Posisjon til «Alltid» for Home Memory i iPhone-innstillinger.",
+  "set.openLocation": "Åpne iPhone-innstillinger"
 }

@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { getHousehold } from './api';
 import { flush } from './outbox';
-import { refreshRegions, rememberHousehold } from './reminders';
+import { refreshRegions, rememberHousehold, rememberUser } from './reminders';
 import { readJson, writeJson } from './store';
 import type { Household } from './types';
 
@@ -48,6 +48,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      rememberUser(userId);
       if (userId) await reloadHousehold();
       else { setHousehold(null); writeJson('hm.household', null); }
       if (!cancelled) setReady(true);

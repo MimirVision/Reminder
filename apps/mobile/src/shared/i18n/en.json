@@ -608,5 +608,19 @@
   "set.notifOff": "Notifications are off. Turn them on to be told when a to-do is due or you are near a place.",
   "set.notifDenied": "Notifications are blocked for Home Memory. Open iPhone Settings, tap Notifications and allow them.",
   "set.notifTurnOn": "Turn on notifications",
-  "set.openSettings": "Open iPhone Settings"
+  "set.openSettings": "Open iPhone Settings",
+  "places.remindWithin": "Remind me within",
+  "places.shopType": "Type of shop",
+  "places.pickDistance": "How close before you are reminded?",
+  "places.pickType": "What kind of shop is this?",
+  "places.yourPlaces": "Your places",
+  "places.openTodos_one": "{n} open to-do",
+  "places.openTodos_other": "{n} open to-dos",
+  "places.more": "More",
+  "places.saveHereHelp": "Stand at the place and save it, for example Home or Work.",
+  "set.notifTest": "Send a test notification",
+  "set.notifTestBody": "This is how a reminder looks. Lock your phone and wait a few seconds.",
+  "set.notifTestSent": "Sent. It arrives in 5 seconds.",
+  "set.alwaysHint": "For reminders when you are near a place, set Location to “Always” for Home Memory in iPhone Settings.",
+  "set.openLocation": "Open iPhone Settings"
 }
