@@ -142,7 +142,7 @@ export default function PlaceList() {
 
   return (
     <View style={{ flex: 1, backgroundColor: t.sheet }}>
-      <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={{ padding: 22, paddingTop: 18, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
+      <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={{ padding: 16, paddingTop: 20, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
         <View style={{ alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: t.line, marginBottom: 14 }} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View style={{ flex: 1 }}>
@@ -188,7 +188,7 @@ export default function PlaceList() {
           <Text style={{ color: t.accentText, fontFamily: font.semi, fontSize: 14 }}>{shop ? tr('shop.detail') : tr('shop.mode')}</Text>
         </Pressable>
       </ScrollView>
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: 28 }}>
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: 40 }}>
         <Btn primary label={tr('list.doneHere')} onPress={() => { void refreshRegions().catch(() => {}); router.back(); }} />
       </View>
     </View>

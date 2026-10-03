@@ -390,3 +390,9 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 .cal-day .dot.prio-3 { background: #e5484d; }
 .cal-day .dot.prio-2 { background: #f5a524; }
 .cal-foot { margin-top: 6px; }
+
+/* View switch: full width under the title (icons + words); icons only when floating over the map */
+.seg .lbl { display: none; }
+.seg.wide { width: 100%; margin: 2px 0 4px; }
+.seg.wide button { flex: 1; gap: 8px; padding: 9px 8px; }
+.seg.wide .lbl { display: inline; }

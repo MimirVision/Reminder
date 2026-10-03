@@ -346,12 +346,13 @@ export default function Todo() {
     </Pressable>
   );
 
-  const segmented = (
-    <Glass interactive style={{ borderRadius: 24, padding: 3, flexDirection: 'row' }}>
+  const segmented = (wide: boolean) => (
+    <Glass interactive style={{ borderRadius: 24, padding: 3, flexDirection: 'row', alignSelf: wide ? 'stretch' : 'auto' }}>
       {([['list', 'list.bullet'], ['calendar', 'calendar'], ['map', 'map']] as const).map(([m, ic]) => (
         <Pressable key={m} accessibilityRole="button" accessibilityLabel={t(`view.${m}` as 'view.list')} accessibilityState={{ selected: mode === m }} onPress={() => { setMode(m); setReordering(false); }}
-          style={{ width: 46, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: mode === m ? (th.dark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)') : 'transparent' }}>
-          <Icon name={ic} size={17} color={th.ink} />
+          style={{ flex: wide ? 1 : undefined, width: wide ? undefined : 46, height: 38, flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: mode === m ? (th.dark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)') : 'transparent' }}>
+          <Icon name={ic} size={16} color={th.ink} />
+          {wide && <Text numberOfLines={1} style={{ color: th.ink, fontSize: 14, fontFamily: font.semi }}>{t(`view.${m}` as 'view.list')}</Text>}
         </Pressable>
       ))}
     </Glass>
@@ -379,7 +380,7 @@ export default function Todo() {
       <View style={{ flex: 1, backgroundColor: th.bg }}>
         <TodoMap pins={pins} here={here} selectedKey={selectedKey} bottomInset={sheetH} onOpen={selectPin} />
         <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: 16, right: 16, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
-          {segmented}
+          {segmented(false)}
           <Pressable accessibilityRole="button" accessibilityLabel={t('route.open')} onPress={() => router.push('/route')} style={{ position: 'absolute', right: 0 }}>
             <Glass interactive style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}><Icon name="location.north" size={18} /></Glass>
           </Pressable>
@@ -413,7 +414,7 @@ export default function Todo() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 }}>
-          <Title>{showDone ? t('todo.doneTitle') : t('todo.title')}</Title>
+          <View style={{ flex: 1 }}><Title>{showDone ? t('todo.doneTitle') : t('todo.title')}</Title></View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {!showDone && (
               <Pressable accessibilityRole="button" accessibilityLabel={t('search.open')} accessibilityState={{ selected: searching }} onPress={() => { setSearching((v) => !v); setQuery(''); }}>
@@ -423,9 +424,10 @@ export default function Todo() {
             <Pressable accessibilityRole="button" accessibilityLabel={t('more.label')} onPress={openMenu}>
               <Glass interactive style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}><Icon name="ellipsis" size={18} color={th.ink} /></Glass>
             </Pressable>
-            {showDone ? <Btn small label={t('todo.back')} onPress={() => setShowDone(false)} /> : segmented}
+            {showDone ? <Btn small label={t('todo.back')} onPress={() => setShowDone(false)} /> : null}
           </View>
         </View>
+        {!showDone && segmented(true)}
         {searching && !showDone && <Field autoFocus placeholder={t('search.placeholder')} value={query} onChangeText={setQuery} returnKeyType="search" clearButtonMode="while-editing" autoCorrect={false} />}
         {queued > 0 && <Muted>{tn('sync.waiting', queued)}</Muted>}
         {showDone || searching ? null : reordering ? (
