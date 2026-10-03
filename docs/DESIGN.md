@@ -260,4 +260,10 @@ Required due dates, priorities, tags/projects/folders, streaks, overdue red coun
   numbered stops, hand-off to Apple or Google Maps), delete-my-account, and an error screen instead of a blank one. The shared logic is tested in
   `apps/web` (`quickAdd`, `route`, `moving`); the phone screens are type-checked and the iOS bundle builds, but have not been run on a device.
   Sideloaded apps stop opening after 7 days (free Apple ID) and update only by installing a new build; there is no over-the-air update path.
+- **To-do details (migration 0013), web and phone.** Notes, a checklist (steps tick inside the row; a repeating to-do's steps start unticked again), priority
+  (none, low, medium, high: coloured ring and chip, sorted after pins), "remind me" before the time (5 min to 2 days; the phone schedules the local notification
+  earlier, the `notify-partner` function's due mode does the same for push), two more repeats (weekdays, every other week; also in the calendar feed), tap the date
+  chip to move a to-do (today, tomorrow, weekend, next week, any date, no date, with undo), upcoming grouped by day, a banner to move everything late to today,
+  search through notes and steps, keyboard keys on the web (n new, / search), and the app icon badge on the phone. Natural language also understands
+  `!!!`, `p1`-`p3`, "urgent", "every weekday", "every other week". Details are only sent when used, so the apps keep working until `upgrade.sql` is run.
 

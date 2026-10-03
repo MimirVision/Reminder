@@ -667,5 +667,7 @@
   "late.moved": "Moved to today",
   "todo.nothingToday": "Nothing due today.",
   "todo.detail": "More",
-  "todo.detailLess": "Less"
+  "todo.detailLess": "Less",
+  "notif.dueIn": "In {lead}",
+  "badge.title": "Today"
 }

@@ -4,7 +4,8 @@ import { listMemories, listPlaces } from './api';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
 import { pickDueReminders, type DueMemory } from '../core/dueReminders.ts';
-import { tNow } from './i18n';
+import { currentLang, tNow } from './i18n';
+import { leadShort } from '../shared/lib/details';
 import { needsRefresh, overpassQuery, parseOverpass, type PoiCache } from '../core/pois.ts';
 import { MAX_REGIONS, selectRegions } from '../core/regions.ts';
 import type { LatLon, MemoryRow, PlaceRow, Region } from '../core/types.ts';
@@ -202,7 +203,7 @@ export async function scheduleDueReminders(all: (DueMemory & { assignee_id?: str
     for (const r of pickDueReminders(memories, new Date())) {
       await Notifications.scheduleNotificationAsync({
         identifier: `due-${r.id}`,
-        content: { title: tNow('notif.due'), body: r.body, data: { memoryIds: [r.id] } },
+        content: { title: r.lead > 0 ? tNow('notif.dueIn', { lead: leadShort(r.lead, currentLang()) }) : tNow('notif.due'), body: r.body, data: { memoryIds: [r.id] } },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: r.at },
       });
     }
@@ -219,6 +220,15 @@ export async function notifyStatus(): Promise<NotifyStatus> {
   } catch {
     return 'denied';
   }
+}
+
+/** The number on the app icon: what is due today or earlier. Silent when notifications are not allowed. */
+export async function setBadge(list: (DueMemory & { assignee_id?: string | null })[], todayIso: string): Promise<void> {
+  try {
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    const n = mine(list).filter((m) => m.due_on && m.due_on <= todayIso && (m.status === 'active' || m.status === 'inbox')).length;
+    await Notifications.setBadgeCountAsync(n);
+  } catch { /* the badge is a nicety */ }
 }
 
 /** A notification a few seconds from now, to check that permission, sound and the banner work. */

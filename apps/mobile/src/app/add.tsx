@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { getMemory, listMembers, listPlaces, parseTasksAI, resolveWhere, softDelete, statusFor, updateMemory, updateMemoryFields, type Where } from '@/lib/api';
 import { Chip } from '@/lib/Chip';
+import { TodoDetails } from '@/lib/TodoDetails';
 import { uuid } from '@/lib/id';
 import { useI18n } from '@/lib/i18n';
 import { capture } from '@/lib/outbox';
@@ -18,6 +19,7 @@ import { WhenPicker, type Due } from '@/lib/WhenPicker';
 import { categoryName, placeLabel } from '../shared/lib/labels';
 import { findExistingPlace } from '../shared/lib/placeSearch';
 import { isInteresting, parseTasks, type ParsedTask } from '../shared/lib/quickAdd';
+import { changedFields, detailsOf, newFields, type Details } from '../shared/lib/details';
 import { dueLabel } from '../shared/lib/when';
 import type { Member, Memory, Place } from '@/lib/types';
 
@@ -40,6 +42,8 @@ export default function Add() {
   const [members, setMembers] = useState<Member[]>([]);
   const [forId, setForId] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
+  const [details, setDetails] = useState<Details>(() => detailsOf(null));
+  const [showMore, setShowMore] = useState(false);
   const [uris, setUris] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -66,6 +70,8 @@ export default function Add() {
       setDue({ due_on: m.due_on ?? null, due_time: m.due_time ?? null, repeat_rule: m.repeat_rule ?? null });
       setForId(m.assignee_id ?? null);
       setPinned(!!m.pinned);
+      setDetails(detailsOf(m));
+      setShowMore(!!m.notes || (m.checklist?.length ?? 0) > 0 || !!m.priority || m.remind_before != null);
     }).catch(() => setErr(t('offline.needsNet')));
   }, [editId, t]);
 
@@ -123,7 +129,7 @@ export default function Add() {
       if (editId) {
         const placeId = await resolveWhere(household.id, where, places, findExistingPlace);
         if (due.due_on) void ensureNotifyPermission();
-        const extra = { ...(members.length > 1 && forId !== (memory?.assignee_id ?? null) ? { assignee_id: forId } : {}), ...(pinned !== !!memory?.pinned ? { pinned } : {}) };
+        const extra = { ...(members.length > 1 && forId !== (memory?.assignee_id ?? null) ? { assignee_id: forId } : {}), ...(pinned !== !!memory?.pinned ? { pinned } : {}), ...changedFields(details, detailsOf(memory), !!due.due_on) };
         await updateMemoryFields(editId, { body: body.trim(), place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule, ...extra });
         toast({ text: t('toast.saved') });
         router.back();
@@ -152,6 +158,8 @@ export default function Add() {
             id: uuid(), household_id: household.id, body: task.title, place_id: placeId,
             due_on: dated ? task.due_on : due.due_on, due_time: dated ? task.due_time : due.due_time, repeat_rule: dated ? task.repeat_rule : due.repeat_rule,
             ...(assignee ? { assignee_id: assignee } : {}), ...(pinned ? { pinned } : {}),
+            // Notes and a checklist belong to one to-do; priority and the reminder go to each.
+            ...newFields({ ...(kept.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority }, dated || !!due.due_on),
             capture_lat: lat, capture_lon: lon, photoUris: i === 0 ? uris : [],
           });
         }
@@ -168,6 +176,7 @@ export default function Add() {
         await capture({
           id: uuid(), household_id: household.id, body: b, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule,
           ...(forId ? { assignee_id: forId } : {}), ...(pinned ? { pinned } : {}),
+          ...newFields(bodies.length === 1 ? details : { ...details, notes: '', checklist: [] }, !!due.due_on),
           capture_lat: lat, capture_lon: lon, photoUris: i === 0 ? uris : [],
         });
       }
@@ -211,6 +220,7 @@ export default function Add() {
                   {(task.due_on || task.due_time) ? <Muted>{task.due_on ? dueLabel({ due_on: task.due_on, due_time: task.due_time }, t, locale) : task.due_time}</Muted> : null}
                   {task.repeat_rule ? <Muted>{t(`repeat.short.${task.repeat_rule}` as 'repeat.short.daily')}</Muted> : null}
                   {(task.placeId || task.category) ? <Muted>{task.leaving ? t('smart.leaving', { place: placeText(task) }) : placeText(task)}</Muted> : null}
+                  {task.priority > 0 ? <Muted>{t(`prio.short.${task.priority}` as 'prio.short.1')}</Muted> : null}
                   {task.assignee && task.assignee !== 'both' ? <Muted>{t('row.for', { name: task.assignee === 'me' ? t('assign.me') : partner?.display_name || t('common.partner') })}</Muted> : null}
                 </View>
               </View>
@@ -230,6 +240,11 @@ export default function Add() {
       <WherePicker places={places} value={where} onChange={setWhere} />
       <SectionLabel>{t('sheet.when')}</SectionLabel>
       <WhenPicker value={due} onChange={setDue} />
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: showMore }} onPress={() => setShowMore(!showMore)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Icon name="list.bullet" size={15} color={th.accentText} />
+        <Text style={{ color: th.accentText, fontFamily: font.semi, fontSize: 14 }}>{showMore ? t('todo.detailLess') : `${t('todo.detail')}: ${t('prio.label').toLowerCase()}, ${t('check.label').toLowerCase()}, ${t('notes.label').toLowerCase()}`}</Text>
+      </Pressable>
+      {showMore && <TodoDetails value={details} onChange={setDetails} hasDate={!!due.due_on} />}
       {members.length > 1 && partner && (
         <>
           <SectionLabel>{t('assign.label')}</SectionLabel>

@@ -27,3 +27,10 @@ test('the list is capped for iOS', () => {
   assert.equal(pickDueReminders(many, now).length, 60);
   assert.equal(pickDueReminders(many, now, 5).length, 5);
 });
+
+test('remind me before rings earlier, and falls back to the due moment when that is already past', () => {
+  const now = new Date(2026, 9, 1, 12, 0);
+  const withLead = (id: string, time: string, lead: number | null): DueMemory => ({ ...m(id, '2026-10-01', time), remind_before: lead });
+  const picked = pickDueReminders([withLead('a', '18:00', 30), withLead('b', '12:20', 30), withLead('c', '18:00', null), withLead('d', '11:00', 30)], now);
+  assert.deepEqual(picked.map((r) => [r.id, r.at.getHours() * 60 + r.at.getMinutes(), r.lead]), [['b', 740, 0], ['a', 1050, 30], ['c', 1080, 0]]);
+});

@@ -69,7 +69,7 @@ export function PlaceChip({ label, icon = 'mappin' }: { label: string; icon?: SF
 }
 
 // The circle you tick to finish a to-do.
-export function Check({ done, onPress }: { done?: boolean; onPress: () => void }) {
+export function Check({ done, onPress, ring, small }: { done?: boolean; onPress: () => void; ring?: string; small?: boolean }) {
   const t = useTheme();
   return (
     <Pressable
@@ -77,9 +77,9 @@ export function Check({ done, onPress }: { done?: boolean; onPress: () => void }
       accessibilityState={{ checked: !!done }}
       hitSlop={10}
       onPress={() => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); onPress(); }}
-      style={{ width: 26, height: 26, borderRadius: 13, borderWidth: done ? 0 : 2, borderColor: t.control, backgroundColor: done ? t.ink : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}
+      style={{ width: small ? 20 : 26, height: small ? 20 : 26, borderRadius: small ? 10 : 13, borderWidth: done ? 0 : small ? 1.5 : 2, borderColor: ring ?? t.control, backgroundColor: done ? t.ink : ring ? `${ring}1F` : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: small ? 0 : 1 }}
     >
-      {done && <Icon name="checkmark" size={14} color={t.card} />}
+      {done && <Icon name="checkmark" size={small ? 11 : 14} color={t.card} />}
     </Pressable>
   );
 }

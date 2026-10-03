@@ -3,6 +3,7 @@ import { readJson, writeJson } from './store';
 import { supabase } from './supabase';
 import type { FactCategory } from '../core/facts.ts';
 import type { Hit } from '../shared/lib/placeSearch';
+import type { DetailFields } from '../shared/lib/details';
 import type { CaptureKey, HouseFact, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place, Suggestion } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -65,14 +66,14 @@ export async function updatePlaceCategory(id: string, category: string | null) {
 // A to-do with a place or a date is "active" (it has a reason to surface); one with neither waits in the inbox.
 export const statusFor = (m: { place_id?: string | null; due_on?: string | null }): Memory['status'] => (m.place_id || m.due_on ? 'active' : 'inbox');
 
-type Patch = Partial<Pick<Memory, 'status' | 'place_id' | 'done_at' | 'body' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned'>>;
+type Patch = Partial<Pick<Memory, 'status' | 'place_id' | 'done_at' | 'body' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned' | 'notes' | 'checklist' | 'priority' | 'remind_before'>>;
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
 }
 
 /** Edit text, place and date together. The status follows what the to-do now has. */
-export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: Memory['repeat_rule']; assignee_id?: string | null; pinned?: boolean }) {
+export async function updateMemoryFields(id: string, f: { body: string; place_id: string | null; due_on: string | null; due_time: string | null; repeat_rule?: Memory['repeat_rule']; assignee_id?: string | null; pinned?: boolean } & DetailFields) {
   await updateMemory(id, { ...f, due_time: f.due_on ? f.due_time : null, repeat_rule: f.due_on ? f.repeat_rule ?? null : null, status: statusFor(f) });
 }
 
@@ -136,14 +137,21 @@ export type NewMemory = {
   repeat_rule?: Memory['repeat_rule'];
   assignee_id?: string | null;
   pinned?: boolean;
+  notes?: string | null;
+  checklist?: Memory['checklist'];
+  priority?: Memory['priority'];
+  remind_before?: number | null;
   capture_lat: number | null;
   capture_lon: number | null;
 };
 
 export async function insertMemory(m: NewMemory) {
-  // assignee_id and pinned are only sent when used, so it works before the 0011 database upgrade is run.
-  const { assignee_id, pinned, ...base } = m;
-  const row = { ...base, ...(assignee_id ? { assignee_id } : {}), ...(pinned ? { pinned } : {}), due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m) };
+  // Details are only sent when used, so it works before the database upgrades (0011, 0013) are run.
+  const { assignee_id, pinned, notes, checklist, priority, remind_before, ...base } = m;
+  const row = {
+    ...base, ...(assignee_id ? { assignee_id } : {}), ...(pinned ? { pinned } : {}),
+    ...(notes ? { notes } : {}), ...(checklist?.length ? { checklist } : {}), ...(priority ? { priority } : {}), ...(remind_before != null && m.due_on ? { remind_before } : {}), due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m),
+  };
   const res = await supabase.from('memories').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
   if (res.error) throw new Error(res.error.message);
 }

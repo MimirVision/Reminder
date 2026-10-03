@@ -667,5 +667,7 @@
   "late.moved": "Flyttet til i dag",
   "todo.nothingToday": "Ingenting skal gjøres i dag.",
   "todo.detail": "Mer",
-  "todo.detailLess": "Mindre"
+  "todo.detailLess": "Mindre",
+  "notif.dueIn": "Om {lead}",
+  "badge.title": "I dag"
 }

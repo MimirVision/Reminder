@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActionSheetIOS, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,7 @@ import { MapSheet, tabBarSpace, type Snap } from '@/lib/MapSheet';
 import { useI18n } from '@/lib/i18n';
 import { flush, pending, queuedToMemory } from '@/lib/outbox';
 import { RecapCard } from '@/lib/RecapCard';
-import { ensureNotifyPermission, mapPins, refreshRegions, scheduleDueReminders, type Pin } from '@/lib/reminders';
+import { ensureNotifyPermission, mapPins, refreshRegions, scheduleDueReminders, setBadge, type Pin } from '@/lib/reminders';
 import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
@@ -26,7 +26,8 @@ import { BAR_SPACE, Btn, Card, Icon, Muted, PlaceChip, SectionLabel, Title, styl
 import { distanceM } from '../../core/geo.ts';
 import { placeLabel, recurringLabel } from '../../shared/lib/labels';
 import { nextOccurrence } from '../../shared/lib/recurrence';
-import { compareDue, dueBucket, dueLabel, formatDay, todayISO } from '../../shared/lib/when';
+import { addDays, dueBucket, dueLabel, formatDay, todayISO } from '../../shared/lib/when';
+import { compareTodos, groupUpcoming, isLate, rescheduleTargets } from '../../shared/lib/todoGroups';
 import type { Member, Memory, Place } from '@/lib/types';
 import type { LatLon } from '../../core/types.ts';
 
@@ -71,6 +72,7 @@ export default function Todo() {
       setMembers(mem);
       setPhotos(await listPhotoUrls(m.map((x) => x.id)));
       void scheduleDueReminders(m);
+      void setBadge(m, todayISO());
       await refreshRegions().catch(() => {});
     } catch {
       setMemories((cur) => [...waiting, ...cur.filter((x) => !x.pending)]); // offline: keep what we have, plus what was written on this phone
@@ -138,10 +140,9 @@ export default function Todo() {
   );
 
   const { today, upcoming, near, atPlace, anytime } = useMemo(() => {
-    const pinFirst = (a: Memory, b: Memory) => Number(!!b.pinned) - Number(!!a.pinned);
-    const today = visible.filter((m) => dueBucket(m) === 'today').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
-    const upcoming = visible.filter((m) => dueBucket(m) === 'upcoming').sort((a, b) => pinFirst(a, b) || compareDue(a, b));
-    const undated = visible.filter((m) => dueBucket(m) === 'none').sort(pinFirst);
+    const today = visible.filter((m) => dueBucket(m) === 'today').sort(compareTodos);
+    const upcoming = groupUpcoming(visible, todayISO());
+    const undated = visible.filter((m) => dueBucket(m) === 'none').sort(compareTodos);
     const byPlace = new Map<string, Memory[]>();
     const anytime: Memory[] = [];
     for (const m of undated) {
@@ -204,7 +205,8 @@ export default function Todo() {
       <TodoRow key={m.id} m={m} photos={photos[m.id]} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
         place={o.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === uid ? t('row.forYou') : t('row.for', { name: nameOf(m.assignee_id) ?? t('common.partner') })) : undefined} byline={o.meta === false ? undefined : byline(m)}
         author={members.length > 1 ? { id: m.author_id, name: nameOf(m.author_id) } : null}
-        onToggle={() => void complete(m)} onEdit={() => router.push({ pathname: '/add', params: { id: m.id } })} onDelete={() => void remove(m)}>
+        onToggle={() => void complete(m)} onEdit={() => router.push({ pathname: '/add', params: { id: m.id } })} onDelete={() => void remove(m)}
+        onReschedule={m.pending ? undefined : () => reschedule(m)} onChecklist={(items) => void tickStep(m, items)}>
         {m.suggestion && (
           <View style={{ gap: 8, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: th.line, padding: 12, backgroundColor: th.tint }}>
             <PlaceChip label={m.suggestion.kind === 'recurring' ? t('suggest.recurring', { label: m.suggestion.recurring ? recurringLabel(m.suggestion.recurring, t) : m.suggestion.label }) : m.suggestion.label} icon={m.suggestion.kind === 'recurring' ? 'arrow.triangle.2.circlepath' : 'mappin'} />
@@ -218,6 +220,49 @@ export default function Todo() {
       </TodoRow>
     );
   };
+
+  // "Tomorrow", then the weekday and date.
+  const dayHeading = (iso: string) => (iso === addDays(todayISO(), 1) ? t('when.tomorrow') : formatDay(iso, locale));
+
+  // Move to another day without opening the editor.
+  function reschedule(m: Memory) {
+    const targets = rescheduleTargets(todayISO(), new Date().getDay());
+    const labels = [...targets.map((o) => `${t(`resched.${o.id}` as 'resched.today')} · ${formatDay(o.date, locale)}`), t('resched.pick'), ...(m.due_on ? [t('resched.none')] : []), t('common.cancel')];
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: (m.body || t('todo.photo')).split('\n')[0], options: labels, cancelButtonIndex: labels.length - 1, userInterfaceStyle: th.dark ? 'dark' : 'light' },
+      (i) => {
+        if (i < targets.length) void moveTo(m, targets[i].date);
+        else if (i === targets.length) router.push({ pathname: '/add', params: { id: m.id } });
+        else if (m.due_on && i === targets.length + 1) void moveTo(m, null);
+      },
+    );
+  }
+
+  async function moveTo(m: Memory, date: string | null) {
+    const was = { due_on: m.due_on, due_time: m.due_time, repeat_rule: m.repeat_rule ?? null, remind_before: m.remind_before ?? null };
+    const patch = (d: typeof was) => ({
+      due_on: d.due_on, due_time: d.due_on ? d.due_time : null, repeat_rule: d.due_on ? d.repeat_rule : null,
+      ...(d.remind_before != null || m.remind_before != null ? { remind_before: d.due_on ? d.remind_before : null } : {}),
+      status: statusFor({ place_id: m.place_id, due_on: d.due_on }),
+    });
+    setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, due_on: date, due_time: date ? x.due_time : null } : x)));
+    try {
+      await updateMemory(m.id, patch({ ...was, due_on: date }));
+      toast({ text: t('toast.saved'), undo: () => void (async () => { await updateMemory(m.id, patch(was)).catch(() => {}); await load(); })() });
+    } finally { void load(); }
+  }
+
+  async function tickStep(m: Memory, items: NonNullable<Memory['checklist']>) {
+    setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, checklist: items } : x)));
+    try { await updateMemory(m.id, { checklist: items }); } finally { void load(); }
+  }
+
+  const lateOnes = visible.filter((m) => !m.pending && isLate(m, todayISO()));
+  async function moveLateToToday() {
+    const day = todayISO();
+    setMemories((cur) => cur.map((x) => (lateOnes.some((l) => l.id === x.id) ? { ...x, due_on: day } : x)));
+    try { for (const m of lateOnes) await updateMemory(m.id, { due_on: day }); toast({ text: t('late.moved') }); } finally { void load(); }
+  }
 
   const section = (title: string, items: Memory[]) => items.length === 0 ? null : (
     <View style={{ gap: 6 }} key={title}>
@@ -347,8 +392,15 @@ export default function Todo() {
             <Muted>{t('todo.empty.body')}</Muted>
           </View>
         )}
+        {lateOnes.length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.tint }}>
+            <Text style={{ flex: 1, color: th.tintInk, fontSize: 14, fontFamily: font.semi }}>{tn('late.banner', lateOnes.length)}</Text>
+            <Btn small label={t('late.moveToday')} onPress={() => void moveLateToToday()} />
+          </View>
+        )}
         {section(t('todo.sec.today'), today)}
-        {section(t('todo.sec.upcoming'), upcoming)}
+        {loaded && memories.length > 0 && today.length === 0 && <Muted>{t('todo.nothingToday')}</Muted>}
+        {upcoming.map((g) => section(dayHeading(g.date), g.items))}
         {near.length > 0 && <SectionLabel>{t('map.nearYou')}</SectionLabel>}
         {near.map(groupCard)}
         {atPlace.length > 0 && <SectionLabel>{t('todo.sec.place')}</SectionLabel>}

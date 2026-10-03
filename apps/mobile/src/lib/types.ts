@@ -1,4 +1,5 @@
 import type { Fact } from '../core/facts.ts';
+import type { ChecklistItem, Priority, RepeatRule } from '../shared/lib/types';
 import type { MaintenanceTask as CoreTask, MemoryRow, PlaceRow } from '../core/types.ts';
 
 export type Household = { id: string; name: string; invite_code: string };
@@ -23,7 +24,11 @@ export type Memory = MemoryRow & {
   done_by?: string | null;
   due_on: string | null;
   due_time: string | null;
-  repeat_rule?: 'daily' | 'weekly' | 'monthly' | 'yearly' | null;
+  repeat_rule?: RepeatRule | null;
+  notes?: string | null;
+  checklist?: ChecklistItem[];
+  priority?: Priority;
+  remind_before?: number | null;
   assignee_id?: string | null; // who it is for (null = anyone)
   pinned?: boolean;
   pending?: boolean; // saved on this phone, waiting for a connection

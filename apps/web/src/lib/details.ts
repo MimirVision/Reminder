@@ -36,3 +36,10 @@ export function changedFields(d: Details, was: Details, hasDate: boolean): Detai
 
 /** "Remind me" choices, in minutes before the due time. */
 export const REMIND_CHOICES = [0, 5, 10, 30, 60, 120, 1440, 2880] as const;
+
+/** "30 min", "2 h", "1 day" in the reader's language (for "In 30 min: Call the plumber"). */
+export function leadShort(minutes: number, lang: 'en' | 'nb'): string {
+  if (minutes % 1440 === 0) { const d = minutes / 1440; return lang === 'nb' ? `${d} ${d === 1 ? 'dag' : 'dager'}` : `${d} ${d === 1 ? 'day' : 'days'}`; }
+  if (minutes % 60 === 0) return lang === 'nb' ? `${minutes / 60} t` : `${minutes / 60} h`;
+  return `${minutes} min`;
+}
