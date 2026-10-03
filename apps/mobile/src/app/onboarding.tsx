@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { SafeAreaView, ScrollView, Text } from 'react-native';
+import { ScrollView, Text } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { createHousehold, joinHousehold } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useI18n } from '@/lib/i18n';
@@ -32,7 +33,7 @@ export default function Onboarding() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
-      <ScrollView contentContainerStyle={[styles.screen, { paddingTop: 60 }]} keyboardShouldPersistTaps="handled">
+      <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={[styles.screen, { paddingTop: 60 }]} keyboardShouldPersistTaps="handled">
         <Title>{tr('onb.welcome')}</Title>
         <Field placeholder={tr('onb.yourName')} value={name} onChangeText={setName} />
         <Text style={{ color: t.fg, fontWeight: '600', marginTop: 12 }}>{tr('onb.newHousehold')}</Text>

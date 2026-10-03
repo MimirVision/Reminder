@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { SafeAreaView, ScrollView, Text } from 'react-native';
+import { ScrollView, Text } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
 import { useTheme } from '@/lib/theme';
@@ -28,7 +29,7 @@ export default function Login() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
-      <ScrollView contentContainerStyle={[styles.screen, { paddingTop: 80 }]} keyboardShouldPersistTaps="handled">
+      <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={[styles.screen, { paddingTop: 80 }]} keyboardShouldPersistTaps="handled">
         <Title>Home Memory</Title>
         <Muted>{tr('auth.tagline')}</Muted>
         <Field placeholder={tr('auth.email')} autoCapitalize="none" keyboardType="email-address" autoComplete="email" value={email} onChangeText={setEmail} />
