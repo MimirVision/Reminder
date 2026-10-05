@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ALERT_SCOPE, AlertGraphError, alertBuild, alertCreateSubscription, alertDecide, alertDecrypt, alertEncrypt, alertExpiry, alertGetInboxId, alertGetMessage,
   alertKind, alertLocal, alertParseLifecycle, alertParseNotifications, alertPlanRenewals, alertRefresh, alertRenewSubscription, alertSameSecret,
-  alertValidationToken, alertWithinWindow, alertProcess, alertSeen, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
+  alertValidationToken, alertWithinWindow, alertProcess, alertSeen, alertConnect, alertMintToken, alertExchangeCode, ALERT_APP_SCOPE, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
 } from '../functions/post-alerts/logic.ts';
 
 const acct = (over: Partial<AlertAccount> = {}): AlertAccount => ({ id: 'a1', email: 'andreas@outlook.com', label: 'Personal', mode: 'people', vips: [], quiet: null, tz: 'Europe/Oslo', inbox_folder_id: 'INBOX-ID', ...over });
@@ -94,12 +94,12 @@ test('decision: mode, read state, folder, VIPs and the schedule together', () =>
 
 test('alert text: sender as title, subject as body, account shown only with several accounts, long text clipped', () => {
   const a = { id: 'a1', label: 'Work' };
-  assert.deepEqual(alertBuild(msg(), a, false), { title: 'Maja Berg', body: 'Re: Hytta i påska', url: '/post-alerts/?open=m1&acct=a1', tag: 'm1' });
+  assert.deepEqual(alertBuild(msg(), a, false), { title: 'Maja Berg', body: 'Re: Hytta i påska', url: '/post/#/m/a1/m1', tag: 'm1' });
   assert.equal(alertBuild(msg(), a, true).title, 'Maja Berg · Work');
   assert.equal(alertBuild(msg({ subject: '' }), a, false, 'nb').body, '(uten emne)');
   assert.equal(alertBuild(msg({ subject: 'x'.repeat(300) }), a, false).body.length, 110);
   assert.equal(alertBuild(msg({ from: undefined }), a, false).title, 'Unknown sender');
-  assert.equal(alertBuild(msg({ id: 'a/b=' }), a, false).url, '/post-alerts/?open=a%2Fb%3D&acct=a1');
+  assert.equal(alertBuild(msg({ id: 'a/b=' }), a, false).url, '/post/#/m/a1/a%2Fb%3D');
 });
 
 test('secrets: encrypt/decrypt round-trips, a wrong key or tampering fails, equality is exact', async () => {
@@ -132,7 +132,7 @@ function fakeFetch(handler: (url: string, init: RequestInit) => { status?: numbe
 test('Graph: refresh asks for read-only mail access and returns the rotated refresh token', async () => {
   const { f, calls } = fakeFetch(() => ({ body: { access_token: 'AT', refresh_token: 'RT2', expires_in: 3600 } }));
   const r = await alertRefresh(f, { clientId: 'CID', refreshToken: 'RT1' });
-  assert.deepEqual(r, { accessToken: 'AT', refreshToken: 'RT2' });
+  assert.deepEqual(r, { accessToken: 'AT', refreshToken: 'RT2', expiresIn: 3600 });
   const body = new URLSearchParams(String(calls[0].init.body));
   assert.equal(body.get('grant_type'), 'refresh_token');
   assert.equal(body.get('refresh_token'), 'RT1');
@@ -346,4 +346,54 @@ test('icon number: counts alerts since the phone last opened Post, per phone, an
   const f = setup({ accounts: [await withToken({})], msgs: { m1: msg() }, pushStatus: 500 });
   await alertProcess(f.deps, [note('m1')]);
   assert.equal(f.devices[0].badge ?? 0, 0);
+});
+
+test('connect: the code from the sign-in page becomes a watched, stored mailbox; the app scope is the full one, the alert refresh stays read-only', async () => {
+  const s = setup();
+  const calls: string[] = [];
+  const base = s.deps.fetch;
+  s.deps.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes('login.microsoftonline.com') && new URLSearchParams(String(init?.body)).get('grant_type') === 'authorization_code') {
+      calls.push(String(init?.body));
+      return new Response(JSON.stringify({ access_token: 'FULL-AT', refresh_token: 'FULL-RT' }), { status: 200 });
+    }
+    if (u.includes('/me?$select=mail,userPrincipalName')) return new Response(JSON.stringify({ mail: 'Andreas@Firma.no' }), { status: 200 });
+    return base(url as string, init);
+  }) as typeof fetch;
+  const r = await alertConnect(s.deps, { code: 'CODE', verifier: 'VER', redirectUri: 'https://app.example/post/connect' });
+  assert.equal(r.email, 'andreas@firma.no');
+  assert.equal(s.accounts[0].label, 'Work'); // not an outlook.com / hotmail address
+  const sent = new URLSearchParams(calls[0]);
+  assert.equal(sent.get('code_verifier'), 'VER');
+  assert.equal(sent.get('redirect_uri'), 'https://app.example/post/connect');
+  assert.equal(sent.get('scope'), ALERT_APP_SCOPE);
+  assert.ok(ALERT_APP_SCOPE.includes('Mail.ReadWrite') && ALERT_APP_SCOPE.includes('Mail.Send'));
+  assert.ok(!JSON.stringify(s.accounts[0]).includes('FULL-RT'));
+  await assert.rejects(alertConnect(s.deps, { code: '', verifier: 'v', redirectUri: 'https://x' }), /bad request/);
+  await assert.rejects(alertConnect(s.deps, { code: 'c', verifier: 'v', redirectUri: 'http://insecure' }), /bad request/);
+});
+
+test('connect: a code Microsoft refuses is an error and stores nothing', async () => {
+  const s = setup({ refreshFails: 'invalid_grant' });
+  await assert.rejects(alertConnect(s.deps, { code: 'BAD', verifier: 'v', redirectUri: 'https://app.example/post/connect' }), (e: unknown) => e instanceof AlertGraphError);
+  assert.equal(s.accounts.length, 0);
+  const r = await alertExchangeCode(fakeFetch(() => ({ body: { access_token: 'a', refresh_token: 'r' } })).f, { clientId: 'C', code: 'c', verifier: 'v', redirectUri: 'https://x' });
+  assert.deepEqual(r, { accessToken: 'a', refreshToken: 'r' });
+  await assert.rejects(alertExchangeCode(fakeFetch(() => ({ body: { access_token: 'a' } })).f, { clientId: 'C', code: 'c', verifier: 'v', redirectUri: 'https://x' }), /refresh token/);
+});
+
+test('mint token: a short-lived full-scope token for a known mailbox, the stored sign-in rotated, unknown mailboxes refused', async () => {
+  const s = setup({ accounts: [await withToken({})] });
+  const scopes: string[] = [];
+  const base = s.deps.fetch;
+  s.deps.fetch = (async (url: string | URL, init?: RequestInit) => {
+    if (String(url).includes('login.microsoftonline.com')) scopes.push(new URLSearchParams(String(init?.body)).get('scope') ?? '');
+    return base(url as string, init);
+  }) as typeof fetch;
+  const t = await alertMintToken(s.deps, ' Andreas@Outlook.com ');
+  assert.deepEqual(t, { accessToken: 'AT', expiresIn: 3600, email: 'andreas@outlook.com' });
+  assert.equal(scopes[0], ALERT_APP_SCOPE);
+  assert.equal(await alertDecrypt(s.accounts[0].refresh_token_enc, KEY), 'ROTATED');
+  await assert.rejects(alertMintToken(s.deps, 'nobody@x.no'), /unknown account/);
 });

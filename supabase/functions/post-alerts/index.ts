@@ -4,7 +4,7 @@
 // Deploy with "Verify JWT" OFF: Microsoft and the schedule cannot send a Supabase login. The webhook is protected by a secret clientState per mailbox, the rest by POST_ALERTS_KEY.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { sendPush } from '../notify-partner/logic.ts';
-import { alertLifecycle, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSeen, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertDeps, type AlertStore, type AlertStored } from './logic.ts';
+import { alertConnect, alertLifecycle, alertMintToken, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSeen, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertDeps, type AlertStore, type AlertStored } from './logic.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -76,6 +76,8 @@ Deno.serve(async (req) => {
 
   try {
     switch (body.op) {
+      case 'connect': return json(await alertConnect(deps, body as never));
+      case 'token': return json(await alertMintToken(deps, String(body.email ?? '')));
       case 'register': return json(await alertRegister(deps, body as never));
       case 'update': {
         const email = String(body.email ?? '').trim().toLowerCase();

@@ -258,7 +258,7 @@ export function alertBuild(m: GraphMessage, a: Pick<AlertAccount, 'id' | 'label'
   return {
     title: alertClip(multi && a.label ? `${name} · ${a.label}` : name, 60),
     body: alertClip(subject, 110),
-    url: `/post-alerts/?open=${encodeURIComponent(m.id)}&acct=${encodeURIComponent(a.id)}`,
+    url: `/post/#/m/${encodeURIComponent(a.id)}/${encodeURIComponent(m.id)}`,
     tag: m.id,
   };
 }
@@ -314,14 +314,29 @@ async function graphJson(res: Response): Promise<any> {
 }
 
 /** Trades the stored refresh token for a short-lived access token (and a rotated refresh token, which must be stored). */
-export async function alertRefresh(f: typeof fetch, p: { clientId: string; refreshToken: string }): Promise<{ accessToken: string; refreshToken: string }> {
+export async function alertRefresh(f: typeof fetch, p: { clientId: string; refreshToken: string; scope?: string }): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
   const res = await f('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: p.clientId, grant_type: 'refresh_token', refresh_token: p.refreshToken, scope: ALERT_SCOPE }).toString(),
+    body: new URLSearchParams({ client_id: p.clientId, grant_type: 'refresh_token', refresh_token: p.refreshToken, scope: p.scope ?? ALERT_SCOPE }).toString(),
   });
   const b = await graphJson(res);
-  return { accessToken: String(b.access_token), refreshToken: String(b.refresh_token ?? p.refreshToken) };
+  return { accessToken: String(b.access_token), refreshToken: String(b.refresh_token ?? p.refreshToken), expiresIn: Number(b.expires_in ?? 3600) };
+}
+
+/** What the Post web app may do with the mail: read and change it, and send. Only ever handed out as a short-lived access token. */
+export const ALERT_APP_SCOPE = 'offline_access User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send';
+
+/** Trades the one-time code from the Microsoft sign-in page (PKCE, done in a normal browser tab) for tokens. Public client: no secret. */
+export async function alertExchangeCode(f: typeof fetch, p: { clientId: string; code: string; verifier: string; redirectUri: string }): Promise<{ accessToken: string; refreshToken: string }> {
+  const res = await f('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: p.clientId, grant_type: 'authorization_code', code: p.code, code_verifier: p.verifier, redirect_uri: p.redirectUri, scope: ALERT_APP_SCOPE }).toString(),
+  });
+  const b = await graphJson(res);
+  if (!b.refresh_token) throw new AlertGraphError(400, 'no_refresh_token', 'Microsoft did not give a refresh token');
+  return { accessToken: String(b.access_token), refreshToken: String(b.refresh_token) };
 }
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
@@ -509,7 +524,7 @@ export async function alertRenewAll(d: AlertDeps, accounts?: AlertStored[]): Pro
         await alertPushAll(d, (lang) => ({
           title: lang === 'nb' ? 'Post-varsler trenger innlogging' : 'Post alerts need you to sign in',
           body: lang === 'nb' ? `Logg inn p\u00e5 ${a.label || a.email} igjen i Post for \u00e5 fortsette \u00e5 f\u00e5 varsler.` : `Sign in to ${a.label || a.email} again in Post to keep getting alerts.`,
-          url: '/post-alerts/', tag: `signin-${a.id}`,
+          url: '/post/#/accounts', tag: `signin-${a.id}`,
         }));
       }
     }
@@ -533,7 +548,7 @@ export async function alertTest(d: AlertDeps): Promise<number> {
   return await alertPushAll(d, (lang) => ({
     title: lang === 'nb' ? 'Post-varsler fungerer' : 'Post alerts work',
     body: lang === 'nb' ? 'Slik ser et varsel ut n\u00e5r det kommer ny e-post.' : 'This is what an alert looks like when new mail arrives.',
-    url: '/post-alerts/', tag: 'test',
+    url: '/post/', tag: 'test',
   }));
 }
 
@@ -574,6 +589,26 @@ export async function alertUnregister(d: AlertDeps, email: string): Promise<bool
 /** The phone opened Post: clear its icon number on the server so the next alert starts again from 1. */
 export async function alertSeen(d: AlertDeps, endpoint: string): Promise<boolean> {
   return await d.store.resetBadge(endpoint);
+}
+
+/** The sign-in page finished: redeem the code, learn which mailbox it is, start watching it for alerts and keep the sign-in (encrypted). */
+export async function alertConnect(d: AlertDeps, input: { code: string; verifier: string; redirectUri: string; label?: string }): Promise<{ id: string; email: string; expires: string }> {
+  if (!input.code || !input.verifier || !/^https:\/\//.test(input.redirectUri ?? '')) throw new Error('bad request');
+  const t = await alertExchangeCode(d.fetch, { clientId: d.clientId, code: input.code, verifier: input.verifier, redirectUri: input.redirectUri });
+  const me = await graphJson(await d.fetch(`${GRAPH}/me?$select=mail,userPrincipalName`, { headers: authHeaders(t.accessToken) }));
+  const email = String(me.mail ?? me.userPrincipalName ?? '').toLowerCase();
+  const label = (input.label ?? '').trim() || (/@(outlook|hotmail|live|msn)\./i.test(email) ? 'Personal' : 'Work');
+  return await alertRegister(d, { email, label, refreshToken: t.refreshToken });
+}
+
+/** A short-lived Graph access token (about an hour) for the web app to read and change mail directly. The long-lived sign-in never leaves the server. */
+export async function alertMintToken(d: AlertDeps, email: string): Promise<{ accessToken: string; expiresIn: number; email: string }> {
+  const a = (await d.store.allAccounts()).find((x) => x.email === email.trim().toLowerCase());
+  if (!a) throw new Error('unknown account');
+  const current = await alertDecrypt(a.refresh_token_enc, d.encKey);
+  const t = await alertRefresh(d.fetch, { clientId: d.clientId, refreshToken: current, scope: ALERT_APP_SCOPE });
+  if (t.refreshToken !== current) await d.store.update(a.id, { refresh_token_enc: await alertEncrypt(t.refreshToken, d.encKey) });
+  return { accessToken: t.accessToken, expiresIn: t.expiresIn, email: a.email };
 }
 
 // ---- handler ----
@@ -647,6 +682,8 @@ Deno.serve(async (req) => {
 
   try {
     switch (body.op) {
+      case 'connect': return json(await alertConnect(deps, body as never));
+      case 'token': return json(await alertMintToken(deps, String(body.email ?? '')));
       case 'register': return json(await alertRegister(deps, body as never));
       case 'update': {
         const email = String(body.email ?? '').trim().toLowerCase();

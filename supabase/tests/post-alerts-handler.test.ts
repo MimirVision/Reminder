@@ -144,6 +144,9 @@ test('whole chain: phone pairs, mailbox registers, Microsoft reports new mail, t
   assert.equal(db.post_alert_accounts[0].mode, 'all');
   assert.equal((await call({ op: 'update', email: 'nobody@x.no', mode: 'all' })).status, 404);
   assert.equal((await call({ op: 'update', email: 'andreas@outlook.com', mode: 'weird' })).status, 400);
+  const minted = await (await call({ op: 'token', email: 'andreas@outlook.com' })).json();
+  assert.equal(minted.accessToken, 'AT');
+  assert.equal((await call({ op: 'token', email: 'nobody@x.no' })).status, 400);
   assert.equal((await (await call({ op: 'test' })).json()).sent, 1);
   assert.equal(pushed.length, 2);
   assert.equal(db.post_alert_devices[0].badge, 2); // the alert, then the test alert
