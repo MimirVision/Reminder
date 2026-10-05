@@ -154,9 +154,9 @@ export function createGraph(deps: GraphDeps) {
       return { name: String(j?.name ?? 'attachment'), contentType: String(j?.contentType ?? 'application/octet-stream'), bytes: Uint8Array.from(bin, (c) => c.charCodeAt(0)) };
     },
 
-    async attachments(messageId: string): Promise<{ id: string; name: string; size: number; contentType: string; inline: boolean }[]> {
-      const j = await request('GET', `/me/messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,size,contentType,isInline`);
-      return ((j?.value ?? []) as any[]).map((a) => ({ id: String(a.id), name: String(a.name ?? 'attachment'), size: Number(a.size ?? 0), contentType: String(a.contentType ?? ''), inline: !!a.isInline }));
+    async attachments(messageId: string): Promise<{ id: string; name: string; size: number; contentType: string; inline: boolean; cid?: string }[]> {
+      const j = await request('GET', `/me/messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,size,contentType,isInline,contentId`);
+      return ((j?.value ?? []) as any[]).map((a) => ({ id: String(a.id), name: String(a.name ?? 'attachment'), size: Number(a.size ?? 0), contentType: String(a.contentType ?? ''), inline: !!a.isInline, ...(a.contentId ? { cid: String(a.contentId).toLowerCase() } : {}) }));
     },
   };
 }

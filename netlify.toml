@@ -33,6 +33,6 @@
     Cache-Control = "no-cache"
 
 [[headers]]
-  for = "/post-alerts/sw.js"
+  for = "/post/sw.js"
   [headers.values]
     Cache-Control = "no-cache"

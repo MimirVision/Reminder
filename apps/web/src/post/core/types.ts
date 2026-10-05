@@ -39,7 +39,7 @@ export interface MailBody {
   content: string;
   to: { name: string; address: string }[];
   cc: { name: string; address: string }[];
-  attachments: { id: string; name: string; size: number; contentType: string; inline: boolean }[];
+  attachments: { id: string; name: string; size: number; contentType: string; inline: boolean; cid?: string }[];
 }
 
 export const mailKey = (account: string, id: string) => `${account}|${id}`;

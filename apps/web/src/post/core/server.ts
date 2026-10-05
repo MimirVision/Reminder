@@ -9,7 +9,7 @@ export class ServerError extends Error {
   constructor(status: number, message: string) { super(message); this.name = 'ServerError'; this.status = status; }
 }
 
-export interface AccountStatus { email: string; label: string; mode: 'people' | 'all' | 'vips' | 'off'; quiet: { days: number[]; from: string; to: string } | null; vips: number; subscription_expires_at: string | null; last_alert_at: string | null }
+export interface AccountStatus { id?: string; email: string; label: string; mode: 'people' | 'all' | 'vips' | 'off'; quiet: { days: number[]; from: string; to: string } | null; vips: string[]; subscription_expires_at: string | null; last_alert_at: string | null }
 
 export function createServer(cfg: ServerConfig, f: Fetcher = (...a) => fetch(...a)) {
   async function call<T = any>(body: Record<string, unknown>): Promise<T> {

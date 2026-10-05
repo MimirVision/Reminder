@@ -9,4 +9,6 @@ const built = new Date().toISOString().slice(0, 16).replace('T', ' ');
 export default defineConfig({
   plugins: [react()],
   define: { __BUILD__: JSON.stringify(`${commit} · ${built} UTC`) },
+  // Two pages: Home Memory at / and the Post mail app at /post/.
+  build: { rollupOptions: { input: { main: 'index.html', post: 'post/index.html' } } },
 });

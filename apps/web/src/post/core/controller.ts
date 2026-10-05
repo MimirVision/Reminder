@@ -91,7 +91,9 @@ export function createController(deps: Deps) {
   async function reload() {
     const [mail, ops, outbox] = await Promise.all([store.allMail(), queue.pending(), store.getMeta<OutboxItem[]>('outbox')]);
     mail.sort((a, b) => b.received.localeCompare(a.received));
-    set({ mail, waiting: ops.length + (outbox?.length ?? 0), outbox: outbox ?? [] });
+    // "Waiting" means held up, not just inside the undo window: only actions that are already due and still not confirmed count.
+    const waiting = ops.filter((o) => o.runAfter <= now()).length + (outbox ?? []).filter((o) => o.sendAt <= now()).length;
+    set({ mail, waiting, outbox: outbox ?? [] });
   }
 
   function saveSettings(s: Settings) { kv.set('post.settings', JSON.stringify(s)); set({ settings: s }); }
@@ -115,13 +117,13 @@ export function createController(deps: Deps) {
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
 
     async init() {
+      const accounts = (await store.getMeta<AppAccount[]>('accounts')) ?? [];
+      const overrides = (await store.getMeta<Record<string, Kind>>('overrides')) ?? {};
       let cfg: Config | null = null;
       try { const c = JSON.parse(kv.get('post.config') ?? 'null'); if (c && validConfig(c)) cfg = c; } catch { /* keep null */ }
       let settings = DEFAULT_SETTINGS;
       try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
       useConfig(cfg);
-      const accounts = (await store.getMeta<AppAccount[]>('accounts')) ?? [];
-      const overrides = (await store.getMeta<Record<string, Kind>>('overrides')) ?? {};
       set({ config: cfg, settings, accounts, overrides });
       await reload();
       set({ ready: true });
@@ -139,6 +141,7 @@ export function createController(deps: Deps) {
       kv.set('post.config', JSON.stringify(c));
       useConfig(c);
       set({ config: c });
+      void api.opened();
     },
 
     forgetEverything() {
@@ -203,7 +206,7 @@ export function createController(deps: Deps) {
     async setAlerts(email: string, patch: { mode?: AccountStatus['mode']; quiet?: AccountStatus['quiet']; vips?: string[]; label?: string }) {
       if (!server) return;
       const before = state.accounts;
-      set({ accounts: before.map((a) => (a.email === email ? { ...a, ...patch, vips: patch.vips ? patch.vips.length : a.vips } : a)) });
+      set({ accounts: before.map((a) => (a.email === email ? { ...a, ...patch, vips: patch.vips ?? a.vips } : a)) });
       try { await server.update(email, patch); } catch (e) {
         set({ accounts: before });
         toast(e instanceof Error ? e.message : 'Could not save');
@@ -403,4 +406,4 @@ export function filterCounts(s: Pick<State, 'mail' | 'accountFilter'>, nowMs: nu
 }
 
 export const snoozedMail = (mail: Mail[], nowMs: number) => mail.filter((m) => m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs).sort((a, b) => String(a.snoozedUntil).localeCompare(String(b.snoozedUntil)));
-export const replyLaterMail = (mail: Mail[]) => mail.filter((m) => m.flagged && m.folder === 'inbox');
+export const replyLaterMail = (mail: Mail[], nowMs: number) => mail.filter((m) => m.flagged && m.folder === 'inbox' && !(m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs));

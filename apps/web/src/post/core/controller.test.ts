@@ -11,7 +11,7 @@ function world() {
   const log: string[] = [];
   const inbox = new Map<string, any>();
   let nextDelta = 1;
-  let accounts = [{ email: 'a@outlook.com', label: 'Personal', mode: 'people', quiet: null, vips: 0, subscription_expires_at: null, last_alert_at: null }];
+  let accounts = [{ email: 'a@outlook.com', label: 'Personal', mode: 'people', quiet: null, vips: [] as string[], subscription_expires_at: null, last_alert_at: null }];
   const flags: Record<string, boolean> = { offline: false, tokenError: '' };
   const add = (id: string, o: any = {}) => inbox.set(id, { id, subject: `Subject ${id}`, receivedDateTime: '2026-10-05T08:00:00Z', from: { emailAddress: { name: 'Anna', address: 'anna@x.no' } }, isRead: false, bodyPreview: 'preview', ...o });
   const f = (async (url: string, init: RequestInit = {}) => {
@@ -22,7 +22,7 @@ function world() {
       log.push(`server ${body.op}`);
       if (body.op === 'status') return new Response(JSON.stringify({ devices: 1, accounts }));
       if (body.op === 'token') return flags.tokenError ? new Response(JSON.stringify({ error: flags.tokenError }), { status: 400 }) : new Response(JSON.stringify({ accessToken: 'T', expiresIn: 3600, email: body.email }));
-      if (body.op === 'connect') { accounts = [...accounts, { email: 'w@firma.no', label: 'Work', mode: 'people', quiet: null, vips: 0, subscription_expires_at: null, last_alert_at: null }]; return new Response(JSON.stringify({ id: '2', email: 'w@firma.no', expires: 'x' })); }
+      if (body.op === 'connect') { accounts = [...accounts, { email: 'w@firma.no', label: 'Work', mode: 'people', quiet: null, vips: [] as string[], subscription_expires_at: null, last_alert_at: null }]; return new Response(JSON.stringify({ id: '2', email: 'w@firma.no', expires: 'x' })); }
       if (body.op === 'update') return new Response(JSON.stringify({ ok: true }));
       if (body.op === 'unregister') { accounts = accounts.filter((a) => a.email !== body.email); return new Response(JSON.stringify({ removed: true })); }
       return new Response(JSON.stringify({ ok: true }));

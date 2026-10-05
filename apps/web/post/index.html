@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F2F3F5" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Post" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="manifest" href="/post/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/post/icon-180.png" />
+    <link rel="icon" href="/post/icon-180.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@700&family=DM+Sans:wght@400;500;600;700&display=swap" />
+    <title>Post</title>
+    <script>
+      // Dark or light before first paint, so there is no flash: the saved choice, else the phone's.
+      (function () { try { var s = JSON.parse(localStorage.getItem('post.settings') || 'null') || {}; var m = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var d = s.theme === 'dark' || (s.theme !== 'light' && m); document.documentElement.style.background = d ? (s.pureBlack ? '#000' : '#0F1217') : '#F2F3F5'; } catch (e) {} })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/post/main.tsx"></script>
+  </body>
+</html>

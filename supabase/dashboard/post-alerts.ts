@@ -697,7 +697,7 @@ Deno.serve(async (req) => {
         const devices = await store.devices();
         return json({
           devices: devices.length,
-          accounts: list.map((a) => ({ email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips.length, subscription_expires_at: a.subscription_expires_at, last_alert_at: (a as { last_alert_at?: string }).last_alert_at ?? null })),
+          accounts: list.map((a) => ({ id: a.id, email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips, subscription_expires_at: a.subscription_expires_at, last_alert_at: (a as { last_alert_at?: string }).last_alert_at ?? null })),
         });
       }
       case 'seen': return json({ ok: await alertSeen(deps, String(body.endpoint ?? '')) });
