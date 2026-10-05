@@ -37,7 +37,7 @@ Microsoft no longer lets apps log in to Outlook with a password, so this is the 
 2. **App registrations, New registration**: name `Post`. Supported account types: **Accounts in any organizational directory and personal Microsoft accounts**.
    Redirect URI: platform **Public client/native (mobile and desktop)**, value `postmail://auth`. Register.
 3. Copy the **Application (client) ID** from the overview page.
-4. **API permissions, Add a permission, Microsoft Graph, Delegated**: `User.Read`, `Mail.ReadWrite`, `Mail.Send`, `offline_access`.
+4. **API permissions, Add a permission, Microsoft Graph, Delegated**: `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `offline_access`.
 5. **Authentication**: set **Allow public client flows** to **Yes**, Save.
 6. In GitHub: **Settings, Secrets and variables, Actions, New repository secret**: name `EXPO_PUBLIC_MS_CLIENT_ID`, value the client ID. Then run the build again.
 **Work or school accounts (Microsoft 365):** these also sign in this way, but your employer may block outside apps or ask an admin to approve Post.

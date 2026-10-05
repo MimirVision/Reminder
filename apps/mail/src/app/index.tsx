@@ -31,6 +31,7 @@ const MS = {
   },
   scopes: ['offline_access', 'User.Read', 'Mail.ReadWrite', 'Mail.Send'],
 };
+const ALERTS_KEY = 'post.alerts';
 const GOOGLE_KEY = 'post.google';
 const MS_KEY = 'post.microsoft';
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
@@ -63,6 +64,9 @@ export default function Spike() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mail, runMail] = useCheck('Mail login (IMAP over TLS)', record);
+  const [alertUrl, setAlertUrl] = useState('');
+  const [alertKey, setAlertKey] = useState('');
+  const [alerts, runAlerts] = useCheck('Instant alerts', record);
   const [ms365, runMs] = useCheck('Microsoft sign-in', record);
   const [msAge, runMsAge] = useCheck('Microsoft token still valid', record);
   const [google, runGoogle] = useCheck('Google sign-in', record);
@@ -117,6 +121,48 @@ export default function Spike() {
     if (!r.ok) throw new Error(`Microsoft Graph ${r.status}: ${(await r.text()).slice(0, 160)}`);
     return (await r.json()) as Record<string, any>;
   };
+
+  const alertCall = async (body: Record<string, unknown>) => {
+    const res = await fetch(alertUrl.trim(), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-alerts-key': alertKey.trim() }, body: JSON.stringify(body) });
+    const j = (await res.json().catch(() => ({}))) as Record<string, any>;
+    if (!res.ok) throw new Error(res.status === 401 ? 'The alerts key was not accepted.' : res.status === 503 ? 'The server is missing secrets (see docs/ALERTS.md).' : `Server said ${res.status}: ${j.error ?? ''}`);
+    return j;
+  };
+
+  // Turns on instant alerts for the signed-in Outlook account: a second, read-only sign-in whose token lives (encrypted) on your own Supabase.
+  const checkAlerts = () =>
+    runAlerts(async (say) => {
+      if (!MS.clientId) {
+        say('Needs the Microsoft sign-in set up first (EXPO_PUBLIC_MS_CLIENT_ID).');
+        return 'skip';
+      }
+      if (!/^https:\/\//.test(alertUrl.trim()) || !alertKey.trim()) throw new Error('Fill in the server address and the alerts key.');
+      const v = await alertCall({ op: 'vapid' });
+      say(`server reachable, alerts key accepted (${String(v.publicKey).slice(0, 8)}…)`);
+      const redirectUri = AuthSession.makeRedirectUri({ scheme: 'postmail', path: 'auth' });
+      const scopes = ['offline_access', 'User.Read', 'Mail.Read'];
+      const req = new AuthSession.AuthRequest({ clientId: MS.clientId, scopes, redirectUri, usePKCE: true, extraParams: { prompt: 'select_account' } });
+      const res = await req.promptAsync(MS.discovery);
+      if (res.type !== 'success') throw new Error(`Sign-in ${res.type}${res.type === 'error' ? `: ${res.error?.message ?? ''}` : ''}`);
+      const tok = await AuthSession.exchangeCodeAsync(
+        { clientId: MS.clientId, code: res.params.code, redirectUri, extraParams: { code_verifier: req.codeVerifier ?? '', scope: scopes.join(' ') } },
+        MS.discovery,
+      );
+      if (!tok.refreshToken) throw new Error('Microsoft did not give a refresh token.');
+      const me = await graph(tok.accessToken, '/me?$select=displayName,mail,userPrincipalName');
+      const email = String(me.mail ?? me.userPrincipalName);
+      say(`read-only sign-in as ${email}`);
+      await SecureStore.setItemAsync(ALERTS_KEY, JSON.stringify({ url: alertUrl.trim(), key: alertKey.trim() }), KEYCHAIN);
+      const r = await alertCall({ op: 'register', email, label: email.includes('outlook') || email.includes('hotmail') ? 'Personal' : 'Work', refreshToken: tok.refreshToken, mode: 'people' });
+      say(`Microsoft will now tell your server when mail arrives for ${r.email}. Watch valid until ${new Date(r.expires).toLocaleString()}`);
+      const st = await alertCall({ op: 'status' });
+      say(`phones registered for alerts: ${st.devices}${st.devices ? '' : ' (open the Post alerts page on this phone, see docs/ALERTS.md)'}`);
+      if (st.devices) {
+        const t = await alertCall({ op: 'test' });
+        say(`test alert sent to ${t.sent} phone(s). Lock the phone: it should appear within seconds.`);
+      }
+      say('Now send yourself an email from another address, with this app closed and the phone locked, and note how long the alert takes.');
+    });
 
   const checkMs = () =>
     runMs(async (say) => {
@@ -340,6 +386,10 @@ export default function Spike() {
         <TextInput value={password} onChangeText={setPassword} placeholder="App password" placeholderTextColor={t.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry style={input} />
       </CheckCard>
 
+      <CheckCard title="Instant alerts" why="The make-or-break test: Microsoft tells your own server the moment mail arrives and your phone rings. Needs the Post alerts page on the Home Screen first (docs/ALERTS.md)." state={alerts} onRun={checkAlerts} runLabel="Turn on alerts for my Outlook">
+        <TextInput value={alertUrl} onChangeText={setAlertUrl} placeholder="https://….supabase.co/functions/v1/post-alerts" placeholderTextColor={t.muted} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={input} />
+        <TextInput value={alertKey} onChangeText={setAlertKey} placeholder="Alerts key" placeholderTextColor={t.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry style={input} />
+      </CheckCard>
       <CheckCard
         title="Microsoft sign-in"
         why={MS.clientId ? 'One-tap Outlook, no password. Reads your inbox through Microsoft Graph. This is the main account path.' : 'Not built in: add the repository secret EXPO_PUBLIC_MS_CLIENT_ID and build again (see docs/MAIL.md).'}

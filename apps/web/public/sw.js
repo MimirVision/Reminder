@@ -14,6 +14,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // Supabase, fonts, map tiles: never cached here
+  if (url.pathname.startsWith('/post-alerts/')) return; // the separate Post alerts web app has its own service worker
   if (url.pathname.startsWith('/api/') || url.pathname.endsWith('.ics')) return;
   if (req.mode === 'navigate') {
     // Network first so a new version arrives at once; the cached shell opens the app with no connection.

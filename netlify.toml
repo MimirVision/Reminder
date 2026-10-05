@@ -31,3 +31,8 @@
   for = "/sw.js"
   [headers.values]
     Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/post-alerts/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
