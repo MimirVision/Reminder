@@ -82,6 +82,8 @@ Sideloadly can auto-refresh over Wi-Fi while your computer is on, which softens 
 ## Decisions made (after this audit)
 - **Outlook is the main account**, so Microsoft Graph moves from "later" to the first provider built. Outlook.com and Microsoft 365 both sign in with Microsoft; a work account may need your employer's approval.
 - **Path 1** (free, alongside Apple Mail): Post for triage, search and writing; Apple Mail keeps alerts and `mailto:` links.
+- **Accounts:** both personal Outlook and work (Microsoft 365). The work account is the one that may need your employer's approval; that is tested the first time you sign in with it.
+- **Light customisation, nothing more** (screen A2.16): 8 accent colours (each checked: white-on-accent text 4.9:1 or better, and a lighter variant for dark mode), theme (match phone / light / dark), pure-black dark mode, row size (comfortable / compact), and one colour per account. Deliberately *not* included: free colour pickers (they produce unreadable combinations), custom fonts, icon packs. Swipe actions are the other adjustable thing (already in settings).
 - Design: the polished Option A ("A2", 15 screens) on the canvas, reviewed before any real-app code is written.
 
 ## Revised milestones
