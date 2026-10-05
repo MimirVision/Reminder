@@ -79,13 +79,18 @@ I would build for path 1 (everything good about the app works there), then decid
 comparison point: Spark Plus is $99/year and HEY is $99/year, so path 3 costs what the paid apps cost. You said free, so this is only here so the choice is informed.
 Sideloadly can auto-refresh over Wi-Fi while your computer is on, which softens the 7-day chore.
 
+## Decisions made (after this audit)
+- **Outlook is the main account**, so Microsoft Graph moves from "later" to the first provider built. Outlook.com and Microsoft 365 both sign in with Microsoft; a work account may need your employer's approval.
+- **Path 1** (free, alongside Apple Mail): Post for triage, search and writing; Apple Mail keeps alerts and `mailto:` links.
+- Design: the polished Option A ("A2", 15 screens) on the canvas, reviewed before any real-app code is written.
+
 ## Revised milestones
 0. **Test build** (done, awaiting your run): connection, Google sign-in and its 7-day test, secure-connection, runtime, FTS5, HTML view, Keychain, background refresh.
-1. **Connect and read:** provider interface; Gmail API + IMAP (iCloud); first-run flow; sync with resync and backoff; unified inbox; reading with blocked trackers.
+1. **Connect and read:** provider interface; **Microsoft Graph (Outlook)** first, then Gmail API and IMAP (iCloud); first-run flow; sync with resync and backoff; unified inbox; reading with blocked trackers.
 2. **Triage:** swipe, undo, archive-and-next, snooze, bulk select, unsubscribe.
 3. **Search:** instant offline search, filters, server fallback, saved searches, categories that label but never hide.
 4. **Write:** SMTP / Gmail send, drafts, attachments, signature, snippets, undo send, follow-up reminders.
-5. **Outlook** via Graph.
+5. **Gmail and iCloud** providers (Outlook already done in step 1).
 6. **Alerts and polish:** background refresh, notification filters, the alert helper if you choose path 2, the full polish pass.
 
 ## Sources

@@ -23,7 +23,16 @@ const GOOGLE = {
   discovery: { authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth', tokenEndpoint: 'https://oauth2.googleapis.com/token' },
   scopes: ['https://mail.google.com/', 'email'],
 };
+const MS = {
+  clientId: process.env.EXPO_PUBLIC_MS_CLIENT_ID ?? '',
+  discovery: {
+    authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+  },
+  scopes: ['offline_access', 'User.Read', 'Mail.ReadWrite', 'Mail.Send'],
+};
 const GOOGLE_KEY = 'post.google';
+const MS_KEY = 'post.microsoft';
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
 const ms = (t0: number) => `${Date.now() - t0} ms`;
@@ -54,6 +63,8 @@ export default function Spike() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mail, runMail] = useCheck('Mail login (IMAP over TLS)', record);
+  const [ms365, runMs] = useCheck('Microsoft sign-in', record);
+  const [msAge, runMsAge] = useCheck('Microsoft token still valid', record);
   const [google, runGoogle] = useCheck('Google sign-in', record);
   const [googleAge, runGoogleAge] = useCheck('Google token still valid', record);
   const [fts, runFts] = useCheck('Search index (FTS5)', record);
@@ -99,6 +110,60 @@ export default function Spike() {
       } finally {
         await c.logout();
       }
+    });
+
+  const graph = async (token: string, path: string) => {
+    const r = await fetch(`https://graph.microsoft.com/v1.0${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) throw new Error(`Microsoft Graph ${r.status}: ${(await r.text()).slice(0, 160)}`);
+    return (await r.json()) as Record<string, any>;
+  };
+
+  const checkMs = () =>
+    runMs(async (say) => {
+      if (!MS.clientId) {
+        say('No Microsoft client id was built in (EXPO_PUBLIC_MS_CLIENT_ID).');
+        return 'skip';
+      }
+      const redirectUri = AuthSession.makeRedirectUri({ scheme: 'postmail', path: 'auth' });
+      say(`return address: ${redirectUri}`);
+      const req = new AuthSession.AuthRequest({ clientId: MS.clientId, scopes: MS.scopes, redirectUri, usePKCE: true, extraParams: { prompt: 'select_account' } });
+      const res = await req.promptAsync(MS.discovery);
+      if (res.type !== 'success') throw new Error(`Sign-in ${res.type}${res.type === 'error' ? `: ${res.error?.message ?? ''}` : ''}`);
+      say('Microsoft sign-in sheet returned a code');
+      const tok = await AuthSession.exchangeCodeAsync(
+        { clientId: MS.clientId, code: res.params.code, redirectUri, extraParams: { code_verifier: req.codeVerifier ?? '', scope: MS.scopes.join(' ') } },
+        MS.discovery,
+      );
+      say(`access token: yes. refresh token: ${tok.refreshToken ? 'YES' : 'NO'}`);
+      const me = await graph(tok.accessToken, '/me?$select=displayName,mail,userPrincipalName');
+      say(`signed in as ${me.mail ?? me.userPrincipalName} (${me.displayName})`);
+      const t0 = Date.now();
+      const inbox = await graph(tok.accessToken, '/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount');
+      say(`inbox: ${inbox.totalItemCount} messages, ${inbox.unreadItemCount} unread`);
+      const list = await graph(tok.accessToken, '/me/mailFolders/inbox/messages?$top=5&$select=subject,from,receivedDateTime,isRead,inferenceClassification');
+      say(`read the newest 5 in ${ms(t0)}`);
+      for (const m of (list.value ?? []) as { subject?: string; from?: { emailAddress?: { name?: string } }; isRead?: boolean; inferenceClassification?: string }[])
+        say(`${m.isRead ? ' ' : '*'} ${m.from?.emailAddress?.name ?? '?'} | ${m.subject ?? ''} | ${m.inferenceClassification ?? ''}`);
+      const folders = await graph(tok.accessToken, '/me/mailFolders?$top=20&$select=displayName,totalItemCount');
+      say(`folders: ${(folders.value as { displayName: string }[]).map((f) => f.displayName).join(', ')}`);
+      if (tok.refreshToken) await SecureStore.setItemAsync(MS_KEY, JSON.stringify({ refreshToken: tok.refreshToken, email: me.mail ?? me.userPrincipalName, obtainedAt: Date.now() }), KEYCHAIN);
+      else throw new Error('No refresh token came back, so it could not stay signed in.');
+    });
+
+  const checkMsAge = () =>
+    runMsAge(async (say) => {
+      const raw = await SecureStore.getItemAsync(MS_KEY, KEYCHAIN);
+      if (!raw) {
+        say('No stored Microsoft sign-in yet. Run "Microsoft sign-in" first, then come back after a week.');
+        return 'skip';
+      }
+      const saved = JSON.parse(raw) as { refreshToken: string; email: string; obtainedAt: number };
+      say(`signed in ${days(saved.obtainedAt)} days ago as ${saved.email}`);
+      const tok = await AuthSession.refreshAsync({ clientId: MS.clientId, refreshToken: saved.refreshToken, scopes: MS.scopes }, MS.discovery);
+      say('refresh token still accepted by Microsoft');
+      const inbox = await graph(tok.accessToken, '/me/mailFolders/inbox?$select=unreadItemCount');
+      say(`inbox read with the refreshed token: ${inbox.unreadItemCount} unread`);
+      if (tok.refreshToken) await SecureStore.setItemAsync(MS_KEY, JSON.stringify({ ...saved, refreshToken: tok.refreshToken }), KEYCHAIN);
     });
 
   const checkGoogle = () =>
@@ -275,6 +340,14 @@ export default function Spike() {
         <TextInput value={password} onChangeText={setPassword} placeholder="App password" placeholderTextColor={t.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry style={input} />
       </CheckCard>
 
+      <CheckCard
+        title="Microsoft sign-in"
+        why={MS.clientId ? 'One-tap Outlook, no password. Reads your inbox through Microsoft Graph. This is the main account path.' : 'Not built in: add the repository secret EXPO_PUBLIC_MS_CLIENT_ID and build again (see docs/MAIL.md).'}
+        state={ms365}
+        onRun={checkMs}
+        runLabel="Sign in with Microsoft"
+      />
+      <CheckCard title="Microsoft token still valid" why="Run it a week or more after signing in. Microsoft sign-ins should last 90 days when used, so this should keep working." state={msAge} onRun={checkMsAge} />
       <CheckCard
         title="Google sign-in"
         why={GOOGLE.clientId ? 'One-tap Gmail without an app password. Needs a refresh token, so you stay signed in.' : 'Not built in: add the repository secret EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID and build again (see docs/MAIL.md).'}

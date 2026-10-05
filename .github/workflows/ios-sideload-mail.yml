@@ -1,7 +1,7 @@
 # Builds the UNSIGNED Post mail app (.ipa) in the cloud on a free Mac runner, so you can install it with Sideloadly using a free
 # Apple ID (it expires after 7 days; re-install to renew). See docs/MAIL.md.
 # Run it from GitHub: Actions > "Build Post mail app (unsigned)" > Run workflow. Then download "Post-unsigned-ipa".
-# Optional repository secret: EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID (enables "Sign in with Google"; see docs/MAIL.md).
+# Optional repository secrets: EXPO_PUBLIC_MS_CLIENT_ID ("Sign in with Microsoft") and EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ("Sign in with Google"); see docs/MAIL.md.
 name: Build Post mail app (unsigned)
 on:
   workflow_dispatch:
@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 60
     env:
       EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
+      EXPO_PUBLIC_MS_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_MS_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
