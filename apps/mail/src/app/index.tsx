@@ -125,7 +125,7 @@ export default function Spike() {
   const alertCall = async (body: Record<string, unknown>) => {
     const res = await fetch(alertUrl.trim(), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-alerts-key': alertKey.trim() }, body: JSON.stringify(body) });
     const j = (await res.json().catch(() => ({}))) as Record<string, any>;
-    if (!res.ok) throw new Error(res.status === 401 ? 'The alerts key was not accepted.' : res.status === 503 ? 'The server is missing secrets (see docs/ALERTS.md).' : `Server said ${res.status}: ${j.error ?? ''}`);
+    if (!res.ok) throw new Error(res.status === 401 ? 'The alerts key was not accepted.' : res.status === 503 ? 'The server is missing secrets (see docs/POST.md).' : `Server said ${res.status}: ${j.error ?? ''}`);
     return j;
   };
 
@@ -156,7 +156,7 @@ export default function Spike() {
       const r = await alertCall({ op: 'register', email, label: email.includes('outlook') || email.includes('hotmail') ? 'Personal' : 'Work', refreshToken: tok.refreshToken, mode: 'people' });
       say(`Microsoft will now tell your server when mail arrives for ${r.email}. Watch valid until ${new Date(r.expires).toLocaleString()}`);
       const st = await alertCall({ op: 'status' });
-      say(`phones registered for alerts: ${st.devices}${st.devices ? '' : ' (open the Post alerts page on this phone, see docs/ALERTS.md)'}`);
+      say(`phones registered for alerts: ${st.devices}${st.devices ? '' : ' (open the Post alerts page on this phone, see docs/POST.md)'}`);
       if (st.devices) {
         const t = await alertCall({ op: 'test' });
         say(`test alert sent to ${t.sent} phone(s). Lock the phone: it should appear within seconds.`);
@@ -386,7 +386,7 @@ export default function Spike() {
         <TextInput value={password} onChangeText={setPassword} placeholder="App password" placeholderTextColor={t.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry style={input} />
       </CheckCard>
 
-      <CheckCard title="Instant alerts" why="The make-or-break test: Microsoft tells your own server the moment mail arrives and your phone rings. Needs the Post alerts page on the Home Screen first (docs/ALERTS.md)." state={alerts} onRun={checkAlerts} runLabel="Turn on alerts for my Outlook">
+      <CheckCard title="Instant alerts" why="The make-or-break test: Microsoft tells your own server the moment mail arrives and your phone rings. Needs the Post alerts page on the Home Screen first (docs/POST.md)." state={alerts} onRun={checkAlerts} runLabel="Turn on alerts for my Outlook">
         <TextInput value={alertUrl} onChangeText={setAlertUrl} placeholder="https://….supabase.co/functions/v1/post-alerts" placeholderTextColor={t.muted} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={input} />
         <TextInput value={alertKey} onChangeText={setAlertKey} placeholder="Alerts key" placeholderTextColor={t.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry style={input} />
       </CheckCard>

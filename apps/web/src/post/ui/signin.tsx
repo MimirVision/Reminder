@@ -131,6 +131,19 @@ export function SignInFailed({ message, onRetry }: { message: string; onRetry: (
 export function Connected({ email, onContinue }: { email: string; onContinue: () => void }) {
   const s = useS();
   const code = s.config ? makeSetupCode(s.config) : '';
+  let fromApp = false;
+  try { fromApp = sessionStorage.getItem('post.handoff') === '1'; } catch { /* fine */ }
+  if (fromApp) {
+    return (
+      <div className="welcome">
+        <div className="mark"><Mark size={44} /></div>
+        <h1 className="h1">Connected</h1>
+        <p className="tag"><b>{email}</b> is ready.</p>
+        <ol className="steps"><li>Go back to <b>Post</b> on your Home Screen. The new account is there already, and its mail is on its way.</li></ol>
+        <div className="form"><button className="alt" onClick={onContinue}>Read mail here for now</button></div>
+      </div>
+    );
+  }
   return (
     <div className="welcome">
       <div className="mark"><Mark size={44} /></div>
@@ -155,6 +168,7 @@ export function useHandoff(ready: boolean): { done: boolean; wantAdd: boolean } 
     const cfg = parseSetupCode(location.hash);
     const wantAdd = location.hash.startsWith('#add:');
     if (cfg) { c.setConfig(cfg); history.replaceState(null, '', location.pathname + '#/'); }
+    if (cfg && wantAdd) { try { sessionStorage.setItem('post.handoff', '1'); } catch { /* fine */ } }
     setSt({ done: true, wantAdd: wantAdd && !!cfg });
   }, [c, ready]);
   return st;

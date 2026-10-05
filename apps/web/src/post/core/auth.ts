@@ -39,7 +39,7 @@ export function parseCallback(search: string, expectedState: string | null): Cal
 export function friendlyAuthError(code: string, description: string): string {
   if (code === 'access_denied') return 'You cancelled the sign-in.';
   if (/AADSTS65001|consent/i.test(description)) return 'Your organisation needs to approve Post first. Ask your IT admin to allow it (or use a personal account).';
-  if (/AADSTS50011|redirect/i.test(description)) return 'The redirect address is not set up in Azure yet. See docs/ALERTS.md, step "Redirect URI".';
+  if (/AADSTS50011|redirect/i.test(description)) return 'The redirect address is not set up in Azure yet. See docs/POST.md, step 1 (Microsoft registration).';
   if (/AADSTS700016|AADSTS700054|not found in the directory/i.test(description)) return 'The app id is wrong or the app is not set up for personal accounts in Azure.';
   return description.replace(/\s+/g, ' ').slice(0, 200);
 }

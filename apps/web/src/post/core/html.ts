@@ -20,7 +20,23 @@ export function stripDangerous(html: string): string {
     .replace(/<(iframe|object|embed|applet|form|base|link)\b[\s\S]*?(<\/\1\s*>|\/?>)/gi, '')
     .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?(refresh|content-security-policy)[^>]*>/gi, '')
     .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/(href|src|xlink:href)\s*=\s*(["']?)\s*javascript:[^"'>\s]*\2/gi, '$1="#"');
+    .replace(/(href|src|xlink:href)\s*=\s*(["']?)\s*javascript:[^"'>\s]*\2/gi, '$1="#"')
+    // A page opened from a link must not be able to reach back into this one.
+    .replace(/<a\b/gi, '<a rel="noopener noreferrer"');
+}
+
+/**
+ * What type an attachment is opened with. A blob URL belongs to THIS app's origin, so an HTML or SVG attachment opened that way
+ * would run its scripts as Post. Only types that cannot run code keep their type (so they preview); everything else is forced to a
+ * download-style type.
+ */
+export function safeBlobType(contentType: string, name: string): string {
+  const t = contentType.toLowerCase().split(';')[0].trim();
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  const danger = /^(text\/html|application\/xhtml|image\/svg|text\/xml|application\/xml|application\/javascript|text\/javascript|application\/x-)/.test(t) || ['html', 'htm', 'xhtml', 'svg', 'xml', 'js', 'mjs', 'hta'].includes(ext);
+  if (danger) return 'application/octet-stream';
+  if (t === 'application/pdf' || /^image\/(png|jpe?g|gif|webp|heic|heif|avif|bmp)$/.test(t) || t === 'text/plain') return t;
+  return 'application/octet-stream';
 }
 
 /** Replaces `cid:` picture references with the inline attachment data (already fetched), so pictures embedded in the mail show. */

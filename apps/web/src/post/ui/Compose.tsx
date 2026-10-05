@@ -12,6 +12,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const c = useC();
   const original = useMemo(() => (id && account ? s.mail.find((m) => m.key === mailKey(account, id)) : undefined), [s.mail, id, account]);
   const first = useRef(true);
+  const sent = useRef(false);
   const [from, setFrom] = useState(account ?? s.accounts[0]?.email ?? '');
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
@@ -36,7 +37,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
 
   // Autosave about a second after you stop typing.
   useEffect(() => {
-    if (!(to || cc || subject || text.trim())) return;
+    if (sent.current || !(to || cc || subject || text.trim())) return;
     const t = setTimeout(() => c.saveDraft({ account: from, to, cc, subject, body: text, replyTo: id, mode }), 800);
     return () => clearTimeout(t);
   }, [from, to, cc, subject, text]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -55,6 +56,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const canSend = !busy && !!from && (mode === 'reply' || mode === 'replyAll' ? !!id && body.length > 0 : mode === 'forward' ? !!id && rcpt.length > 0 : rcpt.length > 0 && (body.length > 0 || subject.trim().length > 0));
   const send = async () => {
     setBusy(true);
+    sent.current = true;
     await c.send({ account: from, kind: mode, to: rcpt, cc: addresses(cc), subject: subject.trim(), body: text, replyTo: id });
     back();
   };

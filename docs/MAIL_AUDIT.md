@@ -86,7 +86,7 @@ Sideloadly can auto-refresh over Wi-Fi while your computer is on, which softens 
 - **Light customisation, nothing more** (screen A2.16): 8 accent colours (each checked: white-on-accent text 4.9:1 or better, and a lighter variant for dark mode), theme (match phone / light / dark), pure-black dark mode, row size (comfortable / compact), and one colour per account. Deliberately *not* included: free colour pickers (they produce unreadable combinations), custom fonts, icon packs. Swipe actions are the other adjustable thing (already in settings).
 - Design: the polished Option A ("A2", 15 screens) on the canvas, reviewed before any real-app code is written.
 
-## Update: instant alerts are now built into the plan (see ALERTS.md)
+## Update: instant alerts are now built into the plan (see POST.md)
 You said instant alerts must be in place. After checking, I withdrew my earlier suggestion of the free ntfy app: its iPhone app has documented
 reliability problems (alerts that silently stop or arrive late), so it cannot be promised. The route now built instead is **Microsoft Graph change notifications ->
 your Supabase function -> Web Push to a small "Post alerts" Home Screen web app**. Apple delivers Web Push itself (no developer account), and it reuses the
@@ -103,7 +103,7 @@ Plus: instant alerts (A2.20), true snooze, fast search, sender-by-sender clean-u
 ## Direction: web app first (conditional)
 Sideloading is the biggest ongoing cost (weekly re-install, builds, a separate alerts icon). A Home Screen web app removes it: nothing to sideload, updates are instant,
 the alerts and the badge come from Post's own icon, snooze and reminders fire from the server with the phone locked, it also works on a PC, and I can run and test it
-here in a browser. **Your condition: the unread number on the icon must work. It can** (Badging API, iOS 16.4+, updated from the push with the app closed; limits in ALERTS.md).
+here in a browser. **Your condition: the unread number on the icon must work. It can** (Badging API, iOS 16.4+, updated from the push with the app closed; limits in POST.md).
 Costs: slightly less native feel, no haptics, Outlook (and Gmail) only because browsers cannot do iCloud IMAP, and the mail sign-in has to live encrypted on your
 own Supabase (Microsoft limits browser-only sign-ins to 24 hours; a server-side sign-in lasts 90 days). Not yet verified: that Microsoft accepts that sign-in for both your accounts.
 **Gate, one evening, about 30 minutes of your time:** (1) personal and work Microsoft sign-in works, (2) an alert with the phone locked arrives in seconds, (3) the icon number

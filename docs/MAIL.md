@@ -1,4 +1,6 @@
-# Post: a mail app for your iPhone (free, sideloaded)
+# Post, native sideloaded version (parked)
+
+> **Post is now a Home Screen web app, see [POST.md](POST.md).** This native build is kept as the fallback if the web version cannot do what you need (for example if the icon number is not reliable enough).
 
 A replacement for Apple Mail that you install yourself, like Home Memory. It talks straight to your mail provider from the phone,
 keeps everything in a local database (so it opens instantly and works offline), and costs nothing to run: no server, no paid API.

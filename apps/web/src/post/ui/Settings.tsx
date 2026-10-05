@@ -103,7 +103,7 @@ export function Appearance({ s }: { s: State }) {
             <div className="card">{s.accounts.map((a) => {
               const cur = accountColour(a.email, emails, s.settings.accountColours);
               return <div key={a.email} className="it" style={{ flexWrap: 'wrap' }}><span className="dotc" style={{ background: cur }}>{a.label[0]}</span><span style={{ flex: 1 }}>{a.label}<small>{a.email}</small></span>
-                <span style={{ display: 'flex', gap: 8 }}>{ACCOUNT_COLOURS.map((col) => <button key={col} aria-label={`${a.label}: ${col}`} aria-pressed={cur === col} onClick={() => c.setSettings({ accountColours: { ...s.settings.accountColours, [a.email]: col } })} style={{ width: 28, height: 28, borderRadius: 14, background: col, border: cur === col ? '3px solid var(--ink)' : '3px solid transparent', padding: 0 }} />)}</span></div>;
+                <span style={{ display: 'flex', gap: 0, flexWrap: 'wrap' }}>{ACCOUNT_COLOURS.map((col) => <button key={col} aria-label={`${a.label}: ${col}`} aria-pressed={cur === col} onClick={() => c.setSettings({ accountColours: { ...s.settings.accountColours, [a.email]: col } })} style={{ width: 40, height: 40, borderRadius: 20, border: 0, padding: 0, background: `radial-gradient(circle, ${col} 0 11px, transparent 12px), ${cur === col ? 'radial-gradient(circle, transparent 0 13px, var(--ink) 14px 16px, transparent 17px)' : 'none'}` }} />)}</span></div>;
             })}</div>
           </>
         )}

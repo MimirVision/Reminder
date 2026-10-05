@@ -50,11 +50,13 @@ export async function syncAccount(p: { graph: Graph; store: Store; account: stri
     }
     const removed: string[] = [];
     const upserts: Mail[] = [];
+    // One read of what is stored, instead of one per message: a first sync can be a thousand messages.
+    const known = new Map((await store.allMail()).filter((m) => m.account === account).map((m) => [m.key, m]));
     for (const r of seen) {
       const key = mailKey(account, r.id);
       if (pending.has(key)) continue;
       if (r['@removed']) { removed.push(key); continue; }
-      const prev = await store.getMail(key);
+      const prev = known.get(key);
       const next = toMail(account, r, overrides, prev);
       if (prev) result.changed++; else result.added++;
       upserts.push(next);

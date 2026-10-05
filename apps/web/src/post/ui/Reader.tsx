@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { State } from '../core/controller.ts';
 import { visibleMail } from '../core/controller.ts';
 import { displayName, fileSize, shortTime } from '../core/format.ts';
-import { frameDocument, hasRemoteImages, inlineCids, textToHtml } from '../core/html.ts';
+import { frameDocument, hasRemoteImages, inlineCids, safeBlobType, textToHtml } from '../core/html.ts';
 import { parseUnsubscribe, type Unsub } from '../core/unsubscribe.ts';
 import { mailKey, type Kind, type Mail, type MailBody } from '../core/types.ts';
 import { Avatar, Icon, Sheet } from './ui.tsx';
@@ -117,7 +117,7 @@ export function Reader({ s, account, id }: { s: State; account: string; id: stri
           {remote && !showImages && <div className="banner"><Icon n="eye" size={18} />Images are blocked<button onClick={() => setLoadImages(true)}>Load once</button></div>}
           {err ? <p className="note" style={{ margin: 16 }}>{err}</p> : body ? <Frame html={html} remote={showImages} dark={dark} /> : <p className="note" style={{ margin: '18px 16px' }}>Opening…</p>}
           {body?.attachments.filter((a) => !a.inline).map((a) => (
-            <button key={a.id} className="att" onClick={async () => { const f = await c.attachment(m, a.id); const url = URL.createObjectURL(new Blob([f.bytes as BlobPart], { type: f.contentType })); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60_000); }}><Icon n="paperclip" size={20} />{a.name}<span>{fileSize(a.size)}</span></button>
+            <button key={a.id} className="att" onClick={async () => { const f = await c.attachment(m, a.id); const url = URL.createObjectURL(new Blob([f.bytes as BlobPart], { type: safeBlobType(f.contentType, a.name) })); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60_000); }}><Icon n="paperclip" size={20} />{a.name}<span>{fileSize(a.size)}</span></button>
           ))}
         </article>
       </div>

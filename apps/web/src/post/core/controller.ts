@@ -82,10 +82,10 @@ export function createController(deps: Deps) {
     graphs.clear();
   }
 
-  function toast(text: string, undo?: () => void) {
+  function toast(text: string, undo?: () => void, ms?: number) {
     const id = ++toastSeq;
     set({ toast: { id, text, undo } });
-    setTimer(() => { if (state.toast?.id === id) set({ toast: null }); }, undo ? UNDO_WINDOW_MS : 3500);
+    setTimer(() => { if (state.toast?.id === id) set({ toast: null }); }, ms ?? (undo ? UNDO_WINDOW_MS : 3500));
   }
 
   async function reload() {
@@ -328,7 +328,7 @@ export function createController(deps: Deps) {
       await store.setMeta('outbox', list);
       api.saveDraft(null);
       await reload();
-      toast(delay ? 'Sending…' : 'Sent', delay ? () => { void api.cancelSend(it.id); } : undefined);
+      toast(delay ? 'Sending…' : 'Sent', delay ? () => { void api.cancelSend(it.id); } : undefined, delay || undefined);
       setTimer(() => { void api.flushOutbox().then(reload); }, delay + 100);
     },
     async cancelSend(id: string) {

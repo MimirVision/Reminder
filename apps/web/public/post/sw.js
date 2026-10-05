@@ -29,13 +29,21 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('push', (e) => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch { data = { title: 'Post', body: e.data ? e.data.text() : '' }; }
-  // The number on the icon is set here, so it updates with Post closed.
-  const badge = typeof data.badge === 'number' && self.navigator && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(data.badge).catch(() => {}) : Promise.resolve();
-  const tell = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ws) => ws.forEach((w) => w.postMessage({ type: 'push' })));
-  e.waitUntil(Promise.all([
-    self.registration.showNotification(data.title || 'Post', { body: data.body || '', icon: '/post/icon-180.png', badge: '/post/icon-180.png', tag: data.tag || undefined, data: { url: data.url || '/post/' } }),
-    badge, tell,
-  ]));
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const looking = wins.some((w) => w.visibilityState === 'visible');
+    // The number on the icon is set here, so it updates with Post closed. If you are looking at Post right now there is nothing to count.
+    let badge = Promise.resolve();
+    if (self.navigator) {
+      if (looking && 'clearAppBadge' in self.navigator) badge = self.navigator.clearAppBadge().catch(() => {});
+      else if (!looking && typeof data.badge === 'number' && 'setAppBadge' in self.navigator) badge = self.navigator.setAppBadge(data.badge).catch(() => {});
+    }
+    wins.forEach((w) => w.postMessage({ type: 'push', looking }));
+    await Promise.all([
+      self.registration.showNotification(data.title || 'Post', { body: data.body || '', icon: '/post/icon-180.png', badge: '/post/icon-180.png', tag: data.tag || undefined, data: { url: data.url || '/post/' } }),
+      badge,
+    ]);
+  })());
 });
 
 self.addEventListener('notificationclick', (e) => {

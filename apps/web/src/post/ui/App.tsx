@@ -58,7 +58,8 @@ function Shell() {
     document.addEventListener('visibilitychange', on);
     window.addEventListener('online', on);
     const t = setInterval(() => { if (document.visibilityState === 'visible') void ctl.sync(); }, 60_000);
-    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'push') void ctl.sync(); };
+    // A push while Post is on screen: read the new mail now, and tell the server it was seen so the number does not creep up behind you.
+    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'push') void (e.data.looking ? ctl.opened() : ctl.sync()); };
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => { document.removeEventListener('visibilitychange', on); window.removeEventListener('online', on); clearInterval(t); navigator.serviceWorker?.removeEventListener('message', onMsg); };
   }, [s.config, ctl]);
