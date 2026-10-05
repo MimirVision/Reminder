@@ -3,7 +3,6 @@
 
 export type ThemePref = 'system' | 'light' | 'dark';
 export type RowSize = 'compact' | 'comfortable' | 'roomy';
-export type NewCount = 'since' | 'unread';
 
 export interface Accent { id: string; name: string; light: string; dark: string; tintLight: string; tintDark: string; inkLight: string; inkDark: string }
 
@@ -30,14 +29,13 @@ export interface Settings {
   swipeRight: 'archive' | 'read' | 'flag' | 'delete';
   swipeLeft: 'snooze' | 'flag' | 'delete' | 'read';
   blockImages: boolean;
-  newCount: NewCount;
   signature: string;
   undoSend: number; // seconds
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system', accent: 'ember', pureBlack: false, rowSize: 'comfortable', accountColours: {},
-  swipeRight: 'archive', swipeLeft: 'snooze', blockImages: true, newCount: 'since', signature: '', undoSend: 10,
+  swipeRight: 'archive', swipeLeft: 'snooze', blockImages: true, signature: '', undoSend: 10,
 };
 
 const ONE_OF = <T extends string>(v: unknown, list: readonly T[], d: T): T => (list.includes(v as T) ? (v as T) : d);
@@ -59,7 +57,6 @@ export function loadSettings(raw: unknown): Settings {
     swipeRight: ONE_OF(o.swipeRight, ['archive', 'read', 'flag', 'delete'], d.swipeRight),
     swipeLeft: ONE_OF(o.swipeLeft, ['snooze', 'flag', 'delete', 'read'], d.swipeLeft),
     blockImages: o.blockImages !== false,
-    newCount: ONE_OF(o.newCount, ['since', 'unread'], d.newCount),
     signature: typeof o.signature === 'string' ? o.signature.slice(0, 500) : '',
     undoSend: [0, 5, 10, 20, 30].includes(Number(o.undoSend)) ? Number(o.undoSend) : d.undoSend,
   };
