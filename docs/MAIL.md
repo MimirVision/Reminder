@@ -15,6 +15,8 @@ design canvas: https://claude.ai/artifact/QCFREjFYyX2YG2T91zTQGq
 | Google token still valid | Run it 8+ days after signing in: proves Gmail never asks you to sign in again |
 | Search index (FTS5) | Instant offline search, and whether `æ ø å` searches behave |
 | Mail view (images blocked) | Showing HTML mail safely, with tracking images blocked |
+| Secure connection | The app refuses forged certificates (must pass before you type a password anywhere) |
+| Phone runtime | Which modern JavaScript features the phone has, so I pick libraries that work |
 | Keychain | Passwords and tokens stored in the iPhone's secure storage |
 | Background refresh | How often iOS lets the app look for new mail without push |
 
@@ -38,14 +40,14 @@ Without this, Gmail needs an app password (works, but is clunkier). With it, add
    (it ends in `.apps.googleusercontent.com`).
 5. In GitHub: **Settings, Secrets and variables, Actions, New repository secret**: name `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, value the Client ID.
    Then run the build again.
-If Google asks you to enable an API, enable the **Gmail API** for the project.
+6. **Enable the Gmail API**: APIs & Services, Library, search "Gmail API", Enable. Post tests reading Gmail both ways (IMAP and Gmail's own API) so we can pick the sturdier one.
 
 ## 4. Run the checks on the phone
 1. **Mail login**: type your Gmail or iCloud address and an **app password**, tap Run.
    - Gmail: needs 2-step verification on, then https://myaccount.google.com/apppasswords
    - iCloud: https://account.apple.com, Sign-In and Security, App-Specific Passwords
 2. **Google sign-in**: tap it, finish the Google sheet. It should end with "IMAP login with the Google token: OK".
-3. Run **Search index**, **Mail view** (the tracking photo must NOT show), **Keychain** and **Background refresh** (tap Register).
+3. Run **Secure connection** first (every line must say "refused, as it should be"), then **Search index**, **Phone runtime**, **Mail view** (the tracking photo must NOT show), **Keychain** and **Background refresh** (tap Register).
 4. Tap **Copy report** at the bottom and paste it to me.
 5. Use the phone normally for a day, open Post once, and copy the report again: it lists when iOS woke the app.
 6. After 8 days (before the 7-day reinstall, so install the *same* build once to keep the sign-in, or just run it right after the re-install),

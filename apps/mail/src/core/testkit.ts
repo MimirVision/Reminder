@@ -42,6 +42,7 @@ export interface FakeOptions {
   hangOn?: string; // command name to never answer
   dropOn?: string; // command name that makes the server hang up
   chunk?: number; // write replies in pieces of this many bytes
+  chunkDelayMs?: number; // pause between pieces (a slow connection)
 }
 
 export const SAMPLE: FakeMessage[] = [
@@ -79,7 +80,7 @@ export async function startFakeImap(opts: FakeOptions = {}): Promise<{ port: num
       }
       for (let i = 0; i < buf.length; i += opts.chunk) {
         sock.write(buf.subarray(i, i + opts.chunk));
-        await new Promise((r) => setImmediate(r));
+        await new Promise((r) => (opts.chunkDelayMs ? setTimeout(r, opts.chunkDelayMs) : setImmediate(r)));
       }
     };
     void send(opts.greeting ?? '* OK [CAPABILITY IMAP4rev1] Fake IMAP ready\r\n');

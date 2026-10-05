@@ -71,3 +71,24 @@ test('base64Encode matches the standard encoding for every padding length', asyn
   const { base64Encode } = await import('./bytes.ts');
   for (const s of ['', 'f', 'fo', 'foo', 'foob', 'fooba', 'foobar', 'user=a\x01auth=Bearer t\x01\x01']) assert.equal(base64Encode(Uint8Array.from(Buffer.from(s, 'latin1'))), Buffer.from(s, 'latin1').toString('base64'));
 });
+
+test('ResponseReader handles a multi-megabyte literal arriving in small chunks without re-copying it every time', () => {
+  const size = 4 * 1024 * 1024;
+  const body = new Uint8Array(size).fill(65);
+  const head = enc(`* 1 FETCH (BODY[TEXT] {${size}}\r\n`);
+  const tail = enc(')\r\nA0001 OK done\r\n');
+  const wire = new Uint8Array(head.length + size + tail.length);
+  wire.set(head, 0);
+  wire.set(body, head.length);
+  wire.set(tail, head.length + size);
+  const r = new ResponseReader();
+  const t0 = Date.now();
+  let out: ReturnType<ResponseReader['push']> = [];
+  for (let i = 0; i < wire.length; i += 1024) out = out.concat(r.push(wire.subarray(i, i + 1024)));
+  const ms = Date.now() - t0;
+  assert.equal(out.length, 2);
+  const f = out[0];
+  const lit = f.kind === 'untagged' ? (f.tokens[0] as Array<{ lit: Uint8Array }>)[1].lit : null;
+  assert.equal(lit?.length, size);
+  assert.ok(ms < 400, `took ${ms} ms`);
+});

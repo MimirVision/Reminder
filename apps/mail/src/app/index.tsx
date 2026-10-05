@@ -58,6 +58,8 @@ export default function Spike() {
   const [googleAge, runGoogleAge] = useCheck('Google token still valid', record);
   const [fts, runFts] = useCheck('Search index (FTS5)', record);
   const [web, runWeb] = useCheck('Mail view (images blocked)', record);
+  const [tls, runTls] = useCheck('Secure connection', record);
+  const [runtime, runRuntime] = useCheck('Phone runtime', record);
   const [keychain, runKeychain] = useCheck('Keychain', record);
   const [bg, runBg] = useCheck('Background refresh', record);
   const [showWeb, setShowWeb] = useState(false);
@@ -130,6 +132,15 @@ export default function Spike() {
       } finally {
         await c.logout();
       }
+      // The same token also works for Gmail's own API, which is the sturdier way to read Gmail. Both are measured.
+      const t0 = Date.now();
+      const api = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10', { headers: { Authorization: `Bearer ${tok.accessToken}` } });
+      if (api.ok) {
+        const j = (await api.json()) as { resultSizeEstimate?: number; messages?: unknown[] };
+        say(`Gmail API: OK in ${ms(t0)}, ${j.messages?.length ?? 0} messages listed`);
+      } else {
+        say(`Gmail API: ${api.status}. If this is 403, enable the Gmail API for the project (docs/MAIL.md).`);
+      }
       if (!tok.refreshToken) throw new Error('No refresh token came back, so it could not stay signed in.');
     });
 
@@ -169,6 +180,40 @@ export default function Spike() {
       } finally {
         await db.closeAsync();
       }
+    });
+
+  const checkTls = () =>
+    runTls(async (say) => {
+      // A mail app that accepts a forged certificate would hand your password to anyone on the same Wi-Fi.
+      try {
+        const ok = await rnConnector({ host: 'badssl.com', port: 443, tls: true, timeoutMs: 10000 });
+        ok.close();
+        say('badssl.com (valid certificate): connected, as it should');
+      } catch (e) {
+        throw new Error(`Could not reach badssl.com to run this test (${e instanceof Error ? e.message : e}). Check the internet connection.`);
+      }
+      let accepted = 0;
+      for (const host of ['expired.badssl.com', 'wrong.host.badssl.com', 'self-signed.badssl.com', 'untrusted-root.badssl.com']) {
+        try {
+          const sock = await rnConnector({ host, port: 443, tls: true, timeoutMs: 10000 });
+          sock.close();
+          accepted++;
+          say(`${host}: ACCEPTED (bad)`);
+        } catch (e) {
+          say(`${host}: refused, as it should be`);
+        }
+      }
+      if (accepted) throw new Error(`The app accepted ${accepted} forged certificate(s). Do not enter a password until this is fixed.`);
+    });
+
+  const checkRuntime = () =>
+    runRuntime(async (say) => {
+      const g = globalThis as Record<string, unknown>;
+      const has = (n: string) => (typeof g[n] !== 'undefined' ? 'yes' : 'NO');
+      say(`engine: ${(g.HermesInternal as { getRuntimeProperties?: () => Record<string, string> } | undefined)?.getRuntimeProperties?.()['OSS Release Version'] ?? 'unknown'}, iOS ${Platform.Version}`);
+      say(['TextDecoder', 'TextEncoder', 'structuredClone', 'AbortController', 'URL', 'URLSearchParams', 'Blob', 'FileReader', 'crypto', 'Buffer'].map((n) => `${n}: ${has(n)}`).join('  '));
+      say(`crypto.subtle: ${(g.crypto as { subtle?: unknown } | undefined)?.subtle ? 'yes' : 'NO'}  Intl: ${typeof Intl !== 'undefined' ? 'yes' : 'NO'}`);
+      say(`nb-NO date: ${new Date().toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' })}`);
     });
 
   const checkWeb = () =>
@@ -254,6 +299,8 @@ export default function Spike() {
           </View>
         ) : null}
       </CheckCard>
+      <CheckCard title="Secure connection" why="Does the app refuse forged certificates? If it does not, a stranger on café Wi-Fi could steal a mail password. Must pass." state={tls} onRun={checkTls} />
+      <CheckCard title="Phone runtime" why="Which modern features this phone's engine has. Decides which ready-made libraries I can use." state={runtime} onRun={checkRuntime} />
       <CheckCard title="Keychain" why="Passwords and sign-in tokens are kept in the iPhone's secure storage." state={keychain} onRun={checkKeychain} />
       <CheckCard title="Background refresh" why="Can the app wake itself now and then to look for new mail? iOS decides how often, so we measure." state={bg} onRun={checkBg} runLabel="Register">
         <View style={{ marginTop: 10, gap: 2 }}>

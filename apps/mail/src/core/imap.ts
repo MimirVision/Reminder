@@ -77,7 +77,7 @@ export class ImapClient {
   private closeError?: ImapError;
   private tagN = 0;
   private chain: Promise<unknown> = Promise.resolve();
-  private cur?: { tag: string; resolve: (r: CommandResult) => void; reject: (e: Error) => void; untagged: Untagged[]; timer: ReturnType<typeof setTimeout>; onContinue?: () => void };
+  private cur?: { tag: string; resolve: (r: CommandResult) => void; reject: (e: Error) => void; untagged: Untagged[]; timer: ReturnType<typeof setTimeout>; timeoutMs: number; onContinue?: () => void };
   private greetingDone = false;
   private resolveReady!: () => void;
   private rejectReady!: (e: Error) => void;
@@ -120,7 +120,14 @@ export class ImapClient {
       this.fail(new ImapError('protocol', e instanceof Error ? e.message : 'Unreadable reply from the mail server.'));
       return;
     }
+    // The timeout measures silence, not total time: a big download on a slow connection must not be cut off while data is still flowing.
+    if (this.cur) this.armTimer(this.cur);
     for (const r of responses) this.handle(r);
+  }
+
+  private armTimer(c: NonNullable<ImapClient['cur']>) {
+    clearTimeout(c.timer);
+    c.timer = setTimeout(() => this.fail(new ImapError('timeout', 'The mail server took too long to answer.')), c.timeoutMs);
   }
 
   private handle(r: Response) {
@@ -184,8 +191,9 @@ export class ImapClient {
     if (this.closed) return Promise.reject(this.closeError ?? new ImapError('closed', 'The connection is closed.'));
     const tag = 'A' + String(++this.tagN).padStart(4, '0');
     return new Promise<CommandResult>((resolve, reject) => {
-      const timer = setTimeout(() => this.fail(new ImapError('timeout', 'The mail server took too long to answer.')), timeoutMs);
-      this.cur = { tag, resolve, reject, untagged: [], timer, onContinue };
+      const cur = { tag, resolve, reject, untagged: [] as Untagged[], timer: undefined as unknown as ReturnType<typeof setTimeout>, timeoutMs, onContinue };
+      this.cur = cur;
+      this.armTimer(cur);
       this.socket.write(utf8Encode(`${tag} ${command}\r\n`));
     });
   }

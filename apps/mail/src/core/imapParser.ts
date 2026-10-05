@@ -1,4 +1,4 @@
-import { concat, indexOfCrlf, latin1Decode, utf8Decode } from './bytes.ts';
+import { indexOfCrlf, latin1Decode, utf8Decode } from './bytes.ts';
 
 // A parsed IMAP value: atoms and quoted strings are strings, NIL is null, {n} literals are bytes, (...) is a list.
 export type Lit = { lit: Uint8Array };
@@ -121,27 +121,49 @@ export function parseResponse(segs: Seg[]): Response {
 }
 
 // Turns a byte stream into complete responses. A response with literals ({123}\r\n...) can arrive split across many chunks.
+function joinChunks(chunks: Uint8Array[], size: number): Uint8Array {
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
 export class ResponseReader {
-  private buf: Uint8Array = new Uint8Array(0);
+  // Incoming chunks are kept in a list and joined only when enough bytes have arrived to finish what we are waiting for.
+  // (Joining on every chunk copies a multi-megabyte attachment hundreds of times.)
+  private chunks: Uint8Array[] = [];
+  private size = 0;
+  private need = 0;
 
   push(chunk: Uint8Array): Response[] {
-    this.buf = this.buf.length ? concat(this.buf, chunk) : chunk;
+    this.chunks.push(chunk);
+    this.size += chunk.length;
+    if (this.size < this.need) return [];
+    let buf = this.chunks.length === 1 ? this.chunks[0] : joinChunks(this.chunks, this.size);
     const out: Response[] = [];
     for (;;) {
-      const r = this.take();
+      const r = this.take(buf);
       if (!r) break;
-      out.push(r);
+      out.push(r.response);
+      buf = buf.subarray(r.used);
     }
+    this.chunks = buf.length ? [buf] : [];
+    this.size = buf.length;
     return out;
   }
 
-  private take(): Response | null {
+  // Reads one complete response from the start of `buf`, or returns null (and remembers how many bytes to wait for).
+  private take(buf: Uint8Array): { response: Response; used: number } | null {
     let pos = 0;
     const segs: Seg[] = [];
+    this.need = 0;
     for (;;) {
-      const eol = indexOfCrlf(this.buf, pos);
+      const eol = indexOfCrlf(buf, pos);
       if (eol < 0) return null;
-      const line = latin1Decode(this.buf.subarray(pos, eol));
+      const line = latin1Decode(buf.subarray(pos, eol));
       const m = /\{(\d+)\+?\}$/.exec(line);
       if (!m) {
         segs.push({ text: line });
@@ -150,13 +172,15 @@ export class ResponseReader {
       }
       const n = Number(m[1]);
       const start = eol + 2;
-      if (this.buf.length < start + n) return null;
+      if (buf.length < start + n) {
+        this.need = start + n;
+        return null;
+      }
       segs.push({ text: line.slice(0, m.index) });
-      segs.push({ lit: this.buf.slice(start, start + n) });
+      segs.push({ lit: buf.slice(start, start + n) });
       pos = start + n;
     }
-    this.buf = this.buf.slice(pos);
-    return parseResponse(segs);
+    return { response: parseResponse(segs), used: pos };
   }
 }
 

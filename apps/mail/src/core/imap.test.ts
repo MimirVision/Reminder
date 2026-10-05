@@ -128,3 +128,15 @@ test('Sign in with Google (XOAUTH2): a good token logs in, a bad one is refused 
     bad.close();
   });
 });
+
+test('a slow but steady download is not cut off: the timeout counts silence, not total time', async () => {
+  // About 1.1 KB arrives 20 bytes at a time, 15 ms apart: far longer than the 250 ms timeout in total, never silent for 250 ms.
+  await withServer({ chunk: 20, chunkDelayMs: 15 }, async (port) => {
+    const c = await ImapClient.connect(nodeConnector, { host: '127.0.0.1', port, tls: false, timeoutMs: 250 });
+    await c.login('andreas@example.com', 'secret');
+    await c.select('INBOX');
+    const rows = await c.fetchHeaders('1:*');
+    assert.equal(rows.length, 2);
+    c.close();
+  });
+});
