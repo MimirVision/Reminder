@@ -103,3 +103,32 @@ test('moving a sender overrides, and un-moving it restores the automatic verdict
   await reclassifyAll(store, {});
   assert.equal((await store.getMail('a|1'))!.kind, 'person');
 });
+
+test('after a start-over, mail that Outlook no longer lists is removed, but older mail outside the window stays', async () => {
+  const store = memoryStore();
+  const old = raw('old', { receivedDateTime: '2026-01-01T00:00:00Z' });
+  await syncAccount({ graph: fakeGraph([{ value: [raw('1'), raw('2'), old], delta: 'D1' }]).g, store, account: 'a', now: () => new Date('2026-01-02T00:00:00Z') });
+  const { g } = fakeGraph([new GraphError(410, 'SyncStateNotFound', 'gone'), { value: [raw('1')], delta: 'D9' }]);
+  const r = await syncAccount({ graph: g, store, account: 'a', now: () => new Date('2026-10-05T00:00:00Z') });
+  assert.equal(r.resynced, true);
+  // '2' is gone (it left the inbox elsewhere); 'old' predates the 45-day window so it is simply not part of this answer.
+  assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', 'old']);
+});
+
+test('a first sync shows mail as pages arrive, and a drop halfway keeps what arrived without a delta link', async () => {
+  const store = memoryStore();
+  const { g } = fakeGraph([{ value: [raw('1')], next: 'n' }, new GraphError(0, 'network', 'offline')]);
+  await assert.rejects(() => syncAccount({ graph: g, store, account: 'a' }));
+  assert.deepEqual((await store.allMail()).map((m) => m.id), ['1']);
+  assert.equal(await store.getMeta('a|delta'), undefined);
+  const r = await syncAccount({ graph: fakeGraph([{ value: [raw('1'), raw('2')], delta: 'D1' }]).g, store, account: 'a' });
+  assert.deepEqual([r.added, r.changed], [1, 1]);
+});
+
+test('the start-over does not remove mail with an action still waiting', async () => {
+  const store = memoryStore();
+  await syncAccount({ graph: fakeGraph([{ value: [raw('1'), raw('2')], delta: 'D1' }]).g, store, account: 'a' });
+  await store.putOp({ id: 'o', type: 'read', account: 'a', messageId: '2', runAfter: 0, attempts: 0 });
+  await syncAccount({ graph: fakeGraph([new GraphError(410, 'SyncStateNotFound', 'gone'), { value: [raw('1')], delta: 'D2' }]).g, store, account: 'a' });
+  assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', '2']);
+});

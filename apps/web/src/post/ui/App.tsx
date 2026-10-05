@@ -16,10 +16,12 @@ import { isStandalone } from '../push.ts';
 
 function Toasts() {
   const s = useS();
+  const route = useRoute();
   const t = s.toast;
   if (!t) return null;
+  // On the triage screen the buttons are at the bottom, so the message goes to the top instead of covering them.
   return (
-    <div className="toast-dock" aria-live="polite">
+    <div className={`toast-dock${route.name === 'triage' ? ' top' : ''}`} aria-live="polite">
       <div className="toast" key={t.id} role="status"><span>{t.text}</span>{t.undo && <button className="undo" onClick={() => { const u = t.undo!; u(); }}>Undo</button>}</div>
     </div>
   );

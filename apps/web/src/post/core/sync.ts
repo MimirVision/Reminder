@@ -37,34 +37,49 @@ export async function syncAccount(p: { graph: Graph; store: Store; account: stri
   const pending = new Set((await store.allOps()).filter((o) => o.account === account).map((o) => mailKey(o.account, o.messageId)));
 
   async function run(startLink: string | undefined): Promise<void> {
+    const full = !startLink; // a first sync or a start-over: everything in the window comes back
+    const sinceMs = now().getTime() - FIRST_SYNC_DAYS * 86_400_000;
+    const since = new Date(sinceMs).toISOString();
+    // One read of what is stored, instead of one per message: a first sync can be a thousand messages.
+    const known = new Map((await store.allMail()).filter((m) => m.account === account).map((m) => [m.key, m]));
+    const seenKeys = new Set<string>();
+    const batchIn = async (raws: RawMessage[]) => {
+      const removed: string[] = [];
+      const upserts: Mail[] = [];
+      for (const r of raws) {
+        const key = mailKey(account, r.id);
+        seenKeys.add(key);
+        if (pending.has(key)) continue;
+        if (r['@removed']) { removed.push(key); known.delete(key); continue; }
+        const prev = known.get(key);
+        const next = toMail(account, r, overrides, prev);
+        if (prev) result.changed++; else result.added++;
+        known.set(key, next);
+        upserts.push(next);
+      }
+      result.removed += removed.length;
+      await store.putMail(upserts);
+      await store.deleteMail(removed);
+    };
+
     let link = startLink;
-    const since = new Date(now().getTime() - FIRST_SYNC_DAYS * 86_400_000).toISOString();
     let deltaLink: string | undefined;
-    const seen: RawMessage[] = [];
-    for (let pages = 0; pages < 200; pages++) {
+    const held: RawMessage[] = [];
+    for (let pages = 0; pages < 400; pages++) {
       const page = await graph.deltaPage('inbox', link, link ? undefined : since);
-      seen.push(...page.value);
+      // A first sync shows mail page by page (and a dropped connection just starts that sync again). A later sync is written only
+      // once every page has arrived, so a drop halfway leaves the old, consistent copy in place.
+      if (full) await batchIn(page.value); else held.push(...page.value);
       if (page.next) { link = page.next; continue; }
       deltaLink = page.delta;
       break;
     }
-    const removed: string[] = [];
-    const upserts: Mail[] = [];
-    // One read of what is stored, instead of one per message: a first sync can be a thousand messages.
-    const known = new Map((await store.allMail()).filter((m) => m.account === account).map((m) => [m.key, m]));
-    for (const r of seen) {
-      const key = mailKey(account, r.id);
-      if (pending.has(key)) continue;
-      if (r['@removed']) { removed.push(key); continue; }
-      const prev = known.get(key);
-      const next = toMail(account, r, overrides, prev);
-      if (prev) result.changed++; else result.added++;
-      upserts.push(next);
+    if (!full) await batchIn(held);
+    if (full && deltaLink) {
+      // Anything still stored from the window that Outlook no longer lists was moved or deleted elsewhere while we were not looking.
+      const gone = [...known.values()].filter((m) => !seenKeys.has(m.key) && !pending.has(m.key) && new Date(m.received).getTime() >= sinceMs).map((m) => m.key);
+      if (gone.length) { await store.deleteMail(gone); result.removed += gone.length; }
     }
-    result.removed += removed.length;
-    // Written only after every page arrived, so a dropped connection halfway leaves the old, consistent copy in place.
-    await store.putMail(upserts);
-    await store.deleteMail(removed);
     if (deltaLink) await store.setMeta(deltaKey, deltaLink);
   }
 

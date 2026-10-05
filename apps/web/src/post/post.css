@@ -89,6 +89,7 @@ html, body { margin: 0; height: 100%; background: var(--bg, #F2F3F5); overscroll
 .bar.sel .go { background: var(--ink); color: var(--bg); }
 
 .toast-dock { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 100px); display: flex; justify-content: center; pointer-events: none; z-index: 40; }
+.toast-dock.top { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 76px); }
 .toast { pointer-events: auto; min-height: 54px; border-radius: 27px; background: #262C37; color: #EEF0F3; display: flex; align-items: center; padding: 0 6px 0 20px; gap: 12px; box-shadow: var(--sh); font-size: 14px; font-weight: 500; width: 100%; max-width: 420px; animation: rise .2s ease; }
 .toast .undo { margin-left: auto; height: 44px; padding: 0 18px; border: 0; background: rgba(255,255,255,.1); color: #F4A082; font-size: 14px; font-weight: 700; border-radius: 22px; }
 @keyframes rise { from { transform: translateY(12px); opacity: 0; } }
