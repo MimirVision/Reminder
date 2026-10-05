@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ALERT_SCOPE, AlertGraphError, alertBuild, alertCreateSubscription, alertDecide, alertDecrypt, alertEncrypt, alertExpiry, alertGetInboxId, alertGetMessage,
   alertKind, alertLocal, alertParseLifecycle, alertParseNotifications, alertPlanRenewals, alertRefresh, alertRenewSubscription, alertSameSecret,
-  alertValidationToken, alertWithinWindow, alertProcess, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
+  alertValidationToken, alertWithinWindow, alertProcess, alertSeen, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
 } from '../functions/post-alerts/logic.ts';
 
 const acct = (over: Partial<AlertAccount> = {}): AlertAccount => ({ id: 'a1', email: 'andreas@outlook.com', label: 'Personal', mode: 'people', vips: [], quiet: null, tz: 'Europe/Oslo', inbox_folder_id: 'INBOX-ID', ...over });
@@ -199,6 +199,8 @@ function setup(opts: { accounts?: Partial<AlertStored>[]; devices?: AlertDevice[
     deleteAccount: async (id) => { accounts.splice(accounts.findIndex((a) => a.id === id), 1); },
     devices: async () => devices,
     removeDevices: async (ids) => { for (const id of ids) devices.splice(devices.findIndex((x) => x.id === id), 1); },
+    setBadge: async (id, badge) => { const dev = devices.find((x) => x.id === id); if (dev) dev.badge = badge; },
+    resetBadge: async (endpoint) => { const dev = devices.find((x) => x.endpoint === endpoint); if (dev) dev.badge = 0; return !!dev; },
   };
   const f = fakeFetch((url, init) => {
     graph.push(`${init.method ?? 'GET'} ${url.replace('https://graph.microsoft.com/v1.0', '')}`);
@@ -325,4 +327,23 @@ test('unregister: tells Microsoft to stop and forgets the account; an unknown ad
   assert.equal(await alertUnregister(s.deps, ' Andreas@Outlook.com '), true);
   assert.equal(s.accounts.length, 0);
   assert.ok(s.graph.some((g) => g.startsWith('DELETE /subscriptions/sub0')));
+});
+
+test('icon number: counts alerts since the phone last opened Post, per phone, and goes back to zero when opened', async () => {
+  const s = setup({ accounts: [await withToken({})], msgs: { m1: msg(), m2: msg({ id: 'm2' }), m3: msg({ id: 'm3' }) }, devices: [
+    { id: 'd1', endpoint: 'https://push/1', p256dh: 'p', auth: 'a', lang: 'en', badge: 0 }, { id: 'd2', endpoint: 'https://push/2', p256dh: 'p', auth: 'a', lang: 'en', badge: 5 } ] });
+  await alertProcess(s.deps, [note('m1')]);
+  assert.deepEqual(s.pushes.map((p) => p.payload.badge), [1, 6]);
+  await alertProcess(s.deps, [note('m2')]);
+  assert.deepEqual(s.pushes.slice(2).map((p) => p.payload.badge), [2, 7]);
+  assert.equal(await alertSeen(s.deps, 'https://push/1'), true);
+  assert.equal(s.devices[0].badge, 0);
+  assert.equal(s.devices[1].badge, 7);
+  assert.equal(await alertSeen(s.deps, 'https://push/unknown'), false);
+  await alertProcess(s.deps, [note('m3')]);
+  assert.equal(s.pushes.at(-2)!.payload.badge, 1); // phone 1 starts again from 1
+  // a phone whose push fails keeps its old number
+  const f = setup({ accounts: [await withToken({})], msgs: { m1: msg() }, pushStatus: 500 });
+  await alertProcess(f.deps, [note('m1')]);
+  assert.equal(f.devices[0].badge ?? 0, 0);
 });

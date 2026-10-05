@@ -4,7 +4,7 @@
 // Deploy with "Verify JWT" OFF: Microsoft and the schedule cannot send a Supabase login. The webhook is protected by a secret clientState per mailbox, the rest by POST_ALERTS_KEY.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { sendPush } from '../notify-partner/logic.ts';
-import { alertLifecycle, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertDeps, type AlertStore, type AlertStored } from './logic.ts';
+import { alertLifecycle, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSeen, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertDeps, type AlertStore, type AlertStored } from './logic.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -49,8 +49,10 @@ Deno.serve(async (req) => {
       return data as AlertStored;
     },
     deleteAccount: async (id) => { await accounts().delete().eq('id', id); },
-    devices: async () => ((await admin.from('post_alert_devices').select('id, endpoint, p256dh, auth, lang')).data ?? []) as { id: string; endpoint: string; p256dh: string; auth: string; lang: string }[],
+    devices: async () => ((await admin.from('post_alert_devices').select('id, endpoint, p256dh, auth, lang, badge')).data ?? []) as { id: string; endpoint: string; p256dh: string; auth: string; lang: string; badge: number }[],
     removeDevices: async (ids) => { await admin.from('post_alert_devices').delete().in('id', ids); },
+    setBadge: async (id, badge) => { await admin.from('post_alert_devices').update({ badge }).eq('id', id); },
+    resetBadge: async (endpoint) => ((await admin.from('post_alert_devices').update({ badge: 0 }).eq('endpoint', endpoint).select('id')).data ?? []).length > 0,
   };
   const deps: AlertDeps = {
     store, fetch, clientId, encKey, now: () => new Date(),
@@ -90,6 +92,7 @@ Deno.serve(async (req) => {
           accounts: list.map((a) => ({ email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips.length, subscription_expires_at: a.subscription_expires_at, last_alert_at: (a as { last_alert_at?: string }).last_alert_at ?? null })),
         });
       }
+      case 'seen': return json({ ok: await alertSeen(deps, String(body.endpoint ?? '')) });
       case 'vapid': return json({ publicKey: vapid.publicKey });
       case 'renew': return json({ results: await alertRenewAll(deps) });
       case 'test': return json({ sent: await alertTest(deps) });

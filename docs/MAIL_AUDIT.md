@@ -100,6 +100,15 @@ The first real measurement is the end-to-end "Instant alerts" check in the test 
 3. **Alert hours per account:** work rings only Mon to Fri 07:30 to 17:00, VIPs always break through; mail always arrives (A2.19).
 Plus: instant alerts (A2.20), true snooze, fast search, sender-by-sender clean-up.
 
+## Direction: web app first (conditional)
+Sideloading is the biggest ongoing cost (weekly re-install, builds, a separate alerts icon). A Home Screen web app removes it: nothing to sideload, updates are instant,
+the alerts and the badge come from Post's own icon, snooze and reminders fire from the server with the phone locked, it also works on a PC, and I can run and test it
+here in a browser. **Your condition: the unread number on the icon must work. It can** (Badging API, iOS 16.4+, updated from the push with the app closed; limits in ALERTS.md).
+Costs: slightly less native feel, no haptics, Outlook (and Gmail) only because browsers cannot do iCloud IMAP, and the mail sign-in has to live encrypted on your
+own Supabase (Microsoft limits browser-only sign-ins to 24 hours; a server-side sign-in lasts 90 days). Not yet verified: that Microsoft accepts that sign-in for both your accounts.
+**Gate, one evening, about 30 minutes of your time:** (1) personal and work Microsoft sign-in works, (2) an alert with the phone locked arrives in seconds, (3) the icon number
+appears, (4) triage feels at least as fast as Apple Mail. If any fails, we stop and go back to the sideloaded native app (parked, not deleted).
+
 ## Revised milestones
 0. **Test build** (done, awaiting your run): connection, Google sign-in and its 7-day test, secure-connection, runtime, FTS5, HTML view, Keychain, background refresh.
 1. **Connect and read:** provider interface; **Microsoft Graph (Outlook)** first, then Gmail API and IMAP (iCloud); first-run flow; sync with resync and backoff; unified inbox; reading with blocked trackers.

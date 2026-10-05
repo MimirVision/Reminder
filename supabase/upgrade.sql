@@ -578,8 +578,11 @@ create table if not exists public.post_alert_devices (
   p256dh text not null,
   auth text not null,
   lang text not null default 'en',
+  badge integer not null default 0,
   created_at timestamptz not null default now()
 );
+-- The number on the icon: alerts delivered since that phone last opened Post. Safe on tables made before this column existed.
+alter table public.post_alert_devices add column if not exists badge integer not null default 0;
 
 alter table public.post_alert_accounts enable row level security;
 alter table public.post_alert_seen enable row level security;

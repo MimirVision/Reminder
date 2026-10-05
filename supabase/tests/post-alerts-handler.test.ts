@@ -146,6 +146,9 @@ test('whole chain: phone pairs, mailbox registers, Microsoft reports new mail, t
   assert.equal((await call({ op: 'update', email: 'andreas@outlook.com', mode: 'weird' })).status, 400);
   assert.equal((await (await call({ op: 'test' })).json()).sent, 1);
   assert.equal(pushed.length, 2);
+  assert.equal(db.post_alert_devices[0].badge, 2); // the alert, then the test alert
+  assert.equal((await (await call({ op: 'seen', endpoint: 'https://push.example/abc' })).json()).ok, true);
+  assert.equal(db.post_alert_devices[0].badge, 0);
   assert.deepEqual((await (await call({ op: 'renew' })).json()).results, []); // fresh subscription: nothing to renew
   assert.equal((await (await call({ op: 'unregister', email: 'andreas@outlook.com' })).json()).removed, true);
   assert.equal(db.post_alert_accounts.length, 0);

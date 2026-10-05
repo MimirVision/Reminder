@@ -225,7 +225,7 @@ export function alertPlanRenewals<T extends { subscription_id: string | null; su
 export type AlertStored = AlertAccount & {
   refresh_token_enc: string; client_state: string; subscription_id: string | null; subscription_expires_at: string | null;
 };
-export type AlertDevice = PushSub & { id: string; lang: string };
+export type AlertDevice = PushSub & { id: string; lang: string; badge?: number };
 export type AlertStore = {
   accountBySubscription(subscriptionId: string): Promise<AlertStored | null>;
   allAccounts(): Promise<AlertStored[]>;
@@ -236,6 +236,10 @@ export type AlertStore = {
   deleteAccount(accountId: string): Promise<void>;
   devices(): Promise<AlertDevice[]>;
   removeDevices(ids: string[]): Promise<void>;
+  /** The number shown on that phone's icon. */
+  setBadge(deviceId: string, badge: number): Promise<void>;
+  /** The phone opened Post: its number goes back to zero. true when the phone is known. */
+  resetBadge(endpoint: string): Promise<boolean>;
 };
 export type AlertDeps = {
   store: AlertStore;
@@ -255,14 +259,16 @@ export async function alertAccessToken(d: AlertDeps, a: AlertStored): Promise<st
   return t.accessToken;
 }
 
-async function alertPushAll(d: AlertDeps, payload: (lang: 'en' | 'nb') => unknown): Promise<number> {
+// Every push shows a notification (iOS requires it) and carries the new icon number: alerts delivered to that phone since it last opened Post.
+async function alertPushAll(d: AlertDeps, payload: (lang: 'en' | 'nb') => Record<string, unknown>): Promise<number> {
   const devices = await d.store.devices();
   const gone: string[] = [];
   let sent = 0;
   await Promise.all(devices.map(async (dev) => {
     try {
-      const status = await d.send(dev, payload(dev.lang === 'nb' ? 'nb' : 'en'));
-      if (status >= 200 && status < 300) sent++;
+      const badge = (dev.badge ?? 0) + 1;
+      const status = await d.send(dev, { ...payload(dev.lang === 'nb' ? 'nb' : 'en'), badge });
+      if (status >= 200 && status < 300) { sent++; await d.store.setBadge(dev.id, badge); }
       else if (isGone(status)) gone.push(dev.id);
     } catch { /* one phone failing must not stop the others */ }
   }));
@@ -417,4 +423,9 @@ export async function alertUnregister(d: AlertDeps, email: string): Promise<bool
   }
   await d.store.deleteAccount(a.id);
   return true;
+}
+
+/** The phone opened Post: clear its icon number on the server so the next alert starts again from 1. */
+export async function alertSeen(d: AlertDeps, endpoint: string): Promise<boolean> {
+  return await d.store.resetBadge(endpoint);
 }

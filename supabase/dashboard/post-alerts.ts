@@ -371,7 +371,7 @@ export function alertPlanRenewals<T extends { subscription_id: string | null; su
 export type AlertStored = AlertAccount & {
   refresh_token_enc: string; client_state: string; subscription_id: string | null; subscription_expires_at: string | null;
 };
-export type AlertDevice = PushSub & { id: string; lang: string };
+export type AlertDevice = PushSub & { id: string; lang: string; badge?: number };
 export type AlertStore = {
   accountBySubscription(subscriptionId: string): Promise<AlertStored | null>;
   allAccounts(): Promise<AlertStored[]>;
@@ -382,6 +382,10 @@ export type AlertStore = {
   deleteAccount(accountId: string): Promise<void>;
   devices(): Promise<AlertDevice[]>;
   removeDevices(ids: string[]): Promise<void>;
+  /** The number shown on that phone's icon. */
+  setBadge(deviceId: string, badge: number): Promise<void>;
+  /** The phone opened Post: its number goes back to zero. true when the phone is known. */
+  resetBadge(endpoint: string): Promise<boolean>;
 };
 export type AlertDeps = {
   store: AlertStore;
@@ -401,14 +405,16 @@ export async function alertAccessToken(d: AlertDeps, a: AlertStored): Promise<st
   return t.accessToken;
 }
 
-async function alertPushAll(d: AlertDeps, payload: (lang: 'en' | 'nb') => unknown): Promise<number> {
+// Every push shows a notification (iOS requires it) and carries the new icon number: alerts delivered to that phone since it last opened Post.
+async function alertPushAll(d: AlertDeps, payload: (lang: 'en' | 'nb') => Record<string, unknown>): Promise<number> {
   const devices = await d.store.devices();
   const gone: string[] = [];
   let sent = 0;
   await Promise.all(devices.map(async (dev) => {
     try {
-      const status = await d.send(dev, payload(dev.lang === 'nb' ? 'nb' : 'en'));
-      if (status >= 200 && status < 300) sent++;
+      const badge = (dev.badge ?? 0) + 1;
+      const status = await d.send(dev, { ...payload(dev.lang === 'nb' ? 'nb' : 'en'), badge });
+      if (status >= 200 && status < 300) { sent++; await d.store.setBadge(dev.id, badge); }
       else if (isGone(status)) gone.push(dev.id);
     } catch { /* one phone failing must not stop the others */ }
   }));
@@ -565,6 +571,11 @@ export async function alertUnregister(d: AlertDeps, email: string): Promise<bool
   return true;
 }
 
+/** The phone opened Post: clear its icon number on the server so the next alert starts again from 1. */
+export async function alertSeen(d: AlertDeps, endpoint: string): Promise<boolean> {
+  return await d.store.resetBadge(endpoint);
+}
+
 // ---- handler ----
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -609,8 +620,10 @@ Deno.serve(async (req) => {
       return data as AlertStored;
     },
     deleteAccount: async (id) => { await accounts().delete().eq('id', id); },
-    devices: async () => ((await admin.from('post_alert_devices').select('id, endpoint, p256dh, auth, lang')).data ?? []) as { id: string; endpoint: string; p256dh: string; auth: string; lang: string }[],
+    devices: async () => ((await admin.from('post_alert_devices').select('id, endpoint, p256dh, auth, lang, badge')).data ?? []) as { id: string; endpoint: string; p256dh: string; auth: string; lang: string; badge: number }[],
     removeDevices: async (ids) => { await admin.from('post_alert_devices').delete().in('id', ids); },
+    setBadge: async (id, badge) => { await admin.from('post_alert_devices').update({ badge }).eq('id', id); },
+    resetBadge: async (endpoint) => ((await admin.from('post_alert_devices').update({ badge: 0 }).eq('endpoint', endpoint).select('id')).data ?? []).length > 0,
   };
   const deps: AlertDeps = {
     store, fetch, clientId, encKey, now: () => new Date(),
@@ -650,6 +663,7 @@ Deno.serve(async (req) => {
           accounts: list.map((a) => ({ email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips.length, subscription_expires_at: a.subscription_expires_at, last_alert_at: (a as { last_alert_at?: string }).last_alert_at ?? null })),
         });
       }
+      case 'seen': return json({ ok: await alertSeen(deps, String(body.endpoint ?? '')) });
       case 'vapid': return json({ publicKey: vapid.publicKey });
       case 'renew': return json({ results: await alertRenewAll(deps) });
       case 'test': return json({ sent: await alertTest(deps) });

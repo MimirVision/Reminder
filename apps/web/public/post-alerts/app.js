@@ -66,6 +66,16 @@
     } finally { $('connect').disabled = false; }
   }
 
+  // Opening the page counts as "I have looked": clear the icon number here and on the server.
+  async function markSeen() {
+    try { if (navigator.clearAppBadge) await navigator.clearAppBadge(); } catch {}
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/post-alerts/');
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub && store.get('url') && store.get('key')) await call({ op: 'seen', endpoint: sub.endpoint });
+    } catch {}
+  }
+
   async function init() {
     const open = new URLSearchParams(location.search).get('open');
     if (open) {
@@ -75,10 +85,11 @@
     }
     if (!standalone) { $('install').hidden = false; }
     $('url').value = store.get('url'); $('key').value = store.get('key');
-    if (store.get('paired') && store.get('url') && store.get('key')) { try { await showStatus(); return; } catch (e) { /* fall through to setup */ } }
+    if (store.get('paired') && store.get('url') && store.get('key')) { markSeen(); try { await showStatus(); return; } catch (e) { /* fall through to setup */ } }
     if (standalone || location.hostname === 'localhost') $('setup').hidden = false;
   }
 
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && store.get('paired')) markSeen(); });
   $('connect').addEventListener('click', connect);
   $('refresh').addEventListener('click', () => showStatus().catch((e) => { $('msg2').className = 'msg err'; $('msg2').textContent = e.message; }));
   $('test').addEventListener('click', async () => {

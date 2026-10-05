@@ -27,6 +27,13 @@ New mail arrives in Outlook
 - The one thing that can silently stop alerts is Microsoft revoking the sign-in (a password change, or your employer's policy). The function then sends you an
   alert, "Post alerts need you to sign in", and the Post app shows a banner.
 
+## The number on the icon
+Home Screen web apps on iPhone (iOS 16.4 and newer) can show a red number on their icon, and it can change **while the app is closed**: the same
+push that rings the alert also sets the number. Here it counts **alerts delivered since you last opened it** ("new mail since I looked"), per phone,
+and goes back to zero when you open the app.
+The honest limit: iOS only lets the number change when a visible alert is shown, so it **cannot go down by itself** if you read the mail somewhere else
+(for example Outlook on your PC). It corrects as soon as you open the app. Reading mail inside Post updates it at once.
+
 ## One-time setup (about 20 minutes)
 You already have Supabase and the web app hosting for Home Memory, and the Web Push keys from `docs/NOTIFICATIONS.md`. This reuses them.
 1. **Database.** Run `supabase/upgrade.sql` in the Supabase SQL Editor again (it adds three server-only tables). Safe to repeat.
