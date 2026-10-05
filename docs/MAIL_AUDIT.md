@@ -86,6 +86,20 @@ Sideloadly can auto-refresh over Wi-Fi while your computer is on, which softens 
 - **Light customisation, nothing more** (screen A2.16): 8 accent colours (each checked: white-on-accent text 4.9:1 or better, and a lighter variant for dark mode), theme (match phone / light / dark), pure-black dark mode, row size (comfortable / compact), and one colour per account. Deliberately *not* included: free colour pickers (they produce unreadable combinations), custom fonts, icon packs. Swipe actions are the other adjustable thing (already in settings).
 - Design: the polished Option A ("A2", 15 screens) on the canvas, reviewed before any real-app code is written.
 
+## Update: instant alerts are now built into the plan (see ALERTS.md)
+You said instant alerts must be in place. After checking, I withdrew my earlier suggestion of the free ntfy app: its iPhone app has documented
+reliability problems (alerts that silently stop or arrive late), so it cannot be promised. The route now built instead is **Microsoft Graph change notifications ->
+your Supabase function -> Web Push to a small "Post alerts" Home Screen web app**. Apple delivers Web Push itself (no developer account), and it reuses the
+Web Push code and keys your Home Memory partner reminders already use. Alerts arrive in seconds with Post closed, respect per-account alert hours, and never
+fire for newsletters unless asked. Limits, honestly: the notification carries the "Post alerts" icon (not Post's), has no Archive/Reply buttons, and needs a read-only sign-in stored (encrypted) on your own Supabase.
+The first real measurement is the end-to-end "Instant alerts" check in the test build. A paid developer account later swaps only the last step for native push.
+
+## What makes Post worth switching to (decided)
+1. **Triage mode:** one message at a time, big Archive / Snooze / Reply later / Reply now, with a "reply later" queue (A2.17).
+2. **Mail to action through Home Memory:** detected appointments and dates become to-dos with "remind me 1 h before", leave-by reminders and place reminders (A2.18).
+3. **Alert hours per account:** work rings only Mon to Fri 07:30 to 17:00, VIPs always break through; mail always arrives (A2.19).
+Plus: instant alerts (A2.20), true snooze, fast search, sender-by-sender clean-up.
+
 ## Revised milestones
 0. **Test build** (done, awaiting your run): connection, Google sign-in and its 7-day test, secure-connection, runtime, FTS5, HTML view, Keychain, background refresh.
 1. **Connect and read:** provider interface; **Microsoft Graph (Outlook)** first, then Gmail API and IMAP (iCloud); first-run flow; sync with resync and backoff; unified inbox; reading with blocked trackers.
