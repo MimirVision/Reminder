@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { visibleMail, type State } from '../core/controller.ts';
 import { displayName, initials, shortTime } from '../core/format.ts';
 import type { Mail } from '../core/types.ts';
+import { isHorizontal, swipeResult } from '../../lib/swipe.ts';
 import { Icon } from './ui.tsx';
 import { SnoozeSheet } from './Inbox.tsx';
 import { back, go, labelOf, useBadge, useC } from './ctx.tsx';
@@ -19,6 +20,9 @@ export function Triage({ s }: { s: State }) {
   if (!queue.current) queue.current = visibleMail({ mail: s.mail, filter: 'unread', accountFilter: s.accountFilter }, Date.now()).filter((m) => !m.flagged).map((m) => m.key);
   const [handled, setHandled] = useState<string[]>([]);
   const [snooze, setSnooze] = useState(false);
+  const [dx, setDx] = useState(0);
+  const [drag, setDrag] = useState(false);
+  const st = useRef<{ x: number; y: number; t: number; id: number; live: boolean } | null>(null);
   const [text, setText] = useState('');
   const total = queue.current.length;
   const items = queue.current.filter((k) => !handled.includes(k)).map((k) => s.mail.find((m) => m.key === k)).filter((m): m is Mail => !!m);
@@ -44,6 +48,24 @@ export function Triage({ s }: { s: State }) {
       </div>
     );
   }
+  // Drag the card: right to archive, left to snooze. The buttons below do the same, for one thumb or for VoiceOver.
+  const down = (e: React.PointerEvent) => { if (e.pointerType === 'mouse') return; st.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, live: false }; };
+  const move = (e: React.PointerEvent) => {
+    const g = st.current; if (!g) return;
+    const mx = e.clientX - g.x, my = e.clientY - g.y;
+    if (!g.live && isHorizontal(mx, my)) { g.live = true; setDrag(true); (e.currentTarget as HTMLElement).setPointerCapture(g.id); }
+    if (g.live) setDx(mx);
+  };
+  const end = (e: React.PointerEvent) => {
+    const g = st.current; st.current = null;
+    if (!g?.live) return;
+    setDrag(false);
+    const r = swipeResult(e.clientX - g.x, e.clientY - g.y, e.timeStamp - g.t, 110);
+    if (r === 'done') { setDx(600); setTimeout(() => { void c.archive([cur]); mark(cur); setDx(0); }, 200); }
+    else if (r === 'delete') { setDx(0); setSnooze(true); }
+    else setDx(0);
+  };
+  const stamp = Math.min(1, Math.abs(dx) / 90);
   return (
     <div className="pg">
       <div className="nav">
@@ -54,7 +76,9 @@ export function Triage({ s }: { s: State }) {
       <div className="prog" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={index - 1}><i style={{ width: `${((index - 1) / Math.max(1, total)) * 100}%` }} /></div>
       <div className="stack">
         {next && <div className="tcard b1" aria-hidden="true" />}
-        <article className="tcard" aria-label={`Message ${index} of ${total}`}>
+        <article className="tcard" aria-label={`Message ${index} of ${total}`} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+          style={{ transform: dx ? `translateX(${dx}px) rotate(${dx / 22}deg)` : undefined, transition: drag ? 'none' : 'transform .2s ease' }}>
+          <span className="tstamp r" style={{ opacity: dx > 0 ? stamp : 0 }}>Archive</span><span className="tstamp l" style={{ opacity: dx < 0 ? stamp : 0 }}>Snooze</span>
           <div className="r1"><span className="chip"><i style={{ background: badgeOf(cur.account)?.colour ?? 'var(--at)' }} />{labelOf(s, cur.account)}</span><span className="tm">{shortTime(cur.received)}</span></div>
           <div className="r1" style={{ marginTop: 14, gap: 12 }}><div className={`av${cur.kind === 'person' ? '' : ' sq'}`}>{initials(cur.fromName, cur.fromAddress)}</div><div><b style={{ display: 'block', fontSize: 16 }}>{displayName(cur.fromName, cur.fromAddress)}</b><span style={{ fontSize: 12.5, color: 'var(--mu)' }}>{cur.fromAddress}</span></div></div>
           <h1 className="sjb">{cur.subject || '(no subject)'}</h1>

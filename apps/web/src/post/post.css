@@ -60,7 +60,7 @@ html, body { margin: 0; height: 100%; background: var(--bg, #F2F3F5); overscroll
 .rb { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .r1 { display: flex; align-items: center; gap: 6px; }
 .who { font-size: 15.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.u { font-weight: 700; }
+.u { font-weight: 700; } .sj.u { font-weight: 600; }
 .tg { font-size: 10.5px; font-weight: 600; border: 1px solid var(--ln); color: var(--mu); border-radius: 6px; padding: 1px 6px; flex: none; }
 .tm { margin-left: auto; font-size: 12.5px; color: var(--mu); flex: none; } .tm.n { color: var(--at); font-weight: 600; }
 .sj { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -209,3 +209,26 @@ textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: ve
 .vc { height: 36px; border-radius: 18px; padding: 0 6px 0 12px; display: flex; align-items: center; gap: 6px; background: var(--tint); color: var(--ti); font-size: 13.5px; font-weight: 600; border: 0; } .vc .ic { width: 14px; height: 14px; }
 .acc-h { display: flex; align-items: center; gap: 12px; } .acc-h b { display: block; font-size: 15.5px; } .acc-h div span { font-size: 12.5px; color: var(--mu); }
 .dotc { width: 36px; height: 36px; border-radius: 18px; color: #fff; font: 700 15px 'Bricolage Grotesque'; display: flex; align-items: center; justify-content: center; flex: none; } .post.dark .dotc { color: #0F1217; }
+
+/* ---- polish: motion, press feedback, collapsing header, pull to refresh, skeletons ---- */
+@media (prefers-reduced-motion: no-preference) {
+  .pg { animation: pgin .24s cubic-bezier(.2,.8,.2,1); }
+  @keyframes pgin { from { opacity: 0; transform: translateX(18px); } }
+  .sw-row { max-height: 260px; transition: max-height .2s ease, opacity .16s ease; }
+  .sw-row.leaving { max-height: 0; opacity: 0; border-top-width: 0; }
+  .row:active, .it:active { background: color-mix(in srgb, var(--ink) 6%, var(--card)); }
+  .btn:active, .pill:active, .cta:active, .alt:active, .go:active, .ib:active, .g:active, .tab:active, .fab:active, .send:active { transform: scale(.96); }
+  .btn, .pill, .cta, .alt, .go, .ib, .g, .tab, .fab, .send { transition: transform .12s ease, background .15s ease; }
+}
+.hd .h1 { transition: font-size .2s ease; } .hd.min .h1 { font-size: 24px; }
+.fold { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .2s ease, opacity .2s ease; flex: none; }
+.fold > div { overflow: hidden; min-height: 0; } .fold.min { grid-template-rows: 0fr; opacity: 0; }
+.pull { flex: none; display: flex; align-items: center; justify-content: center; color: var(--mu); overflow: hidden; }
+.pull .ready { color: var(--at); transform: rotate(180deg); transition: transform .15s; }
+.scroll { overscroll-behavior-y: contain; }
+.av.sk, .sk-l { background: linear-gradient(90deg, var(--ln) 25%, color-mix(in srgb, var(--ln) 40%, var(--card)) 50%, var(--ln) 75%); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+.sk-l { display: block; height: 13px; border-radius: 6px; margin: 4px 0; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .av.sk, .sk-l { animation: none; } }
+.tstamp { position: absolute; top: 20px; padding: 6px 14px; border-radius: 12px; font: 700 15px 'Bricolage Grotesque'; letter-spacing: .04em; text-transform: uppercase; border: 2px solid currentColor; opacity: 0; pointer-events: none; }
+.tstamp.r { left: 20px; color: var(--ink); transform: rotate(-8deg); } .tstamp.l { right: 20px; color: var(--at); transform: rotate(8deg); }
