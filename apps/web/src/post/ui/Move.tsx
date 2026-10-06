@@ -40,7 +40,7 @@ export function MoveSheet({ s, items, rows = items.length, inbox = false, onClos
   const row = (f: Pick<FolderInfo, 'kind' | 'id' | 'name' | 'where'>) => (
     <button key={`${f.kind}|${f.id}`} className="it" onClick={() => pick(f)}>
       <span className="ico"><Icon n={FOLDER_ICON[f.kind]} /></span>
-      <span className="rw">{f.name}{f.where && <small>{f.where}</small>}</span>
+      <span className="rw">{f.name}{f.where && <small>in {f.where}</small>}</span>
     </button>
   );
   return (
