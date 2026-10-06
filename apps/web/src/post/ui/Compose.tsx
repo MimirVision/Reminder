@@ -11,6 +11,20 @@ import { back, go, labelOf, useC } from './ctx.tsx';
 const EMAIL = /[^\s,;<>()"]+@[^\s,;<>()"]+\.[^\s,;<>()"]+/g;
 const addresses = (s: string) => [...new Set((s.match(EMAIL) ?? []).map((x) => x.toLowerCase()))];
 
+type Parts = { to: string; cc: string; subject: string; text: string };
+/**
+ * Which parts of a draft differ from the draft as Outlook has it. A text that came back as plain text must not replace the formatted one when it
+ * was left alone, and a name that went with an address must not be lost when only the subject was changed, so people are compared by address.
+ */
+const differs = (now: Parts, b: Parts): DraftField[] => {
+  const out: DraftField[] = [];
+  if (now.subject.trim() !== b.subject.trim()) out.push('subject');
+  if (now.text !== b.text) out.push('body');
+  if (addresses(now.to).join(',') !== addresses(b.to).join(',')) out.push('to');
+  if (addresses(now.cc).join(',') !== addresses(b.cc).join(',')) out.push('cc');
+  return out;
+};
+
 /**
  * Writing. `mode: 'draft'` is a draft that is already at Outlook (made in another app, or left behind): it is opened as it is, edited, and sent
  * from here. `id` is then the draft's own id, and what you change is kept on this phone until you send it or save it to the draft. What is kept
@@ -54,15 +68,17 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
     setLoaded({ state: 'loading' });
     try {
       const { content, files: have } = await c.openDraft(slot.account, slot.id);
-      base.current = { to: content.to.join(', '), cc: content.cc.join(', '), subject: content.subject, text: content.body, modified: content.modified };
+      const b = { to: content.to.join(', '), cc: content.cc.join(', '), subject: content.subject, text: content.body, modified: content.modified };
+      base.current = b;
       setFrom(slot.account); setBcc(content.bcc); setKept(have);
       const mine = c.loadDraft(slot);
       if (mine && mine.mode === 'draft' && mine.replyTo === slot.id) {
         setTo(mine.to); setCc(mine.cc); setShowCc(!!mine.cc); setSubject(mine.subject); setText(mine.body);
         setFiles(await c.loadDraftFiles(slot));
-        if (mine.modified && content.modified && mine.modified !== content.modified) setConflict(true);
+        // Asked only when it matters: a draft that Outlook touched since (its time moved on) but that says the same as what was kept needs no answer.
+        if (mine.modified && content.modified && mine.modified !== content.modified && differs({ to: mine.to, cc: mine.cc, subject: mine.subject, text: mine.body }, b).length) setConflict(true);
       } else {
-        setTo(base.current.to); setCc(base.current.cc); setShowCc(!!base.current.cc); setSubject(base.current.subject); setText(base.current.text);
+        setTo(b.to); setCc(b.cc); setShowCc(!!b.cc); setSubject(b.subject); setText(b.text);
         setFiles([]);
       }
       filesReady.current = true;
@@ -73,19 +89,10 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   };
   /** Whether anything differs from the draft as Outlook has it. */
   const changed = () => { const b = base.current; return !!b && (to !== b.to || cc !== b.cc || subject !== b.subject || text !== b.text || files.length > 0); };
-  /**
-   * Which parts differ from the draft as Outlook has it: only those are written back. A text that came back as plain text must not replace the
-   * formatted one when it was left alone, and a name that went with an address must not be lost when only the subject was changed.
-   */
+  /** Which parts differ from the draft as Outlook has it: only those are written back. */
   const edited = (): DraftField[] => {
     const b = base.current;
-    if (!b) return [...DRAFT_FIELDS];
-    const out: DraftField[] = [];
-    if (subject.trim() !== b.subject.trim()) out.push('subject');
-    if (text !== b.text) out.push('body');
-    if (addresses(to).join(',') !== addresses(b.to).join(',')) out.push('to');
-    if (addresses(cc).join(',') !== addresses(b.cc).join(',')) out.push('cc');
-    return out;
+    return b ? differs({ to, cc, subject, text }, b) : [...DRAFT_FIELDS];
   };
   /** The question about a draft that changed at Outlook was answered: the Outlook version, or what was kept here. */
   const useOutlookVersion = () => {
@@ -130,7 +137,8 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
       if (loaded.state !== 'ready' || conflict) return;
       if (!changed()) { if (c.loadDraft(slot)) keep(null); return; }
     }
-    const t = setTimeout(() => keep({ account: from, to, cc, subject, body: text, replyTo: id, mode, ...(mode === 'draft' && base.current ? { modified: base.current.modified } : {}) }), 800);
+    // (Sent, saved or left in the meantime: nothing is kept then, or what was just sent would come back as a draft.)
+    const t = setTimeout(() => { if (!sent.current) keep({ account: from, to, cc, subject, body: text, replyTo: id, mode, ...(mode === 'draft' && base.current ? { modified: base.current.modified } : {}) }); }, 800);
     return () => clearTimeout(t);
   }, [from, to, cc, subject, text, files.length, loaded.state, conflict]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -169,7 +177,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const send = async () => {
     setBusy(true);
     sent.current = true;
-    const ok = await c.send({ account: from, kind: mode, to: rcpt, cc: addresses(cc), subject: subject.trim(), body: text, replyTo: id, ...(mode === 'draft' ? { edited: edited() } : {}) }, files);
+    const ok = await c.send({ account: from, kind: mode, to: rcpt, cc: addresses(cc), subject: subject.trim(), body: text, replyTo: id, ...(mode === 'draft' ? { edited: edited(), ...(base.current ? { modified: base.current.modified } : {}) } : {}) }, files);
     if (ok) back(); else { sent.current = false; setBusy(false); }
   };
   /** Leaving a draft you changed: keep the changes (and the files you added) in the draft at Outlook, or let them go (the draft stays at Outlook as it was). */
@@ -277,7 +285,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
           <p className="note" style={{ marginTop: 0 }}>You changed this draft on this phone and left without saving. Since then it has been changed somewhere else too. Which one do you want to go on with?</p>
           <div className="card">
             <button className="it" onClick={useOutlookVersion}><span className="ico"><Icon n="refresh" /></span><span className="rw">Use the one in Outlook<small>The changes you made on this phone are thrown away</small></span></button>
-            <button className="it" onClick={keepMine}><span className="ico"><Icon n="edit" /></span><span className="rw">Keep my changes<small>They replace what Outlook has when you send or save</small></span></button>
+            <button className="it" onClick={keepMine}><span className="ico"><Icon n="edit" /></span><span className="rw">Keep my changes<small>Everything you see here replaces the draft in Outlook when you send or save</small></span></button>
           </div>
         </Sheet>
       )}

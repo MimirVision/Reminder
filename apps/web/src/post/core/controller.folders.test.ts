@@ -764,6 +764,33 @@ test('Undo while a draft waits brings it back: it is a draft again, and what was
   assert.equal(w.log.some((l) => l === 'send d1'), false);
 });
 
+test('what comes back from a send that was undone or refused remembers when Outlook last changed the draft, but a draft that is gone does not', async () => {
+  const w = outlook();
+  w.put(A, 'drafts', DRAFT);
+  const made = make(w); const { c } = made;
+  await c.init();
+  const read = (await c.openDraft(A, 'd1')).content.modified;
+  assert.ok(read, 'Outlook says when the draft was last changed');
+  const out = { account: A, kind: 'draft' as const, to: ['maria@x.no'], cc: [], subject: 'Tilbud', body: 'ny tekst', replyTo: 'd1', modified: read };
+  await c.send(out);
+  await c.cancelSend(c.getState().outbox[0].id);
+  assert.equal(c.loadDraft(D1)?.modified, read, 'after Undo, so a change made at Outlook since is noticed when the draft is opened again');
+  c.saveDraft(null, D1);
+  c.setSettings({ undoSend: 0 });
+  w.flags.sendStatus = 400;
+  await c.send(out);
+  await c.flushOutbox();
+  assert.equal(c.loadDraft(D1)?.modified, read, 'after a send that Outlook refused');
+  w.flags.sendStatus = 202;
+  c.saveDraft(null, D1);
+  w.drop(A, 'd1');
+  await c.send(out);
+  await c.flushOutbox();
+  const own = c.loadDraft();
+  assert.deepEqual([own?.mode, own?.modified], ['new', undefined], 'a message of its own has no draft at Outlook to be compared with');
+  assert.equal('modified' in JSON.parse(JSON.stringify(own)), false);
+});
+
 test('with the Drafts list open, Undo lists the draft again at once, and so does a send that Outlook refuses', async () => {
   const w = outlook();
   w.put(A, 'drafts', DRAFT);
@@ -950,4 +977,20 @@ test('signing out of everything forgets the folders', async () => {
   await c.init(); await c.loadFolders(); await c.openFolder({ kind: 'archive' });
   c.forgetEverything();
   assert.deepEqual([c.getState().folders, c.getState().folder, c.remoteMail(A, 'a1')], [[], null, undefined]);
+});
+
+test('signing out of everything also lets go of what was changed in drafts and not saved, files included', async () => {
+  const w = outlook();
+  w.put(A, 'drafts', DRAFT);
+  const kv = new Map<string, string>([['post.sessions', JSON.stringify([{ email: A, id: '1', label: 'Personal', session: `1.s-${A}` }])]]);
+  const { c } = make(w, { kv });
+  await c.init();
+  c.saveDraft({ account: A, to: 'maria@x.no', cc: '', subject: 'endret', body: 'ikke lagret', replyTo: 'd1', mode: 'draft' }, D1);
+  await c.saveDraftFiles([{ name: 'a.pdf', type: 'application/pdf', bytes: new Uint8Array(20) }], D1);
+  assert.ok(kv.get('post.draftedits'), 'kept on the phone');
+  c.forgetEverything();
+  assert.equal(kv.has('post.draftedits'), false, 'gone from the phone');
+  assert.equal(c.loadDraft(D1), null);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(await c.loadDraftFiles(D1), [], 'and its files');
 });
