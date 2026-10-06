@@ -149,6 +149,7 @@ const note = (extra: object = {}) => ({ kind: 'new' as const, subject: 'Hei', bo
  */
 function outlook(o: { lostAfter?: (m: string, p: string, n: number) => boolean; lostBefore?: (m: string, p: string, n: number) => boolean; afterSend?: 'gone' | 'not-a-draft' } = {}) {
   const drafts = new Map<string, { attachments: { name: string; size: number }[]; sent: boolean }>();
+  const patches: { id: string; body: any }[] = [];
   const sentMail: string[] = [];
   const log: string[] = [];
   let made = 0;
@@ -178,6 +179,11 @@ function outlook(o: { lostAfter?: (m: string, p: string, n: number) => boolean; 
       d.sent = true; sentMail.push(id); return json(202);
     }
     if (method === 'DELETE' && (m = path.match(/^\/me\/messages\/([^/]+)$/))) { drafts.delete(decodeURIComponent(m[1])); return json(204); }
+    if (method === 'PATCH' && (m = path.match(/^\/me\/messages\/([^/]+)$/))) {
+      const id = decodeURIComponent(m[1]); const d = drafts.get(id);
+      if (!d || d.sent) return json(404, { error: { code: 'ErrorItemNotFound', message: 'gone' } });
+      patches.push({ id, body: JSON.parse(String(init.body)) }); return json(200, {});
+    }
     return json(500, { error: { code: 'unexpected', message: `${method} ${path}` } });
   };
   const fetch = (async (url: string, init: RequestInit) => {
@@ -192,7 +198,7 @@ function outlook(o: { lostAfter?: (m: string, p: string, n: number) => boolean; 
     return r;
   }) as typeof globalThis.fetch;
   const graph = (extra: Partial<GraphDeps> = {}) => createGraph({ fetch, token: async () => 't', sleep: async () => {}, ...extra });
-  return { fetch, graph, drafts, sentMail, log };
+  return { fetch, graph, drafts, sentMail, log, patches };
 }
 
 test('a mail is sent in one call without files, and a lost answer is not answered by sending it again', async () => {
@@ -533,4 +539,204 @@ test('folder ids come from one batch, and a folder that is missing is left out',
   assert.equal(calls.length, 1);
   const sent = JSON.parse(String(calls[0].init.body)).requests.map((r: any) => r.url);
   assert.deepEqual(sent, ['/me/mailFolders/deleteditems?$select=id', '/me/mailFolders/junkemail?$select=id', '/me/mailFolders/drafts?$select=id']);
+});
+
+
+// ---- drafts that are already at Outlook ------------------------------------------------------------------------------------------------------
+
+const edited = (extra: object = {}) => ({ kind: 'draft' as const, draftId: 'EXIST', subject: 'Re: Ferie', body: 'Ny tekst', to: ['maria@x.no'], cc: ['per@x.no'], ...extra });
+const withDraft = (o: ReturnType<typeof outlook>, attachments: { name: string; size: number }[] = []) => { o.drafts.set('EXIST', { attachments, sent: false }); return o; };
+
+test('a draft made elsewhere is sent in place: its text is replaced, nothing new is made, and each step is written down first', async () => {
+  const o = withDraft(outlook());
+  const seen: DraftProgressLike[] = [];
+  await o.graph().deliver(edited(), [], undefined, async (p) => { seen.push(p); });
+  assert.deepEqual(o.log.filter((l) => !l.startsWith('GET')), ['PATCH /me/messages/EXIST', 'POST /me/messages/EXIST/send']);
+  assert.deepEqual(seen, [{ id: 'EXIST', phase: 'made' }, { id: 'EXIST', phase: 'sending' }]);
+  assert.deepEqual(o.patches[0].body, { subject: 'Re: Ferie', body: { contentType: 'Text', content: 'Ny tekst' }, toRecipients: [{ emailAddress: { address: 'maria@x.no' } }], ccRecipients: [{ emailAddress: { address: 'per@x.no' } }] });
+  assert.deepEqual(o.sentMail, ['EXIST']);
+  assert.equal(o.drafts.size, 1, 'no second draft was made');
+});
+
+test('the files an editor adds go onto the draft; the ones it already had stay, and a file it already has is not added a second time', async () => {
+  const o = withDraft(outlook(), [{ name: 'old.pdf', size: 500 }, { name: 'same.pdf', size: 1000 }]);
+  await o.graph().deliver(edited(), [file('new.pdf', 2000), file('same.pdf', 1000)]);
+  assert.deepEqual(o.drafts.get('EXIST')!.attachments.map((a) => a.name), ['old.pdf', 'same.pdf', 'new.pdf']);
+  assert.deepEqual(o.sentMail, ['EXIST']);
+});
+
+test('a draft whose "send" answer was lost is not sent again, and not rewritten either', async () => {
+  const o = withDraft(outlook({ lostAfter: (m, p) => m === 'POST' && /\/send$/.test(p) }));
+  const g = o.graph();
+  const seen: DraftProgressLike[] = [];
+  await assert.rejects(() => g.deliver(edited(), [], undefined, async (p) => { seen.push(p); }), (e: GraphError) => e.status === 0);
+  assert.deepEqual(o.sentMail, ['EXIST']);
+  const before = o.patches.length;
+  await g.deliver(edited({ body: 'changed again' }), [], seen.at(-1));
+  assert.deepEqual(o.sentMail, ['EXIST'], 'sent once');
+  assert.equal(o.patches.length, before, 'what had gone out was not rewritten');
+});
+
+test('a draft whose "send" never arrived is sent by the next try, without being rewritten or its files added again', async () => {
+  const o = withDraft(outlook({ lostBefore: (m, p, n) => m === 'POST' && /\/send$/.test(p) && n === 1 }));
+  const g = o.graph();
+  const seen: DraftProgressLike[] = [];
+  await assert.rejects(() => g.deliver(edited(), [file('a.pdf', 1000)], undefined, async (p) => { seen.push(p); }), (e: GraphError) => e.status === 0);
+  assert.deepEqual(o.sentMail, []);
+  await g.deliver(edited(), [file('a.pdf', 1000)], seen.at(-1));
+  assert.deepEqual(o.sentMail, ['EXIST']);
+  assert.equal(o.patches.length, 1);
+  assert.equal(o.drafts.get('EXIST')!.attachments.length, 1);
+});
+
+test('an interrupted try that had only rewritten the draft goes on from there: the rewrite is repeated, the files are not doubled', async () => {
+  const o = withDraft(outlook({ lostBefore: (m, p, n) => m === 'POST' && /\/attachments$/.test(p) && n === 2 }));
+  const g = o.graph({ maxRetries: 0 });
+  const seen: DraftProgressLike[] = [];
+  await assert.rejects(() => g.deliver(edited(), [file('a.pdf', 1000), file('b.pdf', 2000)], undefined, async (p) => { seen.push(p); }), (e: GraphError) => e.status === 0);
+  await g.deliver(edited(), [file('a.pdf', 1000), file('b.pdf', 2000)], seen.at(-1));
+  assert.deepEqual(o.drafts.get('EXIST')!.attachments.map((a) => a.name), ['a.pdf', 'b.pdf']);
+  assert.deepEqual(o.sentMail, ['EXIST']);
+});
+
+test('a draft that is gone is an error the person is told about, never a new message made out of thin air; gone after "send" is a message that left', async () => {
+  const o = outlook();
+  await assert.rejects(() => o.graph().deliver(edited({ draftId: 'GONE' }), []), (e: GraphError) => e.status === 404);
+  assert.deepEqual(o.log.filter((l) => !l.startsWith('GET')), [], 'nothing was made, written or sent');
+  await o.graph().deliver(edited({ draftId: 'GONE' }), [], { id: 'GONE', phase: 'sending' });
+  assert.deepEqual(o.sentMail, []);
+});
+
+test('a draft that is no longer a draft (it was sent from another app) is not sent again', async () => {
+  const o = withDraft(outlook({ afterSend: 'not-a-draft' }));
+  o.drafts.get('EXIST')!.sent = true;
+  await o.graph().deliver(edited(), []);
+  assert.deepEqual(o.patches, []);
+  assert.deepEqual(o.sentMail, []);
+});
+
+test('a draft is read for editing as plain text, with its recipients, and Bcc kept apart', async () => {
+  const { g, calls } = setup([res(200, { subject: 'Ferie', isDraft: true, body: { contentType: 'text', content: 'Hei\r\n\r\nHa det' }, toRecipients: [{ emailAddress: { name: 'Maria', address: 'maria@x.no' } }], ccRecipients: [], bccRecipients: [{ emailAddress: { address: 'skjult@x.no' } }] })]);
+  const d = await g.getDraft('ID/1=');
+  assert.deepEqual(d, { subject: 'Ferie', body: 'Hei\n\nHa det', to: ['maria@x.no'], cc: [], bcc: ['skjult@x.no'], isDraft: true });
+  assert.match(path(calls[0]), /^\/me\/messages\/ID%2F1%3D\?\$select=subject,body,toRecipients,ccRecipients,bccRecipients,isDraft$/);
+  assert.equal(hdr(calls[0]).Prefer, 'outlook.body-content-type="text"');
+});
+
+test('saving a draft rewrites its subject, text and recipients, and can be repeated', async () => {
+  const { g, calls } = setup([res(200), res(200)]);
+  await g.updateDraft('D1', { subject: 'S', body: 'B', to: ['a@b.no'] });
+  await g.updateDraft('D1', { subject: 'S', body: 'B', to: ['a@b.no'] });
+  assert.deepEqual(steps(calls), ['PATCH /me/messages/D1', 'PATCH /me/messages/D1']);
+  assert.deepEqual(JSON.parse(String(calls[0].init.body)).ccRecipients, []);
+});
+
+// ---- folders -----------------------------------------------------------------------------------------------------------------------------------
+
+test('a folder is read a page at a time, newest first, with who each message went to; the next page comes from the link Outlook gave', async () => {
+  const { g, calls } = setup([res(200, { value: [{ id: 'm1' }], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/mailFolders/F/messages?$skiptoken=2' }), res(200, { value: [{ id: 'm2' }] })]);
+  const first = await g.folderPage('sentitems');
+  assert.match(path(calls[0]), /^\/me\/mailFolders\/sentitems\/messages\?\$top=40&\$orderby=receivedDateTime desc&\$select=.*isDraft,toRecipients,lastModifiedDateTime$/);
+  assert.deepEqual(first.value.map((m) => m.id), ['m1']);
+  const second = await g.folderPage('sentitems', { link: first.next });
+  assert.equal(calls[1].url, 'https://graph.microsoft.com/v1.0/me/mailFolders/F/messages?$skiptoken=2');
+  assert.equal(second.next, undefined);
+});
+
+test('drafts are put in order by when they were last changed, and a folder you made is asked for by its id, encoded', async () => {
+  const { g, calls } = setup([res(200, { value: [] }), res(200, { value: [] })]);
+  await g.folderPage('drafts', { byChange: true, top: 10 });
+  assert.match(path(calls[0]), /\$top=10&\$orderby=lastModifiedDateTime desc/);
+  await g.folderPage('AAMk/Pro+jects=');
+  assert.match(path(calls[1]), /^\/me\/mailFolders\/AAMk%2FPro%2Bjects%3D\/messages\?/);
+});
+
+test('one message can be looked up by its id', async () => {
+  const { g, calls } = setup([res(200, { id: 'a/b', subject: 'Hei' }), res(404, { error: { code: 'ErrorItemNotFound', message: 'gone' } })]);
+  assert.equal((await g.getMessage('a/b')).subject, 'Hei');
+  assert.match(path(calls[0]), /^\/me\/messages\/a%2Fb\?\$select=.*toRecipients/);
+  await assert.rejects(() => g.getMessage('x'), (e: GraphError) => e.status === 404);
+});
+
+test('a message can be moved to any folder by its id, as well as to a standard one by name', async () => {
+  const { g, calls } = setup([res(201, { id: 'new1' }), res(201, { id: 'new2' })]);
+  assert.equal(await g.move('m1', 'AAMk-projects'), 'new1');
+  assert.deepEqual(JSON.parse(String(calls[0].init.body)), { destinationId: 'AAMk-projects' });
+  assert.equal(await g.move('m2', 'junkemail'), 'new2');
+  assert.deepEqual(JSON.parse(String(calls[1].init.body)), { destinationId: 'junkemail' });
+});
+
+/** A pretend mailbox of folders: what `/$batch` and the plain listing answer, by address. */
+function folders(table: Record<string, { status?: number; body?: unknown } | ((n: number) => { status?: number; body?: unknown })>) {
+  const log: string[] = [];
+  const seen = new Map<string, number>();
+  const answer = (url: string) => {
+    const n = (seen.get(url) ?? 0) + 1; seen.set(url, n);
+    const hit = table[url];
+    const r = typeof hit === 'function' ? hit(n) : hit;
+    return r ?? { status: 404, body: { error: { code: 'ErrorItemNotFound' } } };
+  };
+  const fetch = (async (url: string, init: RequestInit) => {
+    const p = String(url).replace('https://graph.microsoft.com/v1.0', '');
+    if (p === '/$batch') {
+      const reqs = JSON.parse(String(init.body)).requests as { id: string; url: string }[];
+      log.push(`batch ${reqs.map((r) => r.url).join(' | ')}`);
+      return new Response(JSON.stringify({ responses: reqs.map((r) => { const a = answer(r.url); return { id: r.id, status: a.status ?? 200, body: a.body ?? {}, ...(a.status === 429 ? { headers: { 'Retry-After': '2' } } : {}) }; }) }));
+    }
+    log.push(p);
+    const a = answer(p);
+    return new Response(JSON.stringify(a.body ?? {}), { status: a.status ?? 200 });
+  }) as typeof globalThis.fetch;
+  const sleeps: number[] = [];
+  return { g: createGraph({ fetch, token: async () => 't', sleep: async (ms) => { sleeps.push(ms); } }), log, sleeps };
+}
+const F = 'id,displayName,parentFolderId,childFolderCount,unreadItemCount,totalItemCount';
+const one = (id: string, name: string, extra: object = {}) => ({ id, displayName: name, childFolderCount: 0, unreadItemCount: 0, totalItemCount: 0, ...extra });
+const STANDARD_NAMES = ['inbox', 'drafts', 'sentitems', 'archive', 'junkemail', 'deleteditems'];
+const PLUMBING_NAMES = ['outbox', 'syncissues', 'conversationhistory', 'clutter', 'scheduled', 'recoverableitemsdeletions'];
+const named = (n: string, id: string, extra: object = {}) => [`/me/mailFolders/${n}?$select=${F}`, { body: one(id, n, extra) }] as const;
+
+test('the folders of a mailbox: the standard ones are found by name, the ones you made by listing, children by one batch per level', async () => {
+  const { g, log } = folders({
+    ...Object.fromEntries([...STANDARD_NAMES.map((n) => named(n, `ID-${n}`, n === 'inbox' ? { childFolderCount: 1, unreadItemCount: 4, totalItemCount: 90 } : {})), named('outbox', 'ID-outbox'), named('scheduled', 'ID-scheduled')]),
+    [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [one('ID-inbox', 'Inbox', { childFolderCount: 1, unreadItemCount: 4, totalItemCount: 90 }), one('ID-drafts', 'Drafts'), one('ID-outbox', 'Outbox'), one('ID-scheduled', 'Scheduled'), one('P', 'Prosjekter', { childFolderCount: 1 }), one('ID-sentitems', 'Sent Items')] } },
+    [`/me/mailFolders/ID-inbox/childFolders?$top=100&$select=${F}`]: { body: { value: [one('K', 'Kunder', { unreadItemCount: 2, totalItemCount: 12 })] } },
+    [`/me/mailFolders/P/childFolders?$top=100&$select=${F}`]: { body: { value: [one('P26', '2026', { childFolderCount: 1 })] } },
+    [`/me/mailFolders/P26/childFolders?$top=100&$select=${F}`]: { body: { value: [one('P26A', 'Alfa')] } },
+  });
+  const t = await g.folderTree();
+  assert.deepEqual(t.standard, { inbox: 'ID-inbox', drafts: 'ID-drafts', sentitems: 'ID-sentitems', archive: 'ID-archive', junkemail: 'ID-junkemail', deleteditems: 'ID-deleteditems' });
+  assert.deepEqual(new Set(t.hidden), new Set(['ID-outbox', 'ID-scheduled']), 'only the plumbing that exists is named');
+  const ids = t.folders.map((f) => f.id);
+  assert.ok(!ids.includes('ID-outbox') && !ids.includes('ID-scheduled'), 'Outlook\'s own plumbing is not a folder to read');
+  for (const want of ['ID-inbox', 'ID-drafts', 'ID-sentitems', 'ID-archive', 'ID-junkemail', 'ID-deleteditems', 'P', 'K', 'P26', 'P26A']) assert.ok(ids.includes(want), want);
+  assert.equal(t.folders.find((f) => f.id === 'K')!.parentFolderId, 'ID-inbox', 'a child knows its parent even when Outlook leaves it out');
+  assert.equal(t.folders.find((f) => f.id === 'ID-inbox')!.unreadItemCount, 4);
+  assert.equal(log.filter((l) => l.startsWith('batch')).length, 3, 'one batch for the names, then one for each level of folders that have folders in them (two here)');
+});
+
+test('a mailbox whose folders go deeper than three levels is cut off, not failed', async () => {
+  const chain: Record<string, { body: unknown }> = { [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [one('L0', 'Zero', { childFolderCount: 1 })] } } };
+  for (let i = 0; i < 6; i++) chain[`/me/mailFolders/L${i}/childFolders?$top=100&$select=${F}`] = { body: { value: [one(`L${i + 1}`, `Level ${i + 1}`, { childFolderCount: 1 })] } };
+  const { g } = folders(chain);
+  const t = await g.folderTree();
+  assert.deepEqual(t.folders.map((f) => f.id), ['L0', 'L1', 'L2', 'L3']);
+});
+
+test('a folder that goes away while the tree is read is skipped; a call told to slow down is tried once more; a real failure fails the whole list', async () => {
+  const base = { [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [one('A', 'A', { childFolderCount: 1 }), one('B', 'B', { childFolderCount: 1 })] } } };
+  const gone = folders({ ...base, [`/me/mailFolders/A/childFolders?$top=100&$select=${F}`]: { status: 404 }, [`/me/mailFolders/B/childFolders?$top=100&$select=${F}`]: { body: { value: [one('B1', 'B1')] } } });
+  assert.deepEqual((await gone.g.folderTree()).folders.map((f) => f.id), ['A', 'B', 'B1']);
+  const slow = folders({ ...base, [`/me/mailFolders/A/childFolders?$top=100&$select=${F}`]: (n) => (n === 1 ? { status: 429 } : { body: { value: [one('A1', 'A1')] } }), [`/me/mailFolders/B/childFolders?$top=100&$select=${F}`]: { body: { value: [] } } });
+  assert.deepEqual((await slow.g.folderTree()).folders.map((f) => f.id), ['A', 'B', 'A1']);
+  assert.ok(slow.sleeps.includes(2000), 'it waited as long as Outlook asked');
+  const bad = folders({ ...base, [`/me/mailFolders/A/childFolders?$top=100&$select=${F}`]: { status: 500 }, [`/me/mailFolders/B/childFolders?$top=100&$select=${F}`]: { body: { value: [] } } });
+  await assert.rejects(() => bad.g.folderTree(), (e: GraphError) => e.status === 500 && e.code === 'folders');
+});
+
+test('every plumbing name and every standard name is asked for in one go', async () => {
+  const { g, log } = folders({ [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [] } } });
+  await g.folderTree();
+  const asked = log[0].replace(/^batch /, '').split(' | ').map((u) => /mailFolders\/(\w+)\?/.exec(u)![1]);
+  assert.deepEqual(asked, [...STANDARD_NAMES, ...PLUMBING_NAMES]);
 });

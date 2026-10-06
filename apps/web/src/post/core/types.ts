@@ -58,6 +58,35 @@ export interface Mail {
   inf?: 'focused' | 'other';
   /** Hidden until this time (ISO). Snooze lives on this device. */
   snoozedUntil?: string | null;
+  // The rest is only set on mail read from a folder list (Sent, Drafts, Archive ...), which is never saved on the phone.
+  /** Who it went to ("Anna Berg, Per +1"), for mail you sent or are writing. */
+  to?: string;
+  /** The first address it went to: the avatar shows that person, not you. */
+  toAddress?: string;
+  /** Outlook's id of the folder it is in, and what kind of folder that is. */
+  fid?: string;
+  fk?: FolderKind;
+  /** An unsent draft at Outlook. */
+  draft?: boolean;
+}
+
+/** The folders Post knows by name; every other folder in the mailbox is 'other'. */
+export type FolderKind = 'inbox' | 'drafts' | 'sent' | 'archive' | 'junk' | 'deleted' | 'other';
+
+/** One Outlook folder, as the Folders screen lists it. */
+export interface FolderInfo {
+  account: string;
+  /** Outlook's id for it (what a message's parentFolderId says). */
+  id: string;
+  /** The standard ones are named in Post's own words (Inbox, Drafts, Sent, Archive, Junk, Deleted); every other folder keeps the name it has in Outlook. */
+  name: string;
+  kind: FolderKind;
+  unread: number;
+  total: number;
+  /** For a folder of your own: how many folders of your own it sits inside (0 when it is at the top, or directly in a standard folder). */
+  depth: number;
+  /** Where it sits, in words, for the Move to list ("Inbox / Projects"). Empty for a standard folder and for one at the top. */
+  where: string;
 }
 
 /** One attachment of a message. `kind`: a file, an attached message (saved as .eml) or a link to a cloud file; saved before 'kind' existed means a file. */

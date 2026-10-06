@@ -2,16 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { State } from '../core/controller.ts';
 import { visibleThreads } from '../core/controller.ts';
 import { displayName, shortTime } from '../core/format.ts';
+import { DELETE_WAY, FOLDER_ICON, FOLDER_NAME, placeActions, type Way } from '../core/folders.ts';
 import { toBase64 } from '../core/graph.ts';
 import { BLANK_PICTURE, frameDocument, hasRemoteImages, inlineCids, textToHtml } from '../core/html.ts';
 import { parseUnsubscribe, type Unsub } from '../core/unsubscribe.ts';
 import { isFreemail, orgDomain, ruleFor } from '../core/classify.ts';
-import { isMine, looksLikeReply, replyTarget, threadKey, threadOf, type Thread } from '../core/threads.ts';
-import { KIND_ONE, KIND_TAB, KINDS, mailKey, type Mail, type MailBody } from '../core/types.ts';
+import { isMine, looksLikeReply, replyTarget, threadKey, threadOf } from '../core/threads.ts';
+import { KIND_ONE, KIND_TAB, KINDS, mailKey, type FolderKind, type Mail, type MailBody } from '../core/types.ts';
 import { Avatar, Icon, KIND_ICON, Sheet, Switch } from './ui.tsx';
 import { SnoozeSheet } from './Inbox.tsx';
+import { MoveSheet, moveWay } from './Move.tsx';
 import { RemindSheet } from './Remind.tsx';
-import { back, go, labelOf, useBadge, useC, useDark, useNow, useRoomyPane } from './ctx.tsx';
+import { back, folderContext, folderTitle, go, labelOf, openMail, routeOfFolder, useBadge, useC, useDark, useNow, useRoomyPane } from './ctx.tsx';
 import { copyText } from './clipboard.ts';
 import { FileList } from './Attachments.tsx';
 
@@ -34,10 +36,14 @@ const NONE: ReadonlySet<string> = new Set();
 const turned = new Map<string, ReadonlySet<string>>();
 
 type Found = { ck: string; items: Mail[]; state: 'loading' | 'done' | 'failed' };
+/** A message that was asked of Outlook because Post had not seen it (a link kept from earlier, a message another app moved). */
+type Asked = { key: string; state: 'looking' | 'done' | 'failed'; mail: Mail | null; error?: string };
 
 /**
  * A message, and the conversation it is part of. The newest message is open and the older ones are folded up under it, each one a tap
  * away; your own replies are in it too. Archiving, snoozing and the rest reach every message of the conversation that is in the inbox.
+ * A message that is not in the inbox (opened from a folder, a search or a link) is one message here: what you do reaches it alone, and the
+ * buttons are the ones that fit where it is (Archive for a sent message, Inbox for an archived one, Not junk, Restore).
  */
 export function Reader({ s, account, id, pane = false }: { s: State; account: string; id: string; pane?: boolean }) {
   const c = useC();
@@ -47,13 +53,17 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const email = acct?.email ?? account;
   const key = mailKey(email, id);
   const here = s.mail.find((x) => x.key === key);
-  // In the inbox on this phone, or only seen in Outlook this time (an older message of a conversation, a search result).
-  const m = here ?? c.remoteMail(email, id);
+  const view = folderContext(s, key); // the folder this message was opened from, when it is the one that is open
+  const [asked, setAsked] = useState<Asked | null>(null);
+  const [again, setAgain] = useState(0);
+  // In the inbox on this phone, or only seen in Outlook (a folder, an older message of a conversation, a search result, a link).
+  const m = here ?? view?.items.find((x) => x.key === key) ?? c.remoteMail(email, id) ?? (asked?.key === key ? asked.mail ?? undefined : undefined);
+  const far = !here;
   const grouped = s.settings.threads;
   const badge = useBadge(s)(email);
   const [found, setFound] = useState<Found | null>(null);
   const [flip, setFlip] = useState<{ key: string; keys: ReadonlySet<string> }>({ key: '', keys: NONE });
-  const [sheet, setSheet] = useState<null | 'more' | 'snooze' | 'why' | 'remind'>(null);
+  const [sheet, setSheet] = useState<null | 'more' | 'snooze' | 'why' | 'remind' | 'move'>(null);
   const [anchorBody, setAnchorBody] = useState<{ key: string; body: MailBody } | null>(null);
   const [retry, setRetry] = useState(0);
   const forceNext = useRef(false);
@@ -61,8 +71,24 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const sentSeen = useRef(s.sent);
   const ck = m ? threadKey(m) : '';
 
-  // A notification can arrive before this phone has synced: sync once, then look again.
-  useEffect(() => { if (!m && s.ready && acct && !waited.current) { waited.current = true; void c.sync(); } }, [m, s.ready, acct, c]);
+  // A notification can arrive before this phone has synced: sync once, then look for it. A message that is not in the inbox (moved to another folder,
+  // archived on another device) is asked of Outlook by its address.
+  useEffect(() => {
+    if (m || !s.ready || !acct) return;
+    let live = true;
+    setAsked({ key, state: 'looking', mail: null });
+    (async () => {
+      if (!waited.current) { waited.current = true; await c.sync(); }
+      return c.findMail(email, id);
+    })().then(
+      (mail) => { if (live) setAsked({ key, state: 'done', mail }); },
+      (e) => { if (live) setAsked({ key, state: 'failed', mail: null, error: e instanceof Error && e.message ? e.message : 'Could not open this message.' }); },
+    );
+    return () => { live = false; };
+  }, [key, s.ready, !!acct, again]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Which folder a message is in decides which buttons it gets, so the folders are listed (from the phone's copy at once, and from Outlook when they are old).
+  useEffect(() => { if (far && m) void c.loadFolders(); }, [far, !!m]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The rest of the conversation comes from Outlook: your replies, and anything archived or older than this phone keeps. Asked in the
   // background; the message is already on the screen.
@@ -100,24 +126,40 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   }
   const many = all.length > 1;
   const target = replyTarget(all) ?? m;
-  const canTriage = local.length > 0;
+  const canTriage = !far && local.length > 0;
 
-  // Next and previous follow the tab you came from. Reading a message must not drop it from "unread only" while you are still on it.
-  const list = visibleThreads({ ...s, unreadOnly: false }, now);
-  const idx = list.findIndex((t) => t.items.some((x) => x.key === key));
-  const next = idx >= 0 ? list[idx + 1] ?? null : null;
-  const prev = idx > 0 ? list[idx - 1] : null;
+  // Next and previous follow the list you came from: the folder, or the tab of the inbox. Reading a message must not drop it from "unread only" while you are still on it.
+  const rows = far && view ? view.items : null;
+  const list = rows ? [] : visibleThreads({ ...s, unreadOnly: false }, now);
+  const idx = rows ? rows.findIndex((x) => x.key === key) : list.findIndex((t) => t.items.some((x) => x.key === key));
+  const total = rows ? rows.length : list.length;
+  const next: Mail | null = idx < 0 ? null : (rows ? rows[idx + 1] : list[idx + 1]?.latest) ?? null;
+  const prev: Mail | null = idx <= 0 ? null : rows ? rows[idx - 1] : list[idx - 1].latest;
+  const home = far && view ? routeOfFolder(view.target) : { name: 'inbox' as const };
+  const homeName = far ? (view ? folderTitle(s, view.target) : 'Back') : 'Inbox';
   // Moving on after archiving, deleting or snoozing replaces the screen, so Back goes to the list and not to a message that is gone.
-  const open = (t: Thread | null, replace = false) => (t ? go({ name: 'message', account: t.latest.account, id: t.latest.id }, { replace }) : go({ name: 'inbox' }, { replace }));
+  const open = (n: Mail | null, replace = false) => (n ? openMail(n, { replace }) : go(home, { replace }));
 
   if (!m || !target) {
+    const gone = asked?.key === key && asked.state === 'done';
+    const failed = asked?.key === key && asked.state === 'failed';
     return (
       <div className="pg">
-        <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
-        <div className="empty">{s.sync.running || !waited.current ? <><span className="big">Opening…</span></> : <><span className="big">Not in your inbox</span>It was moved, deleted or archived somewhere else.</>}</div>
+        <div className="nav"><button className="back" onClick={() => back()} aria-label="Back"><Icon n="back" />Inbox</button></div>
+        <div className="empty">
+          {gone ? <><span className="big">Not in Outlook any more</span>It was deleted for good, or another app moved it. Search can find it if it was moved.</>
+            : failed ? <><span className="big">Could not open it</span>{asked.error}<div style={{ marginTop: 14 }}><button className="link" onClick={() => setAgain((n) => n + 1)}>Try again</button></div></>
+              : <span className="big">Opening…</span>}
+        </div>
       </div>
     );
   }
+
+  // Where a message that is not in the inbox is, and so what can be done with it from here.
+  const place: FolderKind | 'unknown' = far ? m.fk ?? c.folderOf(m)?.kind ?? 'unknown' : 'inbox';
+  const ways = placeActions(place);
+  const primary = far ? ways.primary : null;
+  const folderName = far && place !== 'unknown' ? (place === 'other' ? c.folderOf(m)?.name ?? 'Folder' : FOLDER_NAME[place]) : '';
 
   const isOpen = (x: Mail) => !many || (x.key === key) !== flipped.has(x.key);
   const toggle = (x: Mail) => {
@@ -130,30 +172,39 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const reply = (mode: 'reply' | 'replyAll' | 'forward', x: Mail = target) => go({ name: 'compose', mode, account: email, id: x.id });
   const archiveNext = () => { void c.archive(local, 1); open(next, true); };
   const deleteNext = () => { void c.trash(local, 1); open(next, true); };
-  const anyUnread = local.some((x) => !x.isRead);
-  const anyFlag = local.some((x) => x.flagged);
+  // One message that is not in the inbox: it goes where the button says, and the next one of the list opens.
+  const wayNext = (w: Way) => { void moveWay(c, [m], w); open(next, true); };
+  const mine = far ? [m] : local; // what read, flag and the rest reach
+  const anyUnread = mine.some((x) => !x.isRead);
+  const anyFlag = mine.some((x) => x.flagged);
   const conversationLike = looksLikeReply(m.subject) || local.length > 1 || all.some(isMine);
+  const canDelete = far ? ways.canDelete : canTriage;
+  const deleteIt = () => (far ? wayNext(DELETE_WAY) : deleteNext());
+  const movable = far || canTriage; // "Move to a folder" is for everything that can be moved: the inbox mail and the mail seen in a folder
+  const backLabel = far ? (view ? `Back to ${homeName}` : 'Back') : 'Back to inbox';
 
   return (
     <div className="pg">
       <div className="nav">
-        {!pane && <button className="back" onClick={() => back()} aria-label="Back to inbox"><Icon n="back" />Inbox</button>}
+        {!pane && <button className="back" onClick={() => back(home)} aria-label={backLabel}><Icon n="back" />{homeName}</button>}
         {/* On a computer the actions sit up here, in plain view, the way a desktop mail app has them; on a phone they are the bar at the bottom. */}
         {pane && roomy && (
           <div className="tools" role="toolbar" aria-label="Actions">
             {canTriage && <button type="button" className="tool" title="Archive (e)" onClick={archiveNext}><Icon n="archive" size={18} />Archive</button>}
+            {primary && <button type="button" className="tool" title={`${primary.label} (e)`} onClick={() => wayNext(primary)}><Icon n={primary.icon} size={18} />{primary.label}</button>}
             <button type="button" className="tool" title="Reply (r)" aria-label={many && !isMine(target) ? `Reply to ${displayName(target.fromName, target.fromAddress)}` : 'Reply'} onClick={() => reply('reply')}><Icon n="reply" size={18} />Reply</button>
             <button type="button" className="tool" title="Reply all (a)" onClick={() => reply('replyAll')}><Icon n="replyAll" size={18} />Reply all</button>
             <span className="tsep" aria-hidden="true" />
             {/* the rest show their words only when the window is wide enough; their name is always there for a screen reader and a hover */}
             <button type="button" className="tool opt" title="Forward" aria-label="Forward" onClick={() => reply('forward')}><Icon n="forward" size={18} /><span className="tl">Forward</span></button>
+            {movable && <button type="button" className="tool opt" title="Move to a folder" aria-label="Move to a folder" onClick={() => setSheet('move')}><Icon n="folder" size={18} /><span className="tl">Move</span></button>}
             {canTriage && <button type="button" className="tool opt" title="Snooze (z)" aria-label="Snooze" onClick={() => setSheet('snooze')}><Icon n="clock" size={18} /><span className="tl">Snooze</span></button>}
-            {canTriage && <button type="button" className="tool opt" title="Delete (#)" aria-label="Delete" onClick={deleteNext}><Icon n="trash" size={18} /><span className="tl">Delete</span></button>}
+            {canDelete && <button type="button" className="tool opt" title="Delete (#)" aria-label="Delete" onClick={deleteIt}><Icon n="trash" size={18} /><span className="tl">Delete</span></button>}
             <button type="button" className="tool icon" aria-label="More" title="More" onClick={() => setSheet('more')}><Icon n="more" size={18} /></button>
           </div>
         )}
         <span className="sp" />
-        {idx >= 0 && <span className="pos">{idx + 1} of {list.length}</span>}
+        {idx >= 0 && <span className="pos">{idx + 1} of {total}</span>}
         <button className="btn" aria-label="Previous message" disabled={!prev} onClick={() => open(prev)} style={{ opacity: prev ? 1 : .4 }}><Icon n="up" /></button>
         <button className="btn" aria-label="Next message" disabled={!next} onClick={() => open(next)} style={{ opacity: next ? 1 : .4 }}><Icon n="down" /></button>
       </div>
@@ -161,12 +212,12 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
         <div className="ttl">
           <h1 className="h2">{m.subject || '(no subject)'}</h1>
           {/* Your own address is only worth showing when there is more than one mailbox to tell apart. */}
-          {(s.accounts.length > 1 || m.kind !== 'person' || many) && <div className="meta">{s.accounts.length > 1 && <span className="chip"><i style={{ background: badge?.colour ?? 'var(--at)' }} />{email}</span>}{here && m.kind !== 'person' && <span className="chip">{KIND_TAB[m.kind]}</span>}{many && <span className="chip">{all.length} messages</span>}</div>}
+          {(s.accounts.length > 1 || m.kind !== 'person' || many || !!folderName) && <div className="meta">{s.accounts.length > 1 && <span className="chip"><i style={{ background: badge?.colour ?? 'var(--at)' }} />{email}</span>}{folderName && <span className="chip"><Icon n={place === 'unknown' ? 'folder' : FOLDER_ICON[place]} size={14} />{folderName}</span>}{here && m.kind !== 'person' && <span className="chip">{KIND_TAB[m.kind]}</span>}{many && <span className="chip">{all.length} messages</span>}</div>}
         </div>
         {all.map((x) => (
-          <MessageBlock key={x.key} s={s} m={x} open={isOpen(x)} many={many} anchor={x.key === key} onPhone={local.some((y) => y.key === x.key)}
+          <MessageBlock key={x.key} s={s} m={x} open={isOpen(x)} many={many} anchor={x.key === key} onPhone={local.some((y) => y.key === x.key)} editable={local.some((y) => y.key === x.key) || (far && x.key === key)}
             onToggle={() => toggle(x)} onReply={(mode) => reply(mode, x)} onWhy={() => setSheet('why')}
-            onBody={x.key === key ? (b) => { setAnchorBody({ key, body: b }); if (here) void c.markRead(c.threadOf(here), { quiet: true }); } : undefined} />
+            onBody={x.key === key ? (b) => { setAnchorBody({ key, body: b }); if (here) void c.markRead(c.threadOf(here), { quiet: true }); else if (!m.isRead && !m.draft) void c.markRead([m], { quiet: true }); } : undefined} />
         ))}
         {grouped && m.conversationId && looking === 'loading' && conversationLike && <p className="note" role="status">Looking for the rest of this conversation…</p>}
         {grouped && m.conversationId && looking === 'failed' && conversationLike && <p className="note" role="status">Could not look for the rest of this conversation. <button className="link" onClick={() => { forceNext.current = true; setRetry((n) => n + 1); }}>Try again</button></p>}
@@ -175,11 +226,14 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
         <div className="bar" role="toolbar" aria-label="Actions">
           <button className="ib" aria-label={many && !isMine(target) ? `Reply to ${displayName(target.fromName, target.fromAddress)}` : 'Reply'} onClick={() => reply('reply')}><Icon n="reply" /><span className="lb">Reply</span></button>
           {canTriage && <button className="go" onClick={archiveNext}><Icon n="archive" />Archive{next ? <small>· next</small> : null}</button>}
+          {primary && <button className="go" onClick={() => wayNext(primary)}><Icon n={primary.icon} />{primary.label}{next ? <small>· next</small> : null}</button>}
           {canTriage && <button className="ib" aria-label="Snooze" onClick={() => setSheet('snooze')}><Icon n="clock" /><span className="lb">Snooze</span></button>}
+          {far && <button className="ib" aria-label="Move to a folder" onClick={() => setSheet('move')}><Icon n="folder" /><span className="lb">Move</span></button>}
           <button className="ib" aria-label="More" onClick={() => setSheet('more')}><Icon n="more" /><span className="lb">More</span></button>
         </div>
       )}
       {sheet === 'snooze' && <SnoozeSheet onClose={() => setSheet(null)} onPick={(at, label) => { void c.snooze(local, at, label); setSheet(null); open(next, true); }} />}
+      {sheet === 'move' && movable && <MoveSheet s={s} items={far ? [m] : local} rows={1} inbox={!far} onClose={() => setSheet(null)} onMoved={() => open(next, true)} />}
       {sheet === 'remind' && <RemindSheet m={m} preview={anchorBody?.key === key && anchorBody.body.contentType === 'text' ? anchorBody.body.content : m.preview} onClose={() => setSheet(null)} />}
       {sheet === 'why' && here && <SortSheet s={s} m={here} onClose={() => setSheet(null)} />}
       {sheet === 'more' && (
@@ -188,10 +242,11 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             <button className="it" onClick={() => reply('replyAll')}><span className="ico"><Icon n="replyAll" /></span>Reply all</button>
             <button className="it" onClick={() => reply('forward')}><span className="ico"><Icon n="forward" /></span>Forward</button>
             <button className="it" onClick={() => setSheet('remind')}><span className="ico"><Icon n="home" /></span>Remind me<span className="v">in Home Memory</span></button>
-            {canTriage && <button className="it" onClick={() => { void c.toggleRead(local); setSheet(null); if (!anyUnread) go({ name: 'inbox' }); }}><span className="ico"><Icon n="mail" /></span>{anyUnread ? 'Mark as read' : 'Mark as unread'}</button>}
-            {canTriage && <button className="it" onClick={() => { void c.toggleFlag(local); setSheet(null); }}><span className="ico"><Icon n="flag" /></span>{anyFlag ? 'Remove flag' : 'Flag'}</button>}
+            {(canTriage || far) && <button className="it" onClick={() => { void c.toggleRead(mine); setSheet(null); if (!anyUnread) go(home); }}><span className="ico"><Icon n="mail" /></span>{anyUnread ? 'Mark as read' : 'Mark as unread'}</button>}
+            {(canTriage || far) && <button className="it" onClick={() => { void c.toggleFlag(mine); setSheet(null); }}><span className="ico"><Icon n="flag" /></span>{anyFlag ? 'Remove flag' : 'Flag'}</button>}
+            {movable && <button className="it" onClick={() => setSheet('move')}><span className="ico"><Icon n="folder" /></span>Move to a folder<span className="v">…</span></button>}
             {here && <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {KIND_TAB[here.kind]}<span className="v">Change</span></button>}
-            {canTriage && <button className="it danger" onClick={() => { setSheet(null); deleteNext(); }}><span className="ico"><Icon n="trash" /></span>Delete{many ? ' conversation' : ''}</button>}
+            {canDelete && <button className="it danger" onClick={() => { setSheet(null); deleteIt(); }}><span className="ico"><Icon n="trash" /></span>Delete{many && !far ? ' conversation' : ''}</button>}
           </div>
         </Sheet>
       )}
@@ -204,8 +259,8 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
  * conversation, Reply, Reply all and Forward for this very message; folded up, one line with who and what it starts with. `anchor` is the
  * message that was opened: it carries the "sorted as" bar and the unsubscribe button.
  */
-function MessageBlock({ s, m, open, many, anchor, onPhone, onToggle, onReply, onWhy, onBody }: {
-  s: State; m: Mail; open: boolean; many: boolean; anchor: boolean; onPhone: boolean;
+function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, onReply, onWhy, onBody }: {
+  s: State; m: Mail; open: boolean; many: boolean; anchor: boolean; onPhone: boolean; editable: boolean;
   onToggle: () => void; onReply: (mode: 'reply' | 'replyAll' | 'forward') => void; onWhy: () => void; onBody?: (b: MailBody) => void;
 }) {
   const c = useC();
@@ -258,7 +313,7 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, onToggle, onReply, on
   }, [m.key, m.kind, anchor, onPhone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const who = mine ? 'You' : displayName(m.fromName, m.fromAddress);
-  const unread = onPhone && !m.isRead;
+  const unread = editable && !m.isRead;
 
   if (!open) {
     return (
@@ -290,7 +345,7 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, onToggle, onReply, on
         </div>
         {many ? (
           <button className="btn plain" aria-label="Fold this message up" aria-expanded={true} onClick={onToggle}><Icon n="up" /></button>
-        ) : onPhone && <button className="btn plain" aria-label={m.flagged ? 'Remove flag' : 'Flag'} onClick={() => void c.setFlag(m, !m.flagged)} style={{ color: m.flagged ? 'var(--at)' : undefined }}><Icon n="flag" /></button>}
+        ) : editable && <button className="btn plain" aria-label={m.flagged ? 'Remove flag' : 'Flag'} onClick={() => void c.setFlag(m, !m.flagged)} style={{ color: m.flagged ? 'var(--at)' : undefined }}><Icon n="flag" /></button>}
       </div>
       {anchor && onPhone && m.kind !== 'person' && (
         <div className="kindbar"><Icon n="inbox" size={18} /><span>Sorted as {KIND_ONE[m.kind]}</span><span className="sp" />

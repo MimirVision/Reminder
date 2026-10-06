@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { State } from '../core/controller.ts';
 import { replyLaterThreads, snoozedThreads } from '../core/controller.ts';
 import { shortTime } from '../core/format.ts';
+import { FOLDER_NAME } from '../core/folders.ts';
 import type { Mail } from '../core/types.ts';
 import { Icon } from './ui.tsx';
 import { Row } from './Inbox.tsx';
 import { Tabs } from './Tabs.tsx';
-import { go, useC, useNow } from './ctx.tsx';
+import { go, openMail, useC, useNow } from './ctx.tsx';
 
 const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:promotions', 'account:work'];
 
@@ -19,7 +20,8 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
   useEffect(() => { ref.current?.focus(); }, []);
   useEffect(() => { setRemote(null); }, [q]);
   const local = q.trim() ? c.searchLocal(q) : [];
-  const open = (m: Mail) => go({ name: 'message', account: m.account, id: m.id });
+  // A message from Outlook that is not in the inbox says where it is; a draft opens in the editor, anything else in the reader.
+  const placeOf = (m: Mail): string | undefined => { const f = c.folderOf(m); const k = m.fk ?? f?.kind; return !k || k === 'inbox' ? undefined : k === 'other' ? f?.name : FOLDER_NAME[k]; };
   const askOutlook = async () => { setBusy(true); try { setRemote(await c.searchRemote(q)); } finally { setBusy(false); } };
 
   return (
@@ -42,11 +44,11 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
         {q.trim() && (
           <>
             <div className="sec">{local.length ? `${local.length} on this phone` : 'Nothing on this phone'}</div>
-            {local.length > 0 && <div className="card">{local.map((m) => <div key={m.key} className="sw-row"><Row m={m} s={s} selecting={false} selected={false} onOpen={() => open(m)} onToggle={() => {}} /></div>)}</div>}
+            {local.length > 0 && <div className="card">{local.map((m) => <div key={m.key} className="sw-row"><Row m={m} s={s} selecting={false} selected={false} onOpen={() => openMail(m)} onToggle={() => {}} /></div>)}</div>}
             {remote === null ? <button className="more" disabled={busy} onClick={() => void askOutlook()}>{busy ? 'Searching Outlook…' : 'Search all of Outlook'}</button> : (
               <>
                 <div className="sec">{remote.length ? 'Older, from Outlook' : 'Nothing older in Outlook'}</div>
-                {remote.length > 0 && <div className="card">{remote.map((m) => <div key={m.key} className="sw-row"><Row m={m} s={s} selecting={false} selected={false} onOpen={() => open(m)} onToggle={() => {}} /></div>)}</div>}
+                {remote.length > 0 && <div className="card">{remote.map((m) => <div key={m.key} className="sw-row"><Row m={m} s={s} selecting={false} selected={false} place={placeOf(m)} onOpen={() => openMail(m)} onToggle={() => {}} /></div>)}</div>}
               </>
             )}
           </>

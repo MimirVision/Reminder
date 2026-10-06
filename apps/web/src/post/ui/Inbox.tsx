@@ -8,6 +8,7 @@ import { presets } from '../core/snooze.ts';
 import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
 import { go, labelOf, resolveAccount, useBadge, useC, useNow, useRoute } from './ctx.tsx';
 import { Tabs } from './Tabs.tsx';
+import { MoveSheet } from './Move.tsx';
 
 /** The small label on a row. Shown where mail of several kinds is mixed (All, search, Later); inside a tab it would only repeat the tab. */
 const TAG: Record<Kind, string> = { person: '', transaction: 'Transaction', update: 'Update', promo: 'Promotion' };
@@ -43,20 +44,23 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
 }
 
 /** One row. With `thread` it is a conversation: it shows the newest message, who is in it, how many messages it holds, and anything unread, flagged or attached in it. */
-export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, active, tag = true }: { m: Mail; thread?: Thread; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean; tag?: boolean }) {
+export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, active, tag = true, place }: { m: Mail; thread?: Thread; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean; tag?: boolean; place?: string }) {
   const badge = useBadge(s)(m.account);
   const count = thread?.items.length ?? 1;
   const unread = thread ? thread.unread > 0 : !m.isRead;
-  const who = thread ? threadWho(thread) : displayName(m.fromName, m.fromAddress);
+  // Mail you wrote (Sent, Drafts) is about who it went to, not who it is from.
+  const wrote = !thread && (m.fk === 'sent' || m.fk === 'drafts');
+  const who = thread ? threadWho(thread) : wrote ? (m.to ? `To: ${m.to}` : m.draft ? 'No recipient yet' : 'To: nobody') : displayName(m.fromName, m.fromAddress);
   const flagged = thread ? thread.items.some((x) => x.flagged) : m.flagged;
   const files = thread ? thread.items.some((x) => x.hasAttachments) : m.hasAttachments;
   return (
     <button type="button" className={`row ${s.settings.rowSize}${active ? ' active' : ''}`} aria-current={active ? 'true' : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${who}, ${m.subject}${count > 1 ? `, ${count} messages` : ''}${unread ? ', unread' : ''}`}>
       {unread && !selecting && <span className="dot" />}
       {selecting && <span className={`chk${selected ? ' on' : ''}`} aria-hidden="true">{selected && <Icon n="check" size={14} />}</span>}
-      <Avatar m={m} badge={badge} />
+      {/* A message to several people shows the first one's initials: "Anna, Per +1" would otherwise make "A+". */}
+      <Avatar m={wrote ? { fromName: m.to && !/, |\+\d+$/.test(m.to) ? m.to : '', fromAddress: m.toAddress ?? '', kind: 'person' } : m} badge={badge} />
       <span className="rb">
-        <span className="r1"><span className={`who${unread ? ' u' : ''}`}>{who}</span>{count > 1 && <span className={`cc${unread ? ' u' : ''}`} aria-hidden="true">{count}</span>}{tag && TAG[m.kind] && <span className="tg">{TAG[m.kind]}</span>}<span className={`tm${unread ? ' n' : ''}`}>{shortTime(m.received)}</span></span>
+        <span className="r1"><span className={`who${unread ? ' u' : ''}${wrote && !m.to ? ' nobody' : ''}`}>{who}</span>{count > 1 && <span className={`cc${unread ? ' u' : ''}`} aria-hidden="true">{count}</span>}{m.draft && <span className="tg dr">Draft</span>}{place && <span className="tg">{place}</span>}{tag && !wrote && TAG[m.kind] && <span className="tg">{TAG[m.kind]}</span>}<span className={`tm${unread ? ' n' : ''}`}>{shortTime(m.received)}</span></span>
         <span className={`sj${unread ? ' u' : ''}`}>{m.subject || '(no subject)'}</span>
         <span className="r1"><span className="pv">{m.preview}</span>{files && <span className="pa"><Icon n="paperclip" size={15} /></span>}{flagged && <span className="pa" style={{ color: 'var(--at)' }}><Icon n="flag" size={15} /></span>}</span>
       </span>
@@ -110,6 +114,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const [scrolled, setScrolled] = useState(false);
   const [pull, setPull] = useState(0);
   const [cleaning, setCleaning] = useState(false);
+  const [moving, setMoving] = useState(false);
   const pullStart = useRef<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
 
@@ -197,6 +202,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
           <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(list.map(keyOf)))}><Icon n="select" /></button>
           <button className="go" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.archive(items, rows.length)); }}><Icon n="archive" />Archive {chosen.length || ''}</button>
           <button className="ib" aria-label="Mark read" disabled={!chosen.length} onClick={() => { const items = chosenMail; exit(); void c.markRead(items); }}><Icon n="eye" /></button>
+          <button className="ib" aria-label="Move to a folder" disabled={!chosen.length} onClick={() => setMoving(true)}><Icon n="folder" /></button>
           <button className="ib" aria-label="Delete" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.trash(items, rows.length)); }}><Icon n="trash" /></button>
         </div>
       ) : (
@@ -207,6 +213,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
       )}
       {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing.items, at, label); setSnoozing(null); }} />}
       {cleaning && <CleanUpSheet s={s} onClose={() => setCleaning(false)} />}
+      {moving && chosen.length > 0 && <MoveSheet s={s} items={chosenMail} rows={chosen.length} inbox onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
     </div>
   );
 }
@@ -279,11 +286,11 @@ function Empty({ s, counts }: { s: State; counts: Counts }) {
   return <div className="empty"><span className="big">Inbox zero</span>{counts.unread === 0 ? 'Nothing waiting. Enjoy it.' : 'Everything else is snoozed.'}</div>;
 }
 
-/** Grey placeholder rows while the very first sync runs, so the screen feels alive instead of blank. */
-function Skeleton() {
+/** Grey placeholder rows while the very first sync runs (or a folder is being read), so the screen feels alive instead of blank. */
+export function Skeleton({ label = 'Getting your mail…' }: { label?: string }) {
   return (
-    <div role="status" aria-label="Getting your mail">
-      <div className="sec">Getting your mail…</div>
+    <div role="status" aria-label={label.replace(/…$/, '')}>
+      <div className="sec">{label}</div>
       <div className="card">{[0, 1, 2, 3, 4].map((i) => (
         <div key={i} className="row" style={{ opacity: 1 - i * 0.15 }}>
           <div className="avw"><div className="av sk" /></div>

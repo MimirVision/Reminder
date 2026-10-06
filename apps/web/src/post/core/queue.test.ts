@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GraphError, type Graph } from './graph.ts';
-import { createQueue } from './queue.ts';
+import { createQueue, isMove } from './queue.ts';
 import { memoryStore, type Store } from './store.ts';
 
 function setup() {
@@ -131,6 +131,20 @@ test('an action Outlook refuses for good is given up on, and said so (a message 
   assert.deepEqual(refused, ['archive m1 403'], 'gone is not a refusal');
 });
 
+test('a move to a folder that has been deleted since is a refusal at once, and the message is not given up on as gone', async () => {
+  const store = memoryStore();
+  const refused: string[] = [];
+  const q = createQueue(store, { now: () => 1_000_000, id: (() => { let n = 0; return () => `op${++n}`; })(), onRefused: (op, e) => { refused.push(`${op.type} ${op.messageId} ${op.to} ${e.code}`); } });
+  const g = { async move() { throw new GraphError(404, 'ErrorFolderNotFound', 'The folder was not found'); } } as unknown as Graph;
+  await q.enqueue('move', 'a', 'm1', 0, 'FOLDER');
+  assert.deepEqual(await q.flush(() => g), { sent: 0, waiting: 0, dropped: 1 });
+  assert.deepEqual(refused, ['move m1 FOLDER ErrorFolderNotFound']);
+  const gone = { async move() { throw new GraphError(404, 'ErrorItemNotFound', 'The message is gone'); } } as unknown as Graph;
+  await q.enqueue('move', 'a', 'm2', 0, 'FOLDER');
+  await q.flush(() => gone);
+  assert.equal(refused.length, 1, 'a message that is gone is still only the end of it');
+});
+
 test('two runs at once carry each action out once, and the second still picks up what was added meanwhile', async () => {
   const store = memoryStore();
   const q = createQueue(store, { now: () => 1_000_000, id: (() => { let n = 0; return () => `op${++n}`; })() });
@@ -258,4 +272,40 @@ test('a run for everything asked for while an ordinary run is going is carried o
   open();
   await Promise.all([first, second]);
   assert.deepEqual(calls, ['read m1', 'move m2']);
+});
+
+test('a move goes to the folder it was told, after the undo window, and tells where the message went', async () => {
+  const store = memoryStore();
+  let t = 1_000_000;
+  const moved: string[] = [];
+  const q = createQueue(store, { now: () => t, id: () => 'op1', onMoved: (account, oldId, newId) => { moved.push(`${account} ${oldId}>${newId}`); } });
+  const g = { async move(id: string, f: string) { return `${id}@${f}`; } } as unknown as Graph;
+  const op = await q.enqueue('move', 'a', 'm1', undefined, 'AAMk-projects');
+  assert.equal(op.to, 'AAMk-projects');
+  assert.deepEqual(await q.flush(() => g), { sent: 0, waiting: 1, dropped: 0 });
+  t += 6001;
+  assert.deepEqual(await q.flush(() => g), { sent: 1, waiting: 0, dropped: 0 });
+  assert.deepEqual(moved, ['a m1>m1@AAMk-projects']);
+});
+
+test('an archive, a delete and a move of one message are one choice: the newest wins', async () => {
+  const { q, g, calls } = setup();
+  await q.enqueue('archive', 'a', 'm1', 0);
+  await q.enqueue('move', 'a', 'm1', 0, 'JUNK');
+  await q.enqueue('delete', 'a', 'm1', 0);
+  await q.enqueue('move', 'a', 'm1', 0, 'projects');
+  await q.flush(() => g);
+  assert.deepEqual(calls, ['move m1 projects']);
+});
+
+test('a move that does not say where is dropped quietly, never sent anywhere', async () => {
+  const { q, g, calls, store } = setup();
+  await q.enqueue('move', 'a', 'm1', 0);
+  assert.deepEqual(await q.flush(() => g), { sent: 1, waiting: 0, dropped: 0 });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await store.allOps(), []);
+});
+
+test('isMove says which actions take a message out of its folder', () => {
+  assert.deepEqual((['archive', 'delete', 'move', 'read', 'unread', 'flag', 'unflag'] as const).filter(isMove), ['archive', 'delete', 'move']);
 });

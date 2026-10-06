@@ -49,9 +49,21 @@ export interface RawMessage {
   inferenceClassification?: string;
   parentFolderId?: string;
   isDraft?: boolean;
+  /** Only asked for when a folder is listed (Sent Items and Drafts show who a message went to). */
+  toRecipients?: { emailAddress?: { name?: string; address?: string } }[];
+  lastModifiedDateTime?: string;
   internetMessageHeaders?: { name: string; value: string }[];
   '@removed'?: { reason?: string };
 }
+
+/** One folder as Outlook lists it. */
+export interface RawFolder { id: string; displayName?: string; parentFolderId?: string; childFolderCount?: number; unreadItemCount?: number; totalItemCount?: number }
+
+/** What a mailbox's folders are: every folder found (three levels down at most), which ids are the standard ones, and which are Outlook's own plumbing (Outbox, Sync Issues ...) that is not for reading. */
+export interface FolderTree { folders: RawFolder[]; standard: Partial<Record<WellKnownFolder, string>>; hidden: string[] }
+
+/** A draft as an editor needs it: the text (Outlook turns any formatting into plain text), who it is for, and the people who are on it as Bcc. */
+export interface DraftContent { subject: string; body: string; to: string[]; cc: string[]; bcc: string[]; isDraft: boolean }
 
 /** A file to send. `bytes` is the file as it is. */
 export interface OutFile { name: string; type: string; bytes: Uint8Array }
@@ -63,7 +75,9 @@ export interface AttachmentInfo { id: string; name: string; size: number; conten
 export type Outgoing =
   | { kind: 'new'; subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[] }
   | { kind: 'reply' | 'replyAll'; replyTo: string; body: string }
-  | { kind: 'forward'; replyTo: string; to: string[]; body: string };
+  | { kind: 'forward'; replyTo: string; to: string[]; body: string }
+  /** A draft that is already at Outlook (made in another app, or left behind): its text is replaced by this, then it is sent. */
+  | { kind: 'draft'; draftId: string; subject: string; body: string; to: string[]; cc?: string[] };
 
 /** How far a message got at Outlook: its draft is made (and being filled), or "send" has been asked for. Kept by the caller between tries. */
 export interface DraftProgress { id: string; phase: 'made' | 'sending' }
@@ -79,7 +93,17 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 export const LIST_FIELDS = 'id,conversationId,receivedDateTime,subject,from,bodyPreview,isRead,flag,hasAttachments,inferenceClassification,parentFolderId';
+/** What a folder list asks for: the same, and who a message went to (Sent Items, Drafts), whether it is a draft, and when it was last changed (what Drafts are put in order by). */
+export const FOLDER_LIST_FIELDS = `${LIST_FIELDS},isDraft,toRecipients,lastModifiedDateTime`;
+const FOLDER_FIELDS = 'id,displayName,parentFolderId,childFolderCount,unreadItemCount,totalItemCount';
 export type WellKnownFolder = 'inbox' | 'archive' | 'deleteditems' | 'sentitems' | 'drafts' | 'junkemail';
+/** The folders Post names itself, in the order they are listed. */
+export const STANDARD_FOLDERS: readonly WellKnownFolder[] = ['inbox', 'drafts', 'sentitems', 'archive', 'junkemail', 'deleteditems'];
+/** Outlook's own plumbing: they are asked for by name only to be left out of the list (their ids are the same for every language). */
+const PLUMBING_FOLDERS = ['outbox', 'syncissues', 'conversationhistory', 'clutter', 'scheduled', 'recoverableitemsdeletions'] as const;
+/** How many folders of one mailbox Post reads, and how deep it looks. A mailbox with more is cut off, not failed. */
+const FOLDERS_MAX = 250;
+const FOLDER_DEPTH = 3;
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -243,7 +267,7 @@ export function createGraph(deps: GraphDeps) {
   }
 
   /** Makes the draft of a message and gives back its id. */
-  async function makeDraft(msg: Outgoing): Promise<string> {
+  async function makeDraft(msg: Exclude<Outgoing, { kind: 'draft' }>): Promise<string> {
     let j: any;
     if (msg.kind === 'new') j = await request('POST', '/me/messages', { subject: msg.subject, body: { contentType: 'Text', content: msg.body }, toRecipients: rcpt(msg.to), ccRecipients: rcpt(msg.cc), bccRecipients: rcpt(msg.bcc) });
     else if (msg.kind === 'forward') j = await request('POST', `/me/messages/${enc(msg.replyTo)}/createForward`, { comment: msg.body, toRecipients: rcpt(msg.to) });
@@ -264,6 +288,34 @@ export function createGraph(deps: GraphDeps) {
     }
   }
 
+  /** Replaces what a draft says (its subject, its text, who it is for) with what the editor has. Safe to repeat. */
+  async function updateDraft(id: string, f: { subject: string; body: string; to: string[]; cc?: string[] }): Promise<void> {
+    await request('PATCH', `/me/messages/${enc(id)}`, { subject: f.subject, body: { contentType: 'Text', content: f.body }, toRecipients: rcpt(f.to), ccRecipients: rcpt(f.cc) });
+  }
+
+  /**
+   * Sends a draft that is already at Outlook, exactly once: its text is replaced by what the editor has, the files that were added go on, and
+   * it is sent. How far it got is told through `saved`, like a message Post made itself, so a lost answer never sends it twice. The draft is the
+   * person's own: nothing here ever throws it away.
+   */
+  async function deliverDraft(msg: Extract<Outgoing, { kind: 'draft' }>, files: OutFile[], resume?: DraftProgress, saved?: (progress: DraftProgress) => Promise<void>): Promise<void> {
+    const id = msg.draftId;
+    const where = await draftState(id);
+    if (where === 'sent') return;                                    // it has left (Outlook kept it in Sent Items)
+    if (where === 'missing') {
+      if (resume?.id === id && resume.phase === 'sending') return;   // it has left, and Sent Items has it under another name
+      throw new GraphError(404, 'ErrorItemNotFound', 'This draft is no longer in Outlook');
+    }
+    if (!(resume?.id === id && resume.phase === 'sending')) {
+      await saved?.({ id, phase: 'made' });
+      await updateDraft(id, msg);
+      const have = files.length ? await listed(id) : [];
+      for (const f of files) if (!without(have, f)) await attachSafely(id, f);
+      await saved?.({ id, phase: 'sending' });
+    }
+    await request('POST', `/me/messages/${enc(id)}/send`, undefined, {}, { once: true, slow: true });
+  }
+
   /** Up to 20 calls in one request. Returns the status of each, in order. A call Microsoft asked us to slow down on also says for how long (`retryAfter`, seconds). */
   async function batch(calls: { method: string; url: string; body?: unknown }[]): Promise<{ status: number; body: any; retryAfter?: number }[]> {
     const out: { status: number; body: any; retryAfter?: number }[] = [];
@@ -278,6 +330,19 @@ export function createGraph(deps: GraphDeps) {
       for (let n = 0; n < chunk.length; n++) out.push(byId.get(String(n)) ?? { status: 0, body: null });
     }
     return out;
+  }
+
+  /** A batch where each call that was told to slow down (or got no answer) is given one more go. A call that really failed (no such folder) is left as it is. */
+  async function batchRetrying(calls: { method: string; url: string }[]): Promise<{ status: number; body: any }[]> {
+    const res = await batch(calls);
+    const again = res.map((r, i) => (r.status === 429 || r.status === 503 || r.status === 504 || r.status === 0 ? i : -1)).filter((i) => i >= 0);
+    if (again.length) {
+      const wait = Math.max(0, ...again.map((i) => res[i].retryAfter ?? 0));
+      await sleep(wait > 0 ? Math.min(wait, 10) * 1000 : 1000);
+      const second = await batch(again.map((i) => calls[i]));
+      again.forEach((i, n) => { res[i] = second[n]; });
+    }
+    return res;
   }
 
   return {
@@ -303,8 +368,8 @@ export function createGraph(deps: GraphDeps) {
     async setRead(id: string, isRead: boolean) { await request('PATCH', `/me/messages/${encodeURIComponent(id)}`, { isRead }); },
     async setFlag(id: string, flagged: boolean) { await request('PATCH', `/me/messages/${encodeURIComponent(id)}`, { flag: { flagStatus: flagged ? 'flagged' : 'notFlagged' } }); },
 
-    /** Moves a message and returns its new id (a moved message gets a new id in Graph). */
-    async move(id: string, folder: WellKnownFolder): Promise<string> {
+    /** Moves a message and returns its new id (a moved message gets a new id in Graph). `folder` is a standard folder's name or the id of any folder. */
+    async move(id: string, folder: WellKnownFolder | string): Promise<string> {
       const j = await request('POST', `/me/messages/${encodeURIComponent(id)}/move`, { destinationId: folder });
       return String(j?.id ?? id);
     },
@@ -349,6 +414,7 @@ export function createGraph(deps: GraphDeps) {
      * `saved` is awaited, and when it fails nothing more is done: a "send" is never started that could not be written down first.
      */
     async deliver(msg: Outgoing, files: OutFile[] = [], resume?: DraftProgress, saved?: (progress: DraftProgress) => Promise<void>): Promise<void> {
+      if (msg.kind === 'draft') return await deliverDraft(msg, files, resume, saved);
       let id: string | undefined;
       if (resume) {
         const where = await draftState(resume.id);
@@ -368,15 +434,76 @@ export function createGraph(deps: GraphDeps) {
     /** Whether the draft of a message is still a draft, has gone out, or is missing (gone out and moved to Sent Items, or deleted). */
     draftState,
 
+    updateDraft,
+
+    /** A draft as the editor needs it. Outlook turns whatever formatting it has into plain text. */
+    async getDraft(id: string): Promise<DraftContent> {
+      const j = await request('GET', `/me/messages/${enc(id)}?$select=subject,body,toRecipients,ccRecipients,bccRecipients,isDraft`, undefined, { Prefer: 'outlook.body-content-type="text"' });
+      const list = (rs: any[] = []) => rs.map((r) => String(r?.emailAddress?.address ?? '').trim()).filter(Boolean);
+      return { subject: String(j?.subject ?? ''), body: String(j?.body?.content ?? '').replace(/\r\n?/g, '\n'), to: list(j?.toRecipients), cc: list(j?.ccRecipients), bcc: list(j?.bccRecipients), isDraft: j?.isDraft !== false };
+    },
+
+    /** One message by its id, as a folder list shows it (a notification for mail that has been moved since, a link kept from earlier). */
+    async getMessage(id: string): Promise<RawMessage> {
+      return await request('GET', `/me/messages/${enc(id)}?$select=${FOLDER_LIST_FIELDS}`) as RawMessage;
+    },
+
+    /**
+     * One page of a folder, newest first (Drafts by when they were last changed). `folder` is a standard folder's name or the id of any folder.
+     * Pass the `next` of the page before to go on.
+     */
+    async folderPage(folder: WellKnownFolder | string, opts: { link?: string; byChange?: boolean; top?: number } = {}): Promise<{ value: RawMessage[]; next?: string }> {
+      const first = `/me/mailFolders/${enc(folder)}/messages?$top=${opts.top ?? 40}&$orderby=${opts.byChange ? 'lastModifiedDateTime' : 'receivedDateTime'} desc&$select=${FOLDER_LIST_FIELDS}`;
+      const j = await request('GET', opts.link ?? first);
+      return { value: (j?.value ?? []) as RawMessage[], next: j?.['@odata.nextLink'] };
+    },
+
+    /**
+     * Every folder of the mailbox (down to three levels), with how many messages are in each and how many are unread. The standard ones are
+     * found by name, so they are known whatever language the mailbox is in. Fails as a whole when part of the tree cannot be read: a list with
+     * a folder missing would be worse than none.
+     */
+    async folderTree(): Promise<FolderTree> {
+      const names = [...STANDARD_FOLDERS, ...PLUMBING_FOLDERS];
+      const named = await batchRetrying(names.map((n) => ({ method: 'GET', url: `/me/mailFolders/${n}?$select=${FOLDER_FIELDS}` })));
+      const standard: Partial<Record<WellKnownFolder, string>> = {};
+      const hidden: string[] = [];
+      const byId = new Map<string, RawFolder>();
+      names.forEach((n, i) => {
+        const f = named[i]?.status === 200 ? (named[i].body as RawFolder) : null;
+        if (!f?.id) return;
+        if ((STANDARD_FOLDERS as readonly string[]).includes(n)) { standard[n as WellKnownFolder] = f.id; byId.set(f.id, f); } else hidden.push(f.id);
+      });
+      const skip = new Set(hidden);
+      let link: string | undefined = `/me/mailFolders?$top=100&$select=${FOLDER_FIELDS}`;
+      for (let pages = 0; link && pages < 3; pages++) {
+        const j: any = await request('GET', link);
+        for (const f of (j?.value ?? []) as RawFolder[]) if (f?.id && !skip.has(f.id)) byId.set(f.id, f);
+        link = j?.['@odata.nextLink'];
+      }
+      let frontier = [...byId.values()].filter((f) => (f.childFolderCount ?? 0) > 0);
+      for (let level = 0; level < FOLDER_DEPTH && frontier.length && byId.size < FOLDERS_MAX; level++) {
+        const res = await batchRetrying(frontier.map((f) => ({ method: 'GET', url: `/me/mailFolders/${enc(f.id)}/childFolders?$top=100&$select=${FOLDER_FIELDS}` })));
+        const next: RawFolder[] = [];
+        res.forEach((r, i) => {
+          if (r.status === 404) return; // the folder went away while we were looking
+          if (r.status !== 200) throw new GraphError(r.status, 'folders', 'Outlook would not list all of your folders');
+          for (const c of (r.body?.value ?? []) as RawFolder[]) if (c?.id && !byId.has(c.id) && !skip.has(c.id)) { const f = { ...c, parentFolderId: c.parentFolderId ?? frontier[i].id }; byId.set(c.id, f); next.push(f); }
+        });
+        frontier = next.filter((f) => (f.childFolderCount ?? 0) > 0);
+      }
+      return { folders: [...byId.values()].slice(0, FOLDERS_MAX), standard, hidden };
+    },
+
     /** Deletes a draft made for a message that will not be sent after all. Best effort: a leftover draft is harmless. */
     async discard(id: string): Promise<void> {
       try { await request('DELETE', `/me/messages/${enc(id)}`); } catch { /* nothing more to do */ }
     },
 
-    /** Server-side search across the whole mailbox, not just what is on this phone. */
+    /** Server-side search across the whole mailbox, not just what is on this phone. Each result says which folder it is in, and who it went to. */
     async search(query: string, top = 25): Promise<RawMessage[]> {
       const q = query.replace(/"/g, '');
-      const j = await request('GET', `/me/messages?$search="${encodeURIComponent(q)}"&$top=${top}&$select=${LIST_FIELDS}`);
+      const j = await request('GET', `/me/messages?$search="${encodeURIComponent(q)}"&$top=${top}&$select=${FOLDER_LIST_FIELDS}`);
       return (j?.value ?? []) as RawMessage[];
     },
 

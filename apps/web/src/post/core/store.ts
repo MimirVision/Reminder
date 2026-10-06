@@ -5,9 +5,11 @@ import type { Mail, MailBody } from './types.ts';
 
 export interface PendingOp {
   id: string;
-  type: 'archive' | 'delete' | 'read' | 'unread' | 'flag' | 'unflag';
+  type: 'archive' | 'delete' | 'move' | 'read' | 'unread' | 'flag' | 'unflag';
   account: string;
   messageId: string;
+  /** For a move: where it goes, as Outlook is told (a standard folder's name, or the id of any other folder). */
+  to?: string;
   runAfter: number; // epoch ms: the undo window. Cancelling before this time means nothing ever reaches the server.
   attempts: number;
 }
