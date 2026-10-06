@@ -239,6 +239,8 @@ export function alertPlanRenewals<T extends { subscription_id: string | null; su
 
 export type AlertStored = AlertAccount & {
   refresh_token_enc: string; client_state: string; subscription_id: string | null; subscription_expires_at: string | null;
+  /** SHA-256 of the secret of each phone or computer signed in to this mailbox (at most 8, the oldest drop off). */
+  session_hashes?: string[];
 };
 export type AlertDevice = PushSub & { id: string; lang: string; badge?: number };
 export type AlertStore = {
@@ -255,6 +257,11 @@ export type AlertStore = {
   setBadge(deviceId: string, badge: number): Promise<void>;
   /** The phone opened Post: its number goes back to zero. true when the phone is known. */
   resetBadge(endpoint: string): Promise<boolean>;
+  /** A finished sign-in (sealed) waiting for the app that started it. */
+  putSignin(handle: string, enc: string): Promise<void>;
+  /** Returns it and removes it; null when there is none. */
+  takeSignin(handle: string): Promise<string | null>;
+  pruneSignins(beforeIso: string): Promise<void>;
 };
 export type AlertDeps = {
   store: AlertStore;
@@ -264,6 +271,8 @@ export type AlertDeps = {
   notificationUrl: string;
   send: (sub: PushSub, payload: unknown) => Promise<number>;
   now: () => Date;
+  /** Mailboxes allowed to sign in to this server (POST_ALLOWED_EMAILS). Without this list nobody can, so strangers cannot use your server. */
+  allowedEmails?: string[];
 };
 
 /** A fresh access token for an account. If Microsoft rotated the refresh token, the new one is stored (encrypted). */
@@ -445,14 +454,100 @@ export async function alertSeen(d: AlertDeps, endpoint: string): Promise<boolean
   return await d.store.resetBadge(endpoint);
 }
 
-/** The sign-in page finished: redeem the code, learn which mailbox it is, start watching it for alerts and keep the sign-in (encrypted). */
-export async function alertConnect(d: AlertDeps, input: { code: string; verifier: string; redirectUri: string; label?: string }): Promise<{ id: string; email: string; expires: string }> {
-  if (!input.code || !input.verifier || !/^https:\/\//.test(input.redirectUri ?? '')) throw new Error('bad request');
-  const t = await alertExchangeCode(d.fetch, { clientId: d.clientId, code: input.code, verifier: input.verifier, redirectUri: input.redirectUri });
-  const me = await graphJson(await d.fetch(`${GRAPH}/me?$select=mail,userPrincipalName`, { headers: authHeaders(t.accessToken) }));
-  const email = String(me.mail ?? me.userPrincipalName ?? '').toLowerCase();
-  const label = (input.label ?? '').trim() || (/@(outlook|hotmail|live|msn)\./i.test(email) ? 'Personal' : 'Work');
-  return await alertRegister(d, { email, label, refreshToken: t.refreshToken });
+// ---- sign-in without any shared key ----
+// A phone or computer proves which mailbox it belongs to with a session secret that the server hands out once, right after Microsoft has
+// confirmed who signed in. Only a hash is stored. Nothing has to be typed or pasted into the app.
+
+async function sha256Hex(s: string): Promise<string> {
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export type AlertSignedIn = { id: string; email: string; label: string; session: string; expires: string };
+
+/** The account behind an `x-post-session` header ("<account id>.<secret>"), or null. */
+export async function alertFindBySession(store: AlertStore, header: string | null): Promise<AlertStored | null> {
+  if (!header) return null;
+  const dot = header.indexOf('.');
+  if (dot < 1) return null;
+  const id = header.slice(0, dot), secret = header.slice(dot + 1);
+  if (secret.length < 20) return null;
+  const a = (await store.allAccounts()).find((x) => x.id === id);
+  if (!a) return null;
+  const hash = await sha256Hex(secret);
+  return (a.session_hashes ?? []).some((h) => alertSameSecret(h, hash)) ? a : null;
+}
+
+async function issueSession(d: AlertDeps, accountId: string): Promise<string> {
+  const secret = bytesToB64u(crypto.getRandomValues(new Uint8Array(32)));
+  const a = (await d.store.allAccounts()).find((x) => x.id === accountId);
+  const hashes = [...(a?.session_hashes ?? []), await sha256Hex(secret)].slice(-8);
+  await d.store.update(accountId, { session_hashes: hashes });
+  return `${accountId}.${secret}`;
+}
+
+/** Common end of both sign-in routes: learn which mailbox it is, check it is allowed, start watching it, hand out a session. */
+async function finishSignIn(d: AlertDeps, tokens: { accessToken: string; refreshToken: string }, wantedLabel?: string): Promise<AlertSignedIn> {
+  const me = await graphJson(await d.fetch(`${GRAPH}/me?$select=mail,userPrincipalName`, { headers: authHeaders(tokens.accessToken) }));
+  const email = String(me.mail ?? me.userPrincipalName ?? '').trim().toLowerCase();
+  const allowed = (d.allowedEmails ?? []).map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (!allowed.length) throw new Error('This server has no allowed addresses yet. Add yours to POST_ALLOWED_EMAILS in the Supabase secrets.');
+  if (!allowed.includes(email)) throw new Error(`${email || 'This account'} is not on this server's allowed list (POST_ALLOWED_EMAILS).`);
+  const label = (wantedLabel ?? '').trim() || (/@(outlook|hotmail|live|msn)\./i.test(email) ? 'Personal' : 'Work');
+  const r = await alertRegister(d, { email, label, refreshToken: tokens.refreshToken });
+  return { id: r.id, email, label, session: await issueSession(d, r.id), expires: r.expires };
+}
+
+// One-button sign-in, the same on a phone and a computer. The server builds the Microsoft sign-in address (with its own PKCE secret sealed inside
+// `state`), so whichever browser window Microsoft sends you back to can finish the job. If that window is not the app (iOS can open the sign-in
+// in a separate view), the finished sign-in waits under the app's handle, and the app collects it as soon as it is looked at again.
+const SIGNIN_TTL_MS = 15 * 60_000;
+const AUTHORIZE = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
+
+export async function alertSigninStart(d: AlertDeps, input: { redirectUri: string; hint?: string }): Promise<{ url: string; handle: string }> {
+  if (!/^https:\/\/[^\s]+$/.test(input.redirectUri ?? '')) throw new Error('bad request');
+  const verifier = bytesToB64u(crypto.getRandomValues(new Uint8Array(48)));
+  const handle = bytesToB64u(crypto.getRandomValues(new Uint8Array(24)));
+  const challenge = bytesToB64u(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+  const state = await alertEncrypt(JSON.stringify({ v: verifier, h: handle, r: input.redirectUri, x: d.now().getTime() + SIGNIN_TTL_MS }), d.encKey);
+  const q = new URLSearchParams({
+    client_id: d.clientId, response_type: 'code', redirect_uri: input.redirectUri, response_mode: 'query', scope: ALERT_APP_SCOPE,
+    code_challenge: challenge, code_challenge_method: 'S256', state, prompt: 'select_account',
+  });
+  if (input.hint && /^[^\s@]+@[^\s@]+$/.test(input.hint)) q.set('login_hint', input.hint);
+  await d.store.pruneSignins(new Date(d.now().getTime() - 2 * SIGNIN_TTL_MS).toISOString());
+  return { url: `${AUTHORIZE}?${q.toString()}`, handle };
+}
+
+export type AlertSigninResult = { status: 'pending' } | ({ status: 'done' } & AlertSignedIn);
+
+/** Microsoft sent someone back with a code: finish the sign-in, keep the result for the app's handle, and hand it to whoever asks. */
+export async function alertSigninFinish(d: AlertDeps, input: { code: string; state: string; label?: string }): Promise<{ status: 'done'; handle: string } & AlertSignedIn> {
+  if (!input.code || !input.state) throw new Error('bad request');
+  let sealed: { v: string; h: string; r: string; x: number };
+  try { sealed = JSON.parse(await alertDecrypt(input.state, d.encKey)); } catch { throw new Error('This sign-in did not start here. Try again.'); }
+  if (d.now().getTime() > sealed.x) throw new Error('The sign-in took too long. Try again.');
+  const t = await alertExchangeCode(d.fetch, { clientId: d.clientId, code: input.code, verifier: sealed.v, redirectUri: sealed.r });
+  const done = await finishSignIn(d, t, input.label);
+  await d.store.putSignin(sealed.h, await alertEncrypt(JSON.stringify(done), d.encKey));
+  return { status: 'done', handle: sealed.h, ...done };
+}
+
+/** The app asks whether the sign-in it started has finished somewhere. The result is handed over once. */
+export async function alertSigninPoll(d: AlertDeps, handle: string): Promise<AlertSigninResult> {
+  if (!handle || typeof handle !== 'string' || handle.length < 20) throw new Error('bad request');
+  const enc = await d.store.takeSignin(handle);
+  if (!enc) return { status: 'pending' };
+  return { status: 'done', ...(JSON.parse(await alertDecrypt(enc, d.encKey)) as AlertSignedIn) };
+}
+
+/** Called by the app once it has the result from the landing window itself, so nothing is left waiting on the server. */
+export async function alertSigninForget(d: AlertDeps, handle: string): Promise<void> {
+  if (typeof handle === 'string' && handle.length >= 20) await d.store.takeSignin(handle);
+}
+
+/** What the app needs to know before anyone has signed in: nothing secret. */
+export function alertPublicConfig(d: Pick<AlertDeps, 'clientId'>) {
+  return { clientId: d.clientId };
 }
 
 /** A short-lived Graph access token (about an hour) for the web app to read and change mail directly. The long-lived sign-in never leaves the server. */

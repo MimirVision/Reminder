@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { State } from '../core/controller.ts';
 import { ACCENTS, ACCOUNT_COLOURS, accountColour, type Settings as Cfg } from '../core/settings.ts';
-import { makeSetupCode } from '../core/setup.ts';
 import { Icon, Seg, Switch } from './ui.tsx';
 import { go, useC } from './ctx.tsx';
 
@@ -60,9 +59,8 @@ export function Settings({ s }: { s: State }) {
           <Pick label="Theme" value={s.settings.theme} options={[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => set({ theme: v })} />
           <Pick label="Row size" value={s.settings.rowSize} options={[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]} onChange={(v) => set({ rowSize: v })} />
         </div>
-        <div className="lbl">This phone</div>
+        <div className="lbl">This device</div>
         <div className="card">
-          <button className="it" onClick={() => { if (s.config) void navigator.clipboard?.writeText(makeSetupCode(s.config)).then(() => c.toast('Setup code copied')); }}><span className="ico"><Icon n="copy" /></span>Copy setup code<span className="v">for another device</span></button>
           <ForgetRow />
         </div>
         <p className="note">Version {typeof __BUILD__ === 'string' ? __BUILD__ : 'dev'}</p>
@@ -75,8 +73,8 @@ function ForgetRow() {
   const c = useC();
   const [sure, setSure] = useState(false);
   return sure
-    ? <div className="it danger" style={{ flexWrap: 'wrap' }}>Remove Post’s setup from this phone? Your mail stays in Outlook.<span className="v"><button className="link" onClick={() => setSure(false)}>Cancel</button><button className="link" style={{ color: 'var(--bad)' }} onClick={() => { c.forgetEverything(); go({ name: 'inbox' }); }}>Remove</button></span></div>
-    : <button className="it danger" onClick={() => setSure(true)}><span className="ico"><Icon n="lock" /></span>Remove setup from this phone</button>;
+    ? <div className="it danger" style={{ flexWrap: 'wrap' }}>Sign out of Post on this device? Your mail stays in Outlook.<span className="v"><button className="link" onClick={() => setSure(false)}>Cancel</button><button className="link" style={{ color: 'var(--bad)' }} onClick={() => { c.forgetEverything(); go({ name: 'inbox' }); }}>Sign out</button></span></div>
+    : <button className="it danger" onClick={() => setSure(true)}><span className="ico"><Icon n="lock" /></span>Sign out on this device</button>;
 }
 
 export function Appearance({ s }: { s: State }) {

@@ -21,6 +21,7 @@ class Query {
   constructor(db: Record<string, Row[]>, table: string) { this.db = db; this.table = table; }
   select() { this.returning = true; return this; }
   eq(k: string, v: unknown) { this.filters.push((r) => r[k] === v); return this; }
+  lt(k: string, v: any) { this.filters.push((r) => r[k] < v); return this; }
   in(k: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[k])); return this; }
   update(p: Row) { this.op = 'update'; this.payload = p; return this; }
   upsert(p: Row, o: any) { this.op = 'upsert'; this.payload = p; this.opts = o; return this; }
@@ -33,7 +34,7 @@ class Query {
     const match = (r: Row) => this.filters.every((f) => f(r));
     if (this.op === 'select') return { data: rows.filter(match).map((r) => ({ ...r })), error: null };
     if (this.op === 'update') { const hit = rows.filter(match); hit.forEach((r) => Object.assign(r, this.payload)); return { data: hit.map((r) => ({ ...r })), error: null }; }
-    if (this.op === 'delete') { this.db[this.table] = rows.filter((r) => !match(r)); return { data: [], error: null }; }
+    if (this.op === 'delete') { const gone = rows.filter(match); this.db[this.table] = rows.filter((r) => !match(r)); return { data: gone.map((r) => ({ ...r })), error: null }; }
     const keys = String(this.opts?.onConflict ?? 'id').split(',');
     const existing = rows.find((r) => keys.every((k) => r[k] === this.payload[k]));
     if (existing) { if (this.opts?.ignoreDuplicates) return { data: [], error: null }; Object.assign(existing, this.payload); return { data: [{ ...existing }], error: null }; }
@@ -51,7 +52,7 @@ const ua = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }
 const vapid = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
 const vapidJwk = await crypto.subtle.exportKey('jwk', vapid.privateKey);
 const env: Record<string, string> = {
-  SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service', POST_ALERTS_KEY: 'letmein', ALERTS_ENC_KEY: 'A'.repeat(43), MS_CLIENT_ID: 'CID',
+  SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service', POST_ALERTS_KEY: 'letmein', ALERTS_ENC_KEY: 'A'.repeat(43), MS_CLIENT_ID: 'CID', POST_ALLOWED_EMAILS: 'Andreas@Outlook.com, andreas@firma.no',
   VAPID_PUBLIC_KEY: bytesToB64u(new Uint8Array(await crypto.subtle.exportKey('raw', vapid.publicKey))), VAPID_PRIVATE_KEY: String(vapidJwk.d),
 };
 let handler!: (req: Request) => Promise<Response>;
@@ -67,6 +68,7 @@ globalThis.fetch = (async (url: string | URL, init: RequestInit = {}) => {
   const j = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
   if (u.startsWith('https://push.example/')) { pushed.push({ url: u, bytes: (init.body as Uint8Array).length }); return new Response(null, { status: 201 }); }
   if (u.includes('login.microsoftonline.com')) return j({ access_token: 'AT', refresh_token: 'RT2' });
+  if (u.includes('/me?$select=mail,userPrincipalName')) return j({ mail: 'andreas@outlook.com' });
   if (u.endsWith('/subscriptions') && init.method === 'POST') return j({ id: 'SUB1', expirationDateTime: new Date(Date.now() + 4 * 86_400_000).toISOString() }, 201);
   if (u.includes('/subscriptions/')) return j({ expirationDateTime: new Date(Date.now() + 4 * 86_400_000).toISOString() });
   if (u.includes('/mailFolders/inbox')) return j({ id: 'INBOX-ID' });
@@ -85,8 +87,11 @@ test('Microsoft validation request is answered with the plain-text token before 
   assert.equal(await res.text(), 'Validation: hello');
 });
 
-test('the key protects every call of the Post app and the alerts page', async () => {
+test('the key or a session protects every call; only the sign-in calls and the public settings are open', async () => {
   assert.equal((await call({ op: 'status' }, 'wrong')).status, 401);
+  assert.equal((await call({ op: 'status' }, null)).status, 401);
+  assert.equal((await call({ op: 'token', email: 'andreas@outlook.com' }, null)).status, 401);
+  assert.equal((await (await call({ op: 'config' }, null)).json()).clientId, 'CID');
   // no key at all is treated as a Microsoft webhook, which is ignored unless its clientState matches
   const hook = await call({ value: [{ subscriptionId: 'x', clientState: 'y', resourceData: { id: 'a' } }] }, null);
   assert.equal(hook.status, 202);
@@ -155,4 +160,46 @@ test('whole chain: phone pairs, mailbox registers, Microsoft reports new mail, t
   assert.deepEqual((await (await call({ op: 'renew' })).json()).results, []); // fresh subscription: nothing to renew
   assert.equal((await (await call({ op: 'unregister', email: 'andreas@outlook.com' })).json()).removed, true);
   assert.equal(db.post_alert_accounts.length, 0);
+});
+
+
+test('one-button sign-in through the real function: start, finish, then only that session can act, and only on its own mailbox', async () => {
+  const start = await (await call({ op: 'signin_start', redirectUri: 'https://site.example/post/' }, null)).json();
+  assert.ok(start.url.startsWith('https://login.microsoftonline.com/'));
+  const state = new URL(start.url).searchParams.get('state')!;
+  // a forged state is refused
+  assert.equal((await call({ op: 'signin_finish', code: 'c', state: 'v1.AAAA.BBBB' }, null)).status, 400);
+  const done = await (await call({ op: 'signin_finish', code: 'CODE', state }, null)).json();
+  assert.equal(done.email, 'andreas@outlook.com');
+  assert.equal(done.label, 'Personal');
+  assert.ok(db.post_alert_accounts[0].subscription_id, 'watching started');
+  assert.ok(!JSON.stringify(db).includes(done.session.split('.')[1]), 'only a hash of the session is stored');
+  // the app that started it can still collect it, once
+  const polled = await (await call({ op: 'signin_poll', handle: start.handle }, null)).json();
+  assert.equal(polled.status, 'done');
+  assert.equal((await (await call({ op: 'signin_poll', handle: start.handle }, null)).json()).status, 'pending');
+
+  const as = (session: string | null, body: unknown) => handler(new Request(URL0, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(session ? { 'x-post-session': session } : {}) }, body: JSON.stringify(body) }));
+  assert.equal((await as(done.session, { op: 'token' })).status, 200);
+  assert.equal((await as(done.session, { op: 'token', email: 'someone@else.no' })).status, 200, 'the session decides the mailbox, not the request');
+  assert.equal((await as(done.session + 'x', { op: 'token' })).status, 401);
+  const st = await (await as(done.session, { op: 'status' })).json();
+  assert.deepEqual(st.accounts.map((a: { email: string }) => a.email), ['andreas@outlook.com']);
+  assert.equal((await as(done.session, { op: 'update', mode: 'all', quiet: { days: [1, 2], from: '08:00', to: '16:00' } })).status, 200);
+  assert.equal(db.post_alert_accounts[0].mode, 'all');
+  assert.equal((await as(done.session, { op: 'renew' })).status, 401, 'the schedule is admin only');
+  assert.equal((await as(done.session, { op: 'register', email: 'x@y.no', refreshToken: 'r' })).status, 401);
+  assert.equal((await (await as(done.session, { op: 'unregister' })).json()).removed, true);
+  assert.equal(db.post_alert_accounts.length, 0);
+  assert.equal((await as(done.session, { op: 'status' })).status, 401, 'a removed mailbox cannot be used again');
+});
+
+test('a stranger cannot sign in: not on the allowed list means nothing is stored', async () => {
+  env.POST_ALLOWED_EMAILS = 'someone.else@example.com';
+  const start = await (await call({ op: 'signin_start', redirectUri: 'https://site.example/post/' }, null)).json();
+  const res = await call({ op: 'signin_finish', code: 'CODE', state: new URL(start.url).searchParams.get('state')! }, null);
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /not on this server/);
+  assert.equal(db.post_alert_accounts.length, 0);
+  env.POST_ALLOWED_EMAILS = 'Andreas@Outlook.com, andreas@firma.no';
 });

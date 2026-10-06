@@ -2,30 +2,38 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createController, filterCounts, visibleMail, type Deps } from './controller.ts';
 import { memoryStore } from './store.ts';
-import { makeSetupCode } from './setup.ts';
 
-const CFG = { url: 'https://s.example/fn', key: 'secret-key-1234', clientId: '11111111-2222-3333-4444-555555555555' };
+const SERVER = 'https://s.example/fn';
+const acct = (email: string, label: string) => ({ id: label === 'Work' ? '2' : '1', email, label, mode: 'people', quiet: null, vips: [] as string[], subscription_expires_at: null, last_alert_at: null });
 
 // A tiny fake of both the alert server and Microsoft Graph, behind one fetch.
 function world() {
   const log: string[] = [];
   const inbox = new Map<string, any>();
   let nextDelta = 1;
-  let accounts = [{ email: 'a@outlook.com', label: 'Personal', mode: 'people', quiet: null, vips: [] as string[], subscription_expires_at: null, last_alert_at: null }];
-  const flags: Record<string, boolean> = { offline: false, tokenError: '' };
+  const accounts = new Map([['a@outlook.com', acct('a@outlook.com', 'Personal')]]);
+  const flags = { offline: false, tokenFail: new Set<string>(), polled: false, nextEmail: 'w@firma.no' };
   const add = (id: string, o: any = {}) => inbox.set(id, { id, subject: `Subject ${id}`, receivedDateTime: '2026-10-05T08:00:00Z', from: { emailAddress: { name: 'Anna', address: 'anna@x.no' } }, isRead: false, bodyPreview: 'preview', ...o });
   const f = (async (url: string, init: RequestInit = {}) => {
     if (flags.offline) throw new Error('offline');
     const u = String(url);
     const body = init.body ? JSON.parse(String(init.body)) : {};
-    if (u === CFG.url) {
+    if (u === SERVER) {
       log.push(`server ${body.op}`);
-      if (body.op === 'status') return new Response(JSON.stringify({ devices: 1, accounts }));
-      if (body.op === 'token') return flags.tokenError ? new Response(JSON.stringify({ error: flags.tokenError }), { status: 400 }) : new Response(JSON.stringify({ accessToken: 'T', expiresIn: 3600, email: body.email }));
-      if (body.op === 'connect') { accounts = [...accounts, { email: 'w@firma.no', label: 'Work', mode: 'people', quiet: null, vips: [] as string[], subscription_expires_at: null, last_alert_at: null }]; return new Response(JSON.stringify({ id: '2', email: 'w@firma.no', expires: 'x' })); }
-      if (body.op === 'update') return new Response(JSON.stringify({ ok: true }));
-      if (body.op === 'unregister') { accounts = accounts.filter((a) => a.email !== body.email); return new Response(JSON.stringify({ removed: true })); }
-      return new Response(JSON.stringify({ ok: true }));
+      const session = String((init.headers as Record<string, string>)['x-post-session'] ?? '');
+      const email = session.replace(/^.*\.s-/, '');
+      const known = session && accounts.has(email);
+      const j = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status });
+      const doneFor = (e: string) => ({ status: 'done', id: '2', email: e, label: 'Work', session: `2.s-${e}`, expires: 'x' });
+      if (body.op === 'signin_start') return j({ url: 'https://login.microsoftonline.com/authorize?state=ST', handle: 'H'.repeat(24) });
+      if (body.op === 'signin_finish') { if (body.state === 'forged') return j({ error: 'This sign-in did not start here. Try again.' }, 400); accounts.set(flags.nextEmail, acct(flags.nextEmail, 'Work')); return j({ ...doneFor(flags.nextEmail), handle: 'H'.repeat(24) }); }
+      if (body.op === 'signin_poll') { if (!flags.polled) return j({ status: 'pending' }); accounts.set(flags.nextEmail, acct(flags.nextEmail, 'Work')); return j(doneFor(flags.nextEmail)); }
+      if (body.op === 'signin_forget') return j({ ok: true });
+      if (!known) return j({ error: 'unauthorized' }, 401);
+      if (body.op === 'status') return j({ devices: 1, accounts: [accounts.get(email)] });
+      if (body.op === 'token') return flags.tokenFail.has(email) ? j({ error: 'AADSTS700082: The refresh token has expired due to inactivity.' }, 400) : j({ accessToken: 'T', expiresIn: 3600, email });
+      if (body.op === 'unregister') { accounts.delete(email); return j({ removed: true }); }
+      return j({ ok: true });
     }
     const path = u.replace('https://graph.microsoft.com/v1.0', '');
     if (/messages\/delta/.test(path) || u.includes('graph/delta')) { log.push('graph delta'); return new Response(JSON.stringify({ value: [...inbox.values()], '@odata.deltaLink': `https://graph/delta?d=${nextDelta++}` })); }
@@ -39,16 +47,16 @@ function world() {
     if (path.startsWith('/me/messages?$search')) { log.push('graph search'); return new Response(JSON.stringify({ value: [{ id: 'old1', subject: 'Gammel faktura', from: { emailAddress: { address: 'x@y.no' } }, receivedDateTime: '2025-01-01T00:00:00Z' }, ...[...inbox.values()].slice(0, 1)] })); }
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
-  return { f, log, add, inbox, flags, accounts: () => accounts };
+  return { f, log, add, inbox, flags, accounts: () => [...accounts.values()] };
 }
 
 function make(w = world(), extra: Partial<Deps> = {}) {
   const store = memoryStore();
-  const kv = new Map<string, string>([['post.config', JSON.stringify(CFG)]]);
+  const kv = new Map<string, string>([['post.sessions', JSON.stringify([{ email: 'a@outlook.com', id: '1', label: 'Personal', session: '1.s-a@outlook.com' }])]]);
   const timers: { fn: () => void; ms: number }[] = [];
   let t = Date.parse('2026-10-05T10:00:00Z');
   const c = createController({
-    store, fetch: w.f, now: () => t, sleep: async () => {}, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     kv: { get: (k) => kv.get(k) ?? null, set: (k, v) => void kv.set(k, v), del: (k) => void kv.delete(k) }, ...extra,
   });
   const runTimers = async () => { while (timers.length) { const x = timers.shift()!; x.fn(); await new Promise((r) => setTimeout(r, 5)); } };
@@ -163,18 +171,61 @@ test('an expired sign-in marks only that account, with a plain reason', async ()
   const { c, advance } = make(w);
   await c.init();
   advance(2 * 3600 * 1000); // the cached access token has run out
-  w.flags.tokenError = 'AADSTS700082: The refresh token has expired due to inactivity.';
+  w.flags.tokenFail.add('a@outlook.com');
   await c.sync();
   assert.equal(c.getState().accounts[0].needsSignIn, true);
 });
 
-test('connecting a second account registers it and reads its mail', async () => {
+test('one button: start gives the Microsoft address; finishing in the same window signs the account in and reads its mail', async () => {
+  const w = world(); w.add('1');
+  const { c, kv } = make(w);
+  await c.init();
+  const url = await c.startSignIn('https://site.example/post/');
+  assert.match(url, /login\.microsoftonline\.com/);
+  assert.equal(c.getState().signingIn, true);
+  const r = await c.finishSignIn('CODE', 'ST');
+  assert.deepEqual(r, { email: 'w@firma.no', fromThisApp: true });
+  assert.deepEqual(c.getState().accounts.map((a) => a.email), ['a@outlook.com', 'w@firma.no']);
+  assert.equal(c.getState().signingIn, false);
+  assert.equal(kv.get('post.pending'), undefined);
+  assert.equal(JSON.parse(kv.get('post.sessions')!).length, 2);
+});
+
+test('the sign-in finished in another window: the landing page says so, and the app collects it when looked at again', async () => {
   const w = world();
   const { c } = make(w);
   await c.init();
-  const r = await c.connect({ code: 'c', verifier: 'v', redirectUri: 'https://x/post/' });
-  assert.equal(r.email, 'w@firma.no');
+  await c.startSignIn('https://site.example/post/');
+  // the landing window is a different one: it has no pending sign-in of its own
+  const other = make(w);
+  await other.c.init();
+  const r = await other.c.finishSignIn('CODE', 'ST');
+  assert.equal(r.fromThisApp, false);
+  assert.equal(other.c.getState().accounts.length, 1, 'that window did not keep a session');
+  // back in the app: nothing yet, then Microsoft is done
+  await c.collectSignIn();
+  assert.equal(c.getState().accounts.length, 1);
+  w.flags.polled = true;
+  await c.collectSignIn();
   assert.deepEqual(c.getState().accounts.map((a) => a.email), ['a@outlook.com', 'w@firma.no']);
+  assert.equal(c.getState().signingIn, false);
+});
+
+test('a forged sign-in return is refused and signs nobody in', async () => {
+  const w = world();
+  const { c } = make(w);
+  await c.init();
+  await assert.rejects(() => c.finishSignIn('CODE', 'forged'), /did not start here/);
+  assert.equal(c.getState().accounts.length, 1);
+});
+
+test('a sign-in that was never finished is forgotten after a while', async () => {
+  const w = world();
+  const { c, kv } = make(w);
+  await c.init();
+  kv.set('post.pending', JSON.stringify({ handle: 'H'.repeat(24), at: Date.now() - 16 * 60_000 }));
+  await c.collectSignIn();
+  assert.equal(c.getState().signingIn, false);
 });
 
 test('removing an account clears its mail from this phone', async () => {
@@ -184,6 +235,7 @@ test('removing an account clears its mail from this phone', async () => {
   await c.removeAccount('a@outlook.com');
   assert.equal(c.getState().mail.length, 0);
   assert.equal(c.getState().accounts.length, 0);
+  assert.equal(c.getState().ready, true);
 });
 
 test('alert settings are shown at once and rolled back if the server refuses', async () => {
@@ -222,7 +274,7 @@ test('a queued mail survives closing the app: the next start sends it', async ()
   await first.c.init();
   await first.c.send({ account: 'a@outlook.com', kind: 'reply', to: ['x@y.no'], cc: [], subject: 'Re', body: 'Ja', replyTo: 'm9' });
   // new controller on the same store, later
-  const c2 = createController({ store: first.store, fetch: w.f, now: () => Date.parse('2026-10-05T11:00:00Z'), kv: { get: (k) => first.kv.get(k) ?? null, set: (k, v) => void first.kv.set(k, v), del: (k) => void first.kv.delete(k) }, setTimer: () => 0 });
+  const c2 = createController({ store: first.store, fetch: w.f, serverUrl: SERVER, now: () => Date.parse('2026-10-05T11:00:00Z'), kv: { get: (k) => first.kv.get(k) ?? null, set: (k, v) => void first.kv.set(k, v), del: (k) => void first.kv.delete(k) }, setTimer: () => 0 });
   await c2.init();
   assert.ok(w.log.includes('graph reply'));
 });
@@ -258,12 +310,18 @@ test('opening a message fetches the body once and keeps it for offline', async (
   assert.equal(w.log.filter((l) => l === 'graph body').length, 1);
 });
 
-test('a bad saved config or settings never stop the app opening', async () => {
+test('bad saved sessions or settings never stop the app opening', async () => {
   const w = world();
   const { c, kv } = make(w);
-  kv.set('post.config', '{nonsense'); kv.set('post.settings', 'null');
+  kv.set('post.sessions', '{nonsense'); kv.set('post.settings', 'null');
   await c.init();
-  assert.equal(c.getState().config, null);
+  assert.equal(c.getState().accounts.length, 0);
   assert.equal(c.getState().ready, true);
-  void makeSetupCode;
+});
+
+test('without a Post server address the app says so instead of failing', async () => {
+  const { c } = make(world(), { serverUrl: null });
+  await c.init();
+  assert.equal(c.getState().serverReady, false);
+  await assert.rejects(() => c.startSignIn('https://x/post/'), /does not know where your Post server/);
 });

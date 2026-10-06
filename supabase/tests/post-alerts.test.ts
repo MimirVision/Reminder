@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ALERT_SCOPE, AlertGraphError, alertBuild, alertCreateSubscription, alertDecide, alertDecrypt, alertEncrypt, alertExpiry, alertGetInboxId, alertGetMessage,
   alertKind, alertLocal, alertParseLifecycle, alertParseNotifications, alertPlanRenewals, alertRefresh, alertRenewSubscription, alertSameSecret,
-  alertValidationToken, alertWithinWindow, alertProcess, alertSeen, alertConnect, alertMintToken, alertExchangeCode, ALERT_APP_SCOPE, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
+  alertValidationToken, alertWithinWindow, alertProcess, alertSeen, alertSigninStart, alertSigninFinish, alertSigninPoll, alertSigninForget, alertFindBySession, alertMintToken, alertExchangeCode, ALERT_APP_SCOPE, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
 } from '../functions/post-alerts/logic.ts';
 
 const acct = (over: Partial<AlertAccount> = {}): AlertAccount => ({ id: 'a1', email: 'andreas@outlook.com', label: 'Personal', mode: 'people', vips: [], quiet: null, tz: 'Europe/Oslo', inbox_folder_id: 'INBOX-ID', ...over });
@@ -190,12 +190,16 @@ function setup(opts: { accounts?: Partial<AlertStored>[]; devices?: AlertDevice[
   const seen = new Set<string>();
   const pushes: { sub: string; payload: any }[] = [];
   const graph: string[] = [];
+  const signins = new Map<string, string>();
   const store: AlertStore = {
+    putSignin: async (h, e) => { signins.set(h, e); },
+    takeSignin: async (h) => { const v = signins.get(h) ?? null; signins.delete(h); return v; },
+    pruneSignins: async () => {},
     accountBySubscription: async (s) => accounts.find((a) => a.subscription_id === s) ?? null,
     allAccounts: async () => accounts,
     markSeen: async (a, m) => { const k = `${a}|${m}`; if (seen.has(k)) return false; seen.add(k); return true; },
     update: async (id, patch) => { Object.assign(accounts.find((a) => a.id === id)!, patch); },
-    upsertAccount: async (row) => { const a = { id: `acc${accounts.length}`, ...acct(), subscription_id: null, subscription_expires_at: null, ...row } as AlertStored; accounts.push(a); return a; },
+    upsertAccount: async (row) => { const ex = accounts.find((x) => x.email === row.email); if (ex) { Object.assign(ex, row); return ex; } const a = { id: `acc${accounts.length}`, ...acct(), subscription_id: null, subscription_expires_at: null, ...row } as AlertStored; accounts.push(a); return a; },
     deleteAccount: async (id) => { accounts.splice(accounts.findIndex((a) => a.id === id), 1); },
     devices: async () => devices,
     removeDevices: async (ids) => { for (const id of ids) devices.splice(devices.findIndex((x) => x.id === id), 1); },
@@ -212,10 +216,10 @@ function setup(opts: { accounts?: Partial<AlertStored>[]; devices?: AlertDevice[
     return opts.msgs?.[id] ? { body: opts.msgs[id] } : { status: 404, body: { error: { code: 'ErrorItemNotFound' } } };
   });
   const deps: AlertDeps = {
-    store, fetch: f.f, clientId: 'CID', encKey: KEY, notificationUrl: 'https://h/functions/v1/post-alerts', now: () => MON_10,
+    store, fetch: f.f, clientId: 'CID', encKey: KEY, notificationUrl: 'https://h/functions/v1/post-alerts', now: () => MON_10, allowedEmails: ['andreas@firma.no', 'andreas@outlook.com'],
     send: async (sub, payload) => { pushes.push({ sub: sub.endpoint, payload }); return opts.pushStatus ?? 201; },
   };
-  return { deps, accounts, devices, pushes, graph, seen };
+  return { deps, accounts, devices, pushes, graph, seen, signins };
 }
 const withToken = async (a: Partial<AlertStored>) => ({ ...a, refresh_token_enc: await alertEncrypt('RT-original', KEY) });
 const note = (id: string, sub = 'sub0') => ({ subscriptionId: sub, messageId: id, changeType: 'created' });
@@ -348,8 +352,7 @@ test('icon number: counts alerts since the phone last opened Post, per phone, an
   assert.equal(f.devices[0].badge ?? 0, 0);
 });
 
-test('connect: the code from the sign-in page becomes a watched, stored mailbox; the app scope is the full one, the alert refresh stays read-only', async () => {
-  const s = setup();
+function msFake(s: ReturnType<typeof setup>, mailbox = 'Andreas@Firma.no') {
   const calls: string[] = [];
   const base = s.deps.fetch;
   s.deps.fetch = (async (url: string | URL, init?: RequestInit) => {
@@ -358,29 +361,109 @@ test('connect: the code from the sign-in page becomes a watched, stored mailbox;
       calls.push(String(init?.body));
       return new Response(JSON.stringify({ access_token: 'FULL-AT', refresh_token: 'FULL-RT' }), { status: 200 });
     }
-    if (u.includes('/me?$select=mail,userPrincipalName')) return new Response(JSON.stringify({ mail: 'Andreas@Firma.no' }), { status: 200 });
+    if (u.includes('/me?$select=mail,userPrincipalName')) return new Response(JSON.stringify({ mail: mailbox }), { status: 200 });
     return base(url as string, init);
   }) as typeof fetch;
-  const r = await alertConnect(s.deps, { code: 'CODE', verifier: 'VER', redirectUri: 'https://app.example/post/connect' });
-  assert.equal(r.email, 'andreas@firma.no');
-  assert.equal(s.accounts[0].label, 'Work'); // not an outlook.com / hotmail address
-  const sent = new URLSearchParams(calls[0]);
-  assert.equal(sent.get('code_verifier'), 'VER');
-  assert.equal(sent.get('redirect_uri'), 'https://app.example/post/connect');
-  assert.equal(sent.get('scope'), ALERT_APP_SCOPE);
-  assert.ok(ALERT_APP_SCOPE.includes('Mail.ReadWrite') && ALERT_APP_SCOPE.includes('Mail.Send'));
-  assert.ok(!JSON.stringify(s.accounts[0]).includes('FULL-RT'));
-  await assert.rejects(alertConnect(s.deps, { code: '', verifier: 'v', redirectUri: 'https://x' }), /bad request/);
-  await assert.rejects(alertConnect(s.deps, { code: 'c', verifier: 'v', redirectUri: 'http://insecure' }), /bad request/);
+  return calls;
+}
+
+test('sign-in start: a Microsoft address with PKCE and a sealed state, a handle for the app, nothing stored', async () => {
+  const s = setup();
+  const r = await alertSigninStart(s.deps, { redirectUri: 'https://app.example/post/', hint: 'a@b.no' });
+  const u = new URL(r.url);
+  assert.equal(u.origin + u.pathname, 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
+  assert.equal(u.searchParams.get('client_id'), 'CID');
+  assert.equal(u.searchParams.get('redirect_uri'), 'https://app.example/post/');
+  assert.equal(u.searchParams.get('scope'), ALERT_APP_SCOPE);
+  assert.equal(u.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(u.searchParams.get('login_hint'), 'a@b.no');
+  const sealed = JSON.parse(await alertDecrypt(u.searchParams.get('state')!, KEY));
+  assert.equal(sealed.h, r.handle);
+  const expected = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sealed.v))))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  assert.equal(u.searchParams.get('code_challenge'), expected);
+  assert.ok(!r.url.includes(sealed.v), 'the PKCE secret is not readable in the address');
+  assert.equal(s.accounts.length, 0);
+  await assert.rejects(alertSigninStart(s.deps, { redirectUri: 'http://insecure' }), /bad request/);
 });
 
-test('connect: a code Microsoft refuses is an error and stores nothing', async () => {
+test('sign-in finish: the code becomes a watched mailbox and a session; the result also waits for the app and is handed over once', async () => {
+  const s = setup();
+  const calls = msFake(s);
+  const start = await alertSigninStart(s.deps, { redirectUri: 'https://app.example/post/' });
+  const state = new URL(start.url).searchParams.get('state')!;
+  const r = await alertSigninFinish(s.deps, { code: 'CODE', state });
+  assert.equal(r.email, 'andreas@firma.no');
+  assert.equal(s.accounts[0].label, 'Work');
+  const sent = new URLSearchParams(calls[0]);
+  assert.equal(sent.get('redirect_uri'), 'https://app.example/post/');
+  assert.ok(sent.get('code_verifier')!.length >= 43);
+  assert.ok(ALERT_APP_SCOPE.includes('Mail.ReadWrite') && ALERT_APP_SCOPE.includes('Mail.Send'));
+  assert.ok(!JSON.stringify(s.accounts[0]).includes('FULL-RT') && !JSON.stringify(s.accounts[0]).includes(r.session.split('.')[1]));
+  // the session proves the mailbox; the stored form is a hash
+  assert.equal((await alertFindBySession(s.deps.store, r.session))!.email, 'andreas@firma.no');
+  assert.equal(await alertFindBySession(s.deps.store, r.session + 'x'), null);
+  assert.equal(await alertFindBySession(s.deps.store, null), null);
+  assert.equal(await alertFindBySession(s.deps.store, `${r.id}.${'z'.repeat(43)}`), null);
+  assert.equal(await alertFindBySession(s.deps.store, 'garbage'), null);
+  // the app that started it (maybe a different window from the landing page) collects it once
+  const polled = await alertSigninPoll(s.deps, start.handle);
+  assert.equal(polled.status, 'done');
+  assert.equal((polled as { session: string }).session, r.session);
+  assert.deepEqual(await alertSigninPoll(s.deps, start.handle), { status: 'pending' });
+  assert.deepEqual(await alertSigninPoll(s.deps, 'q'.repeat(30)), { status: 'pending' });
+  await assert.rejects(alertSigninPoll(s.deps, 'short'), /bad request/);
+  // landing window already has it: the app can tell the server to forget it
+  const again = await alertSigninStart(s.deps, { redirectUri: 'https://app.example/post/' });
+  await alertSigninFinish(s.deps, { code: 'CODE', state: new URL(again.url).searchParams.get('state')! });
+  await alertSigninForget(s.deps, again.handle);
+  assert.deepEqual(await alertSigninPoll(s.deps, again.handle), { status: 'pending' });
+});
+
+test('sign-in finish: a forged or expired state, and a mailbox that is not on the allowed list, store nothing', async () => {
+  const s = setup();
+  msFake(s);
+  await assert.rejects(alertSigninFinish(s.deps, { code: 'c', state: 'v1.AAAA.BBBB' }), /did not start here/);
+  await assert.rejects(alertSigninFinish(s.deps, { code: '', state: 'x' }), /bad request/);
+  const start = await alertSigninStart(s.deps, { redirectUri: 'https://app.example/post/' });
+  const state = new URL(start.url).searchParams.get('state')!;
+  s.deps.now = () => new Date(MON_10.getTime() + 16 * 60_000);
+  await assert.rejects(alertSigninFinish(s.deps, { code: 'c', state }), /took too long/);
+  s.deps.now = () => MON_10;
+  const stranger = setup();
+  msFake(stranger, 'stranger@evil.example');
+  const st = await alertSigninStart(stranger.deps, { redirectUri: 'https://app.example/post/' });
+  await assert.rejects(alertSigninFinish(stranger.deps, { code: 'c', state: new URL(st.url).searchParams.get('state')! }), /stranger@evil.example is not on this server/);
+  assert.equal(stranger.accounts.length, 0);
+  const open = setup();
+  open.deps.allowedEmails = [];
+  msFake(open);
+  const so = await alertSigninStart(open.deps, { redirectUri: 'https://app.example/post/' });
+  await assert.rejects(alertSigninFinish(open.deps, { code: 'c', state: new URL(so.url).searchParams.get('state')! }), /POST_ALLOWED_EMAILS/);
+  assert.equal(open.accounts.length, 0);
+});
+
+test('sign-in finish: a code Microsoft refuses is an error and stores nothing', async () => {
   const s = setup({ refreshFails: 'invalid_grant' });
-  await assert.rejects(alertConnect(s.deps, { code: 'BAD', verifier: 'v', redirectUri: 'https://app.example/post/connect' }), (e: unknown) => e instanceof AlertGraphError);
+  const start = await alertSigninStart(s.deps, { redirectUri: 'https://app.example/post/' });
+  await assert.rejects(alertSigninFinish(s.deps, { code: 'BAD', state: new URL(start.url).searchParams.get('state')! }), (e: unknown) => e instanceof AlertGraphError);
   assert.equal(s.accounts.length, 0);
   const r = await alertExchangeCode(fakeFetch(() => ({ body: { access_token: 'a', refresh_token: 'r' } })).f, { clientId: 'C', code: 'c', verifier: 'v', redirectUri: 'https://x' });
   assert.deepEqual(r, { accessToken: 'a', refreshToken: 'r' });
   await assert.rejects(alertExchangeCode(fakeFetch(() => ({ body: { access_token: 'a' } })).f, { clientId: 'C', code: 'c', verifier: 'v', redirectUri: 'https://x' }), /refresh token/);
+});
+
+test('a second computer signing in does not sign the first one out; only 8 sessions are kept', async () => {
+  const s = setup();
+  msFake(s);
+  const sessions: string[] = [];
+  for (let i = 0; i < 9; i++) {
+    const st = await alertSigninStart(s.deps, { redirectUri: 'https://app.example/post/' });
+    sessions.push((await alertSigninFinish(s.deps, { code: 'c', state: new URL(st.url).searchParams.get('state')! })).session);
+  }
+  assert.equal(s.accounts.length, 1, 'the same mailbox signing in again is still one mailbox');
+  assert.equal((s.accounts[0].session_hashes ?? []).length, 8);
+  assert.equal(await alertFindBySession(s.deps.store, sessions[0]), null, 'the oldest of nine is dropped');
+  for (const x of sessions.slice(1)) assert.equal((await alertFindBySession(s.deps.store, x))!.email, 'andreas@firma.no');
 });
 
 test('mint token: a short-lived full-scope token for a known mailbox, the stored sign-in rotated, unknown mailboxes refused', async () => {

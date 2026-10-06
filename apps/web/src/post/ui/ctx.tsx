@@ -40,3 +40,14 @@ export function useBadge(s: State) {
 }
 
 export const labelOf = (s: State, email: string) => s.accounts.find((a) => a.email === email)?.label ?? email;
+
+/** True on a computer-sized window: the app shows a sidebar, the list and the reading pane side by side. */
+export function useWide(): boolean {
+  const q = typeof matchMedia === 'function' ? matchMedia('(min-width: 900px)') : null;
+  const [w, setW] = useState(!!q?.matches);
+  useEffect(() => { if (!q) return; const on = () => setW(q.matches); q.addEventListener('change', on); return () => q.removeEventListener('change', on); }, [q]);
+  return w;
+}
+
+/** The mailbox an address in the URL means: a notification link carries the server's account id, the rest carry the address. */
+export const resolveAccount = (s: State, account: string) => s.accounts.find((a) => a.id === account || a.email === account)?.email ?? account;

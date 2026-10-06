@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { filterCounts, visibleMail, type Filter, type State } from '../core/controller.ts';
 import { dayGroup, displayName, shortTime } from '../core/format.ts';
 import { isHorizontal, swipeOffset, swipeResult, SWIPE_COMMIT } from '../../lib/swipe.ts';
-import type { Mail } from '../core/types.ts';
+import { mailKey, type Mail } from '../core/types.ts';
 import { presets } from '../core/snooze.ts';
 import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
-import { go, labelOf, useBadge, useC, useNow } from './ctx.tsx';
+import { go, labelOf, resolveAccount, useBadge, useC, useNow, useRoute } from './ctx.tsx';
 import { Tabs } from './Tabs.tsx';
 
 const TAG: Record<Mail['kind'], string> = { person: '', newsletter: 'Newsletter', receipt: 'Receipt', alert: 'Alert' };
@@ -40,11 +40,11 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
   );
 }
 
-export function Row({ m, s, selecting, selected, onOpen, onToggle }: { m: Mail; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void }) {
+export function Row({ m, s, selecting, selected, onOpen, onToggle, active }: { m: Mail; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean }) {
   const badge = useBadge(s)(m.account);
   const unread = !m.isRead;
   return (
-    <button type="button" className={`row ${s.settings.rowSize}`} onClick={selecting ? onToggle : onOpen} aria-label={`${displayName(m.fromName, m.fromAddress)}, ${m.subject}${unread ? ', unread' : ''}`}>
+    <button type="button" className={`row ${s.settings.rowSize}${active ? ' active' : ''}`} aria-current={active ? 'true' : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${displayName(m.fromName, m.fromAddress)}, ${m.subject}${unread ? ', unread' : ''}`}>
       {unread && !selecting && <span className="dot" />}
       {selecting && <span className={`chk${selected ? ' on' : ''}`} aria-hidden="true">{selected && <Icon n="check" size={14} />}</span>}
       <Avatar m={m} badge={badge} />
@@ -86,8 +86,10 @@ export function StatusBanners({ s }: { s: State }) {
   );
 }
 
-export function Inbox({ s }: { s: State }) {
+export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const c = useC();
+  const route = useRoute();
+  const activeKey = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : null;
   const now = useNow();
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -142,7 +144,7 @@ export function Inbox({ s }: { s: State }) {
         <h1 className="h1">Inbox</h1>
         <div className="r">
           <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>
-          <button className="btn me" aria-label="Accounts and settings" onClick={() => go({ name: 'accounts' })}>{(s.accounts[0]?.label ?? 'P')[0].toUpperCase()}</button>
+          {!pane && <button className="btn me" aria-label="Accounts and settings" onClick={() => go({ name: 'accounts' })}>{(s.accounts[0]?.label ?? 'P')[0].toUpperCase()}</button>}
         </div>
       </header>
       <button className="sync" onClick={() => void c.sync()} aria-label="Update now"><b>{scope}</b> · {when}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>
@@ -159,7 +161,7 @@ export function Inbox({ s }: { s: State }) {
             <div className="card">
               {g.items.map((m) => (
                 <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(m, s.settings.swipeRight)} onLeft={() => act(m, s.settings.swipeLeft)}>
-                  <Row m={m} s={s} selecting={selecting} selected={picked.has(m.key)} onToggle={() => toggle(m.key)} onOpen={() => go({ name: 'message', account: m.account, id: m.id })} />
+                  <Row m={m} s={s} active={m.key === activeKey} selecting={selecting} selected={picked.has(m.key)} onToggle={() => toggle(m.key)} onOpen={() => go({ name: 'message', account: m.account, id: m.id })} />
                 </SwipeRow>
               ))}
             </div>
@@ -177,8 +179,8 @@ export function Inbox({ s }: { s: State }) {
         </div>
       ) : (
         <>
-          <Tabs at="inbox" s={s} />
-          <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>
+          {!pane && <Tabs at="inbox" s={s} />}
+          {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
         </>
       )}
       {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing, at, label); setSnoozing(null); }} />}
