@@ -12,7 +12,22 @@ function world() {
   const inbox = new Map<string, any>();
   let nextDelta = 1;
   const accounts = new Map([['a@outlook.com', acct('a@outlook.com', 'Personal')]]);
-  const flags = { offline: false, tokenFail: new Set<string>(), polled: false, nextEmail: 'w@firma.no', conversationFails: false, noFolder: new Set<string>() };
+  const flags = {
+    offline: false, tokenFail: new Set<string>(), polled: false, nextEmail: 'w@firma.no', conversationFails: false, noFolder: new Set<string>(),
+    /** What Outlook answers to "send" (202 is a message that went). */ sendStatus: 202,
+    attachStatus: 201, uploadFails: false,
+    /** Held at "send" until it opens: a message that is slow to go. */ gate: null as Promise<void> | null,
+    /** The next time one of these (draft, attach, send) happens Outlook does the work and the answer is lost on the way back / the call never arrives. */
+    loseAfter: [] as string[], loseBefore: [] as string[],
+    /** Ids that were moved: Outlook no longer knows them. */ moved: new Set<string>(),
+    /** What Outlook answers to a move (201 is one that worked). */ moveStatus: 201,
+    /** A later sync (from a saved place) hears only what changed, as the real thing does; otherwise it hears everything every time. */ strictDelta: false,
+  };
+  const drafts = new Map<string, { kind: string; subject: string; body: string; to: string[]; cc: string[]; replyTo?: string; attachments: { name: string; size: number }[] }>(); // made and not sent
+  const sentMails: { kind: string; subject: string; body: string; to: string[]; cc: string[]; replyTo?: string; attachments: { name: string; size: number }[] }[] = []; // what really went out
+  let draftSeq = 0;
+  let session: { draft: string; name: string; size: number } | null = null;
+  const take = (list: string[], what: string) => { const i = list.indexOf(what); if (i < 0) return false; list.splice(i, 1); return true; };
   const convo = new Map<string, any[]>(); // conversation id -> every message of it in Outlook, whatever folder it is in
   const headers: Record<string, { name: string; value: string }[]> = {}; // what the hidden headers of each message say
   const sent: string[] = []; // who the person has written to (Sent Items)
@@ -20,7 +35,7 @@ function world() {
   const f = (async (url: string, init: RequestInit = {}) => {
     if (flags.offline) throw new Error('offline');
     const u = String(url);
-    const body = init.body ? JSON.parse(String(init.body)) : {};
+    const body = typeof init.body === 'string' && init.body ? JSON.parse(init.body) : {};
     if (u === SERVER) {
       log.push(`server ${body.op}`);
       const session = String((init.headers as Record<string, string>)['x-post-session'] ?? '');
@@ -39,7 +54,11 @@ function world() {
       return j({ ok: true });
     }
     const path = u.replace('https://graph.microsoft.com/v1.0', '');
-    if (/messages\/delta/.test(path) || u.includes('graph/delta')) { log.push('graph delta'); return new Response(JSON.stringify({ value: [...inbox.values()], '@odata.deltaLink': `https://graph/delta?d=${nextDelta++}` })); }
+    if (/messages\/delta/.test(path) || u.includes('graph/delta')) {
+      log.push('graph delta');
+      const changes = flags.strictDelta && u.includes('graph/delta') ? [] : [...inbox.values()];
+      return new Response(JSON.stringify({ value: changes, '@odata.deltaLink': `https://graph/delta?d=${nextDelta++}` }));
+    }
     if (path === '/$batch') return new Response(JSON.stringify({ responses: body.requests.map((r: any) => {
       const folder = /mailFolders\/([a-z]+)\?\$select=id/.exec(r.url);
       if (folder) { log.push(`graph folder ${folder[1]}`); return flags.noFolder.has(folder[1]) ? { id: r.id, status: 429, body: {} } : { id: r.id, status: 200, body: { id: `F-${folder[1]}` } }; }
@@ -52,15 +71,85 @@ function world() {
     }
     if (path.startsWith('/me/mailFolders/sentitems/messages')) { log.push('graph sent'); return new Response(JSON.stringify({ value: sent.map((address) => ({ toRecipients: [{ emailAddress: { address } }], ccRecipients: [] })) })); }
     let m: RegExpExecArray | null;
-    if ((m = /^\/me\/messages\/([^/]+)\/move$/.exec(path))) { log.push(`graph move ${decodeURIComponent(m[1])} ${body.destinationId}`); inbox.delete(decodeURIComponent(m[1])); return new Response(JSON.stringify({ id: 'new' }), { status: 201 }); }
+    // ---- sending: every message goes out through a draft ----
+    const out = (o: unknown, status = 200) => new Response(status === 204 || status === 202 ? null : JSON.stringify(o), { status });
+    const notFound = () => out({ error: { code: 'ErrorItemNotFound', message: 'The specified object was not found in the store.' } }, 404);
+    const addr = (rs: any[] = []) => rs.map((r) => String(r?.emailAddress?.address ?? ''));
+    if (init.method === 'POST' && path === '/me/messages') {
+      log.push(`graph draft ${body.subject}`);
+      if (take(flags.loseBefore, 'draft')) throw new Error('Failed to fetch');
+      const id = `D${++draftSeq}`;
+      drafts.set(id, { kind: 'new', subject: body.subject, body: body.body?.content ?? '', to: addr(body.toRecipients), cc: addr(body.ccRecipients), attachments: [] });
+      if (take(flags.loseAfter, 'draft')) throw new Error('Failed to fetch');
+      return out({ id }, 201);
+    }
+    if (init.method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/(createReply|createReplyAll|createForward)$/.exec(path))) {
+      const orig = decodeURIComponent(m[1]);
+      log.push(`graph ${m[2]} ${orig}`);
+      if (flags.moved.has(orig)) return notFound();
+      const id = `D${++draftSeq}`;
+      drafts.set(id, { kind: m[2] === 'createReply' ? 'reply' : m[2] === 'createReplyAll' ? 'replyAll' : 'forward', subject: '', body: body.comment ?? '', to: addr(body.toRecipients), cc: [], replyTo: orig, attachments: [] });
+      return out({ id }, 201);
+    }
+    if (init.method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/attachments\/createUploadSession$/.exec(path))) {
+      log.push(`graph session ${m[1]} ${body.AttachmentItem.name} ${body.AttachmentItem.size}`);
+      session = { draft: decodeURIComponent(m[1]), name: body.AttachmentItem.name, size: body.AttachmentItem.size };
+      return out({ uploadUrl: 'https://upload.example/s?authtoken=T' });
+    }
+    if (u.startsWith('https://upload.example/')) {
+      if (flags.uploadFails) throw new TypeError('Failed to fetch');
+      const range = String((init.headers as Record<string, string>)['Content-Range']);
+      log.push(`upload ${range}`);
+      const end = /^bytes \d+-(\d+)\/(\d+)$/.exec(range);
+      if (session && end && Number(end[1]) + 1 === Number(end[2])) drafts.get(session.draft)?.attachments.push({ name: session.name, size: session.size });
+      return out({});
+    }
+    if (init.method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/attachments$/.exec(path))) {
+      const id = decodeURIComponent(m[1]);
+      log.push(`graph attach ${id} ${body.name}`);
+      if (take(flags.loseBefore, 'attach')) throw new Error('Failed to fetch');
+      const d = drafts.get(id);
+      if (!d) return notFound();
+      if (flags.attachStatus === 201) d.attachments.push({ name: body.name, size: atob(body.contentBytes).length });
+      if (take(flags.loseAfter, 'attach')) throw new Error('Failed to fetch');
+      return out({}, flags.attachStatus);
+    }
+    if (init.method === 'GET' && (m = /^\/me\/messages\/([^/]+)\/attachments\?\$select=name,size$/.exec(path))) {
+      const d = drafts.get(decodeURIComponent(m[1]));
+      log.push(`graph draft attachments ${decodeURIComponent(m[1])}`);
+      return d ? out({ value: d.attachments }) : notFound();
+    }
+    if (init.method === 'GET' && (m = /^\/me\/messages\/([^/?]+)\?\$select=isDraft$/.exec(path))) {
+      log.push(`graph isDraft ${decodeURIComponent(m[1])}`);
+      return drafts.has(decodeURIComponent(m[1])) ? out({ isDraft: true }) : notFound();
+    }
+    if (init.method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/send$/.exec(path))) {
+      const id = decodeURIComponent(m[1]);
+      log.push(`graph send ${id}`);
+      if (flags.gate) await flags.gate;
+      if (take(flags.loseBefore, 'send')) throw new Error('Failed to fetch');
+      const d = drafts.get(id);
+      if (!d) return notFound();
+      if (flags.sendStatus !== 202) return out({ error: { code: 'ErrorMessageSizeExceeded', message: 'The message is too large' } }, flags.sendStatus);
+      sentMails.push(d); drafts.delete(id); // a sent draft is gone from Drafts
+      if (take(flags.loseAfter, 'send')) throw new Error('Failed to fetch');
+      return out(null, 202);
+    }
+    if (init.method === 'DELETE' && (m = /^\/me\/messages\/([^/]+)$/.exec(path))) { log.push(`graph delete ${decodeURIComponent(m[1])}`); drafts.delete(decodeURIComponent(m[1])); return out(null, 204); }
+    if ((m = /^\/me\/messages\/([^/]+)\/move$/.exec(path))) {
+      const id = decodeURIComponent(m[1]);
+      log.push(`graph move ${id} ${body.destinationId}`);
+      if (flags.moveStatus !== 201) return out({ error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } }, flags.moveStatus);
+      inbox.delete(id); flags.moved.add(id);
+      return new Response(JSON.stringify({ id: `moved-${id}` }), { status: 201 });
+    }
     if ((m = /^\/me\/messages\/([^/?]+)$/.exec(path)) && init.method === 'PATCH') { log.push(`graph patch ${decodeURIComponent(m[1])} ${JSON.stringify(body)}`); return new Response('{}'); }
     if ((m = /^\/me\/messages\/([^/?]+)\?\$select=body/.exec(path))) { log.push('graph body'); return new Response(JSON.stringify({ body: { contentType: 'html', content: '<p>Hei</p>' }, toRecipients: [{ emailAddress: { name: 'Meg', address: 'a@outlook.com' } }], hasAttachments: false })); }
     if (path === '/me/sendMail') { log.push(`graph sendMail ${body.message.subject}`); return new Response(null, { status: 202 }); }
-    if (/\/(reply|replyAll|forward)$/.test(path)) { log.push(`graph ${path.split('/').pop()}`); return new Response(null, { status: 202 }); }
     if (path.startsWith('/me/messages?$search')) { log.push('graph search'); return new Response(JSON.stringify({ value: [{ id: 'old1', subject: 'Gammel faktura', from: { emailAddress: { address: 'x@y.no' } }, receivedDateTime: '2025-01-01T00:00:00Z' }, ...[...inbox.values()].slice(0, 1)] })); }
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
-  return { f, log, add, inbox, flags, headers, sent, convo, accounts: () => [...accounts.values()] };
+  return { f, log, add, inbox, flags, headers, sent, convo, drafts, sentMails, accounts: () => [...accounts.values()] };
 }
 
 function make(w = world(), extra: Partial<Deps> = {}) {
@@ -287,7 +376,7 @@ test('sending: held for the undo window, cancel returns it as a draft, otherwise
   const { c, advance, runTimers } = make(w);
   await c.init();
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'Hei', body: 'Tekst' });
-  assert.equal(w.log.some((l) => l.startsWith('graph sendMail')), false);
+  assert.equal(w.log.some((l) => /^graph (draft|send)/.test(l)), false, 'nothing is made at Outlook while the undo time runs');
   const id = c.getState().outbox[0].id;
   await c.cancelSend(id);
   assert.equal(c.getState().outbox.length, 0);
@@ -295,7 +384,8 @@ test('sending: held for the undo window, cancel returns it as a draft, otherwise
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'Hei 2', body: 'Tekst' });
   advance(11_000);
   await runTimers();
-  assert.ok(w.log.includes('graph sendMail Hei 2'));
+  assert.deepEqual(w.log.filter((l) => /^graph (draft|send)/.test(l)), ['graph draft Hei 2', 'graph send D1']);
+  assert.deepEqual(w.sentMails.map((x) => [x.kind, x.subject, x.to]), [['new', 'Hei 2', ['x@y.no']]]);
   assert.equal(c.getState().outbox.length, 0);
 });
 
@@ -307,7 +397,8 @@ test('a queued mail survives closing the app: the next start sends it', async ()
   // new controller on the same store, later
   const c2 = createController({ store: first.store, fetch: w.f, serverUrl: SERVER, now: () => Date.parse('2026-10-05T11:00:00Z'), kv: { get: (k) => first.kv.get(k) ?? null, set: (k, v) => void first.kv.set(k, v), del: (k) => void first.kv.delete(k) }, setTimer: () => 0 });
   await c2.init();
-  assert.ok(w.log.includes('graph reply'));
+  assert.deepEqual(w.log.filter((l) => /^graph (create|send)/.test(l)), ['graph createReply m9', 'graph send D1']);
+  assert.deepEqual(w.sentMails.map((x) => [x.kind, x.replyTo]), [['reply', 'm9']]);
 });
 
 test('moving a sender re-sorts all their mail, with an Undo', async () => {
@@ -537,45 +628,23 @@ const queued = async (store: ReturnType<typeof memoryStore>) => ((await store.ge
 
 /** Drafts, attachments and upload addresses, in front of the ordinary world. */
 function fileWorld(w: ReturnType<typeof world>) {
-  const flags = { listFails: false, valueFails: false, jsonFails: false, sendStatus: 202, attachStatus: 201, uploadFails: false, gate: null as Promise<void> | null };
+  const flags = { listFails: false, valueFails: false, jsonFails: false };
   const listings = new Map<string, any[]>();                                  // message id -> what the attachment list says
   const content = new Map<string, { bytes: Uint8Array; type: string }>();     // `${message}/${attachment}` -> the file
   const bodies = new Map<string, { html: string; hasAttachments: boolean }>();
-  const sentMails: any[] = [];
   const calls: string[] = [];
-  let drafts = 0;
   const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status });
   const f = (async (url: string, init: RequestInit = {}) => {
     if (w.flags.offline) throw new Error('offline');
     const u = String(url);
     const method = init.method ?? 'GET';
     const path = u.replace('https://graph.microsoft.com/v1.0', '');
-    const body = typeof init.body === 'string' && init.body ? JSON.parse(init.body) : {};
     let m: RegExpExecArray | null;
-    if (u.startsWith('https://upload.example/')) {
-      if (flags.uploadFails) throw new TypeError('Failed to fetch');
-      w.log.push(`upload ${(init.headers as Record<string, string>)['Content-Range']}`);
-      return json({});
-    }
-    if (method === 'POST' && path === '/me/messages') { w.log.push(`graph draft ${body.subject}`); return json({ id: `D${++drafts}` }, 201); }
-    if (method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/(createReply|createReplyAll|createForward)$/.exec(path))) { w.log.push(`graph ${m[2]} ${decodeURIComponent(m[1])}`); return json({ id: `D${++drafts}` }, 201); }
-    if (method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/attachments\/createUploadSession$/.exec(path))) { w.log.push(`graph session ${m[1]} ${body.AttachmentItem.name} ${body.AttachmentItem.size}`); return json({ uploadUrl: 'https://upload.example/s?authtoken=T' }); }
-    if (method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/attachments$/.exec(path))) { w.log.push(`graph attach ${m[1]} ${body.name}`); return json({}, flags.attachStatus); }
-    if (method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/send$/.exec(path))) {
-      w.log.push(`graph send ${m[1]}`);
-      return flags.sendStatus === 202 ? new Response(null, { status: 202 }) : json({ error: { code: 'ErrorMessageSizeExceeded', message: 'The message is too large' } }, flags.sendStatus);
-    }
-    if (method === 'DELETE' && (m = /^\/me\/messages\/([^/]+)$/.exec(path))) { w.log.push(`graph delete ${m[1]}`); return new Response(null, { status: 204 }); }
-    if (path === '/me/sendMail') {
-      if (flags.gate) await flags.gate;
-      sentMails.push(body.message);
-      if (flags.sendStatus !== 202) return json({ error: { code: 'ErrorMessageSizeExceeded', message: 'The message is too large' } }, flags.sendStatus);
-    }
     if (method === 'GET' && (m = /^\/me\/messages\/([^/?]+)\?\$select=body/.exec(path))) {
       const b = bodies.get(decodeURIComponent(m[1]));
       if (b) { w.log.push('graph body'); return json({ body: { contentType: 'html', content: b.html }, toRecipients: [], hasAttachments: b.hasAttachments }); }
     }
-    if (method === 'GET' && (m = /^\/me\/messages\/([^/]+)\/attachments\?/.exec(path))) {
+    if (method === 'GET' && (m = /^\/me\/messages\/([^/]+)\/attachments\?/.exec(path)) && !w.drafts.has(decodeURIComponent(m[1]))) {
       calls.push(`list ${decodeURIComponent(m[1])}`);
       return flags.listFails ? json({ error: { code: 'ErrorInvalidProperty', message: 'Could not find a property named contentId' } }, 400) : json({ value: listings.get(decodeURIComponent(m[1])) ?? [] });
     }
@@ -593,7 +662,7 @@ function fileWorld(w: ReturnType<typeof world>) {
     }
     return w.f(url, init);
   }) as typeof fetch;
-  return { f, flags, listings, content, bodies, sentMails, calls };
+  return { f, flags, listings, content, bodies, calls };
 }
 
 const att = (id: string, name: string, over: Record<string, unknown> = {}) => ({ '@odata.type': '#microsoft.graph.fileAttachment', id, name, size: 100, contentType: 'application/pdf', isInline: false, ...over });
@@ -743,9 +812,9 @@ test('files: a message with files waits in the outbox with its files, and leaves
   assert.deepEqual(it.files, [{ name: 'a.pdf', type: 'application/pdf', size: 1000 }]);
   const key = `a@outlook.com|outfile|${it.id}|0`;
   assert.equal(((await store.getMeta<Uint8Array>(key)) as Uint8Array).byteLength, 1000);
-  assert.equal(fw.sentMails.length, 0);
+  assert.equal(w.sentMails.length, 0);
   advance(11_000); await runTimers();
-  assert.deepEqual(fw.sentMails.map((x) => [x.subject, (x.attachments ?? []).map((a: any) => a.name)]), [['Kontrakt', ['a.pdf']]]);
+  assert.deepEqual(w.sentMails.map((x) => [x.subject, (x.attachments ?? []).map((a: any) => a.name)]), [['Kontrakt', ['a.pdf']]]);
   assert.equal(await store.getMeta(key), undefined, 'the copy kept for sending is gone once it has gone');
   assert.equal(c.getState().outbox.length, 0);
 });
@@ -764,7 +833,7 @@ test('files: Undo gives the message back with its files and sends nothing', asyn
   assert.equal(await store.getMeta(`a@outlook.com|outfile|${it.id}|0`), undefined);
   assert.match(c.getState().toast!.text, /and its files are back in the editor/);
   advance(20_000); await runTimers();
-  assert.equal(fw.sentMails.length, 0);
+  assert.equal(w.sentMails.length, 0);
 });
 
 test('files: Undo too late (the time has run out) does not take the message back', async () => {
@@ -792,7 +861,7 @@ test('files: the draft keeps its files until it is sent or thrown away', async (
   assert.deepEqual(await c.loadDraftFiles(), []);
 });
 
-test('files: several files that are too many to travel inside the message go through a draft', async () => {
+test('files: several files go onto a draft one by one, and the draft is sent', async () => {
   const w = world();
   const fw = fileWorld(w);
   const { c, advance, runTimers } = make(w, { fetch: fw.f });
@@ -800,7 +869,7 @@ test('files: several files that are too many to travel inside the message go thr
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'To filer', body: 'x' }, [out('a.pdf', 1_600_000), out('b.pdf', 1_600_000)]);
   advance(11_000); await runTimers();
   assert.deepEqual(w.log.filter((l) => /^graph (draft|attach|send|sendMail)/.test(l)), ['graph draft To filer', 'graph attach D1 a.pdf', 'graph attach D1 b.pdf', 'graph send D1']);
-  assert.equal(fw.sentMails.length, 0, 'not also sent the plain way');
+  assert.deepEqual(w.sentMails.map((x) => x.attachments.map((a) => a.name)), [['a.pdf', 'b.pdf']], 'sent once, with both files on it');
 });
 
 test('files: a big file goes up in slices, then the draft is sent', async () => {
@@ -814,7 +883,7 @@ test('files: a big file goes up in slices, then the draft is sent', async () => 
   assert.equal(c.getState().outbox.length, 0);
 });
 
-test('files: a reply, a reply to all and a forward with files keep the conversation, and without files stay the plain calls', async () => {
+test('files: a reply, a reply to all and a forward are made from the original (so the conversation is kept), with or without files', async () => {
   const w = world();
   const fw = fileWorld(w);
   const { c, advance, runTimers } = make(w, { fetch: fw.f });
@@ -828,14 +897,14 @@ test('files: a reply, a reply to all and a forward with files keep the conversat
     'graph createReply m1', 'graph attach D1 a.pdf', 'graph send D1',
     'graph createReplyAll m2', 'graph attach D2 b.pdf', 'graph send D2',
     'graph createForward m3', 'graph attach D3 c.pdf', 'graph send D3',
-    'graph reply',
+    'graph createReply m4', 'graph send D4',
   ]);
 });
 
 test('files: Outlook refusing the message for good hands it back, with its files, and says why', async () => {
   const w = world();
   const fw = fileWorld(w);
-  fw.flags.sendStatus = 413;
+  w.flags.sendStatus = 413;
   const { c, store, advance } = make(w, { fetch: fw.f });
   await c.init();
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'For stor', body: 'x' }, [out('a.pdf', 1_600_000), out('b.pdf', 1_600_000)]);
@@ -852,7 +921,7 @@ test('files: Outlook refusing the message for good hands it back, with its files
 test('files: a message that keeps failing is tried three times, then handed back; time offline does not count', async () => {
   const w = world();
   const fw = fileWorld(w);
-  fw.flags.sendStatus = 500;
+  w.flags.sendStatus = 500;
   const { c, store, advance } = make(w, { fetch: fw.f });
   await c.init();
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'Treg', body: 'x' }, [out('a.pdf', 1_600_000), out('b.pdf', 1_600_000)]);
@@ -877,14 +946,14 @@ test('files: a message that keeps failing is tried three times, then handed back
 test('files: a plain message that fails for a passing reason is still kept and tried again, as before', async () => {
   const w = world();
   const fw = fileWorld(w);
-  fw.flags.sendStatus = 500;
+  w.flags.sendStatus = 500;
   const { c, store, advance } = make(w, { fetch: fw.f });
   await c.init();
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'Vanlig', body: 'x' });
   advance(11_000);
   for (let i = 0; i < 6; i++) await c.flushOutbox();
   assert.deepEqual(await queued(store), ['Vanlig']);
-  fw.flags.sendStatus = 202;
+  w.flags.sendStatus = 202;
   await c.flushOutbox();
   assert.deepEqual(await queued(store), []);
 });
@@ -898,7 +967,7 @@ test('files: a file that has gone missing from the phone hands the rest back ins
   const id = c.getState().outbox[0].id;
   await store.setMeta(`a@outlook.com|outfile|${id}|0`, undefined);
   advance(11_000); await c.flushOutbox();
-  assert.equal(fw.sentMails.length, 0);
+  assert.equal(w.sentMails.length, 0);
   assert.match(c.getState().toast!.text, /a\.pdf is no longer stored on this phone/);
   assert.deepEqual((await c.loadDraftFiles()).map((f) => f.name), ['b.pdf']);
   assert.deepEqual(await queued(store), []);
@@ -919,7 +988,7 @@ test('files: two runs at once never send the same message twice', async () => {
   const w = world();
   const fw = fileWorld(w);
   let open!: () => void;
-  fw.flags.gate = new Promise<void>((r) => { open = r; });
+  w.flags.gate = new Promise<void>((r) => { open = r; });
   const { c, store, advance } = make(w, { fetch: fw.f });
   await c.init();
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'En gang', body: 'x' }, [out('a.pdf', 100)]);
@@ -929,7 +998,7 @@ test('files: two runs at once never send the same message twice', async () => {
   await settle(20);
   open();
   await Promise.all([a, b]);
-  assert.equal(fw.sentMails.length, 1);
+  assert.equal(w.sentMails.length, 1);
   assert.deepEqual(await queued(store), []);
 });
 
@@ -937,7 +1006,7 @@ test('files: Undo on one message while another is being sent is respected', asyn
   const w = world();
   const fw = fileWorld(w);
   let open!: () => void;
-  fw.flags.gate = new Promise<void>((r) => { open = r; });
+  w.flags.gate = new Promise<void>((r) => { open = r; });
   const { c, store, advance } = make(w, { fetch: fw.f });
   await c.init();
   await c.send({ account: 'a@outlook.com', kind: 'new', to: ['x@y.no'], cc: [], subject: 'Først', body: 'x' });
@@ -949,7 +1018,7 @@ test('files: Undo on one message while another is being sent is respected', asyn
   await c.cancelSend(later.id);                   // the person taps Undo on the second one meanwhile
   open();
   await running;
-  assert.deepEqual(fw.sentMails.map((x) => x.subject), ['Først']);
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['Først']);
   assert.deepEqual(await queued(store), [], 'the second one did not come back');
   assert.equal(c.loadDraft()!.subject, 'Så');
 });
@@ -1077,6 +1146,7 @@ test('conversations: read, unread and flag act on the whole conversation, and ne
   await c.toggleFlag(rows());
   assert.deepEqual(rows().map((m) => m.flagged), [true, false]);
   assert.deepEqual(replyLaterThreads(c.getState(), T0).map((t) => t.items.length), [2]);
+  await settle(20); // the flag reaches Outlook before it is taken off (taken off within a moment, only the last choice would be sent)
   await c.toggleFlag(rows());
   assert.deepEqual(rows().map((m) => m.flagged), [false, false]);
   assert.deepEqual(replyLaterThreads(c.getState(), T0), []);
@@ -1161,7 +1231,7 @@ test('conversations: asked once and kept for a minute and a half, again when for
   // a reply that leaves makes what was kept stale
   await c.send({ account: ME, kind: 'reply', to: ['anna@x.no'], cc: [], subject: 'Re: Ferie', body: 'ok', replyTo: '1' });
   advance(11_000); await runTimers();
-  assert.ok(w.log.includes('graph reply'));
+  assert.ok(w.log.includes('graph createReply 1') && w.log.includes('graph send D1'));
   await c.loadConversation(m);
   assert.equal(asks(), 4);
 });
@@ -1374,4 +1444,451 @@ test('Undo of a snooze puts back what each message was snoozed until before', as
   await settle();
   assert.equal((await store.getMail(older.key))!.snoozedUntil, '2026-10-09T08:00:00.000Z', 'back to Friday, not to nothing');
   assert.equal((await store.getMail(newest.key))!.snoozedUntil ?? null, null);
+});
+
+
+// ---- reliability: what goes wrong on a phone, and what Post does about it ----------------------------------------------------------------------
+
+const sendNew = (c: ReturnType<typeof make>['c'], subject = 'Hei', files: ReturnType<typeof out>[] = []) =>
+  c.send({ account: ME, kind: 'new', to: ['x@y.no'], cc: [], subject, body: 'x' }, files);
+const outboxOf = async (store: Store) => (await store.getMeta<any[]>('outbox')) ?? [];
+/** The same phone opened again later: a new controller on what the old one saved. */
+const reopen = (first: ReturnType<typeof make>, w: ReturnType<typeof world>, at = '2026-10-05T11:00:00Z') => createController({
+  store: first.store, fetch: w.f, serverUrl: SERVER, now: () => Date.parse(at), sleep: async () => {}, setTimer: () => 0,
+  kv: { get: (k) => first.kv.get(k) ?? null, set: (k, v) => void first.kv.set(k, v), del: (k) => void first.kv.delete(k) },
+});
+
+test('sending: when the answer to "send" is lost the message is not sent a second time', async () => {
+  const w = world();
+  const { c, store, advance } = make(w);
+  await c.init();
+  await sendNew(c, 'En gang');
+  w.flags.loseAfter.push('send'); // Outlook sends it, and the answer never gets back
+  advance(11_000); await c.flushOutbox();
+  assert.equal(w.sentMails.length, 1, 'it did go');
+  assert.deepEqual((await outboxOf(store)).map((x) => [x.subject, x.draft]), [['En gang', { id: 'D1', phase: 'sending' }]], 'Post cannot know that, so it keeps the message, and how far it got');
+  await c.flushOutbox(); // the next try: the next sync, or the next time Post is opened
+  assert.equal(w.sentMails.length, 1, 'it looked, and found that the message had gone');
+  assert.deepEqual(await outboxOf(store), []);
+  assert.equal(w.log.filter((l) => l.startsWith('graph draft')).length, 1);
+  assert.equal(c.loadDraft(), null, 'and it was not handed back either');
+});
+
+test('sending: the app goes away before "send" arrived: the next start sends that same draft', async () => {
+  const w = world();
+  const first = make(w);
+  await first.c.init();
+  await sendNew(first.c, 'Halvveis');
+  w.flags.loseBefore.push('send');
+  first.advance(11_000); await first.c.flushOutbox();
+  assert.equal(w.sentMails.length, 0);
+  const second = reopen(first, w);
+  await second.init();
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['Halvveis']);
+  assert.equal(w.log.filter((l) => l.startsWith('graph draft')).length, 1, 'no second draft was made');
+});
+
+test('sending: a lost answer to making the draft leaves one blank draft behind, and still only one message goes', async () => {
+  const w = world();
+  const { c, store, advance } = make(w);
+  await c.init();
+  await sendNew(c, 'Utkast');
+  w.flags.loseAfter.push('draft');
+  advance(11_000); await c.flushOutbox();
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['Utkast']);
+  assert.deepEqual(await outboxOf(store), []);
+  assert.equal(w.drafts.size, 1, 'the first draft is an orphan: it is never sent');
+});
+
+test('sending: a file whose answer was lost is not on the message twice', async () => {
+  const w = world();
+  const { c, advance } = make(w);
+  await c.init();
+  await sendNew(c, 'Fil', [out('a.pdf', 1000), out('b.pdf', 2000)]);
+  w.flags.loseAfter.push('attach'); // a.pdf reaches the draft, the answer does not reach Post
+  advance(11_000); await c.flushOutbox();
+  assert.deepEqual(w.sentMails.map((x) => x.attachments.map((a) => a.name)), [['a.pdf', 'b.pdf']]);
+});
+
+test('sending: files that were all on the draft are not needed from the phone any more, but still come back if the message is given up on', async () => {
+  const w = world();
+  const { c, store, advance } = make(w);
+  await c.init();
+  await sendNew(c, 'Tre', [out('a.pdf', 100), out('b.pdf', 100)]);
+  w.flags.sendStatus = 500;
+  advance(11_000); await c.flushOutbox();
+  const it = (await outboxOf(store))[0];
+  assert.equal(it.draft.phase, 'sending');
+  await store.setMeta(`${ME}|outfile|${it.id}|0`, undefined); // a.pdf is lost from the phone: the draft has it already
+  w.flags.sendStatus = 202;
+  await c.flushOutbox();
+  assert.deepEqual(w.sentMails.map((x) => x.attachments.map((a) => a.name)), [['a.pdf', 'b.pdf']], 'sent all the same');
+});
+
+test('sending: a message about to be handed back after three tries is not handed back when it had in fact gone', async () => {
+  const w = world();
+  const { c, store, advance } = make(w);
+  await c.init();
+  await sendNew(c, 'Gikk', [out('a.pdf', 100), out('b.pdf', 100)]);
+  w.flags.sendStatus = 500;
+  advance(11_000); await c.flushOutbox(); await c.flushOutbox(); // two failed tries
+  w.flags.sendStatus = 202;
+  w.flags.loseAfter.push('send');                                // the third goes through, and nobody hears
+  await c.flushOutbox();
+  assert.equal(w.sentMails.length, 1);
+  assert.deepEqual(await outboxOf(store), []);
+  assert.equal(c.loadDraft(), null, 'nothing is handed back for sending again');
+  assert.doesNotMatch(c.getState().toast?.text ?? '', /Could not send/);
+});
+
+test('sending: a message that is given up on while Outlook still holds its draft is handed back, and the draft is thrown away', async () => {
+  const w = world();
+  const { c, advance } = make(w);
+  await c.init();
+  await sendNew(c, 'Tilbake', [out('a.pdf', 100), out('b.pdf', 100)]);
+  w.flags.sendStatus = 500;
+  advance(11_000); await c.flushOutbox(); await c.flushOutbox(); await c.flushOutbox();
+  assert.equal(c.loadDraft()!.subject, 'Tilbake');
+  assert.deepEqual((await c.loadDraftFiles()).map((f) => f.name), ['a.pdf', 'b.pdf'], 'with its files, though they were not read for the last tries');
+  assert.ok(w.log.includes('graph delete D1'));
+  assert.equal(w.sentMails.length, 0);
+});
+
+test('sending: a reply to a message that was archived while it waited still goes, from where the message is now', async () => {
+  const w = world(); w.add('m1');
+  const { c, store, advance, runTimers } = make(w);
+  await c.init();
+  await c.send({ account: ME, kind: 'reply', to: ['anna@x.no'], cc: [], subject: 'Re', body: 'Ja', replyTo: 'm1' });
+  await c.archive([c.getState().mail[0]]);
+  advance(7_000); await runTimers();            // the archive goes first: Outlook now calls the message something else
+  assert.ok(w.log.includes('graph move m1 archive'));
+  advance(5_000); await c.flushOutbox();        // the reply is due
+  assert.deepEqual(w.log.filter((l) => l.startsWith('graph createReply')), ['graph createReply moved-m1']);
+  assert.deepEqual(w.sentMails.map((x) => [x.kind, x.replyTo]), [['reply', 'moved-m1']]);
+  assert.equal(c.loadDraft(), null);
+  assert.deepEqual(await outboxOf(store), [], 'nothing left over');
+});
+
+test('sending: a reply that finds its message gone while the archive of it is still on its way waits, instead of being handed back', async () => {
+  const w = world(); w.add('m1');
+  const { c, store, advance } = make(w);
+  await c.init();
+  await c.send({ account: ME, kind: 'reply', to: ['anna@x.no'], cc: [], subject: 'Re', body: 'Ja', replyTo: 'm1' });
+  await c.archive([c.getState().mail[0]]);
+  w.flags.moved.add('m1');                      // Outlook has moved it already, and Post has not heard yet
+  advance(11_000); await c.flushOutbox();
+  assert.equal(c.loadDraft(), null, 'not handed back');
+  assert.equal((await outboxOf(store)).length, 1, 'still waiting');
+  assert.equal(w.sentMails.length, 0);
+  await c.sync();                               // the archive goes through now (Post hears the new name), then the reply
+  assert.deepEqual(w.sentMails.map((x) => x.replyTo), ['moved-m1']);
+  assert.deepEqual(await outboxOf(store), []);
+});
+
+test('sending: a reply whose message is really gone (nobody is moving it) is handed back, as before', async () => {
+  const w = world(); w.add('m1');
+  const { c, store, advance } = make(w);
+  await c.init();
+  await c.send({ account: ME, kind: 'reply', to: ['anna@x.no'], cc: [], subject: 'Re', body: 'Ja', replyTo: 'm1' });
+  w.flags.moved.add('m1');                      // deleted somewhere else
+  advance(11_000); await c.flushOutbox();
+  assert.equal(c.loadDraft()!.subject, 'Re');
+  assert.deepEqual(await outboxOf(store), []);
+  assert.match(c.getState().toast!.text, /Could not send/);
+});
+
+test('leaving: what waits for its undo time goes at once, and Undo then says it is too late', async () => {
+  const w = world(); w.add('1'); w.add('2');
+  const { c, store } = make(w);
+  await c.init();
+  await c.archive([c.getState().mail.find((m) => m.id === '1')!]);
+  await sendNew(c, 'På vei');
+  const id = c.getState().outbox[0].id;
+  assert.equal(w.log.some((l) => l.startsWith('graph move')), false);
+  await c.leaving();
+  assert.ok(w.log.includes('graph move 1 archive'));
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['På vei']);
+  assert.deepEqual(await outboxOf(store), []);
+  await c.cancelSend(id);
+  assert.match(c.getState().toast!.text, /Too late/);
+  assert.equal(c.loadDraft(), null);
+});
+
+test('leaving: a reply to a message that is being archived goes in the same breath, to where the message is now', async () => {
+  const w = world(); w.add('m1');
+  const { c, store } = make(w);
+  await c.init();
+  await c.send({ account: ME, kind: 'reply', to: ['anna@x.no'], cc: [], subject: 'Re', body: 'Ja', replyTo: 'm1' });
+  await c.archive([c.getState().mail[0]]);
+  await c.leaving();
+  assert.ok(w.log.includes('graph move m1 archive'));
+  assert.deepEqual(w.sentMails.map((x) => [x.kind, x.replyTo]), [['reply', 'moved-m1']], 'not left for the next time Post is opened');
+  assert.deepEqual(await outboxOf(store), []);
+});
+
+test('leaving: with nothing waiting it does nothing at all', async () => {
+  const w = world(); w.add('1');
+  const { c } = make(w);
+  await c.init();
+  const before = w.log.length;
+  await c.leaving();
+  assert.equal(w.log.length, before);
+});
+
+test('leaving: a message that is already on its way cannot be taken back with Undo, even if it was not due yet', async () => {
+  const w = world();
+  let open!: () => void;
+  w.flags.gate = new Promise<void>((r) => { open = r; });
+  const { c, store } = make(w);
+  await c.init();
+  await sendNew(c, 'Underveis');
+  const id = c.getState().outbox[0].id;
+  const going = c.leaving();
+  await settle(20);
+  await c.cancelSend(id);                       // Undo tapped while it is being sent
+  assert.match(c.getState().toast!.text, /Too late: it is already on its way/);
+  open();
+  await going;
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['Underveis']);
+  assert.deepEqual(await outboxOf(store), []);
+  assert.equal(c.loadDraft(), null, 'not in the editor as well: that would send it twice');
+});
+
+test('leaving: asked for while an ordinary send is going, it still takes what was not due', async () => {
+  const w = world();
+  let open!: () => void;
+  w.flags.gate = new Promise<void>((r) => { open = r; });
+  const { c, advance } = make(w);
+  await c.init();
+  await sendNew(c, 'Først');
+  advance(11_000);
+  await sendNew(c, 'Senere');                   // not due for another ten seconds
+  const running = c.flushOutbox();              // sends "Først" and waits at the gate
+  await settle(20);
+  const leaving = c.leaving();
+  open();
+  await Promise.all([running, leaving]);
+  assert.deepEqual(w.sentMails.map((x) => x.subject).sort(), ['Først', 'Senere']);
+});
+
+test('leaving: an action tapped a moment ago, still being written down on the phone, goes with the rest', async () => {
+  const w = world(); w.add('1');
+  let open!: () => void;
+  const slow = new Promise<void>((r) => { open = r; });
+  const inner = memoryStore();
+  const store: Store = { ...inner, async putOp(op) { await slow; return inner.putOp(op); } }; // a phone that takes its time to save an action
+  const { c } = make(w, { store });
+  await c.init();
+  const archiving = c.archive([c.getState().mail[0]]);
+  await settle(5);
+  const leaving = c.leaving();
+  await settle(5);
+  open();
+  await Promise.all([archiving, leaving]);
+  assert.ok(w.log.includes('graph move 1 archive'), 'not left for the next time Post is opened');
+});
+
+test('leaving: a message whose files are still being saved on the phone goes too', async () => {
+  const w = world();
+  let open!: () => void;
+  const slow = new Promise<void>((r) => { open = r; });
+  const inner = memoryStore();
+  const store: Store = { ...inner, async setMeta(k, v) { if (k.includes('|outfile|')) await slow; return inner.setMeta(k, v); } };
+  const { c } = make(w, { store });
+  await c.init();
+  const sending = sendNew(c, 'Med fil', [out('a.pdf', 100)]);
+  await settle(5);
+  const leaving = c.leaving();
+  await settle(5);
+  open();
+  await Promise.all([sending, leaving]);
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['Med fil']);
+  assert.deepEqual(await outboxOf(inner), []);
+});
+
+test('sending: a message put in while another is being sent is kept, and the one being sent keeps its progress', async () => {
+  const w = world();
+  let open!: () => void;
+  w.flags.gate = new Promise<void>((r) => { open = r; });
+  const inner = memoryStore();
+  // a phone that is slow to save the list: reading it, changing it and writing it back can then overlap unless they are kept apart
+  const store: Store = { ...inner, async setMeta(k, v) { if (k === 'outbox') await settle(5); return inner.setMeta(k, v); } };
+  const { c, advance } = make(w, { store });
+  await c.init();
+  await sendNew(c, 'A');
+  advance(11_000);
+  const running = c.flushOutbox();
+  await Promise.all([sendNew(c, 'B'), sendNew(c, 'C')]);
+  open();
+  await running;
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['A']);
+  assert.deepEqual((await outboxOf(inner)).map((x) => x.subject).sort(), ['B', 'C']);
+});
+
+test('a sync that went quiet is left behind and a new one starts, but one that is still busy is not interrupted', async () => {
+  const w = world(); w.add('1');
+  const inner = memoryStore();
+  let hang = false;
+  const store: Store = { ...inner, allMail: () => (hang ? new Promise<never>(() => {}) : inner.allMail()) };
+  const { c, advance } = make(w, { store });
+  await c.init();
+  hang = true;
+  void c.sync();                                 // the phone stops it half way: it never finishes
+  await settle(20);
+  assert.equal(c.getState().sync.running, true);
+  const asked = w.log.filter((l) => l === 'server status').length;
+  advance(60_000);
+  await c.sync();
+  assert.equal(w.log.filter((l) => l === 'server status').length, asked, 'a minute of quiet is not stuck yet');
+  hang = false;
+  advance(100_000);
+  await c.sync();
+  assert.equal(c.getState().sync.running, false);
+  assert.equal(c.getState().sync.at, Date.parse('2026-10-05T10:00:00Z') + 160_000);
+  assert.ok(c.problems().some((p) => p.kind === 'sync' && /went quiet/.test(p.text)));
+});
+
+test('an archive that Outlook refuses for good comes back to the inbox, with a word about it', async () => {
+  const w = world(); w.add('1'); w.add('2');
+  w.flags.strictDelta = true;
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  await c.archive([c.getState().mail.find((m) => m.id === '1')!]);
+  w.flags.moveStatus = 403;
+  advance(7_000);
+  await c.sync(); await c.sync(); await c.sync(); // refused three times: that will not change
+  assert.deepEqual(c.getState().mail.map((m) => m.id), ['2'], 'not back yet');
+  assert.match(c.getState().toast!.text, /Outlook would not archive a message, so it comes back to your inbox/);
+  await runTimers();                              // the mailbox is read again from Outlook's side
+  await settle(20);
+  assert.deepEqual(c.getState().mail.map((m) => m.id).sort(), ['1', '2']);
+  assert.equal(c.getState().waiting, 0);
+  assert.ok(c.problems().some((p) => p.kind === 'action'));
+});
+
+test('unsubscribing sends its one short message in one call, and says so', async () => {
+  const w = world(); w.add('1');
+  const { c } = make(w);
+  await c.init();
+  await c.unsubscribe(c.getState().mail[0], { to: 'stop@list.no', subject: 'unsubscribe', body: '' });
+  assert.ok(w.log.includes('graph sendMail unsubscribe'));
+  assert.equal(c.getState().toast!.text, 'Unsubscribe request sent');
+});
+
+test('what went wrong is written down for the Health page, without addresses', async () => {
+  const { c } = make();
+  await c.init();
+  c.note('send', new Error('The recipient bob@firma.no is not valid'));
+  c.note('send', new Error('The recipient bob@firma.no is not valid'));
+  const list = c.problems();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].count, 2);
+  assert.doesNotMatch(list[0].text, /@/);
+  assert.match(list[0].text, /\[address\]/);
+});
+
+test('start: when what is saved on the phone cannot be read, Post still opens, still signed in, and reads the mail again', async () => {
+  const w = world(); w.add('1');
+  const inner = memoryStore();
+  let fail = true;
+  const store: Store = { ...inner, async getMeta<T>(k: string) { if (fail && k === 'overrides') { fail = false; throw new Error('boom'); } return inner.getMeta<T>(k); } };
+  const { c } = make(w, { store });
+  await c.init();
+  assert.equal(c.getState().ready, true);
+  assert.deepEqual(c.getState().accounts.map((a) => a.email), ['a@outlook.com']);
+  assert.equal(c.getState().mail.length, 1, 'the mail came back from Outlook');
+  assert.ok(c.problems().some((p) => p.kind === 'start' && /boom/.test(p.text)));
+});
+
+test('start: when what is saved on the phone cannot be read and there is no connection either, Post still shows you as signed in', async () => {
+  const w = world(); w.add('1');
+  w.flags.offline = true;
+  const inner = memoryStore();
+  const store: Store = { ...inner, async getMeta<T>(k: string) { if (k === 'overrides') throw new Error('boom'); return inner.getMeta<T>(k); } };
+  const { c } = make(w, { store });
+  const firstShown: number[] = [];
+  c.subscribe(() => { const s = c.getState(); if (s.ready && !firstShown.length) firstShown.push(s.accounts.length); });
+  await c.init();
+  assert.deepEqual(firstShown, [1], 'the first thing shown already has you signed in: no flash of the sign-in screen while the server is asked');
+  assert.deepEqual(c.getState().accounts.map((a) => [a.email, a.needsSignIn]), [['a@outlook.com', false]], 'and nothing says you are signed out');
+});
+
+test('a message is still read when the phone will not keep its text', async () => {
+  const w = world(); w.add('1');
+  const inner = memoryStore();
+  const store: Store = { ...inner, putBody: () => Promise.reject(Object.assign(new Error('The quota has been exceeded.'), { name: 'QuotaExceededError' })) };
+  const { c } = make(w, { store });
+  await c.init();
+  const body = await c.openBody(c.getState().mail[0]);
+  assert.equal(body.content, '<p>Hei</p>');
+  assert.ok(c.problems().some((p) => p.kind === 'storage' && /quota/.test(p.text)));
+});
+
+test('the screen is told when the phone would not give storage, so that Post says so', async () => {
+  const w = world();
+  const inner = memoryStore();
+  const { c } = make(w, { store: { ...inner, status: () => ({ kind: 'memory' as const, reopened: 0, lastError: 'blocked' }) } });
+  await c.init();
+  assert.equal(c.getState().storage, 'memory');
+  assert.deepEqual(c.storageStatus(), { kind: 'memory', reopened: 0, lastError: 'blocked' });
+  const fine = make(world());
+  await fine.c.init();
+  assert.equal(fine.c.getState().storage, 'device');
+});
+
+test('"read again" brings back what the phone shows differently from Outlook, and keeps what waits to be sent', async () => {
+  const w = world(); w.add('1'); w.add('2');
+  w.flags.strictDelta = true;                    // a later sync hears only what changed, as the real thing does
+  const { c, store } = make(w);
+  await c.init();
+  await store.deleteMail([`${ME}|2`]);           // the phone has drifted: Outlook still has message 2 in the inbox
+  await c.sync();
+  assert.deepEqual((await store.allMail()).map((m) => m.id), ['1'], 'an ordinary sync does not notice');
+  await sendNew(c, 'Venter');
+  await c.readAgain();
+  assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', '2']);
+  assert.equal(c.getState().outbox.length, 1, 'the message waiting to be sent is still waiting');
+});
+
+test('something nobody caught is written down and said once in a while, never over an Undo, never for noise or a lost connection', async () => {
+  const w = world(); w.add('1');
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  c.crashed('error', 'ResizeObserver loop completed with undelivered notifications.');
+  c.crashed('promise', new TypeError('Load failed'));
+  assert.equal(c.getState().toast, null, 'noise and a lost connection are not said');
+  assert.deepEqual(c.problems().map((p) => p.kind), ['promise'], 'a lost connection is written down, noise is not');
+  await c.archive([c.getState().mail[0]]);
+  const undoing = c.getState().toast!;
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'subject')"));
+  assert.equal(c.getState().toast!.id, undoing.id, 'an Undo is never covered');
+  assert.equal(c.problems().length, 2);
+  advance(10_000); await runTimers();            // the Undo time is over
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'from')"));
+  assert.match(c.getState().toast!.text, /Something went wrong in the background/);
+  const told = c.getState().toast!.id;
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'to')"));
+  assert.equal(c.getState().toast!.id, told, 'not said again straight away');
+  advance(6 * 60_000);
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'cc')"));
+  assert.notEqual(c.getState().toast!.id, told, 'said again after a while');
+});
+
+test('"read again" asked while a read is going waits for it, so the full read really happens afterwards', async () => {
+  const w = world(); w.add('1'); w.add('2');
+  w.flags.strictDelta = true;
+  let release!: () => void; let hold = false;
+  const gate = new Promise<void>((r) => { release = r; });
+  const f: typeof fetch = async (url, init) => { if (hold && String(url).includes('delta')) { hold = false; await gate; } return w.f(url, init); };
+  const { c, store } = make(w, { fetch: f });
+  await c.init();
+  await store.deleteMail([`${ME}|2`]);           // the phone has drifted
+  hold = true;
+  const running = c.sync();                      // a read that is going, held at Outlook
+  await settle(20);
+  const again = c.readAgain();
+  await settle(20);
+  release();
+  await Promise.all([running, again]);
+  assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', '2'], 'the read that was going did not write its own place back over the new start');
 });

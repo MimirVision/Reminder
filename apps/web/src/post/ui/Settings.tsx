@@ -5,6 +5,8 @@ import { sortingReport } from '../core/report.ts';
 import { asKind, KINDS, KIND_TAB, type Kind } from '../core/types.ts';
 import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
 import { go, useC, useNow } from './ctx.tsx';
+import { Alerts, Hours } from './Alerts.tsx';
+import { Health, dotOf, useHealthLine } from './Health.tsx';
 
 declare const __BUILD__: string;
 
@@ -24,11 +26,24 @@ function Pick<T extends string>({ icon, label, value, options, onChange }: { ico
 const SWIPE: [Cfg['swipeRight'], string][] = [['archive', 'Archive'], ['read', 'Mark read'], ['flag', 'Flag'], ['delete', 'Delete']];
 const SWIPE_L: [Cfg['swipeLeft'], string][] = [['snooze', 'Snooze'], ['flag', 'Flag'], ['delete', 'Delete'], ['read', 'Mark read']];
 
+/** Which settings page an address means. The phone layout and the computer layout both ask here, so a new page only needs adding once. */
+export function SettingsPage({ s, page, account }: { s: State; page: string; account?: string }) {
+  switch (page) {
+    case 'alerts': return <Alerts s={s} />;
+    case 'hours': return <Hours s={s} email={account ?? ''} />;
+    case 'appearance': return <Appearance s={s} />;
+    case 'sorting': return <Sorting s={s} />;
+    case 'health': return <Health s={s} />;
+    default: return <Settings s={s} />;
+  }
+}
+
 export function Settings({ s }: { s: State }) {
   const c = useC();
   const set = c.setSettings;
   const a = ACCENTS.find((x) => x.id === s.settings.accent) ?? ACCENTS[0];
   const alertsLine = s.alertsOn ? 'On' : 'Off';
+  const health = useHealthLine(s);
   return (
     <div className="pg">
       <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
@@ -64,6 +79,7 @@ export function Settings({ s }: { s: State }) {
           <Pick label="Undo send" value={String(s.settings.undoSend)} options={[['0', 'Off'], ['5', '5 seconds'], ['10', '10 seconds'], ['20', '20 seconds'], ['30', '30 seconds']]} onChange={(v) => set({ undoSend: Number(v) })} />
           <div className="it" style={{ alignItems: 'flex-start', flexDirection: 'column', padding: '12px 16px' }}>Signature<textarea className="field" aria-label="Signature" rows={2} placeholder="None" value={s.settings.signature} onChange={(e) => set({ signature: e.target.value })} style={{ minHeight: 64, marginTop: 6 }} /></div>
         </div>
+        <p className="note">Undo works while Post is on screen. If you leave Post, what is waiting is sent right away, so it never gets stuck on a phone that has put Post to sleep.</p>
         <div className="lbl">Appearance</div>
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'appearance' })}>Accent colour<span className="v"><i className="swatch" style={{ background: a.light }} />{a.name}<Icon n="chev" /></span></button>
@@ -72,6 +88,7 @@ export function Settings({ s }: { s: State }) {
         </div>
         <div className="lbl">This device</div>
         <div className="card">
+          <button className="it" onClick={() => go({ name: 'settings', page: 'health' })}><span className="ico"><Icon n="pulse" /></span>Health<span className="v"><i className={dotOf(health.level)} />{health.text}<Icon n="chev" /></span></button>
           <ForgetRow />
         </div>
         <p className="note">Version {typeof __BUILD__ === 'string' ? __BUILD__ : 'dev'}</p>

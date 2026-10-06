@@ -15,15 +15,31 @@ export interface AccountStatus { id?: string; email: string; label: string; mode
 export interface SignedIn { id: string; email: string; label: string; session: string; expires: string; alertsError?: string | null }
 export type SigninPoll = { status: 'pending' } | ({ status: 'done' } & SignedIn);
 
-export function createServer(url: string, f: Fetcher = (...a) => fetch(...a)) {
+/** How long the server may take to answer before the call is given up on (it is a small function: a slow answer is a stuck one). */
+export const SERVER_TIMEOUT_MS = 20_000;
+
+export function createServer(url: string, f: Fetcher = (...a) => fetch(...a), timeoutMs: number = SERVER_TIMEOUT_MS) {
   async function call<T = any>(body: Record<string, unknown>, session?: string): Promise<T> {
-    let res: Response;
-    try {
-      res = await f(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(session ? { 'x-post-session': session } : {}) }, body: JSON.stringify(body) });
-    } catch {
-      throw new ServerError(0, 'Cannot reach your Post server. Check the connection.');
-    }
-    const json = await res.json().catch(() => ({}));
+    // The answer is read inside the time allowed too, and a call that does not answer is cut off, so nothing that waits behind it
+    // (every Microsoft call asks this server for its sign-in first) can be held up for ever.
+    const stop = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { stop.abort(); reject(new ServerError(0, 'Your Post server did not answer in time. Check the connection.')); }, timeoutMs);
+    });
+    const work = (async () => {
+      let res: Response;
+      try {
+        res = await f(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(session ? { 'x-post-session': session } : {}) }, body: JSON.stringify(body), signal: stop.signal });
+      } catch {
+        throw new ServerError(0, 'Cannot reach your Post server. Check the connection.');
+      }
+      return { res, json: await res.json().catch(() => ({})) };
+    })();
+    work.catch(() => {}); // when the time ran out first, what the cut-off call ends with afterwards is of no interest
+    let got: { res: Response; json: unknown };
+    try { got = await Promise.race([work, late]); } finally { clearTimeout(timer); }
+    const { res, json } = got;
     if (!res.ok) {
       const said = json as { error?: string; message?: string };
       // Supabase's own gateway (not the Post function, whose 401s always carry an `error`) answers 401 with just a message when "Verify JWT" is still on.

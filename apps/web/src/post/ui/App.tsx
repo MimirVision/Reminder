@@ -6,9 +6,9 @@ import { Inbox } from './Inbox.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
 import { Triage } from './Triage.tsx';
-import { Appearance, Settings, Sorting } from './Settings.tsx';
-import { Alerts, Hours } from './Alerts.tsx';
+import { SettingsPage } from './Settings.tsx';
 import { AccountsSheet } from './Accounts.tsx';
+import { ErrorBoundary } from './Crash.tsx';
 import { Connecting, Login, SignedInElsewhere, SignInFailed, WaitingForMicrosoft, cleanUrl, readCallback } from './signin.tsx';
 import { Desktop } from './Desktop.tsx';
 import { Ctx, go, useDark, useRoute, useS, useWide } from './ctx.tsx';
@@ -66,6 +66,17 @@ function Shell() {
     return () => { document.removeEventListener('visibilitychange', on); window.removeEventListener('online', on); window.removeEventListener('focus', on); clearInterval(t); navigator.serviceWorker?.removeEventListener('message', onMsg); };
   }, [ctl, s.signingIn]);
 
+  // Leaving: whatever still waits for its undo time, or to be sent, goes now, because a phone that has put Post in the background may not run
+  // it again for hours. Closing always counts; going to the background counts on a device with a touch screen (phone, tablet), where it usually
+  // means "gone". On a computer a hidden tab keeps running, so a message waiting for its undo time is not sent just because you looked at another tab.
+  useEffect(() => {
+    const leave = () => { void ctl.leaving(); };
+    const hidden = () => { if (document.visibilityState === 'hidden' && typeof matchMedia === 'function' && matchMedia('(any-pointer: coarse)').matches) leave(); };
+    window.addEventListener('pagehide', leave);
+    document.addEventListener('visibilitychange', hidden);
+    return () => { window.removeEventListener('pagehide', leave); document.removeEventListener('visibilitychange', hidden); };
+  }, [ctl]);
+
   if (!s.ready) return <div className="welcome"><div className="mark"><Mark size={44} /></div></div>;
   if (phase.kind === 'connecting') return <Connecting message="Setting up your account. The first read of your inbox takes a moment." />;
   if (phase.kind === 'failed') return <SignInFailed message={phase.message} onRetry={() => { setPhase({ kind: 'run' }); setAdding({}); }} />;
@@ -82,7 +93,7 @@ function Shell() {
     case 'later': return <Later s={s} />;
     case 'triage': return <Triage s={s} />;
     case 'compose': return <Compose s={s} mode={route.mode} account={route.account} id={route.id} />;
-    case 'settings': return route.page === 'alerts' ? <Alerts s={s} /> : route.page === 'hours' ? <Hours s={s} email={route.account ?? ''} /> : route.page === 'appearance' ? <Appearance s={s} /> : route.page === 'sorting' ? <Sorting s={s} /> : <Settings s={s} />;
+    case 'settings': return <SettingsPage s={s} page={route.page} account={route.account} />;
     case 'accounts': return <><Inbox s={s} /><AccountsSheet s={s} onAdd={startAdd} onClose={() => go({ name: 'inbox' })} /></>;
     default: return <Inbox s={s} />;
   }
@@ -91,12 +102,13 @@ function Shell() {
 export function App({ controller }: { controller: Controller }) {
   return (
     <Ctx.Provider value={controller}>
-      <Themed />
+      {/* the outer one catches a failure in the themed frame itself; the inner one (in Themed) keeps the colours */}
+      <ErrorBoundary controller={controller} page><Themed controller={controller} /></ErrorBoundary>
     </Ctx.Provider>
   );
 }
 
-function Themed() {
+function Themed({ controller }: { controller: Controller }) {
   const s = useS();
   const dark = useDark(s.settings.theme);
   const vars = themeVars(s.settings, dark);
@@ -108,8 +120,7 @@ function Themed() {
   const wide = useWide();
   return (
     <div className={`post${dark ? ' dark' : ''}${wide ? ' wide' : ''}`} style={vars as React.CSSProperties}>
-      <Shell />
-      <Toasts />
+      <ErrorBoundary controller={controller}><Shell /><Toasts /></ErrorBoundary>
     </div>
   );
 }

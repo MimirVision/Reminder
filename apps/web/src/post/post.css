@@ -136,7 +136,7 @@ html, body { margin: 0; height: 100%; background: var(--bg, #F2F3F5); overscroll
 .btns .p, .cta { background: var(--ac); color: var(--on); } .btns .q, .alt { background: var(--card); color: var(--ink); }
 .cta { width: 100%; height: 58px; font-size: 17px; border-radius: 29px; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .cta[disabled] { opacity: .55; } .alt { width: 100%; margin-top: 10px; }
-.ok-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--ok); display: inline-block; } .bad-dot { background: var(--bad); }
+.ok-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--ok); display: inline-block; flex: none; } .bad-dot { background: var(--bad); } .warn-dot { background: var(--wi); }
 .field { width: 100%; height: 56px; border-radius: 18px; border: 2px solid var(--ln); background: var(--card); padding: 0 16px; }
 .field:focus { border-color: var(--ac); outline: none; }
 textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: vertical; }
@@ -417,3 +417,13 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
   .auth-h { font-size: 32px; }
 }
 @media (hover: hover) { .auth-ms:hover { background: color-mix(in srgb, var(--ink) 4%, var(--card)); } .auth-cta:hover { filter: brightness(1.06); } .auth-alt:hover { color: var(--ink); } }
+
+/* ---- when something is wrong: the screen that replaces a broken one, and the plain one for when Post could not start ---- */
+.crash { position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; max-width: 440px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 32px) 24px calc(env(safe-area-inset-bottom, 0px) + 32px); background: var(--bg); color: var(--ink); }
+.crash .mark { width: 68px; height: 68px; border-radius: 20px; background: #1E2430; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; flex: none; }
+.crash .code { margin: 14px 0 0; }
+.crash .cta, .crash .alt { margin-top: 12px; flex: none; }
+.crash .cta { margin-top: 24px; }
+.crash-tag { margin: 10px 0 0; font-size: 15.5px; line-height: 1.5; color: var(--mu); }
+.crash .auth-fine { text-align: center; }
+.crash .code-box { margin: 14px 0 0; width: 100%; }

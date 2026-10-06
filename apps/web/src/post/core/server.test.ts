@@ -39,6 +39,28 @@ test('a 401 from Supabase’s gateway (Verify JWT still on) is not mistaken for 
 
 const sessions = (m: Record<string, string>) => (email: string) => m[email];
 
+test('a server that does not answer in time is a dropped connection (and the call is stopped), not a wait for ever', async () => {
+  let signal: AbortSignal | undefined;
+  const s = createServer('u', ((_u: string, init: RequestInit) => { signal = init.signal as AbortSignal; return new Promise<Response>(() => {}); }) as unknown as typeof fetch, 20);
+  await assert.rejects(() => s.token('S'), (e: ServerError) => e.status === 0 && /did not answer in time/.test(e.message));
+  assert.equal(signal?.aborted, true);
+});
+
+test('an answer from the server that starts and then stops halfway is cut off as well', async () => {
+  const half = () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"accessTo')); } }), { status: 200 });
+  const s = createServer('u', (async () => half()) as typeof fetch, 20);
+  await assert.rejects(() => s.token('S'), (e: ServerError) => e.status === 0);
+});
+
+test('a token request that timed out does not leave later ones waiting on it', async () => {
+  let n = 0;
+  const s = createServer('u', ((): Promise<Response> => (++n === 1 ? new Promise<Response>(() => {}) : Promise.resolve(json(200, { accessToken: 'T', expiresIn: 3600, email: 'a' })))) as unknown as typeof fetch, 20);
+  const tok = createTokens(s, sessions({ a: 'S' }));
+  await assert.rejects(() => tok.source('a')(), (e: ServerError) => e.status === 0);
+  assert.equal(await tok.source('a')(), 'T');
+});
+
+
 test('tokens are reused until shortly before they expire', async () => {
   let n = 0; let t = 0;
   const tok = createTokens({ token: async () => ({ accessToken: `T${++n}`, expiresIn: 3600, email: 'a' }) }, sessions({ a: 'S' }), () => t);

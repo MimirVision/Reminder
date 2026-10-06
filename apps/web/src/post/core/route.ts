@@ -9,7 +9,7 @@ export type Route =
   | { name: 'triage' }
   | { name: 'compose'; mode: 'new' | 'reply' | 'replyAll' | 'forward'; account?: string; id?: string }
   | { name: 'accounts' }
-  | { name: 'settings'; page: '' | 'alerts' | 'hours' | 'appearance' | 'sorting'; account?: string };
+  | { name: 'settings'; page: '' | 'alerts' | 'hours' | 'appearance' | 'sorting' | 'health'; account?: string };
 
 const dec = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
 
@@ -29,7 +29,7 @@ export function parseRoute(hash: string): Route {
       return mode ? { name: 'compose', mode, ...(parts[2] ? { account: parts[2] } : {}), ...(parts[3] ? { id: parts[3] } : {}) } : { name: 'compose', mode: 'new' };
     }
     case 'settings': {
-      const page = (['alerts', 'hours', 'appearance', 'sorting'] as const).find((x) => x === parts[1]) ?? '';
+      const page = (['alerts', 'hours', 'appearance', 'sorting', 'health'] as const).find((x) => x === parts[1]) ?? '';
       return { name: 'settings', page, ...(parts[2] ? { account: parts[2] } : {}) };
     }
     default: return { name: 'inbox' };
