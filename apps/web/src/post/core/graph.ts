@@ -1,5 +1,7 @@
 // A small Microsoft Graph client for mail: every call goes through one request() that adds the sign-in, retries when Microsoft says
-// "slow down", and signs in again once if the token was refused. The fetch and the token source are injected so it is tested without a network.
+// "slow down", and signs in again once if the token was refused. No call can wait for ever: one that does not answer in time is cut off and
+// counts as a dropped connection. Sending is made safe against lost answers (see deliver). The fetch and the token source are injected so
+// it is tested without a network.
 
 export type Fetcher = typeof fetch;
 
@@ -21,6 +23,8 @@ export interface GraphDeps {
   token: (fresh?: boolean) => Promise<string>;
   sleep?: (ms: number) => Promise<void>;
   maxRetries?: number;
+  /** How long one call may take before it is cut off (default 30 s). Files going up or down get four times as long. */
+  timeoutMs?: number;
   /**
    * Where files over 3 MB are handed to when the browser cannot reach Microsoft's upload address itself (the site's own server passes each
    * slice on; the full address, e.g. "https://post.example/api/post-upload"). Tried only after a direct attempt fails.
@@ -55,7 +59,15 @@ export interface OutFile { name: string; type: string; bytes: Uint8Array }
 /** Everything about an attachment except its contents. `kind`: a file, an attached message (item) or a link to a cloud file. */
 export interface AttachmentInfo { id: string; name: string; size: number; contentType: string; inline: boolean; kind: 'file' | 'item' | 'link' }
 
-const INLINE_TOTAL = 2_500_000; // all files together that may travel inside the message itself (base64 makes them a third bigger, and Microsoft refuses about 4 MB per call)
+/** What goes out: a new message, an answer to one (`replyTo` is the message answered), or a forward of one. */
+export type Outgoing =
+  | { kind: 'new'; subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[] }
+  | { kind: 'reply' | 'replyAll'; replyTo: string; body: string }
+  | { kind: 'forward'; replyTo: string; to: string[]; body: string };
+
+/** How far a message got at Outlook: its draft is made (and being filled), or "send" has been asked for. Kept by the caller between tries. */
+export interface DraftProgress { id: string; phase: 'made' | 'sending' }
+
 const ONE_CALL = 3_000_000;     // the biggest single file added with one call; anything above goes up in slices
 const SLICE = 3_276_800;        // under Microsoft's 4 MB limit per slice, and a multiple of both 320 KiB (what OneDrive asks) and 200 KiB (what Outlook recommends)
 
@@ -75,13 +87,51 @@ export function createGraph(deps: GraphDeps) {
   const base = deps.base ?? 'https://graph.microsoft.com/v1.0';
   const sleep = deps.sleep ?? realSleep;
   const maxRetries = deps.maxRetries ?? 3;
+  const timeoutMs = deps.timeoutMs ?? 30_000;
 
-  type Send = { headers?: Record<string, string>; body?: BodyInit; /** false for addresses that carry their own permission (upload addresses): the sign-in must not be sent there */ auth?: boolean; /** how often a dropped connection is tried again (default: the usual number) */ retries?: number };
+  type Send = {
+    headers?: Record<string, string>; body?: BodyInit;
+    /** false for addresses that carry their own permission (upload addresses): the sign-in must not be sent there */
+    auth?: boolean;
+    /** how often a dropped connection is tried again (default: the usual number) */
+    retries?: number;
+    /** The call may already have been carried out when its answer is lost (sending a message, adding a file), so it is never simply repeated: the caller finds out first. */
+    once?: boolean;
+    /** Files and long jobs: four times the usual time before the call is given up on. */
+    slow?: boolean;
+  };
 
-  /** One call with the retry rules: renews the sign-in once when it is refused, waits when Microsoft says "slow down", and tries again when the connection drops. Gives back the final answer untouched. */
+  /**
+   * One try: the whole answer within the time allowed, or a GraphError with status 0 ("network" or "timeout"). A call that never answers is cut
+   * off here, so one stuck connection can never hold up what waits behind it. The answer is read in full inside the limit (an answer that stops
+   * halfway is as stuck as none) and handed on as a finished Response.
+   */
+  async function within(url: string, init: RequestInit, ms: number): Promise<Response> {
+    const stop = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { stop.abort(); reject(new GraphError(0, 'timeout', 'Outlook did not answer in time')); }, ms);
+    });
+    const work = (async () => {
+      const res = await deps.fetch(url, { ...init, signal: stop.signal });
+      const empty = res.status === 204 || res.status === 205 || res.status === 304;
+      return new Response(empty ? null : await res.arrayBuffer(), { status: res.status, statusText: res.statusText, headers: res.headers });
+    })();
+    work.catch(() => {}); // when the time ran out first, what the cut-off call ends with afterwards is of no interest
+    try {
+      return await Promise.race([work, late]);
+    } catch (e) {
+      throw e instanceof GraphError ? e : new GraphError(0, 'network', e instanceof Error ? e.message : 'Network error');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** One call with the retry rules: renews the sign-in once when it is refused, waits when Microsoft says "slow down", and tries again when the connection drops or does not answer. Gives back the final answer untouched. */
   async function exchange(method: string, pathOrUrl: string, o: Send = {}): Promise<Response> {
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${base}${pathOrUrl}`;
     const limit = o.retries ?? maxRetries;
+    const ms = o.slow ? timeoutMs * 4 : timeoutMs;
     let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       const headers: Record<string, string> = {};
@@ -89,13 +139,14 @@ export function createGraph(deps: GraphDeps) {
       Object.assign(headers, o.headers);
       let res: Response;
       try {
-        res = await deps.fetch(url, { method, headers, body: o.body });
+        res = await within(url, { method, headers, body: o.body }, ms);
       } catch (e) {
-        if (attempt < limit) { await sleep(500 * 2 ** attempt); continue; }
-        throw new GraphError(0, 'network', e instanceof Error ? e.message : 'Network error');
+        if (!o.once && attempt < limit) { await sleep(500 * 2 ** attempt); continue; }
+        throw e;
       }
       if (res.status === 401 && o.auth !== false && !refreshed) { refreshed = true; attempt--; continue; }
-      if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < limit) {
+      // "Slow down" and "not available" were not carried out, so trying again is safe. A gateway timeout (504) says nothing about whether it was.
+      if ((res.status === 429 || res.status === 503 || (res.status === 504 && !o.once)) && attempt < limit) {
         const wait = Number(res.headers.get('Retry-After'));
         await sleep(Number.isFinite(wait) && wait > 0 ? Math.min(wait, 30) * 1000 : 500 * 2 ** attempt);
         continue;
@@ -111,8 +162,8 @@ export function createGraph(deps: GraphDeps) {
     return new GraphError(res.status, String(json?.error?.code ?? 'error'), String(json?.error?.message ?? text).slice(0, 200));
   };
 
-  async function request(method: string, pathOrUrl: string, body?: unknown, extra: Record<string, string> = {}): Promise<any> {
-    const res = await exchange(method, pathOrUrl, { headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...extra }, body: body !== undefined ? JSON.stringify(body) : undefined });
+  async function request(method: string, pathOrUrl: string, body?: unknown, extra: Record<string, string> = {}, how: Pick<Send, 'once' | 'slow'> = {}): Promise<any> {
+    const res = await exchange(method, pathOrUrl, { headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...extra }, body: body !== undefined ? JSON.stringify(body) : undefined, ...how });
     if (res.status === 204 || res.status === 202) return null;
     if (!res.ok) throw await failure(res);
     const text = await res.text();
@@ -121,17 +172,19 @@ export function createGraph(deps: GraphDeps) {
 
   /** The answer as it is, for files. */
   async function requestBytes(path: string): Promise<{ bytes: Uint8Array; type: string }> {
-    const res = await exchange('GET', path);
+    const res = await exchange('GET', path, { slow: true });
     if (!res.ok) throw await failure(res);
     return { bytes: new Uint8Array(await res.arrayBuffer()), type: res.headers.get('Content-Type') ?? '' };
   }
 
-  // ---- sending files ---------------------------------------------------------------------------------------------------------
-  // Small files travel inside the message. Bigger ones need a draft: make it, attach the files one by one (a file over 3 MB goes up in
-  // slices to a private upload address), then send it. A draft that fails halfway is deleted so nothing is left lying in Drafts.
+  // ---- sending ---------------------------------------------------------------------------------------------------------------
+  // Every message goes out through a draft: make it, add the files one by one (a file over 3 MB goes up in slices to a private upload
+  // address), then send it. A message sent in one call cannot be told apart afterwards from one that was not sent when the answer is lost
+  // (a dropped connection, the phone going to sleep); a draft has an id that can be asked about, so a message goes out exactly once.
 
   const enc = encodeURIComponent;
   const fileAttachment = (f: OutFile) => ({ '@odata.type': '#microsoft.graph.fileAttachment', name: f.name, contentType: f.type || 'application/octet-stream', contentBytes: toBase64(f.bytes) });
+  const rcpt = (a: string[] = []) => a.map((address) => ({ emailAddress: { address } }));
 
   // The upload address belongs to Microsoft's mail servers and carries its own permission. A browser may not be allowed to talk to it (that
   // is Microsoft's choice and cannot be tested from here), so when the direct way fails the site's own server passes the slice on.
@@ -142,7 +195,7 @@ export function createGraph(deps: GraphDeps) {
     const body = bytes as BodyInit;
     const relay = deps.uploadRelay;
     const throughRelay = async () => {
-      const r = await exchange('PUT', relay!, { auth: false, headers: { ...headers, 'X-Upload-Url': url }, body });
+      const r = await exchange('PUT', relay!, { auth: false, slow: true, headers: { ...headers, 'X-Upload-Url': url }, body });
       // Anything that is not the relay itself (a missing route answers with the web page) is no answer from Microsoft.
       if (!r.headers.get('X-Post-Relay')) throw new GraphError(0, 'upload', 'Outlook would not take the file from this browser');
       return r;
@@ -150,7 +203,7 @@ export function createGraph(deps: GraphDeps) {
     let res: Response;
     if (relay && viaRelay) res = await throughRelay();
     else {
-      try { res = await exchange('PUT', url, { auth: false, headers, body, retries: relay ? 0 : undefined }); } catch (e) {
+      try { res = await exchange('PUT', url, { auth: false, slow: true, headers, body, retries: relay ? 0 : undefined }); } catch (e) {
         if (!relay || !(e instanceof GraphError && e.status === 0)) throw e;
         res = await throughRelay();
         if (res.ok) { viaRelay = true; deps.onUploadRoute?.('relay'); }
@@ -161,21 +214,52 @@ export function createGraph(deps: GraphDeps) {
 
   async function attach(messageId: string, f: OutFile) {
     const size = f.bytes.byteLength;
-    if (size <= ONE_CALL) { await request('POST', `/me/messages/${enc(messageId)}/attachments`, fileAttachment(f)); return; }
+    if (size <= ONE_CALL) { await request('POST', `/me/messages/${enc(messageId)}/attachments`, fileAttachment(f), {}, { once: true, slow: true }); return; }
     const session = await request('POST', `/me/messages/${enc(messageId)}/attachments/createUploadSession`, { AttachmentItem: { attachmentType: 'file', name: f.name, size, contentType: f.type || 'application/octet-stream' } });
     const url = String(session?.uploadUrl ?? '');
     if (!url) throw new GraphError(0, 'upload', `Outlook did not give a place to upload ${f.name}`);
     for (let at = 0; at < size; at += SLICE) await putSlice(url, f.bytes.subarray(at, Math.min(size, at + SLICE)), at, size);
   }
 
-  async function sendDraft(create: () => Promise<any>, files: OutFile[]) {
-    const id = String((await create())?.id ?? '');
+  /** What is attached to a draft (name and size are enough to tell). */
+  async function listed(id: string): Promise<{ name: string; size: number }[]> {
+    const j = await request('GET', `/me/messages/${enc(id)}/attachments?$select=name,size`);
+    return ((j?.value ?? []) as any[]).map((a) => ({ name: String(a?.name ?? ''), size: Number(a?.size ?? 0) }));
+  }
+  // Outlook may report a size a little different from the file's own (it counts what it stored), so "the same" is the same name and nearly the same size.
+  const sameFile = (a: { name: string; size: number }, f: OutFile) => a.name === f.name && Math.abs(a.size - f.bytes.byteLength) <= Math.max(1024, f.bytes.byteLength * 0.02);
+  const without = (have: { name: string; size: number }[], f: OutFile): boolean => { const i = have.findIndex((a) => sameFile(a, f)); if (i < 0) return false; have.splice(i, 1); return true; };
+
+  /** Adds one file to a draft. When the connection drops while it goes up, the draft is looked at before trying again, so the file can never be on it twice. */
+  async function attachSafely(id: string, f: OutFile) {
+    for (let n = 0; ; n++) {
+      try { await attach(id, f); return; } catch (e) {
+        const lost = e instanceof GraphError && e.status === 0 && (e.code === 'network' || e.code === 'timeout');
+        if (!lost || n >= maxRetries) throw e;
+        if (without(await listed(id), f)) return; // it arrived, only the answer was lost
+        await sleep(500 * 2 ** n);
+      }
+    }
+  }
+
+  /** Makes the draft of a message and gives back its id. */
+  async function makeDraft(msg: Outgoing): Promise<string> {
+    let j: any;
+    if (msg.kind === 'new') j = await request('POST', '/me/messages', { subject: msg.subject, body: { contentType: 'Text', content: msg.body }, toRecipients: rcpt(msg.to), ccRecipients: rcpt(msg.cc), bccRecipients: rcpt(msg.bcc) });
+    else if (msg.kind === 'forward') j = await request('POST', `/me/messages/${enc(msg.replyTo)}/createForward`, { comment: msg.body, toRecipients: rcpt(msg.to) });
+    else j = await request('POST', `/me/messages/${enc(msg.replyTo)}/${msg.kind === 'replyAll' ? 'createReplyAll' : 'createReply'}`, { comment: msg.body });
+    const id = String(j?.id ?? '');
     if (!id) throw new GraphError(0, 'draft', 'Outlook did not create the draft');
+    return id;
+  }
+
+  /** Where a draft stands: still a draft, sent (it exists but is not a draft any more), or missing (sent and moved to Sent Items under another id, or deleted). */
+  async function draftState(id: string): Promise<'draft' | 'sent' | 'missing'> {
     try {
-      for (const f of files) await attach(id, f);
-      await request('POST', `/me/messages/${enc(id)}/send`);
+      const j = await request('GET', `/me/messages/${enc(id)}?$select=isDraft`);
+      return j?.isDraft === false ? 'sent' : 'draft';
     } catch (e) {
-      try { await request('DELETE', `/me/messages/${enc(id)}`); } catch { /* a leftover draft is harmless */ }
+      if (e instanceof GraphError && (e.status === 404 || e.status === 410)) return 'missing';
       throw e;
     }
   }
@@ -249,26 +333,44 @@ export function createGraph(deps: GraphDeps) {
       return out;
     },
 
-    /** Sends a new message. With `files`: inside the message when they are small, through a draft when they are not. */
-    async sendMail(message: { subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[]; files?: OutFile[] }) {
-      const rcpt = (a: string[] = []) => a.map((address) => ({ emailAddress: { address } }));
+    /**
+     * Sends a short message in one call, with no files. It is not repeated when the answer is lost (the caller says so), but nothing can tell
+     * afterwards whether it went: messages that must go exactly once, with or without files, go through `deliver`.
+     */
+    async sendMail(message: { subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[] }) {
       const payload = { subject: message.subject, body: { contentType: 'Text', content: message.body }, toRecipients: rcpt(message.to), ccRecipients: rcpt(message.cc), bccRecipients: rcpt(message.bcc) };
-      const files = message.files ?? [];
-      if (!files.length) { await request('POST', '/me/sendMail', { message: payload, saveToSentItems: true }); return; }
-      if (files.reduce((n, f) => n + f.bytes.byteLength, 0) <= INLINE_TOTAL) { await request('POST', '/me/sendMail', { message: { ...payload, attachments: files.map(fileAttachment) }, saveToSentItems: true }); return; }
-      await sendDraft(() => request('POST', '/me/messages', payload), files);
+      await request('POST', '/me/sendMail', { message: payload, saveToSentItems: true }, {}, { once: true });
     },
 
-    async reply(id: string, comment: string, all = false, files?: OutFile[]) {
-      if (!files?.length) { await request('POST', `/me/messages/${enc(id)}/${all ? 'replyAll' : 'reply'}`, { comment }); return; }
-      await sendDraft(() => request('POST', `/me/messages/${enc(id)}/${all ? 'createReplyAll' : 'createReply'}`, { comment }), files);
+    /**
+     * Sends a message so that it goes out exactly once, however often this is called for it: through a draft, which has an id that can be asked
+     * about. `resume` is what an earlier try reported through `saved` (the draft's id and how far it got): after a dropped connection, or the
+     * phone going to sleep in the middle, the draft is looked at first, and a message that has already left is not sent again.
+     * `saved` is awaited, and when it fails nothing more is done: a "send" is never started that could not be written down first.
+     */
+    async deliver(msg: Outgoing, files: OutFile[] = [], resume?: DraftProgress, saved?: (progress: DraftProgress) => Promise<void>): Promise<void> {
+      let id: string | undefined;
+      if (resume) {
+        const where = await draftState(resume.id);
+        if (where === 'sent' || (where === 'missing' && resume.phase === 'sending')) return; // it has left (Outlook moved the draft to Sent Items)
+        if (where === 'draft') id = resume.id;                                                // still there: go on from where it stopped
+      }
+      let have: { name: string; size: number }[] = [];
+      if (!id) { id = await makeDraft(msg); await saved?.({ id, phase: 'made' }); }
+      else if (resume!.phase === 'made' && files.length) have = await listed(id);
+      if (!(resume && resume.id === id && resume.phase === 'sending')) {
+        for (const f of files) if (!without(have, f)) await attachSafely(id, f);
+        await saved?.({ id, phase: 'sending' });
+      }
+      await request('POST', `/me/messages/${enc(id)}/send`, undefined, {}, { once: true, slow: true });
     },
 
-    /** Forwards with the original's attachments (Outlook adds them itself) plus any new `files`. */
-    async forward(id: string, to: string[], comment: string, files?: OutFile[]) {
-      const toRecipients = to.map((address) => ({ emailAddress: { address } }));
-      if (!files?.length) { await request('POST', `/me/messages/${enc(id)}/forward`, { comment, toRecipients }); return; }
-      await sendDraft(() => request('POST', `/me/messages/${enc(id)}/createForward`, { comment, toRecipients }), files);
+    /** Whether the draft of a message is still a draft, has gone out, or is missing (gone out and moved to Sent Items, or deleted). */
+    draftState,
+
+    /** Deletes a draft made for a message that will not be sent after all. Best effort: a leftover draft is harmless. */
+    async discard(id: string): Promise<void> {
+      try { await request('DELETE', `/me/messages/${enc(id)}`); } catch { /* nothing more to do */ }
     },
 
     /** Server-side search across the whole mailbox, not just what is on this phone. */

@@ -1,6 +1,7 @@
 import { isFreemail, orgDomain, type ClassifyContext } from './classify.ts';
+import { createDiag } from './diag.ts';
 import { createByteCache, emlName, mimeOf, saveName } from './files.ts';
-import { createGraph, GraphError, type Graph, type OutFile, type RawMessage } from './graph.ts';
+import { createGraph, GraphError, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
 import { UNDO_WINDOW_MS, createQueue, type OpType } from './queue.ts';
 import { createServer, createTokens, ServerError, type AccountStatus, type DeviceApi, type Server, type SignedIn } from './server.ts';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
@@ -18,7 +19,8 @@ export type View = 'all' | Kind;
 export interface Toast { id: number; text: string; undo?: () => void }
 /** A file waiting to be sent: what the outbox list knows about it. The file itself is kept apart, under the account's own name, so removing the account removes it. */
 export interface OutFileRef { name: string; type: string; size: number }
-export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward'; to: string[]; cc: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number }
+export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward'; to: string[]; cc: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number;
+  /** How far the message got at Outlook (its draft, and whether "send" was asked for): kept so that a try that was cut short is carried on, never repeated. */ draft?: DraftProgress }
 export interface Draft { account: string; to: string; cc: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind'] }
 
 export interface AppAccount extends AccountStatus { needsSignIn: boolean }
@@ -80,12 +82,42 @@ const HIDDEN_FOLDERS = ['deleteditems', 'junkemail', 'drafts'] as const;
 const NEEDS_SIGN_IN = /AADSTS(70000|700082|700084|50173|50076|50079|65001|70008|500011)|invalid_grant|interaction_required|unknown account|signed out/i;
 type Session = { email: string; id: string; label: string; session: string };
 const PENDING_MS = 15 * 60_000;
+/** A sync that has done nothing at all (no call to Outlook or to the server, no step on the phone) for this long is stuck, and a new one may start. */
+const SYNC_STUCK_MS = 150_000;
+/** How many "this message moved, and is now called that" notes are kept for each mailbox. */
+const MOVED_KEEP = 300;
 
 export function createController(deps: Deps) {
   const now = deps.now ?? (() => Date.now());
   const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const { store, kv } = deps;
-  const queue = createQueue(store, { now });
+  const diag = createDiag({ now });
+  const note = diag.note;
+
+  // When Outlook or the server last answered, or Post last did something on the phone. A sync that has gone quiet for long is stuck.
+  let lastActivity = now();
+  const alive = () => { lastActivity = now(); };
+  const watched: typeof fetch = async (...a) => { alive(); try { return await deps.fetch(...a); } finally { alive(); } };
+
+  // Outlook gives a message a new id when it is moved (archive, delete). A reply that waits to be sent still points at the old one, so each
+  // move is written down (old id to new id) and a waiting reply follows it.
+  async function noteMoved(account: string, oldId: string, newId: string) {
+    const key = `${account}|moved`;
+    const notes = (await store.getMeta<Record<string, string>>(key)) ?? {};
+    delete notes[oldId]; notes[oldId] = newId;
+    const all = Object.keys(notes);
+    for (const k of all.slice(0, Math.max(0, all.length - MOVED_KEEP))) delete notes[k];
+    await store.setMeta(key, notes);
+  }
+  async function currentId(account: string, id: string): Promise<string> {
+    const notes = (await store.getMeta<Record<string, string>>(`${account}|moved`)) ?? {};
+    let cur = id;
+    for (let hops = 0; hops < 4 && notes[cur] && notes[cur] !== cur; hops++) cur = notes[cur];
+    return cur;
+  }
+
+  let refusedNow: PendingOp[] = [];
+  const queue = createQueue(store, { now, onMoved: noteMoved, onRefused: (op) => { refusedNow.push(op); note('action', `Outlook refused to ${op.type} a message`); } });
 
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
@@ -95,7 +127,7 @@ export function createController(deps: Deps) {
   const emit = () => listeners.forEach((l) => l());
   const set = (patch: Partial<State>) => { state = { ...state, ...patch }; emit(); };
 
-  const server: Server | null = deps.serverUrl ? createServer(deps.serverUrl, (...a) => deps.fetch(...a)) : null;
+  const server: Server | null = deps.serverUrl ? createServer(deps.serverUrl, watched) : null;
   let sessions: Session[] = [];
   const sessionOf = (email: string) => sessions.find((x) => x.email === email)?.session;
   const tokens = server ? createTokens(server, sessionOf, now) : null;
@@ -106,6 +138,7 @@ export function createController(deps: Deps) {
   let known: ReadonlySet<string> = new Set(); // addresses any signed-in mailbox has written to
   let sortingRun: Promise<void> | null = null;
   let syncRun: Promise<void> | null = null;
+  let syncSeq = 0;
   const downloads = createByteCache<Opened>(48 * 1024 * 1024); // files already fetched for reading, so opening one again is instant
   const fetching = new Map<string, Promise<Opened>>();
   // Messages seen in Outlook that are not in the inbox on this phone (the rest of a conversation, results of "search all of Outlook"). Kept only
@@ -130,12 +163,29 @@ export function createController(deps: Deps) {
   /** Everything the sorting knows besides the message itself: what you moved by hand, who you have written to, your VIPs. */
   const sortCtx = (): ClassifyContext => ({ overrides: state.overrides, known, vips: new Set(state.accounts.flatMap((a) => a.vips ?? []).map((v) => v.toLowerCase())) });
 
+  /**
+   * Carries out what is due at Outlook (everything, when the app is leaving). Never fails. What Outlook would not do (a refusal that will not
+   * change) is put right at once: that mailbox is read again from Outlook's side, so nothing on the phone goes on showing what did not happen.
+   */
+  async function runQueue(everything = false): Promise<void> {
+    try { await queue.flush(graphFor, everything); } catch (e) { note('queue', e); return; }
+    const refused = refusedNow; refusedNow = [];
+    if (!refused.length) return;
+    try { for (const account of new Set(refused.map((o) => o.account))) await store.setMeta(`${account}|delta`, undefined); } catch (e) { note('queue', e); }
+    const lost = refused.filter((o) => o.type === 'archive' || o.type === 'delete');
+    if (lost.length) {
+      const verb = lost.every((o) => o.type === 'archive') ? 'archive' : lost.every((o) => o.type === 'delete') ? 'delete' : 'move';
+      toast(`Outlook would not ${verb} ${lost.length === 1 ? 'a message' : `${lost.length} messages`}, so ${lost.length === 1 ? 'it comes' : 'they come'} back to your inbox.`, undefined, 6000);
+    }
+    setTimer(() => { void api.sync(); }, 300);
+  }
+
   const graphFor = (email: string): Graph | null => {
     if (!tokens || !state.accounts.find((a) => a.email === email && !a.needsSignIn)) return null;
     let g = graphs.get(email);
     if (!g) {
       g = createGraph({
-        fetch: (...a) => deps.fetch(...a), token: tokens.source(email), sleep: deps.sleep,
+        fetch: watched, token: tokens.source(email), sleep: deps.sleep,
         uploadRelay: deps.uploadRelay, uploadViaRelay: kv.get('post.upload') === 'relay', onUploadRoute: () => kv.set('post.upload', 'relay'),
       });
       graphs.set(email, g);
@@ -235,9 +285,22 @@ export function createController(deps: Deps) {
     try { const p = JSON.parse(kv.get('post.pending') ?? 'null'); return p && typeof p.handle === 'string' && Date.now() - p.at < PENDING_MS ? p : null; } catch { return null; }
   }
 
-  // ---- files waiting to be sent ---------------------------------------------------------------------------------------------------------
+  // ---- messages waiting to be sent ---------------------------------------------------------------------------------------------------------
   let flushing: Promise<void> | null = null;
   let flushAgain = false;
+  let flushAgainEarly = false;
+
+  // The outbox is changed by sending, Undo, a run that has just sent something, a run noting how far a message got, and removing a mailbox.
+  // Each reads the list, changes it and writes it back, so they go one after the other (the slow part of a run, talking to Outlook, is never
+  // inside this): none of them can write an older list back over another's change.
+  let outboxEditing: Promise<unknown> = Promise.resolve();
+  const outboxExclusive = <T,>(fn: () => Promise<T>): Promise<T> => { const run = outboxEditing.then(fn, fn); outboxEditing = run.catch(() => {}); return run; };
+  const readOutbox = async () => (await store.getMeta<OutboxItem[]>('outbox')) ?? [];
+  /** Changes one waiting message in place and leaves every other change made meanwhile alone. */
+  const patchOutbox = (id: string, patch: Partial<OutboxItem>) => outboxExclusive(async () => {
+    const list = await readOutbox();
+    if (list.some((x) => x.id === id)) await store.setMeta('outbox', list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  });
 
   /** The files of an outbox item, read back from the phone. Any that are gone are named in `lost`. */
   async function loadOutFiles(it: OutboxItem): Promise<{ files: OutFile[]; lost: string[] }> {
@@ -254,56 +317,96 @@ export function createController(deps: Deps) {
     for (let i = 0; i < (it.files?.length ?? 0); i++) { try { await store.setMeta(outFileKey(it.account, it.id, i), undefined); } catch { /* nothing more to do */ } }
   }
 
-  /** The message goes back to the editor, with its files, and the person is told why. */
-  async function handBack(it: OutboxItem, files: OutFile[], why: string) {
+  /** The message goes back to the editor, with its files, and the person is told why. Its half-made copy at Outlook is thrown away. */
+  async function handBack(it: OutboxItem, given: OutFile[], why: string, g: Graph) {
+    const progress = (await readOutbox()).find((x) => x.id === it.id)?.draft ?? it.draft;
+    // Once "send" was asked for the files were not needed from the phone any more, so they were not read: the person gets them back all the same.
+    const files = given.length || !it.files?.length ? given : (await loadOutFiles(it)).files;
     api.saveDraft({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
     if (files.length) await api.saveDraftFiles(files);
     await dropOutFiles(it);
     toast(`Could not send: ${why}. Your message${files.length ? ' and its files are' : ' is'} saved as a draft.`, undefined, files.length ? 8000 : undefined);
+    if (progress) await g.discard(progress.id);
   }
 
-  async function flushOutboxOnce() {
-    const list = ((await store.getMeta<OutboxItem[]>('outbox')) ?? []);
-    const finished = new Set<string>();             // sent, or handed back to the editor
-    const retried = new Map<string, OutboxItem>();  // failed, will be tried again
+  /** Whether a message that is about to be given up on had in fact gone out: it is only handed back when Outlook still holds it as a draft, so it can never go twice. */
+  async function wentAlready(it: OutboxItem, g: Graph): Promise<'went' | 'not' | 'unknown'> {
+    const progress = (await readOutbox()).find((x) => x.id === it.id)?.draft;
+    if (progress?.phase !== 'sending') return 'not';
+    try { return (await g.draftState(progress.id)) === 'draft' ? 'not' : 'went'; } catch { return 'unknown'; }
+  }
+
+  /** The message a waiting reply answers is being moved away (an archive waiting or just done): "not found" is then only "not yet", and its new name is known soon. */
+  async function followingMove(account: string, id: string, used: string): Promise<boolean> {
+    if ((await currentId(account, id)) !== used) return true;
+    return (await queue.pending()).some((o) => o.account === account && o.messageId === id && (o.type === 'archive' || o.type === 'delete'));
+  }
+
+  const outgoing = (it: OutboxItem, replyTo: string | undefined): Outgoing =>
+    it.kind === 'new' || !replyTo ? { kind: 'new', subject: it.subject, body: it.body, to: it.to, cc: it.cc }
+    : it.kind === 'forward' ? { kind: 'forward', replyTo, to: it.to, body: it.body }
+    : { kind: it.kind, replyTo, body: it.body };
+
+  async function flushOutboxOnce(early = false) {
+    const list = await readOutbox();
+    const finished = new Set<string>();                    // sent, or handed back to the editor
+    const kept = new Map<string, Partial<OutboxItem>>();   // failed, will be tried again: what changes about them
     let sent = 0;
     let learned = false;
     let sendingToast = 0;
+    const gone = async (it: OutboxItem) => {
+      sent++;
+      conversations.clear(); // your message is in Sent Items now: the next time a conversation is opened it is asked for again
+      finished.add(it.id);
+      await dropOutFiles(it);
+      if (await rememberKnown(store, it.account, [...it.to, ...it.cc])) learned = true;
+    };
     for (const it of list) {
-      if (it.sendAt > now()) continue;
+      if (!early && it.sendAt > now()) continue;
       const g = graphFor(it.account);
       if (!g) continue;
+      if (it.sendAt > now()) await patchOutbox(it.id, { sendAt: now() }); // on its way now: there is no Undo any more
       let files: OutFile[] = [];
+      let answered = it.replyTo;
       try {
-        const loaded = await loadOutFiles(it);
-        files = loaded.files;
-        if (loaded.lost.length) { await handBack(it, files, `${loaded.lost.join(', ')} ${loaded.lost.length > 1 ? 'are' : 'is'} no longer stored on this phone`); finished.add(it.id); continue; }
+        // Once "send" has been asked for, every file is on the draft already: none is needed from the phone (and one lost from it does not matter).
+        if (it.draft?.phase !== 'sending') {
+          const loaded = await loadOutFiles(it);
+          files = loaded.files;
+          if (loaded.lost.length) { await handBack(it, files, `${loaded.lost.join(', ')} ${loaded.lost.length > 1 ? 'are' : 'is'} no longer stored on this phone`, g); finished.add(it.id); continue; }
+        }
         if (files.length) { toast(files.length === 1 ? 'Sending your file… keep Post open until it says Sent' : `Sending ${files.length} files… keep Post open until it says Sent`, undefined, SENDING_TOAST_MS); sendingToast = toastSeq; }
-        if (it.kind === 'new') await g.sendMail({ subject: it.subject, body: it.body, to: it.to, cc: it.cc, files });
-        else if (it.kind === 'forward' && it.replyTo) await g.forward(it.replyTo, it.to, it.body, files);
-        else if (it.replyTo) await g.reply(it.replyTo, it.body, it.kind === 'replyAll', files);
-        sent++;
-        conversations.clear(); // your message is in Sent Items now: the next time a conversation is opened it is asked for again
-        finished.add(it.id);
-        await dropOutFiles(it);
-        if (await rememberKnown(store, it.account, [...it.to, ...it.cc])) learned = true;
+        answered = it.replyTo ? await currentId(it.account, it.replyTo) : undefined;
+        await g.deliver(outgoing(it, answered), files, it.draft, (p) => patchOutbox(it.id, { draft: p }));
+        await gone(it);
       } catch (e) {
+        if (e instanceof GraphError && e.status === 404 && it.replyTo && await followingMove(it.account, it.replyTo, answered ?? it.replyTo)) continue;
         // Rejected for good (bad address, too big etc.): hand it back as a draft instead of retrying forever or losing it.
         const refused = e instanceof GraphError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 429;
         // A message with files is not tried for ever either: a big upload that keeps failing while the connection is fine is handed back.
         const tries = (it.attempts ?? 0) + (e instanceof GraphError && e.status === 0 && !state.online ? 0 : 1);
-        if (refused || (it.files?.length && tries >= MAX_TRIES)) { await handBack(it, files, e instanceof Error ? e.message : 'Outlook said no'); finished.add(it.id); }
-        else if (it.files?.length) retried.set(it.id, { ...it, attempts: tries });
+        if (refused) { await handBack(it, files, e instanceof Error ? e.message : 'Outlook said no', g); finished.add(it.id); }
+        else if (it.files?.length && tries >= MAX_TRIES) {
+          const went = await wentAlready(it, g);
+          if (went === 'went') await gone(it);
+          else if (went === 'unknown') kept.set(it.id, { attempts: tries - 1 });
+          else { await handBack(it, files, e instanceof Error ? e.message : 'Outlook said no', g); finished.add(it.id); }
+        } else if (it.files?.length) kept.set(it.id, { attempts: tries });
+        note('send', e);
       }
     }
-    // Read the list again: a message put in (or taken back with Undo) while this ran must stay as it is now.
-    const fresh = ((await store.getMeta<OutboxItem[]>('outbox')) ?? []);
-    const remaining = fresh.filter((x) => !finished.has(x.id)).map((x) => retried.get(x.id) ?? x);
-    if (finished.size || retried.size) await store.setMeta('outbox', remaining);
+    // Written from the list as it is now, changing only what this run learned: a message put in (or taken back with Undo) while this ran must stay as it is.
+    const left = (finished.size || kept.size)
+      ? await outboxExclusive(async () => {
+        const next = (await readOutbox()).filter((x) => !finished.has(x.id)).map((x) => (kept.has(x.id) ? { ...x, ...kept.get(x.id) } : x));
+        await store.setMeta('outbox', next);
+        return next;
+      })
+      : await readOutbox();
     if (learned) { known = await loadKnown(store, state.accounts.map((a) => a.email)); await reclassifyAll(store, sortCtx()); }
     if (sent) set({ sent: state.sent + sent });
-    if (sent && !remaining.length) toast(sent === 1 ? 'Sent' : `Sent ${sent}`);
-    else if (retried.size) toast('Not sent yet. Post will try again.', undefined, 6000);
+    if (sent && !left.length) toast(sent === 1 ? 'Sent' : `Sent ${sent}`);
+    else if (kept.size) toast('Not sent yet. Post will try again.', undefined, 6000);
     else if (sendingToast && state.toast?.id === sendingToast) set({ toast: null });
   }
 
@@ -331,11 +434,19 @@ export function createController(deps: Deps) {
 
     /** Called when the app opens or comes back to the front: this is "I have looked". */
     async opened() {
-      await api.collectSignIn();
+      try { await api.collectSignIn(); } catch (e) { note('sign-in', e); }
       if (!sessions.length) return;
       try { await deps.seen?.(device()); } catch { /* the number is a nicety; never block reading on it */ }
       try { set({ alertsOn: (await deps.pushState?.()) ?? false }); } catch { /* ignore */ }
       await api.sync();
+    },
+
+    /**
+     * The app is going away: closed, or sent to the background where the phone may stop it for hours. Whatever still waits for its undo time
+     * goes now, because nothing can be relied on to run later. (Undo is only for as long as Post is in front.)
+     */
+    async leaving() {
+      await Promise.allSettled([runQueue(true), api.flushOutbox(true)]);
     },
 
     // ---- signing in -------------------------------------------------------------------------------------------------------
@@ -391,10 +502,18 @@ export function createController(deps: Deps) {
 
     // ---- sync -----------------------------------------------------------------------------------------------------------
     async sync() {
-      if (state.sync.running || !server) return;
+      if (!server) return;
+      // A sync that has done nothing at all for a long time is stuck (the phone stopped it half way): it is left behind and a new one starts.
+      if (state.sync.running) {
+        if (now() - lastActivity < SYNC_STUCK_MS) return;
+        note('sync', 'The last sync went quiet, so a new one was started');
+      }
+      const mine = ++syncSeq;
+      alive();
       set({ sync: { ...state.sync, running: true } });
       let done!: () => void;
-      syncRun = new Promise<void>((r) => { done = r; });
+      const finished = new Promise<void>((r) => { done = r; });
+      syncRun = finished;
       let error: string | null = null;
       try {
         await refreshAccounts();
@@ -403,6 +522,7 @@ export function createController(deps: Deps) {
           if (!g) continue;
           try {
             await syncAccount({ graph: g, store, account: a.email, ctx: sortCtx(), now: () => new Date(now()) });
+            alive();
             await reload();
             await learnKnown(a.email, g);
           } catch (e) {
@@ -411,17 +531,19 @@ export function createController(deps: Deps) {
               set({ accounts: state.accounts.map((x) => (x.email === a.email ? { ...x, needsSignIn: true } : x)) });
             } else if (e instanceof ServerError && e.status === 0 || e instanceof GraphError && e.status === 0) {
               set({ online: false }); error = 'No connection. Showing what is on this phone.';
-            } else error = `${a.label}: ${msg}`;
+            } else { error = `${a.label}: ${msg}`; note('sync', e); }
           }
         }
-        const g = (email: string) => graphFor(email);
-        await queue.flush(g);
+        await runQueue();
         await api.flushOutbox();
         await reload();
         if (!error) set({ online: true });
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+        note('sync', e);
       } finally {
-        set({ sync: { running: false, at: now(), error } });
-        syncRun = null; done();
+        if (mine === syncSeq) { set({ sync: { running: false, at: now(), error } }); syncRun = null; }
+        done();
       }
       void api.sortInBackground();
     },
@@ -469,8 +591,10 @@ export function createController(deps: Deps) {
       set({ accounts: state.accounts.filter((a) => a.email !== email) });
       await Promise.allSettled([syncRun, sortingRun]);
       await store.clearAccount(email);
-      const waiting = ((await store.getMeta<OutboxItem[]>('outbox')) ?? []);
-      if (waiting.some((x) => x.account === email)) await store.setMeta('outbox', waiting.filter((x) => x.account !== email)); // their files went with clearAccount
+      await outboxExclusive(async () => {
+        const waiting = await readOutbox();
+        if (waiting.some((x) => x.account === email)) await store.setMeta('outbox', waiting.filter((x) => x.account !== email)); // their files went with clearAccount
+      });
       await refreshAccounts();
       await reload();
     },
@@ -515,7 +639,7 @@ export function createController(deps: Deps) {
       if (!moved) return;
       const label = rows <= 1 ? word : `${word} ${rows}`;
       toast(label, () => { void api.undo(moved.ops.map((o) => o.id), moved.taken); });
-      setTimer(() => { void queue.flush(graphFor).then(reload); }, UNDO_WINDOW_MS + 200);
+      setTimer(() => { void runQueue().then(reload); }, UNDO_WINDOW_MS + 200);
     },
 
     async undo(opIds: string[], items: Mail[]) {
@@ -538,7 +662,7 @@ export function createController(deps: Deps) {
         await store.putMail([{ ...cur, isRead }]);
         await queue.enqueue(isRead ? 'read' : 'unread', m.account, m.id, 0);
         await reload();
-        void queue.flush(graphFor).then(reload);
+        void runQueue().then(reload);
       });
     },
 
@@ -552,7 +676,7 @@ export function createController(deps: Deps) {
         await store.putMail(todo.map((m) => ({ ...m, flagged })));
         for (const m of todo) await queue.enqueue(flagged ? 'flag' : 'unflag', m.account, m.id, 0);
         await reload();
-        void queue.flush(graphFor).then(reload);
+        void runQueue().then(reload);
       });
     },
 
@@ -631,7 +755,7 @@ export function createController(deps: Deps) {
         // The toast counts rows of the list: a conversation is one, however many messages in it were unread.
         const rows = state.settings.threads ? new Set(todo.map(threadKey)).size : todo.length;
         if (!opts.quiet) toast(rows === 1 ? 'Marked as read' : `Marked ${rows} as read`);
-        void queue.flush(graphFor).then(reload);
+        void runQueue().then(reload);
       });
     },
 
@@ -816,8 +940,7 @@ export function createController(deps: Deps) {
           return false;
         }
       }
-      const list = [...(((await store.getMeta<OutboxItem[]>('outbox')) ?? [])), it];
-      await store.setMeta('outbox', list);
+      await outboxExclusive(async () => { await store.setMeta('outbox', [...(await readOutbox()), it]); });
       api.saveDraft(null);
       await reload();
       toast(delay ? 'Sending…' : 'Sent', delay ? () => { void api.cancelSend(it.id); } : undefined, delay || undefined);
@@ -825,11 +948,16 @@ export function createController(deps: Deps) {
       return true;
     },
     async cancelSend(id: string) {
-      const list = ((await store.getMeta<OutboxItem[]>('outbox')) ?? []);
-      const it = list.find((x) => x.id === id);
-      if (!it || it.sendAt <= now()) { toast(it ? 'Too late: it is already on its way' : 'Too late: it was already sent'); return; }
-      const { files } = await loadOutFiles(it);
-      await store.setMeta('outbox', list.filter((x) => x.id !== id));
+      const found = await outboxExclusive(async () => {
+        const list = await readOutbox();
+        const it = list.find((x) => x.id === id);
+        if (!it || it.sendAt <= now()) return { it, files: [] as OutFile[], taken: false };
+        const { files } = await loadOutFiles(it);
+        await store.setMeta('outbox', list.filter((x) => x.id !== id));
+        return { it, files, taken: true };
+      });
+      const { it, files } = found;
+      if (!found.taken || !it) { toast(it ? 'Too late: it is already on its way' : 'Too late: it was already sent'); return; }
       api.saveDraft({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
       if (files.length) await api.saveDraftFiles(files);
       await dropOutFiles(it);
@@ -837,10 +965,20 @@ export function createController(deps: Deps) {
       toast(`Not sent. Your message${files.length ? ' and its files are' : ' is'} back in the editor.`);
     },
 
-    /** Sends what is due. Only one run at a time: a big upload takes a while, and a second run must never send the same message again. */
-    flushOutbox(): Promise<void> {
+    /**
+     * Sends what is due (everything, with `early`: the app is leaving). Only one run at a time: a big upload takes a while, and a second run
+     * must never send the same message again. Never fails: what went wrong stays with the message, which is tried again.
+     */
+    flushOutbox(early = false): Promise<void> {
+      if (early) flushAgainEarly = true;
       if (flushing) { flushAgain = true; return flushing; }
-      const p: Promise<void> = (async () => { do { flushAgain = false; await flushOutboxOnce(); } while (flushAgain); })().finally(() => { flushing = null; });
+      const p: Promise<void> = (async () => {
+        do {
+          flushAgain = false;
+          const everything = flushAgainEarly; flushAgainEarly = false;
+          try { await flushOutboxOnce(everything); } catch (e) { note('send', e); }
+        } while (flushAgain);
+      })().finally(() => { flushing = null; });
       flushing = p;
       return p;
     },
@@ -859,6 +997,11 @@ export function createController(deps: Deps) {
     setSettings(patch: Partial<Settings>) { saveSettings({ ...state.settings, ...patch }); },
     toast,
     device,
+    /** Writes a problem down for the Health page and the problem report (an address in the text is replaced). */
+    note,
+    /** What went wrong lately, oldest first. */
+    problems: diag.list,
+    clearProblems: diag.clear,
   };
   return api;
 }
