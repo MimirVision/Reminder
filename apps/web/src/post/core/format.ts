@@ -30,6 +30,17 @@ export function initials(name: string, address = ''): string {
   return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/** The hues an avatar can have: ten, spread round the colour wheel so the people who write to you are easy to tell apart at a glance. */
+export const AVATAR_HUES = [4, 30, 46, 96, 150, 176, 204, 226, 266, 318] as const;
+
+/** Which hue a sender gets. It comes from the address (a display name changes, an address does not), so one sender is always the same colour. */
+export function senderHue(address: string, name = ''): number {
+  const key = (address.trim() || name.trim()).toLowerCase();
+  let h = 0x811c9dc5; // FNV-1a: small, and the same everywhere
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return AVATAR_HUES[(h >>> 0) % AVATAR_HUES.length];
+}
+
 export function displayName(name: string, address: string): string {
   return name.trim() || address;
 }

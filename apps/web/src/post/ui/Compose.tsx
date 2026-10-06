@@ -5,7 +5,7 @@ import { displayName, fileSize, initials } from '../core/format.ts';
 import type { OutFile } from '../core/graph.ts';
 import { isMine } from '../core/threads.ts';
 import { mailKey } from '../core/types.ts';
-import { Icon } from './ui.tsx';
+import { Icon, avatarHue } from './ui.tsx';
 import { back, go, labelOf, useC } from './ctx.tsx';
 
 const EMAIL = /[^\s,;<>()"]+@[^\s,;<>()"]+\.[^\s,;<>()"]+/g;
@@ -111,7 +111,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
         </div>
         {suggestions.length > 0 && (
           <div className="sugg" role="listbox" aria-label="Suggestions">
-            {suggestions.map(([addr, name]) => <button key={addr} className="sg" role="option" aria-selected="false" onMouseDown={(e) => e.preventDefault()} onClick={() => setTo(to.replace(/[^,;\s]*$/, '') + addr + ', ')}><div className="av" style={{ width: 34, height: 34, fontSize: 12, borderRadius: 17 }}>{initials(name, addr)}</div><div><b>{displayName(name, addr)}</b><span>{addr}</span></div></button>)}
+            {suggestions.map(([addr, name]) => <button key={addr} className="sg" role="option" aria-selected="false" onMouseDown={(e) => e.preventDefault()} onClick={() => setTo(to.replace(/[^,;\s]*$/, '') + addr + ', ')}><div className="av small" style={avatarHue(addr, name)}>{initials(name, addr)}</div><div><b>{displayName(name, addr)}</b><span>{addr}</span></div></button>)}
           </div>
         )}
         <div className="write"><textarea aria-label="Message" autoFocus={mode !== 'new'} value={text} onChange={(e) => setText(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void attach(e.clipboardData.files); } }} placeholder={mode === 'forward' ? 'Add a note (optional)' : 'Write your message'} /></div>

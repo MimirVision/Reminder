@@ -1,5 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { initials } from '../core/format.ts';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { initials, senderHue } from '../core/format.ts';
 import type { Kind, Mail } from '../core/types.ts';
 
 const P: Record<string, string> = {
@@ -63,12 +63,15 @@ export function Mark({ size = 40 }: { size?: number }) {
   );
 }
 
-/** Circle = a person, rounded square = anything automatic (transaction, update, promotion). Colour only ever marks unread / the account. */
+/** The colour of a sender's avatar: its hue, from the address. The stylesheet turns it into a tint that is checked for contrast (see avatarTone). */
+export const avatarHue = (address: string, name = ''): CSSProperties => ({ '--h': senderHue(address, name) } as CSSProperties);
+
+/** Circle = a person, rounded square = anything automatic (transaction, update, promotion). Every sender has their own tint, so people are easy to tell apart; unread and the account have their own marks (the dot and the small letter). */
 export function Avatar({ m, badge }: { m: Pick<Mail, 'fromName' | 'fromAddress' | 'kind'>; badge?: { letter: string; colour: string } | null }) {
   const person = m.kind === 'person';
   return (
     <div className="avw">
-      <div className={`av${person ? '' : ' sq'}`}>{initials(m.fromName, m.fromAddress)}</div>
+      <div className={`av${person ? '' : ' sq'}`} style={avatarHue(m.fromAddress, m.fromName)}>{initials(m.fromName, m.fromAddress)}</div>
       {badge && <span className="ab" style={{ background: badge.colour }} aria-label={`Account ${badge.letter}`}>{badge.letter}</span>}
     </div>
   );

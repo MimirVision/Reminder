@@ -11,7 +11,7 @@ import { KIND_ONE, KIND_TAB, KINDS, mailKey, type Mail, type MailBody } from '..
 import { Avatar, Icon, KIND_ICON, Sheet, Switch } from './ui.tsx';
 import { SnoozeSheet } from './Inbox.tsx';
 import { RemindSheet } from './Remind.tsx';
-import { back, go, labelOf, useBadge, useC, useDark, useNow } from './ctx.tsx';
+import { back, go, labelOf, useBadge, useC, useDark, useNow, useRoomyPane } from './ctx.tsx';
 import { copyText } from './clipboard.ts';
 import { FileList } from './Attachments.tsx';
 
@@ -42,6 +42,7 @@ type Found = { ck: string; items: Mail[]; state: 'loading' | 'done' | 'failed' }
 export function Reader({ s, account, id, pane = false }: { s: State; account: string; id: string; pane?: boolean }) {
   const c = useC();
   const now = useNow();
+  const roomy = useRoomyPane();
   const acct = s.accounts.find((a) => a.id === account || a.email === account);
   const email = acct?.email ?? account;
   const key = mailKey(email, id);
@@ -128,6 +129,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   };
   const reply = (mode: 'reply' | 'replyAll' | 'forward', x: Mail = target) => go({ name: 'compose', mode, account: email, id: x.id });
   const archiveNext = () => { void c.archive(local, 1); open(next, true); };
+  const deleteNext = () => { void c.trash(local, 1); open(next, true); };
   const anyUnread = local.some((x) => !x.isRead);
   const anyFlag = local.some((x) => x.flagged);
   const conversationLike = looksLikeReply(m.subject) || local.length > 1 || all.some(isMine);
@@ -136,8 +138,22 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
     <div className="pg">
       <div className="nav">
         {!pane && <button className="back" onClick={() => back()} aria-label="Back to inbox"><Icon n="back" />Inbox</button>}
+        {/* On a computer the actions sit up here, in plain view, the way a desktop mail app has them; on a phone they are the bar at the bottom. */}
+        {pane && roomy && (
+          <div className="tools" role="toolbar" aria-label="Actions">
+            {canTriage && <button type="button" className="tool" title="Archive (e)" onClick={archiveNext}><Icon n="archive" size={18} />Archive</button>}
+            <button type="button" className="tool" title="Reply (r)" aria-label={many && !isMine(target) ? `Reply to ${displayName(target.fromName, target.fromAddress)}` : 'Reply'} onClick={() => reply('reply')}><Icon n="reply" size={18} />Reply</button>
+            <button type="button" className="tool" title="Reply all (a)" onClick={() => reply('replyAll')}><Icon n="replyAll" size={18} />Reply all</button>
+            <span className="tsep" aria-hidden="true" />
+            {/* the rest show their words only when the window is wide enough; their name is always there for a screen reader and a hover */}
+            <button type="button" className="tool opt" title="Forward" aria-label="Forward" onClick={() => reply('forward')}><Icon n="forward" size={18} /><span className="tl">Forward</span></button>
+            {canTriage && <button type="button" className="tool opt" title="Snooze (z)" aria-label="Snooze" onClick={() => setSheet('snooze')}><Icon n="clock" size={18} /><span className="tl">Snooze</span></button>}
+            {canTriage && <button type="button" className="tool opt" title="Delete (#)" aria-label="Delete" onClick={deleteNext}><Icon n="trash" size={18} /><span className="tl">Delete</span></button>}
+            <button type="button" className="tool icon" aria-label="More" title="More" onClick={() => setSheet('more')}><Icon n="more" size={18} /></button>
+          </div>
+        )}
         <span className="sp" />
-        {idx >= 0 && <span style={{ fontSize: 13, color: 'var(--mu)' }}>{idx + 1} of {list.length}</span>}
+        {idx >= 0 && <span className="pos">{idx + 1} of {list.length}</span>}
         <button className="btn" aria-label="Previous message" disabled={!prev} onClick={() => open(prev)} style={{ opacity: prev ? 1 : .4 }}><Icon n="up" /></button>
         <button className="btn" aria-label="Next message" disabled={!next} onClick={() => open(next)} style={{ opacity: next ? 1 : .4 }}><Icon n="down" /></button>
       </div>
@@ -155,12 +171,14 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
         {grouped && m.conversationId && looking === 'loading' && conversationLike && <p className="note" role="status">Looking for the rest of this conversation…</p>}
         {grouped && m.conversationId && looking === 'failed' && conversationLike && <p className="note" role="status">Could not look for the rest of this conversation. <button className="link" onClick={() => { forceNext.current = true; setRetry((n) => n + 1); }}>Try again</button></p>}
       </div>
-      <div className="bar" role="toolbar" aria-label="Actions">
-        <button className="ib" aria-label={many && !isMine(target) ? `Reply to ${displayName(target.fromName, target.fromAddress)}` : 'Reply'} onClick={() => reply('reply')}><Icon n="reply" /></button>
-        {canTriage && <button className="go" onClick={archiveNext}><Icon n="archive" />Archive{next ? <small>· next</small> : null}</button>}
-        {canTriage && <button className="ib" aria-label="Snooze" onClick={() => setSheet('snooze')}><Icon n="clock" /></button>}
-        <button className="ib" aria-label="More" onClick={() => setSheet('more')}><Icon n="more" /></button>
-      </div>
+      {!(pane && roomy) && (
+        <div className="bar" role="toolbar" aria-label="Actions">
+          <button className="ib" aria-label={many && !isMine(target) ? `Reply to ${displayName(target.fromName, target.fromAddress)}` : 'Reply'} onClick={() => reply('reply')}><Icon n="reply" /><span className="lb">Reply</span></button>
+          {canTriage && <button className="go" onClick={archiveNext}><Icon n="archive" />Archive{next ? <small>· next</small> : null}</button>}
+          {canTriage && <button className="ib" aria-label="Snooze" onClick={() => setSheet('snooze')}><Icon n="clock" /><span className="lb">Snooze</span></button>}
+          <button className="ib" aria-label="More" onClick={() => setSheet('more')}><Icon n="more" /><span className="lb">More</span></button>
+        </div>
+      )}
       {sheet === 'snooze' && <SnoozeSheet onClose={() => setSheet(null)} onPick={(at, label) => { void c.snooze(local, at, label); setSheet(null); open(next, true); }} />}
       {sheet === 'remind' && <RemindSheet m={m} preview={anchorBody?.key === key && anchorBody.body.contentType === 'text' ? anchorBody.body.content : m.preview} onClose={() => setSheet(null)} />}
       {sheet === 'why' && here && <SortSheet s={s} m={here} onClose={() => setSheet(null)} />}
@@ -173,7 +191,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             {canTriage && <button className="it" onClick={() => { void c.toggleRead(local); setSheet(null); if (!anyUnread) go({ name: 'inbox' }); }}><span className="ico"><Icon n="mail" /></span>{anyUnread ? 'Mark as read' : 'Mark as unread'}</button>}
             {canTriage && <button className="it" onClick={() => { void c.toggleFlag(local); setSheet(null); }}><span className="ico"><Icon n="flag" /></span>{anyFlag ? 'Remove flag' : 'Flag'}</button>}
             {here && <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {KIND_TAB[here.kind]}<span className="v">Change</span></button>}
-            {canTriage && <button className="it danger" onClick={() => { void c.trash(local, 1); setSheet(null); open(next, true); }}><span className="ico"><Icon n="trash" /></span>Delete{many ? ' conversation' : ''}</button>}
+            {canTriage && <button className="it danger" onClick={() => { setSheet(null); deleteNext(); }}><span className="ico"><Icon n="trash" /></span>Delete{many ? ' conversation' : ''}</button>}
           </div>
         </Sheet>
       )}

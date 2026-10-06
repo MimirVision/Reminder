@@ -3,6 +3,16 @@
 
 export type ThemePref = 'system' | 'light' | 'dark';
 export type RowSize = 'compact' | 'comfortable' | 'roomy';
+/** Two ways the same screens can look: Refined (warm, rounded cards) and Calm (plain, like the system apps). The stylesheet reads it as data-look on the app root. */
+export type Look = 'refined' | 'calm';
+export const LOOKS: [Look, string][] = [['refined', 'Refined'], ['calm', 'Calm']];
+/** The accent each look is shown with until somebody picks another colour. */
+export const LOOK_ACCENT: Record<Look, string> = { refined: 'ember', calm: 'ocean' };
+/** What to save when the look changes: the look, and the accent with it when it is still the old look's own colour (a colour somebody picked stays). */
+export function lookChange(s: { look: Look; accent: string }, look: Look): { look?: Look; accent?: string } {
+  if (look === s.look) return {};
+  return s.accent === LOOK_ACCENT[s.look] ? { look, accent: LOOK_ACCENT[look] } : { look };
+}
 
 export interface Accent { id: string; name: string; light: string; dark: string; tintLight: string; tintDark: string; inkLight: string; inkDark: string }
 
@@ -22,6 +32,7 @@ export const ACCOUNT_COLOURS = ['#1F5FBF', '#0B6B63', '#8A3FB8', '#C2305F', '#A3
 
 export interface Settings {
   theme: ThemePref;
+  look: Look;
   accent: string;
   pureBlack: boolean;
   rowSize: RowSize;
@@ -36,7 +47,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'system', accent: 'ember', pureBlack: false, rowSize: 'comfortable', accountColours: {},
+  theme: 'system', look: 'refined', accent: 'ember', pureBlack: false, rowSize: 'comfortable', accountColours: {},
   swipeRight: 'archive', swipeLeft: 'snooze', blockImages: true, signature: '', undoSend: 10, threads: true,
 };
 
@@ -52,6 +63,7 @@ export function loadSettings(raw: unknown): Settings {
   }
   return {
     theme: ONE_OF(o.theme, ['system', 'light', 'dark'], d.theme),
+    look: ONE_OF(o.look, ['refined', 'calm'], d.look),
     accent: ACCENTS.some((a) => a.id === o.accent) ? String(o.accent) : d.accent,
     pureBlack: o.pureBlack === true,
     rowSize: ONE_OF(o.rowSize, ['compact', 'comfortable', 'roomy'], d.rowSize),
@@ -74,11 +86,28 @@ export function accountColour(email: string, accounts: string[], chosen: Record<
   return free[idx % free.length] ?? ACCOUNT_COLOURS[idx % ACCOUNT_COLOURS.length];
 }
 
+/** How the letters on an avatar are coloured: saturation and lightness (in %) of the background and of the letters. The hue is the sender's own. */
+export interface AvatarTone { bgS: number; bgL: number; fgS: number; fgL: number }
+export function avatarTone(look: Look, dark: boolean): AvatarTone {
+  if (look === 'calm') return dark ? { bgS: 18, bgL: 27, fgS: 48, fgL: 85 } : { bgS: 30, bgL: 90, fgS: 42, fgL: 30 };
+  return dark ? { bgS: 34, bgL: 25, fgS: 80, fgL: 86 } : { bgS: 62, bgL: 91, fgS: 62, fgL: 28 };
+}
+
 /** CSS variables for the chosen look. Applied on the app root, so the stylesheet only uses var(--…). */
 export function themeVars(s: Settings, dark: boolean): Record<string, string> {
   const a = ACCENTS.find((x) => x.id === s.accent) ?? ACCENTS[0];
-  if (!dark) return { '--bg': '#F2F3F5', '--card': '#FFFFFF', '--ink': '#1E2430', '--mu': '#5B6472', '--ln': '#E4E7EC', '--ac': a.light, '--on': '#FFFFFF', '--at': a.light, '--tint': a.tintLight, '--ti': a.inkLight, '--ok': '#1F7A4D', '--bad': '#B3261E', '--wb': '#FFF0CC', '--wi': '#6B4A00' };
-  return { '--bg': s.pureBlack ? '#000000' : '#0F1217', '--card': s.pureBlack ? '#0E1013' : '#1A1F27', '--ink': '#EEF0F3', '--mu': '#A3ABB8', '--ln': s.pureBlack ? '#1C2027' : '#2A303A', '--ac': a.dark, '--on': '#0F1217', '--at': a.dark, '--tint': a.tintDark, '--ti': a.inkDark, '--ok': '#5FD39A', '--bad': '#F2807A', '--wb': '#3A3017', '--wi': '#F2D28A' };
+  const calm = s.look === 'calm';
+  const t = avatarTone(s.look, dark);
+  const av = { '--avs': `${t.bgS}%`, '--avb': `${t.bgL}%`, '--avt': `${t.fgS}%`, '--avf': `${t.fgL}%` };
+  if (!dark) {
+    const ground = calm ? { '--bg': '#F2F2F7', '--card': '#FFFFFF', '--ink': '#1C1C1E', '--mu': '#68686E', '--ln': '#DCDCE1' } : { '--bg': '#F2F3F5', '--card': '#FFFFFF', '--ink': '#1E2430', '--mu': '#5B6472', '--ln': '#E4E7EC' };
+    return { ...ground, '--ac': a.light, '--on': '#FFFFFF', '--at': a.light, '--tint': a.tintLight, '--ti': a.inkLight, '--ok': '#1F7A4D', '--bad': '#B3261E', '--wb': '#FFF0CC', '--wi': '#6B4A00', ...av };
+  }
+  const black = s.pureBlack;
+  const ground = calm
+    ? { '--bg': black ? '#000000' : '#0C0C0E', '--card': black ? '#121214' : '#1C1C1E', '--ink': '#F2F2F7', '--mu': '#9A9AA2', '--ln': black ? '#1F1F22' : '#38383A' }
+    : { '--bg': black ? '#000000' : '#0F1217', '--card': black ? '#0E1013' : '#1A1F27', '--ink': '#EEF0F3', '--mu': '#A3ABB8', '--ln': black ? '#1C2027' : '#2A303A' };
+  return { ...ground, '--ac': a.dark, '--on': '#0F1217', '--at': a.dark, '--tint': a.tintDark, '--ti': a.inkDark, '--ok': '#5FD39A', '--bad': '#F2807A', '--wb': '#3A3017', '--wi': '#F2D28A', ...av };
 }
 
 export const ROW_HEIGHT: Record<RowSize, number> = { compact: 64, comfortable: 78, roomy: 92 };

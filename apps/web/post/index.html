@@ -20,7 +20,7 @@
     <script>
       // Dark or light before first paint, so there is no flash: the saved choice, else the phone's.
       (function () { try { var s = JSON.parse(localStorage.getItem('post.settings') || 'null') || {}; var m = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        var d = s.theme === 'dark' || (s.theme !== 'light' && m); document.documentElement.style.background = d ? (s.pureBlack ? '#000' : '#0F1217') : '#F2F3F5'; } catch (e) {} })();
+        var d = s.theme === 'dark' || (s.theme !== 'light' && m), calm = s.look === 'calm'; document.documentElement.style.background = d ? (s.pureBlack ? '#000' : calm ? '#0C0C0E' : '#0F1217') : (calm ? '#F2F2F7' : '#F2F3F5'); } catch (e) {} })();
     </script>
   </head>
   <body>
