@@ -23,6 +23,18 @@ test('plain-language errors for 401, 503, offline and server messages', async ()
   await assert.rejects(() => mk(() => json(503, {})).status('x'), /not set up yet/);
   await assert.rejects(() => mk(() => { throw new Error('x'); }).status('x'), (e: ServerError) => e.status === 0 && /Cannot reach/.test(e.message));
   await assert.rejects(() => mk(() => json(400, { error: 'ann@x.no is not on this server' })).signinFinish({ code: 'c', state: 's' }), /not on this server/);
+  // the server says what is missing and how to fix it: that is what the person sees
+  await assert.rejects(() => mk(() => json(503, { error: 'not_configured', message: 'No client ID yet. Run: select post_setup(...)' })).signinStart('https://site/post/'), /No client ID yet. Run: select post_setup/);
+});
+
+test('a 401 from Supabase’s gateway (Verify JWT still on) is not mistaken for being signed out', async () => {
+  const mk = (r: () => Response | Promise<Response>) => createServer('u', (async () => r()) as typeof fetch);
+  // the gateway sends a message and no `error`; it must not look like a lost sign-in (status 401), and it says what to switch off
+  for (const message of ['Missing authorization header', 'Invalid JWT']) {
+    await assert.rejects(() => mk(() => json(401, { code: 401, message })).signinStart('https://site/post/'), (e: ServerError) => e.status === 503 && /Verify JWT off/.test(e.message));
+  }
+  // the Post function's own 401 still means "signed out"
+  await assert.rejects(() => mk(() => json(401, { error: 'unauthorized' })).status('x'), (e: ServerError) => e.status === 401 && /Sign in again/.test(e.message));
 });
 
 const sessions = (m: Record<string, string>) => (email: string) => m[email];

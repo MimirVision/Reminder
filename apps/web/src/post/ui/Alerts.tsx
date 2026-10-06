@@ -62,7 +62,7 @@ export function Alerts({ s }: { s: State }) {
           {s.accounts.map((a) => (
             <button key={a.email} className="it" style={{ minHeight: 68 }} onClick={() => go({ name: 'settings', page: 'hours', account: a.email })}>
               <span className="dotc" style={{ background: accountColour(a.email, s.accounts.map((x) => x.email), s.settings.accountColours) }}>{a.label[0]}</span>
-              <span><b style={{ display: 'block', fontSize: 15 }}>{a.email}</b><small>{MODE_TEXT[a.mode]} · {quietText(a)}</small></span><span className="v">{a.needsSignIn ? 'Sign in' : 'Watching'}<Icon n="chev" /></span>
+              <span><b style={{ display: 'block', fontSize: 15 }}>{a.email}</b><small>{MODE_TEXT[a.mode]} · {quietText(a)}</small>{a.sub_error && !a.needsSignIn && <small style={{ color: 'var(--bad)' }}>New-mail alerts are off: {a.sub_error}. Your mail still works.</small>}</span><span className="v">{a.needsSignIn ? 'Sign in' : a.sub_error ? 'Mail only' : 'Watching'}<Icon n="chev" /></span>
             </button>
           ))}
           {!s.accounts.length && <div className="it">No accounts yet</div>}

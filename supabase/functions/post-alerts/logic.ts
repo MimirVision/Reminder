@@ -145,8 +145,10 @@ export function alertSameSecret(a: string | null, b: string): boolean {
 // ---- Microsoft Graph ----
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
-// Read-only on purpose: the server can read headers of new mail to decide on an alert, and cannot send, change or delete anything.
-export const ALERT_SCOPE = 'offline_access https://graph.microsoft.com/Mail.Read';
+/** What Post may do with the mail: read and change it, and send. Mail.Read is listed on its own although Mail.ReadWrite covers it: Microsoft only
+ *  lets a refresh token be redeemed for scopes that were in the original sign-in request, and the server's own refreshes use the full set, so a
+ *  rotated refresh token never ends up with fewer permissions than the sign-in gave it. */
+export const ALERT_APP_SCOPE = 'offline_access User.Read https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send';
 
 export class AlertGraphError extends Error {
   status: number;
@@ -172,14 +174,11 @@ export async function alertRefresh(f: typeof fetch, p: { clientId: string; refre
   const res = await f('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: p.clientId, grant_type: 'refresh_token', refresh_token: p.refreshToken, scope: p.scope ?? ALERT_SCOPE }).toString(),
+    body: new URLSearchParams({ client_id: p.clientId, grant_type: 'refresh_token', refresh_token: p.refreshToken, scope: p.scope ?? ALERT_APP_SCOPE }).toString(),
   });
   const b = await graphJson(res);
   return { accessToken: String(b.access_token), refreshToken: String(b.refresh_token ?? p.refreshToken), expiresIn: Number(b.expires_in ?? 3600) };
 }
-
-/** What the Post web app may do with the mail: read and change it, and send. Only ever handed out as a short-lived access token. */
-export const ALERT_APP_SCOPE = 'offline_access User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send';
 
 /** Trades the one-time code from the Microsoft sign-in page (PKCE, done in a normal browser tab) for tokens. Public client: no secret. */
 export async function alertExchangeCode(f: typeof fetch, p: { clientId: string; code: string; verifier: string; redirectUri: string }): Promise<{ accessToken: string; refreshToken: string }> {
@@ -205,40 +204,72 @@ export async function alertGetInboxId(f: typeof fetch, token: string): Promise<s
   return String(b.id);
 }
 
-/** Outlook message subscriptions last under 7 days (10 080 minutes). We ask for 4 days and renew daily. */
-export const alertExpiry = (now: Date, minutes = 5760) => new Date(now.getTime() + minutes * 60_000).toISOString();
+/** Outlook message subscriptions last under 7 days for work accounts but under 3 days (4 230 minutes) for personal Outlook.com and Hotmail
+ *  accounts, and Microsoft refuses anything longer. We ask for 4 200 minutes everywhere and renew when 30 hours are left. */
+export const alertExpiry = (now: Date, minutes = 4200) => new Date(now.getTime() + minutes * 60_000).toISOString();
+
+/** Microsoft explains a too-long request as "Subscription expiration can only be 4230 minutes in the future": that number, or null. */
+const alertCapMinutes = (message: string): number | null => {
+  const m = /(\d{3,6})\s+minutes/.exec(message);
+  return m ? Number(m[1]) : null;
+};
 
 export async function alertCreateSubscription(
-  f: typeof fetch, token: string, p: { notificationUrl: string; lifecycleUrl: string; clientState: string; expires: string },
+  f: typeof fetch, token: string, p: { notificationUrl: string; lifecycleUrl: string; clientState: string; expires: string; now?: () => Date },
 ): Promise<{ id: string; expires: string }> {
-  const b = await graphJson(await f(`${GRAPH}/subscriptions`, {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify({
-      changeType: 'created', notificationUrl: p.notificationUrl, lifecycleNotificationUrl: p.lifecycleUrl,
-      resource: "me/mailFolders('inbox')/messages", expirationDateTime: p.expires, clientState: p.clientState,
-    }),
-  }));
-  return { id: String(b.id), expires: String(b.expirationDateTime ?? p.expires) };
+  let expires = p.expires;
+  let lifecycle = true;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const b = await graphJson(await f(`${GRAPH}/subscriptions`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          changeType: 'created', notificationUrl: p.notificationUrl, ...(lifecycle ? { lifecycleNotificationUrl: p.lifecycleUrl } : {}),
+          resource: "me/mailFolders('inbox')/messages", expirationDateTime: expires, clientState: p.clientState,
+        }),
+      }));
+      return { id: String(b.id), expires: String(b.expirationDateTime ?? expires) };
+    } catch (e) {
+      if (!(e instanceof AlertGraphError) || e.status !== 400 || attempt >= 2) throw e;
+      const cap = alertCapMinutes(e.message);
+      if (cap !== null) expires = alertExpiry((p.now ?? (() => new Date()))(), Math.max(60, cap - 30)); // "too far ahead": ask for less
+      else if (lifecycle) lifecycle = false; // some accounts do not take lifecycle notifications: alerts still work, renewal just relies on the schedule
+      else throw e;
+    }
+  }
 }
 
-export async function alertRenewSubscription(f: typeof fetch, token: string, id: string, expires: string): Promise<string> {
-  const b = await graphJson(await f(`${GRAPH}/subscriptions/${encodeURIComponent(id)}`, {
-    method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ expirationDateTime: expires }),
-  }));
-  return String(b?.expirationDateTime ?? expires);
+export async function alertRenewSubscription(f: typeof fetch, token: string, id: string, expires: string, now: () => Date = () => new Date()): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const b = await graphJson(await f(`${GRAPH}/subscriptions/${encodeURIComponent(id)}`, {
+        method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ expirationDateTime: expires }),
+      }));
+      return String(b?.expirationDateTime ?? expires);
+    } catch (e) {
+      const cap = e instanceof AlertGraphError && e.status === 400 ? alertCapMinutes(e.message) : null;
+      if (cap === null || attempt >= 1) throw e;
+      expires = alertExpiry(now(), Math.max(60, cap - 30));
+    }
+  }
 }
 
-/** Accounts whose subscription is missing or ends within `withinHours`: those get renewed (or created again). */
-export function alertPlanRenewals<T extends { subscription_id: string | null; subscription_expires_at: string | null }>(accounts: T[], now: Date, withinHours = 30): T[] {
+/** Accounts whose subscription is missing or ends within `withinHours`: those get renewed (or created again).
+ *  An account Microsoft refused a subscription for a moment ago is left alone for `retryAfterMinutes`, so opening the app does not hammer Microsoft. */
+export function alertPlanRenewals<T extends { subscription_id: string | null; subscription_expires_at: string | null; sub_error_at?: string | null }>(accounts: T[], now: Date, withinHours = 30, retryAfterMinutes = 30): T[] {
   const limit = now.getTime() + withinHours * 3_600_000;
-  return accounts.filter((a) => !a.subscription_id || !a.subscription_expires_at || new Date(a.subscription_expires_at).getTime() < limit);
+  const recent = now.getTime() - retryAfterMinutes * 60_000;
+  return accounts.filter((a) => (!a.subscription_id || !a.subscription_expires_at || new Date(a.subscription_expires_at).getTime() < limit)
+    && !(a.sub_error_at && new Date(a.sub_error_at).getTime() > recent));
 }
 
 // ---- orchestration (the edge function only wires these to Supabase and Deno) ----
 
 export type AlertStored = AlertAccount & {
   refresh_token_enc: string; client_state: string; subscription_id: string | null; subscription_expires_at: string | null;
+  /** Why Microsoft would not start the new-mail alerts for this mailbox (the mailbox itself still works), and when that happened. */
+  sub_error?: string | null; sub_error_at?: string | null;
   /** SHA-256 of the secret of each phone or computer signed in to this mailbox (at most 8, the oldest drop off). */
   session_hashes?: string[];
 };
@@ -271,7 +302,7 @@ export type AlertDeps = {
   notificationUrl: string;
   send: (sub: PushSub, payload: unknown) => Promise<number>;
   now: () => Date;
-  /** Mailboxes allowed to sign in to this server (POST_ALLOWED_EMAILS). Without this list nobody can, so strangers cannot use your server. */
+  /** Mailboxes allowed to sign in to this server (`post_setup` / `post_allow`, or POST_ALLOWED_EMAILS). Without this list nobody can, so strangers cannot use your server. */
   allowedEmails?: string[];
 };
 
@@ -335,8 +366,24 @@ export function alertCleanQuiet(q: unknown): AlertQuiet | null {
   return { days: [...new Set(days)].sort(), from, to };
 }
 
+/** Asks Microsoft to tell us about new mail in this mailbox. Never throws: the alerts are the extra, and the mailbox works without them
+ *  (the reason is kept so Settings can show it, and the schedule tries again). */
+async function alertSubscribe(d: AlertDeps, a: Pick<AlertStored, 'id' | 'client_state'>, token: string): Promise<{ expires: string | null; error: string | null }> {
+  try {
+    const sub = await alertCreateSubscription(d.fetch, token, {
+      notificationUrl: d.notificationUrl, lifecycleUrl: `${d.notificationUrl}?lifecycle=1`, clientState: a.client_state, expires: alertExpiry(d.now()), now: d.now,
+    });
+    await d.store.update(a.id, { subscription_id: sub.id, subscription_expires_at: sub.expires, sub_error: null, sub_error_at: null });
+    return { expires: sub.expires, error: null };
+  } catch (e) {
+    const error = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+    await d.store.update(a.id, { subscription_id: null, subscription_expires_at: null, sub_error: error, sub_error_at: d.now().toISOString() });
+    return { expires: null, error };
+  }
+}
+
 /** Starts watching a mailbox: stores the (encrypted) sign-in, finds the inbox, asks Microsoft to tell us about new mail. */
-export async function alertRegister(d: AlertDeps, input: AlertRegisterInput): Promise<{ id: string; email: string; expires: string }> {
+export async function alertRegister(d: AlertDeps, input: AlertRegisterInput): Promise<{ id: string; email: string; expires: string; alertsError: string | null }> {
   const email = String(input.email ?? '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('bad email');
   if (!input.refreshToken || typeof input.refreshToken !== 'string') throw new Error('missing sign-in');
@@ -347,42 +394,40 @@ export async function alertRegister(d: AlertDeps, input: AlertRegisterInput): Pr
     client_state: bytesToB64u(crypto.getRandomValues(new Uint8Array(24))), mode, vips: (input.vips ?? []).map((v) => String(v).toLowerCase()).slice(0, 200),
     quiet: alertCleanQuiet(input.quiet), tz: input.tz && /^[A-Za-z_]+\/[A-Za-z_\-+0-9]+$/.test(input.tz) ? input.tz : 'Europe/Oslo',
   });
+  let token: string;
   try {
-    const token = await alertAccessToken(d, row);
-    const inbox = await alertGetInboxId(d.fetch, token);
-    const sub = await alertCreateSubscription(d.fetch, token, {
-      notificationUrl: d.notificationUrl, lifecycleUrl: `${d.notificationUrl}?lifecycle=1`, clientState: row.client_state, expires: alertExpiry(d.now()),
-    });
-    await d.store.update(row.id, { inbox_folder_id: inbox, subscription_id: sub.id, subscription_expires_at: sub.expires });
-    return { id: row.id, email, expires: sub.expires };
+    token = await alertAccessToken(d, row);
+    await d.store.update(row.id, { inbox_folder_id: await alertGetInboxId(d.fetch, token) });
   } catch (e) {
     await d.store.deleteAccount(row.id); // never keep a sign-in that did not work
     throw e;
   }
+  const alerts = await alertSubscribe(d, row, token);
+  return { id: row.id, email, expires: alerts.expires ?? '', alertsError: alerts.error };
 }
 
-/** Keeps every subscription alive (run on a schedule). A sign-in Microsoft no longer accepts triggers one "sign in again" alert. */
+/** Keeps every subscription alive (run on a schedule, and whenever Post is opened). A sign-in Microsoft no longer accepts triggers one "sign in again" alert. */
 export async function alertRenewAll(d: AlertDeps, accounts?: AlertStored[]): Promise<{ email: string; outcome: string }[]> {
   const list = alertPlanRenewals(accounts ?? await d.store.allAccounts(), d.now());
   const out: { email: string; outcome: string }[] = [];
   for (const a of list) {
     try {
       const token = await alertAccessToken(d, a);
-      const expires = alertExpiry(d.now());
       try {
         if (!a.subscription_id) throw new AlertGraphError(404, 'none', 'no subscription');
-        const exp = await alertRenewSubscription(d.fetch, token, a.subscription_id, expires);
-        await d.store.update(a.id, { subscription_expires_at: exp });
+        const exp = await alertRenewSubscription(d.fetch, token, a.subscription_id, alertExpiry(d.now()), d.now);
+        await d.store.update(a.id, { subscription_expires_at: exp, sub_error: null, sub_error_at: null });
         out.push({ email: a.email, outcome: 'renewed' });
       } catch (e) {
         if (!(e instanceof AlertGraphError) || (e.status !== 404 && e.status !== 410)) throw e;
-        const sub = await alertCreateSubscription(d.fetch, token, { notificationUrl: d.notificationUrl, lifecycleUrl: `${d.notificationUrl}?lifecycle=1`, clientState: a.client_state, expires });
-        await d.store.update(a.id, { subscription_id: sub.id, subscription_expires_at: sub.expires });
-        out.push({ email: a.email, outcome: 'recreated' });
+        const r = await alertSubscribe(d, a, token);
+        out.push({ email: a.email, outcome: r.error ? `error: ${r.error}` : 'recreated' });
       }
     } catch (e) {
       const needsSignIn = e instanceof AlertGraphError && (e.code === 'invalid_grant' || e.status === 401 || e.status === 403);
-      out.push({ email: a.email, outcome: needsSignIn ? 'needs sign-in' : `error: ${e instanceof Error ? e.message : String(e)}` });
+      const message = e instanceof Error ? e.message : String(e);
+      out.push({ email: a.email, outcome: needsSignIn ? 'needs sign-in' : `error: ${message}` });
+      if (!needsSignIn) await d.store.update(a.id, { sub_error: message.slice(0, 200), sub_error_at: d.now().toISOString() }).catch(() => {});
       if (needsSignIn) {
         await alertPushAll(d, (lang) => ({
           title: lang === 'nb' ? 'Post-varsler trenger innlogging' : 'Post alerts need you to sign in',
@@ -462,7 +507,7 @@ async function sha256Hex(s: string): Promise<string> {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export type AlertSignedIn = { id: string; email: string; label: string; session: string; expires: string };
+export type AlertSignedIn = { id: string; email: string; label: string; session: string; expires: string; /** Why new-mail alerts could not start (the mailbox itself works), or null. */ alertsError?: string | null };
 
 /** The account behind an `x-post-session` header ("<account id>.<secret>"), or null. */
 export async function alertFindBySession(store: AlertStore, header: string | null): Promise<AlertStored | null> {
@@ -490,11 +535,11 @@ async function finishSignIn(d: AlertDeps, tokens: { accessToken: string; refresh
   const me = await graphJson(await d.fetch(`${GRAPH}/me?$select=mail,userPrincipalName`, { headers: authHeaders(tokens.accessToken) }));
   const email = String(me.mail ?? me.userPrincipalName ?? '').trim().toLowerCase();
   const allowed = (d.allowedEmails ?? []).map((x) => x.trim().toLowerCase()).filter(Boolean);
-  if (!allowed.length) throw new Error('This server has no allowed addresses yet. Add yours to POST_ALLOWED_EMAILS in the Supabase secrets.');
-  if (!allowed.includes(email)) throw new Error(`${email || 'This account'} is not on this server's allowed list (POST_ALLOWED_EMAILS).`);
+  if (!allowed.length) throw new Error(`This server does not know which mailboxes may sign in yet. In the Supabase SQL editor run: select post_allow('${email || 'you@outlook.com'}');`);
+  if (!allowed.includes(email)) throw new Error(`${email || 'This account'} is not on this server's allowed list. In the Supabase SQL editor run: select post_allow('${email || 'you@outlook.com'}');`);
   const label = (wantedLabel ?? '').trim() || (/@(outlook|hotmail|live|msn)\./i.test(email) ? 'Personal' : 'Work');
   const r = await alertRegister(d, { email, label, refreshToken: tokens.refreshToken });
-  return { id: r.id, email, label, session: await issueSession(d, r.id), expires: r.expires };
+  return { id: r.id, email, label, session: await issueSession(d, r.id), expires: r.expires, alertsError: r.alertsError };
 }
 
 // One-button sign-in, the same on a phone and a computer. The server builds the Microsoft sign-in address (with its own PKCE secret sealed inside
@@ -555,7 +600,75 @@ export async function alertMintToken(d: AlertDeps, email: string): Promise<{ acc
   const a = (await d.store.allAccounts()).find((x) => x.email === email.trim().toLowerCase());
   if (!a) throw new Error('unknown account');
   const current = await alertDecrypt(a.refresh_token_enc, d.encKey);
-  const t = await alertRefresh(d.fetch, { clientId: d.clientId, refreshToken: current, scope: ALERT_APP_SCOPE });
+  const t = await alertRefresh(d.fetch, { clientId: d.clientId, refreshToken: current });
   if (t.refreshToken !== current) await d.store.update(a.id, { refresh_token_enc: await alertEncrypt(t.refreshToken, d.encKey) });
   return { accessToken: t.accessToken, expiresIn: t.expiresIn, email: a.email };
+}
+
+// ---- setup without secrets ----
+// Everything Post's server needs can come from Supabase's secrets (the old way) or from the `post_config` table, which `select post_setup(...)` fills.
+// What is not given is made up: the key that seals sign-ins is derived from the service role key the function already has, and the key pair for
+// Web Push and the key the 6-hourly renewal uses are generated once and kept in the table.
+
+/** A 256-bit key (base64url) derived from a secret the function already holds, so sealing sign-ins needs no extra secret. */
+export async function alertDeriveKey(secret: string): Promise<string> {
+  const ikm = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'HKDF', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('post-alerts'), info: new TextEncoder().encode('sealing key v1') }, ikm, 256);
+  return bytesToB64u(new Uint8Array(bits));
+}
+
+/** A fresh VAPID key pair in the form `sendPush` takes: the 65-byte public point and the 32-byte private scalar, both base64url. */
+export async function alertNewVapid(): Promise<{ publicKey: string; privateKey: string }> {
+  const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+  const jwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
+  return { publicKey: bytesToB64u(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey))), privateKey: String(jwk.d) };
+}
+
+/** "a@x.no, b@y.no" (commas, semicolons or spaces) as a list of lower-case addresses. */
+export const alertEmails = (list: string | null | undefined): string[] => (list ?? '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+
+export type AlertConfigStore = {
+  /** Every row of the post_config table. Throws when the table does not exist yet. */
+  load(): Promise<Record<string, string>>;
+  /** Writes only when the key has no value yet, so two requests at once cannot overwrite each other. */
+  putIfMissing(key: string, value: string): Promise<void>;
+  /** Writes always. */
+  put(key: string, value: string): Promise<void>;
+};
+export type AlertConfig = {
+  clientId: string | null; encKey: string | null; allowedEmails: string[];
+  /** What the renewal schedule must send (header x-alerts-key). Either of these is accepted. */
+  adminKeys: string[];
+  vapid: { publicKey: string; privateKey: string } | null;
+};
+
+/** Settings from the environment (Supabase secrets) first, then from the post_config table; whatever is still missing and can be made up is made up and kept. */
+export async function alertResolveConfig(env: (name: string) => string | undefined, store: AlertConfigStore, functionUrl: string): Promise<AlertConfig> {
+  let rows: Record<string, string> = {};
+  let canStore = true;
+  try { rows = await store.load(); } catch { canStore = false; } // the table is not there yet: secrets only
+  const e = (name: string) => env(name)?.trim() || null;
+
+  const made: [string, string][] = [];
+  const vapidEnv = e('VAPID_PUBLIC_KEY') && e('VAPID_PRIVATE_KEY') ? { publicKey: e('VAPID_PUBLIC_KEY')!, privateKey: e('VAPID_PRIVATE_KEY')! } : null;
+  if (canStore && !rows.cron_key) made.push(['cron_key', bytesToB64u(crypto.getRandomValues(new Uint8Array(24)))]);
+  if (canStore && !vapidEnv && !rows.vapid) made.push(['vapid', JSON.stringify(await alertNewVapid())]);
+  if (made.length) {
+    try {
+      for (const [k, v] of made) await store.putIfMissing(k, v);
+      rows = await store.load(); // if two requests raced, both read the same winner
+    } catch { /* keep going with what we have */ }
+  }
+  if (canStore && rows.function_url !== functionUrl) { try { await store.put('function_url', functionUrl); } catch { /* the schedule just waits */ } }
+
+  let vapid = vapidEnv;
+  if (!vapid && rows.vapid) { try { const v = JSON.parse(rows.vapid); if (v?.publicKey && v?.privateKey) vapid = { publicKey: String(v.publicKey), privateKey: String(v.privateKey) }; } catch { /* regenerated never: the row is ours */ } }
+  const service = e('SUPABASE_SERVICE_ROLE_KEY');
+  return {
+    clientId: e('MS_CLIENT_ID') ?? (rows.ms_client_id?.trim() || null),
+    encKey: e('ALERTS_ENC_KEY') ?? (service ? await alertDeriveKey(service) : null),
+    allowedEmails: [...new Set([...alertEmails(env('POST_ALLOWED_EMAILS')), ...alertEmails(rows.allowed_emails)])],
+    adminKeys: [e('POST_ALERTS_KEY'), rows.cron_key?.trim() || null].filter((x): x is string => !!x),
+    vapid,
+  };
 }

@@ -32,36 +32,47 @@ New mail arrives in Outlook
 - iOS requires every web push to be a notification. If you choose **Badges only** in iOS Settings (below) you will see just the number, no banners, no sounds.
 - Each device signs in on its own (Safari and the Home Screen icon do not share a sign-in on iPhone), so the first time you open the Home Screen icon you press the same button again. It takes ten seconds.
 - Google/Gmail and iCloud are not supported yet: **Continue with Microsoft** is the only button, because Outlook is what Post is built for.
-- Your own Supabase keeps an **encrypted sign-in** for each account (so it can see new mail arriving, and so the app does not have to ask you to sign in every day). It is yours, and removing the account in Post deletes it. A device proves it belongs to a mailbox with a secret it gets at sign-in (only a hash is stored); only the addresses you list in `POST_ALLOWED_EMAILS` can sign in at all.
+- Your own Supabase keeps an **encrypted sign-in** for each account (so it can see new mail arriving, and so the app does not have to ask you to sign in every day). It is yours, and removing the account in Post deletes it. A device proves it belongs to a mailbox with a secret it gets at sign-in (only a hash is stored); only the addresses you allow (`post_setup` / `post_allow`) can sign in at all.
 - Not in this version: conversation threads, attachments in compose, Outlook folders other than Inbox/Archive/Deleted, rules, Gmail/iCloud (Outlook only for now).
 - **Work accounts** (Microsoft 365): your employer may need to approve the app. If the sign-in says "approval required", that is why.
 
-## One-time setup (about 20 minutes, once, for everyone who will use it)
-The two things Microsoft and your server need to know before a login button can exist. After this, nothing is typed or pasted on any device.
+## One-time setup (about 15 minutes, once, for everyone who will use it)
+Four steps. There are no secrets to type into Supabase and no schedule to create: the database does both, and the app finds its server by itself.
 
-### 1. Microsoft (Azure) registration
-1. Open https://entra.microsoft.com, sign in with your personal Microsoft account. Microsoft may ask you to create a free directory first; follow the prompts.
-2. **App registrations, New registration**: name `Post`. Supported account types: **Accounts in any organizational directory and personal Microsoft accounts**.
-   Redirect URI: platform **Mobile and desktop applications** (not "Single-page application": those sign-ins expire after 24 hours, these last 90 days), value `https://<your web address>/post/` (with the slash at the end).
-3. Copy the **Application (client) ID**.
-4. **API permissions, Add a permission, Microsoft Graph, Delegated**: `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `offline_access`.
-5. **Authentication**: **Allow public client flows: Yes**. Save.
+### 1. Microsoft: get a client ID
+Microsoft will only let an app sign people in once the app is registered, and registering needs a Microsoft Entra directory (a "tenant").
+- **You have a work or school Microsoft 365 account that lets you register apps:** use it, or skip to "The portal way" below.
+- **You only have a personal account (Outlook.com, Hotmail, Live):** a personal account has no directory, so the registration form is closed to it. The free fix is a free Azure account, which creates a directory for you: https://azure.microsoft.com/free, sign in with your personal Microsoft account. It asks for a phone number and a card as an identity check (a temporary hold, no charge). Registering an app costs nothing, now or after the free period ends. This is a Microsoft rule, not something Post can work around.
 
-### 2. Supabase
-1. **Database.** Run `supabase/upgrade.sql` in the SQL Editor (adds the server-only tables). Safe to repeat.
-2. **Secrets** (Edge Functions, Secrets):
-   - `MS_CLIENT_ID` = the Application (client) ID from step 1
-   - `POST_ALLOWED_EMAILS` = the addresses allowed to sign in, comma separated, for example `you@outlook.com, you@yourfirm.no`. Use the exact address Microsoft reports (if one is refused, the message shows the address it saw).
-   - `ALERTS_ENC_KEY` = 32 random bytes as base64url. Make one by pasting this into a browser console (F12): `btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')`
-   - `POST_ALERTS_KEY` = any long random text. Only the renewal schedule below uses it.
-   - (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` are already there from Home Memory notifications)
-3. **The function.** Edge Functions, Deploy a new function, Via Editor: name `post-alerts`, paste all of `supabase/dashboard/post-alerts.ts`, **turn "Verify JWT" OFF**. Deploy. (Updating? Paste it again over the old one.)
-4. **Keep it alive.** Integrations, Cron, Create job: name `post-alerts-renew`, schedule `0 */6 * * *`, type Supabase Edge Function, function `post-alerts`, POST, header `x-alerts-key` = your `POST_ALERTS_KEY`, body `{"op":"renew"}`.
+Then register the app with one command:
+1. Open **Azure Cloud Shell**: https://shell.azure.com, choose **Bash**. It is already signed in as you.
+2. Paste `scripts/post-azure.sh` (or its text) and run it with the address of Post: `bash post-azure.sh https://<your web address>/post/` (the slash at the end matters).
+3. It prints your **Application (client) ID**. That is all Microsoft needs.
 
-### 3. The web app
-Nothing to set. It uses the same address Home Memory already has for Supabase (`VITE_SUPABASE_URL`), so the login button finds your server by itself. It deploys with the rest of the site.
+<details><summary>The portal way, if you prefer clicking</summary>
 
-### 4. Every phone and computer
+1. https://entra.microsoft.com, **App registrations, New registration**: name `Post`, supported account types **Accounts in any organizational directory and personal Microsoft accounts**, redirect URI platform **Mobile and desktop applications** (not "Single-page application": those sign-ins expire after 24 hours, these last 90 days) with value `https://<your web address>/post/`.
+2. **API permissions, Add a permission, Microsoft Graph, Delegated**: `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `offline_access`.
+3. **Authentication**: **Allow public client flows: Yes**. Save. Copy the **Application (client) ID**.
+</details>
+
+### 2. Supabase: the database
+In the Supabase SQL Editor run `supabase/post.sql` (only Post's own tables and helpers; safe to repeat), then:
+
+```sql
+select post_setup('<your Application (client) ID>', 'you@outlook.com');
+```
+That stores the client ID and the address that may sign in (use the address Microsoft reports; if one is refused the message says which). To let another mailbox in later: `select post_allow('you@yourfirm.no');`. Only addresses on that list can sign in at all, so a stranger who finds your server cannot register a mailbox or receive alerts.
+
+### 3. Supabase: the server
+Edge Functions, **Deploy a new function, Via Editor**: name `post-alerts`, paste all of `supabase/dashboard/post-alerts.ts`, turn **Verify JWT OFF**, Deploy. (Updating? Paste it again over the old one.)
+
+The function makes what it needs by itself the first time it runs: the key that seals sign-ins is derived from the service role key it already has, the Web Push key pair is generated and kept in the database (or taken from `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` if you set them for Home Memory), and the database asks it every 6 hours to renew the alert subscriptions (Microsoft ends them after under 3 days for personal accounts). Opening Post renews them too. If your project has no `pg_cron`, only the opening-Post renewal applies.
+
+Supabase secrets still work and win when present (`MS_CLIENT_ID`, `POST_ALLOWED_EMAILS`, `ALERTS_ENC_KEY`, `POST_ALERTS_KEY`, `VAPID_*`), for anyone who prefers them.
+
+### 4. The web app and every phone and computer
+Nothing to set on the web app: it uses the same address Home Memory already has for Supabase (`VITE_SUPABASE_URL`).
 1. Open `https://<your web address>/post/` and press **Continue with Microsoft**. That is the whole sign-in. Press it again for your second account (tap your initial at the top right, or "Add account" in the sidebar).
 2. **iPhone:** in Safari tap Share, **Add to Home Screen**, then open **Post** from the new icon and press the same button once more (the icon keeps its own sign-in).
 3. In Post: Settings, **Icon number & alerts**, **Turn on the icon number**, allow notifications.
@@ -82,7 +93,10 @@ If 1 or 2 fail, the fallback is the sideloaded native app (parked in `apps/mail`
 ## Troubleshooting
 - **"The redirect address is not set up in Azure"**: the redirect URI must be exactly `https://<your web address>/post/` under *Mobile and desktop applications*.
 - **"Your organisation needs to approve Post"**: ask your IT admin to grant consent for the app, or use the account without it.
-- **"… is not on this server's allowed list"**: add that exact address to `POST_ALLOWED_EMAILS` in the Supabase secrets (then try again).
+- **"… is not on this server's allowed list"**: run `select post_allow('that address');` in the Supabase SQL editor (then try again).
+- **"Post's server has no Microsoft client ID yet"**: run `select post_setup('<client id>', 'you@outlook.com');` in the Supabase SQL editor (step 2).
+- **"Supabase is blocking Post's server"**: **Verify JWT** is still on for the function. In Supabase open Edge Functions, `post-alerts`, turn **Verify JWT** off, and try again.
+- **Settings, Alerts says "Mail only"**: Microsoft would not start new-mail alerts for that mailbox; the reason is shown under it, and your mail works as normal. Post tries again every 6 hours and whenever you open it.
 - **Banner "Sign in again"**: Microsoft revoked the sign-in (password change, policy). Tap Sign in; nothing is lost.
 - **No number appears**: Settings, Icon number & alerts shows three checks (on Home Screen, notifications allowed, server answers). Supabase, Edge Functions, `post-alerts`, Logs show each decision ("alerted (a person)", "skipped: bulk mail", "skipped: outside this account's alert hours").
 - **The number stays after you read mail elsewhere**: see the honest limits. Open Post to clear it.

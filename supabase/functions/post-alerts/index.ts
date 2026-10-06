@@ -1,12 +1,13 @@
 // Supabase Edge Function (Deno): instant new-mail alerts for the Post mail app. Microsoft calls it when mail arrives; it decides whether the mail
 // deserves an alert and sends a Web Push to the Post web app. The Post app signs in through it (Microsoft sign-in, no shared key to type) and then
 // proves which mailbox it belongs to with a session secret (header x-post-session).
-// Secrets: ALERTS_ENC_KEY (32 random bytes, base64url), MS_CLIENT_ID, POST_ALLOWED_EMAILS (your mail addresses, comma separated), VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY,
-// VAPID_SUBJECT (optional), POST_ALERTS_KEY (optional: only the schedule that renews subscriptions uses it).
+// Setup: `select post_setup('<Application (client) ID>', 'you@outlook.com')` in the SQL editor stores your Microsoft client ID and the address that may
+// sign in. Nothing else has to be set. Supabase secrets still work and win when present: MS_CLIENT_ID, POST_ALLOWED_EMAILS, ALERTS_ENC_KEY (otherwise derived
+// from the service role key), VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT (otherwise made once and kept in the database), POST_ALERTS_KEY.
 // Deploy with "Verify JWT" OFF: Microsoft and the schedule cannot send a Supabase login. The webhook is protected by a secret clientState per mailbox.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { sendPush } from '../notify-partner/logic.ts';
-import { alertFindBySession, alertSigninFinish, alertSigninForget, alertSigninPoll, alertSigninStart, alertLifecycle, alertMintToken, alertPublicConfig, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSeen, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertDeps, type AlertStore, type AlertStored } from './logic.ts';
+import { alertResolveConfig, alertFindBySession, alertSigninFinish, alertSigninForget, alertSigninPoll, alertSigninStart, alertLifecycle, alertMintToken, alertPublicConfig, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSeen, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertConfigStore, type AlertDeps, type AlertStore, type AlertStored } from './logic.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -27,15 +28,22 @@ Deno.serve(async (req) => {
   if (validation) return new Response(validation, { status: 200, headers: { 'Content-Type': 'text/plain' } });
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
-  const key = Deno.env.get('POST_ALERTS_KEY');
-  const encKey = Deno.env.get('ALERTS_ENC_KEY');
-  const clientId = Deno.env.get('MS_CLIENT_ID');
-  const vapidPublic = Deno.env.get('VAPID_PUBLIC_KEY');
-  const vapidPrivate = Deno.env.get('VAPID_PRIVATE_KEY');
-  if (!encKey || !clientId || !vapidPublic || !vapidPrivate) return json({ error: 'not_configured' }, 503);
-  const vapid = { publicKey: vapidPublic, privateKey: vapidPrivate, subject: Deno.env.get('VAPID_SUBJECT') ?? 'mailto:admin@example.com' };
-
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const functionUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/post-alerts`;
+  const configStore: AlertConfigStore = {
+    load: async () => {
+      const { data, error } = await admin.from('post_config').select('key, value');
+      if (error) throw new Error(error.message);
+      return Object.fromEntries(((data ?? []) as { key: string; value: string }[]).map((r) => [r.key, r.value]));
+    },
+    putIfMissing: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v }, { onConflict: 'key', ignoreDuplicates: true }); },
+    put: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' }); },
+  };
+  const cfg = await alertResolveConfig((k) => Deno.env.get(k), configStore, functionUrl);
+  if (!cfg.clientId || !cfg.encKey) {
+    return json({ error: 'not_configured', message: 'Post\u2019s server has no Microsoft client ID yet. In the Supabase SQL editor run: select post_setup(\'<client id>\', \'you@outlook.com\');' }, 503);
+  }
+  const vapid = cfg.vapid ? { ...cfg.vapid, subject: Deno.env.get('VAPID_SUBJECT') ?? `mailto:${cfg.allowedEmails[0] ?? 'admin@example.com'}` } : null;
   const accounts = () => admin.from('post_alert_accounts');
   const store: AlertStore = {
     accountBySubscription: async (id) => ((await accounts().select('*').eq('subscription_id', id).maybeSingle()).data as AlertStored | null) ?? null,
@@ -63,10 +71,10 @@ Deno.serve(async (req) => {
     resetBadge: async (endpoint) => ((await admin.from('post_alert_devices').update({ badge: 0 }).eq('endpoint', endpoint).select('id')).data ?? []).length > 0,
   };
   const deps: AlertDeps = {
-    store, fetch, clientId, encKey, now: () => new Date(),
-    allowedEmails: (Deno.env.get('POST_ALLOWED_EMAILS') ?? '').split(/[,;\s]+/).filter(Boolean),
-    notificationUrl: `${Deno.env.get('SUPABASE_URL')}/functions/v1/post-alerts`,
-    send: (sub, payload) => sendPush(sub, payload, vapid),
+    store, fetch, clientId: cfg.clientId, encKey: cfg.encKey, now: () => new Date(),
+    allowedEmails: cfg.allowedEmails,
+    notificationUrl: functionUrl,
+    send: async (sub, payload) => { if (!vapid) throw new Error('push is not set up'); return await sendPush(sub, payload, vapid); },
   };
 
   let body: Record<string, any> | null = null;
@@ -85,7 +93,7 @@ Deno.serve(async (req) => {
     // Open to everyone (they reveal nothing and cannot do anything without a Microsoft sign-in the allowed list accepts).
     switch (body.op) {
       case 'config': return json(alertPublicConfig(deps));
-      case 'vapid': return json({ publicKey: vapid.publicKey });
+      case 'vapid': return vapid ? json({ publicKey: vapid.publicKey }) : json({ error: 'push_not_configured' }, 503);
       case 'signin_start': return json(await alertSigninStart(deps, { redirectUri: String(body.redirectUri ?? ''), hint: typeof body.hint === 'string' ? body.hint : undefined }));
       case 'signin_finish': return json(await alertSigninFinish(deps, { code: String(body.code ?? ''), state: String(body.state ?? ''), label: typeof body.label === 'string' ? body.label : undefined }));
       case 'signin_poll': return json(await alertSigninPoll(deps, String(body.handle ?? '')));
@@ -93,7 +101,8 @@ Deno.serve(async (req) => {
     }
 
     // Everything else: either a session from a signed-in phone or computer (its own mailbox only), or the admin key (the schedule).
-    const admin_ok = !!key && alertSameSecret(req.headers.get('x-alerts-key'), key);
+    const sent = req.headers.get('x-alerts-key');
+    const admin_ok = !!sent && cfg.adminKeys.some((k) => alertSameSecret(sent, k));
     const me = admin_ok ? null : await alertFindBySession(store, req.headers.get('x-post-session'));
     if (!admin_ok && !me) return json({ error: 'unauthorized' }, 401);
     const emailOf = () => (me ? me.email : String(body!.email ?? '').trim().toLowerCase());
@@ -109,15 +118,18 @@ Deno.serve(async (req) => {
       case 'status': {
         const devices = await store.devices();
         const list = me ? [me] : await store.allAccounts();
+        // Opening Post is also a good moment to renew alerts that are about to lapse (does nothing when none is due).
+        if (me) later(alertRenewAll(deps));
         return json({
           devices: devices.length,
-          accounts: list.map((a) => ({ id: a.id, email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips, subscription_expires_at: a.subscription_expires_at, last_alert_at: (a as { last_alert_at?: string }).last_alert_at ?? null })),
+          accounts: list.map((a) => ({ id: a.id, email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips, subscription_expires_at: a.subscription_expires_at, last_alert_at: (a as { last_alert_at?: string }).last_alert_at ?? null, sub_error: a.sub_error ?? null })),
         });
       }
       case 'seen': return json({ ok: await alertSeen(deps, String(body.endpoint ?? '')) });
       case 'test': return json({ sent: await alertTest(deps) });
       case 'pair': {
         const { endpoint, p256dh, auth, lang } = body;
+        if (!vapid) return json({ error: 'push_not_configured' }, 503);
         if (typeof endpoint !== 'string' || !endpoint.startsWith('https://') || typeof p256dh !== 'string' || typeof auth !== 'string') return json({ error: 'bad_request' }, 400);
         await admin.from('post_alert_devices').upsert({ endpoint, p256dh, auth, lang: lang === 'nb' ? 'nb' : 'en' }, { onConflict: 'endpoint' });
         return json({ ok: true });

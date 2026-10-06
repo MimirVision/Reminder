@@ -9,8 +9,10 @@ export class ServerError extends Error {
   constructor(status: number, message: string) { super(message); this.name = 'ServerError'; this.status = status; }
 }
 
-export interface AccountStatus { id?: string; email: string; label: string; mode: 'people' | 'all' | 'vips' | 'off'; quiet: { days: number[]; from: string; to: string } | null; vips: string[]; subscription_expires_at: string | null; last_alert_at: string | null }
-export interface SignedIn { id: string; email: string; label: string; session: string; expires: string }
+export interface AccountStatus { id?: string; email: string; label: string; mode: 'people' | 'all' | 'vips' | 'off'; quiet: { days: number[]; from: string; to: string } | null; vips: string[]; subscription_expires_at: string | null; last_alert_at: string | null;
+  /** Why Microsoft would not start new-mail alerts for this mailbox (the mailbox itself works). */
+  sub_error?: string | null }
+export interface SignedIn { id: string; email: string; label: string; session: string; expires: string; alertsError?: string | null }
 export type SigninPoll = { status: 'pending' } | ({ status: 'done' } & SignedIn);
 
 export function createServer(url: string, f: Fetcher = (...a) => fetch(...a)) {
@@ -23,7 +25,12 @@ export function createServer(url: string, f: Fetcher = (...a) => fetch(...a)) {
     }
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = res.status === 401 ? 'Signed out. Sign in again.' : res.status === 503 ? 'The Post server is not set up yet (missing secrets).' : String((json as { error?: string }).error ?? `Error ${res.status}`);
+      const said = json as { error?: string; message?: string };
+      // Supabase's own gateway (not the Post function, whose 401s always carry an `error`) answers 401 with just a message when "Verify JWT" is still on.
+      if (res.status === 401 && !said.error && typeof said.message === 'string') {
+        throw new ServerError(503, 'Supabase is blocking Post’s server. In Supabase open Edge Functions, post-alerts, turn Verify JWT off, then try again.');
+      }
+      const msg = res.status === 401 ? 'Signed out. Sign in again.' : res.status === 503 ? (said.message ?? 'The Post server is not set up yet. See docs/POST.md.') : String(said.error ?? `Error ${res.status}`);
       throw new ServerError(res.status, msg);
     }
     return json as T;
