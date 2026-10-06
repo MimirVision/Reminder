@@ -13,6 +13,14 @@ case "$REDIRECT" in
 esac
 
 GRAPH=00000003-0000-0000-c000-000000000000 # Microsoft Graph
+TAG=post-mail-app # marks the app this script made, so a re-run only ever updates its own app and never someone else's app called "Post"
+
+fail() {
+  echo >&2
+  echo "Microsoft would not register the app (the message above says why)." >&2
+  echo "If it says 'Insufficient privileges', your organisation has switched off app registration for regular users: ask an IT administrator, or hand this to someone else." >&2
+  exit 1
+}
 
 # The delegated permission ids, looked up by name; the well-known id is the fallback if the lookup is not available.
 scope() {
@@ -30,6 +38,7 @@ MAIL_SEND=$(scope Mail.Send e383f46e-2787-4529-855e-0e479a3ffac0)
 BODY=$(cat <<JSON
 {
   "displayName": "Post",
+  "tags": ["$TAG"],
   "signInAudience": "AzureADandPersonalMicrosoftAccount",
   "api": { "requestedAccessTokenVersion": 2 },
   "isFallbackPublicClient": true,
@@ -45,13 +54,17 @@ BODY=$(cat <<JSON
 JSON
 )
 
-EXISTING=$(az ad app list --display-name Post --query "[?displayName=='Post'] | [0].appId" -o tsv 2>/dev/null || true)
+EXISTING=$(az ad app list --display-name Post --query "[?tags && contains(tags, '$TAG')] | [0].appId" -o tsv 2>/dev/null || true)
 if [ -n "$EXISTING" ]; then
-  az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications(appId='$EXISTING')" --headers Content-Type=application/json --body "$BODY" >/dev/null
+  az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications(appId='$EXISTING')" --headers Content-Type=application/json --body "$BODY" >/dev/null || fail
   APPID="$EXISTING"
 else
-  APPID=$(az rest --method POST --uri https://graph.microsoft.com/v1.0/applications --headers Content-Type=application/json --body "$BODY" --query appId -o tsv)
+  APPID=$(az rest --method POST --uri https://graph.microsoft.com/v1.0/applications --headers Content-Type=application/json --body "$BODY" --query appId -o tsv) || fail
 fi
+case "$APPID" in
+  ????????-????-????-????-????????????) ;;
+  *) fail ;;
+esac
 
 echo
 echo "Done. Your Application (client) ID is:"
