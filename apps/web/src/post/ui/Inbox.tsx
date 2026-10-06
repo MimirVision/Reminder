@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { filterCounts, visibleMail, type Filter, type State } from '../core/controller.ts';
+import { cleanUpList, mailCounts, visibleMail, type Counts, type State } from '../core/controller.ts';
 import { dayGroup, displayName, shortTime } from '../core/format.ts';
 import { isHorizontal, swipeOffset, swipeResult, SWIPE_COMMIT } from '../../lib/swipe.ts';
-import { mailKey, type Mail } from '../core/types.ts';
+import { KIND_TAB, mailKey, type Kind, type Mail } from '../core/types.ts';
 import { presets } from '../core/snooze.ts';
 import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
 import { go, labelOf, resolveAccount, useBadge, useC, useNow, useRoute } from './ctx.tsx';
 import { Tabs } from './Tabs.tsx';
 
-const TAG: Record<Mail['kind'], string> = { person: '', newsletter: 'Newsletter', receipt: 'Receipt', alert: 'Alert' };
+/** The small label on a row. Shown where mail of several kinds is mixed (All, search, Later); inside a tab it would only repeat the tab. */
+const TAG: Record<Kind, string> = { person: '', transaction: 'Transaction', update: 'Update', promo: 'Promotion' };
 
 export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean }) {
   const [dx, setDx] = useState(0);
@@ -40,7 +41,7 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
   );
 }
 
-export function Row({ m, s, selecting, selected, onOpen, onToggle, active }: { m: Mail; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean }) {
+export function Row({ m, s, selecting, selected, onOpen, onToggle, active, tag = true }: { m: Mail; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean; tag?: boolean }) {
   const badge = useBadge(s)(m.account);
   const unread = !m.isRead;
   return (
@@ -49,7 +50,7 @@ export function Row({ m, s, selecting, selected, onOpen, onToggle, active }: { m
       {selecting && <span className={`chk${selected ? ' on' : ''}`} aria-hidden="true">{selected && <Icon n="check" size={14} />}</span>}
       <Avatar m={m} badge={badge} />
       <span className="rb">
-        <span className="r1"><span className={`who${unread ? ' u' : ''}`}>{displayName(m.fromName, m.fromAddress)}</span>{TAG[m.kind] && <span className="tg">{TAG[m.kind]}</span>}<span className={`tm${unread ? ' n' : ''}`}>{shortTime(m.received)}</span></span>
+        <span className="r1"><span className={`who${unread ? ' u' : ''}`}>{displayName(m.fromName, m.fromAddress)}</span>{tag && TAG[m.kind] && <span className="tg">{TAG[m.kind]}</span>}<span className={`tm${unread ? ' n' : ''}`}>{shortTime(m.received)}</span></span>
         <span className={`sj${unread ? ' u' : ''}`}>{m.subject || '(no subject)'}</span>
         <span className="r1"><span className="pv">{m.preview}</span>{m.hasAttachments && <span className="pa"><Icon n="paperclip" size={15} /></span>}{m.flagged && <span className="pa" style={{ color: 'var(--at)' }}><Icon n="flag" size={15} /></span>}</span>
       </span>
@@ -76,12 +77,14 @@ export function SnoozeSheet({ onPick, onClose }: { onPick: (at: Date, label: str
 export function StatusBanners({ s }: { s: State }) {
   const c = useC();
   const bad = s.accounts.filter((a) => a.needsSignIn);
+  const unsorted = s.sorting ? s.mail.filter((m) => m.folder === 'inbox' && m.sig === undefined).length : 0;
   return (
     <>
       {bad.map((a) => <Banner key={a.email} tone="bad" icon="warn" action={<button onClick={() => go({ name: 'accounts' })}>Sign in</button>}><b>{a.label} needs you to sign in again</b>Mail keeps its place; nothing is lost.</Banner>)}
       {!s.online && <Banner icon="wifi">No connection. Showing what is on this phone{s.waiting ? `; ${s.waiting} action${s.waiting > 1 ? 's' : ''} will go through when you are back online.` : '.'}</Banner>}
       {s.online && s.sync.error && !s.sync.running && <Banner tone="bad" icon="warn" action={<button onClick={() => void c.sync()}>Retry</button>}>{s.sync.error}</Banner>}
       {s.online && s.waiting > 0 && !s.sync.error && !s.sync.running && <Banner icon="refresh">{s.waiting} waiting to be sent to Outlook</Banner>}
+      {unsorted > 0 && <Banner icon="refresh"><b>Sorting your mail… {unsorted} left</b>It is all here already. This only decides which tab each message goes in.</Banner>}
     </>
   );
 }
@@ -98,11 +101,13 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [scrolled, setScrolled] = useState(false);
   const [pull, setPull] = useState(0);
+  const [cleaning, setCleaning] = useState(false);
   const pullStart = useRef<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
 
-  const list = useMemo(() => visibleMail(s, now), [s.mail, s.filter, s.accountFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const counts = useMemo(() => filterCounts(s, now), [s.mail, s.accountFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => visibleMail(s, now), [s.mail, s.view, s.unreadOnly, s.accountFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const counts = useMemo(() => mailCounts(s, now), [s.mail, s.accountFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const viewUnread = s.view === 'all' ? counts.unread : counts.byKind[s.view].unread;
   const shown = list.slice(0, limit);
   const groups = useMemo(() => {
     const out: { name: string; items: Mail[] }[] = [];
@@ -116,8 +121,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
     io.observe(el); return () => io.disconnect();
   }, [shown.length, list.length]);
 
-  const totalUnread = useMemo(() => s.mail.filter((m) => m.folder === 'inbox' && !m.isRead && (!m.snoozedUntil || new Date(m.snoozedUntil).getTime() <= now)).length, [s.mail, now]);
-  const pills: [Filter, string, number | null][] = [['all', 'All', null], ['unread', 'Unread', counts.unread], ['people', 'People', counts.people], ['newsletter', 'Newsletters', counts.newsletter], ['receipt', 'Receipts', counts.receipt]];
+  const promos = s.view === 'promo' ? cleanUpList(s, now, 0) : [];
   const scope = s.accountFilter ? labelOf(s, s.accountFilter) : s.accounts.length > 1 ? 'All accounts' : s.accounts[0]?.label ?? 'Inbox';
   const when = s.sync.running ? 'Updating…' : s.sync.at ? `Updated ${Math.max(0, Math.round((now - s.sync.at) / 60000)) < 1 ? 'just now' : `${Math.round((now - s.sync.at) / 60000)} min ago`}` : '';
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -141,40 +145,48 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   return (
     <div className="pg">
       <header className={`hd${scrolled ? ' min' : ''}`}>
-        <h1 className="h1">Inbox</h1>
+        <h1 className="h1">{pane ? (s.view === 'all' ? 'All mail' : KIND_TAB[s.view]) : 'Inbox'}</h1>
         <div className="r">
           <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>
           {!pane && <button className="btn me" aria-label="Accounts and settings" onClick={() => go({ name: 'accounts' })}>{(s.accounts[0]?.label ?? 'P')[0].toUpperCase()}</button>}
         </div>
       </header>
-      <button className="sync" onClick={() => void c.sync()} aria-label="Update now"><b>{scope}</b> · {when}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>
-      <div className={`fold${scrolled ? ' min' : ''}`}><div><button className="find" tabIndex={scrolled ? -1 : 0} onClick={() => go({ name: 'search', q: '' })}><Icon n="search" />Search mail</button></div></div>
-      <div className="pills" role="tablist" aria-label="Filter">
-        {pills.map(([f, text, n]) => <button key={f} role="tab" aria-selected={s.filter === f} className={`pill${s.filter === f ? ' on' : ''}`} onClick={() => c.setFilter(f)}>{text}{n ? <span className="n">{n}</span> : null}</button>)}
+      <div className="sync-row">
+        <button className="sync" onClick={() => void c.sync()} aria-label="Update now"><b>{scope}</b> · {when}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>
+        <button className={`un${s.unreadOnly ? ' on' : ''}`} aria-pressed={s.unreadOnly} onClick={() => c.setUnreadOnly(!s.unreadOnly)}>Unread{viewUnread > 0 && <span className="n">{viewUnread > 99 ? '99+' : viewUnread}</span>}</button>
       </div>
+      <div className={`fold${scrolled ? ' min' : ''}`}><div><button className="find" tabIndex={scrolled ? -1 : 0} onClick={() => go({ name: 'search', q: '' })}><Icon n="search" />Search mail</button></div></div>
+      {!pane && <CategoryTabs s={s} counts={counts} />}
       <StatusBanners s={s} />
       <div className="pull" style={{ height: pull, opacity: Math.min(1, pull / 44) }} aria-hidden="true"><Icon n="refresh" size={20} className={pull >= 44 ? 'ready' : ''} /></div>
       <div className="scroll" onScroll={onScroll} onTouchStart={touchStart} onTouchMove={touchMove} onTouchEnd={touchEnd} onTouchCancel={touchEnd}>
+        {promos.length > 0 && !selecting && !s.unreadOnly && (
+          <div className="cleanbar">
+            <span className="ico"><Icon n="sparkle" size={20} /></span>
+            <div><b>{promos.length} promotion{promos.length > 1 ? 's' : ''}</b><span>Archive the old ones in one tap</span></div>
+            <button onClick={() => setCleaning(true)}>Clean up</button>
+          </div>
+        )}
         {groups.map((g) => (
           <section key={g.name}>
             <div className="sec">{g.name}</div>
             <div className="card">
               {g.items.map((m) => (
                 <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(m, s.settings.swipeRight)} onLeft={() => act(m, s.settings.swipeLeft)}>
-                  <Row m={m} s={s} active={m.key === activeKey} selecting={selecting} selected={picked.has(m.key)} onToggle={() => toggle(m.key)} onOpen={() => go({ name: 'message', account: m.account, id: m.id })} />
+                  <Row m={m} s={s} tag={s.view === 'all'} active={m.key === activeKey} selecting={selecting} selected={picked.has(m.key)} onToggle={() => toggle(m.key)} onOpen={() => go({ name: 'message', account: m.account, id: m.id })} />
                 </SwipeRow>
               ))}
             </div>
           </section>
         ))}
         {list.length > shown.length && <div ref={sentinel}><button className="more" onClick={() => setLimit((n) => n + 60)}>Show more</button></div>}
-        {!list.length && <Empty s={s} totalUnread={totalUnread} />}
+        {!list.length && <Empty s={s} counts={counts} />}
       </div>
       {selecting ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
           <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(list.map((m) => m.key)))}><Icon n="select" /></button>
           <button className="go" disabled={!chosen.length} onClick={() => { const items = chosen; exit(); leave(items, () => void c.archive(items)); }}><Icon n="archive" />Archive {chosen.length || ''}</button>
-          <button className="ib" aria-label="Mark read" disabled={!chosen.length} onClick={() => { chosen.forEach((m) => void c.setRead(m, true)); exit(); }}><Icon n="eye" /></button>
+          <button className="ib" aria-label="Mark read" disabled={!chosen.length} onClick={() => { const items = chosen; exit(); void c.markRead(items); }}><Icon n="eye" /></button>
           <button className="ib" aria-label="Delete" disabled={!chosen.length} onClick={() => { const items = chosen; exit(); leave(items, () => void c.trash(items)); }}><Icon n="trash" /></button>
         </div>
       ) : (
@@ -184,16 +196,76 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
         </>
       )}
       {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing, at, label); setSnoozing(null); }} />}
+      {cleaning && <CleanUpSheet s={s} onClose={() => setCleaning(false)} />}
     </div>
   );
 }
 
-function Empty({ s, totalUnread }: { s: State; totalUnread: number }) {
+/** Primary, Transactions, Updates, Promotions and All, each with what is unread in it. Nothing is hidden: All shows everything. */
+export function CategoryTabs({ s, counts }: { s: State; counts: Counts }) {
+  const c = useC();
+  const ref = useRef<HTMLDivElement>(null);
+  const tabs: [State['view'], string, number][] = [['person', KIND_TAB.person, counts.byKind.person.unread], ['transaction', KIND_TAB.transaction, counts.byKind.transaction.unread], ['update', KIND_TAB.update, counts.byKind.update.unread], ['promo', KIND_TAB.promo, counts.byKind.promo.unread], ['all', 'All', 0]];
+  useEffect(() => { (ref.current?.querySelector('[aria-selected="true"]') as HTMLElement | null)?.scrollIntoView?.({ inline: 'center', block: 'nearest' }); }, [s.view]);
+  return (
+    <div className="pills" role="tablist" aria-label="Mail categories" ref={ref}>
+      {tabs.map(([v, text, n]) => (
+        <button key={v} role="tab" aria-selected={s.view === v} className={`pill${s.view === v ? ' on' : ''}`} onClick={() => c.setView(v)}>
+          {text}{n > 0 && <span className="n" aria-label={`${n} unread`}>{n > 99 ? '99+' : n}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** "Mostly from Elkjøp, Zalando and Coop": so you can see what a clean up would take before you tap it. */
+function mostlyFrom(items: Mail[]): string {
+  const n = new Map<string, number>();
+  for (const m of items) { const who = displayName(m.fromName, m.fromAddress); n.set(who, (n.get(who) ?? 0) + 1); }
+  const top = [...n.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([who]) => who);
+  return top.length ? `Mostly from ${top.length > 1 ? `${top.slice(0, -1).join(', ')} and ${top[top.length - 1]}` : top[0]}.` : '';
+}
+
+function CleanUpSheet({ s, onClose }: { s: State; onClose: () => void }) {
+  const c = useC();
+  const now = useNow();
+  const all = cleanUpList(s, now, 0);
+  const old = cleanUpList(s, now, 7);
+  const unread = visibleMail({ mail: s.mail, view: 'promo', unreadOnly: true, accountFilter: s.accountFilter }, now);
+  return (
+    <Sheet title="Clean up Promotions" onClose={onClose}>
+      <p className="note" style={{ margin: '2px 8px 12px' }}>{mostlyFrom(all)} Archived mail is moved to Archive, not deleted: search still finds it, and Undo works for a few seconds.</p>
+      <div className="card">
+        <button className="it" disabled={!old.length} onClick={() => { onClose(); void c.cleanUp(7); }}><span className="ico"><Icon n="archive" /></span>Archive older than a week<span className="v">{old.length}</span></button>
+        <button className="it" disabled={!all.length} onClick={() => { onClose(); void c.cleanUp(0); }}><span className="ico"><Icon n="archive" /></span>Archive all promotions<span className="v">{all.length}</span></button>
+        <button className="it" disabled={!unread.length} onClick={() => { onClose(); void c.markRead(unread); }}><span className="ico"><Icon n="eye" /></span>Mark all as read<span className="v">{unread.length}</span></button>
+      </div>
+      <p className="note">Mail you flagged stays where it is. A sender that should not be here? Open one of its messages, tap Why, and move it.</p>
+    </Sheet>
+  );
+}
+
+function Empty({ s, counts }: { s: State; counts: Counts }) {
   const c = useC();
   if (!s.ready || (s.sync.running && !s.mail.length)) return <Skeleton />;
   if (!s.accounts.length) return <div className="empty"><span className="big">No account yet</span><button className="cta" style={{ marginTop: 16 }} onClick={() => go({ name: 'accounts' })}>Add an account</button></div>;
-  if (s.filter !== 'all') return <div className="empty"><span className="big">Nothing here</span>No {s.filter === 'unread' ? 'unread' : s.filter === 'people' ? 'messages from people' : s.filter === 'newsletter' ? 'newsletters' : 'receipts'} right now. <button className="link" onClick={() => c.setFilter('all')}>Show all</button></div>;
-  return <div className="empty"><span className="big">Inbox zero</span>{totalUnread === 0 ? 'Nothing waiting. Enjoy it.' : 'Everything else is snoozed.'}</div>;
+  if (s.sorting && counts.unsorted > 0 && s.view !== 'all') return <div className="empty"><span className="big">Sorting…</span>Post is reading your mail to put each message in the right tab. It shows up here in a moment.</div>;
+  if (s.view !== 'all' || s.unreadOnly) {
+    const name = s.view === 'all' ? 'your inbox' : KIND_TAB[s.view];
+    const elsewhere = s.view === 'all' ? 0 : s.unreadOnly ? counts.unread - counts.byKind[s.view].unread : counts.total - counts.byKind[s.view].total;
+    return (
+      <div className="empty">
+        <span className="big">{s.unreadOnly ? 'Nothing unread' : s.view === 'person' ? 'Primary is clear' : 'Nothing here'}</span>
+        {s.unreadOnly ? `No unread mail in ${name}.` : `No mail in ${name} right now.`}
+        {elsewhere > 0 && <> {elsewhere} more {s.unreadOnly ? 'unread ' : ''}in the other tabs.</>}
+        <div style={{ marginTop: 14, display: 'flex', gap: 18, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {s.unreadOnly && <button className="link" onClick={() => c.setUnreadOnly(false)}>Show read mail too</button>}
+          {s.view !== 'all' && <button className="link" onClick={() => c.setView('all')}>Show all mail</button>}
+        </div>
+      </div>
+    );
+  }
+  return <div className="empty"><span className="big">Inbox zero</span>{counts.unread === 0 ? 'Nothing waiting. Enjoy it.' : 'Everything else is snoozed.'}</div>;
 }
 
 /** Grey placeholder rows while the very first sync runs, so the screen feels alive instead of blank. */

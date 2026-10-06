@@ -31,17 +31,39 @@ export function stripDangerous(html: string): string {
  * download-style type.
  */
 export function safeBlobType(contentType: string, name: string): string {
+  if (runsCode(contentType, name)) return 'application/octet-stream';
   const t = contentType.toLowerCase().split(';')[0].trim();
-  const ext = (name.split('.').pop() ?? '').toLowerCase();
-  const danger = /^(text\/html|application\/xhtml|image\/svg|text\/xml|application\/xml|application\/javascript|text\/javascript|application\/x-)/.test(t) || ['html', 'htm', 'xhtml', 'svg', 'xml', 'js', 'mjs', 'hta'].includes(ext);
-  if (danger) return 'application/octet-stream';
   if (t === 'application/pdf' || /^image\/(png|jpe?g|gif|webp|heic|heif|avif|bmp)$/.test(t) || t === 'text/plain') return t;
   return 'application/octet-stream';
 }
 
-/** Replaces `cid:` picture references with the inline attachment data (already fetched), so pictures embedded in the mail show. */
-export function inlineCids(html: string, cids: Record<string, string>): string {
-  return html.replace(/cid:([^"'\s)>]+)/gi, (all, id: string) => cids[id.toLowerCase()] ?? all);
+/** True for what can run code when it is opened from this site's own address: web pages, vector pictures, scripts. */
+function runsCode(contentType: string, name: string): boolean {
+  const t = contentType.toLowerCase().split(';')[0].trim();
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  return /^(text\/html|application\/xhtml|image\/svg|text\/xml|application\/xml|application\/javascript|text\/javascript|application\/x-)/.test(t) || ['html', 'htm', 'xhtml', 'svg', 'xml', 'js', 'mjs', 'hta'].includes(ext);
+}
+
+/**
+ * The type a file is handed over with when it leaves Post for another app (the share sheet). Its real type, so a phone offers the right apps
+ * (Word for a .docx), unless it could run code here, which is then handed over as plain data. Nothing opened from Post's own address uses this.
+ */
+export function shareType(contentType: string, name: string): string {
+  if (runsCode(contentType, name)) return 'application/octet-stream';
+  const t = contentType.toLowerCase().split(';')[0].trim();
+  return /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(t) ? t : 'application/octet-stream';
+}
+
+/** A transparent 1×1 picture. Stands in for a `cid:` picture that is not known (yet), so the frame never tries to load an address it cannot open. */
+export const BLANK_PICTURE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+/**
+ * Replaces `cid:` picture references with the inline attachment data (already fetched), so pictures embedded in the mail show. A reference
+ * that is not known is left alone, or, when `missing` is given, swapped for that wherever a picture is expected (never in the visible text).
+ */
+export function inlineCids(html: string, cids: Record<string, string>, missing?: string): string {
+  const known = html.replace(/cid:([^"'\s)>]+)/gi, (all, id: string) => cids[id.toLowerCase()] ?? all);
+  return missing === undefined ? known : known.replace(/((?:src|background|poster)\s*=\s*["']?|url\(\s*["']?)cid:[^"'\s)>]+/gi, (_all, before: string) => `${before}${missing}`);
 }
 
 export interface FrameOptions { remoteImages: boolean; dark: boolean }

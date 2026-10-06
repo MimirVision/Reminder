@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { visibleMail, type State } from '../core/controller.ts';
 import { displayName, initials, shortTime } from '../core/format.ts';
-import type { Mail } from '../core/types.ts';
+import { KIND_TAB, type Mail } from '../core/types.ts';
 import { isHorizontal, swipeResult } from '../../lib/swipe.ts';
 import { Icon } from './ui.tsx';
 import { SnoozeSheet } from './Inbox.tsx';
@@ -17,7 +17,7 @@ export function Triage({ s }: { s: State }) {
   const c = useC();
   const badgeOf = useBadge(s);
   const queue = useRef<string[] | null>(null);
-  if (!queue.current) queue.current = visibleMail({ mail: s.mail, filter: 'unread', accountFilter: s.accountFilter }, Date.now()).filter((m) => !m.flagged).map((m) => m.key);
+  if (!queue.current) queue.current = visibleMail({ mail: s.mail, view: s.view, unreadOnly: true, accountFilter: s.accountFilter }, Date.now()).filter((m) => !m.flagged).map((m) => m.key);
   const [handled, setHandled] = useState<string[]>([]);
   const [snooze, setSnooze] = useState(false);
   const [dx, setDx] = useState(0);
@@ -44,7 +44,7 @@ export function Triage({ s }: { s: State }) {
     return (
       <div className="pg">
         <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
-        <div className="empty"><span className="big">All caught up</span>{total ? `You went through ${total} message${total > 1 ? 's' : ''}.` : 'Nothing unread to go through.'}<button className="cta" style={{ marginTop: 20 }} onClick={() => go({ name: 'inbox' })}>Back to inbox</button></div>
+        <div className="empty"><span className="big">All caught up</span>{total ? `You went through ${total} message${total > 1 ? 's' : ''}.` : s.view === 'all' ? 'Nothing unread to go through.' : `Nothing unread in ${KIND_TAB[s.view]}.`}<button className="cta" style={{ marginTop: 20 }} onClick={() => go({ name: 'inbox' })}>Back to inbox</button></div>
       </div>
     );
   }
@@ -79,7 +79,7 @@ export function Triage({ s }: { s: State }) {
         <article className="tcard" aria-label={`Message ${index} of ${total}`} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           style={{ transform: dx ? `translateX(${dx}px) rotate(${dx / 22}deg)` : undefined, transition: drag ? 'none' : 'transform .2s ease' }}>
           <span className="tstamp r" style={{ opacity: dx > 0 ? stamp : 0 }}>Archive</span><span className="tstamp l" style={{ opacity: dx < 0 ? stamp : 0 }}>Snooze</span>
-          <div className="r1"><span className="chip"><i style={{ background: badgeOf(cur.account)?.colour ?? 'var(--at)' }} />{labelOf(s, cur.account)}</span><span className="tm">{shortTime(cur.received)}</span></div>
+          <div className="r1">{s.accounts.length > 1 && <span className="chip"><i style={{ background: badgeOf(cur.account)?.colour ?? 'var(--at)' }} />{labelOf(s, cur.account)}</span>}<span className="tm">{shortTime(cur.received)}</span></div>
           <div className="r1" style={{ marginTop: 14, gap: 12 }}><div className={`av${cur.kind === 'person' ? '' : ' sq'}`}>{initials(cur.fromName, cur.fromAddress)}</div><div><b style={{ display: 'block', fontSize: 16 }}>{displayName(cur.fromName, cur.fromAddress)}</b><span style={{ fontSize: 12.5, color: 'var(--mu)' }}>{cur.fromAddress}</span></div></div>
           <h1 className="sjb">{cur.subject || '(no subject)'}</h1>
           <div className="tb">{text}<div className="fade" /></div>

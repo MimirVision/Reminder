@@ -6,7 +6,7 @@ import { Inbox } from './Inbox.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
 import { Triage } from './Triage.tsx';
-import { Appearance, Settings } from './Settings.tsx';
+import { Appearance, Settings, Sorting } from './Settings.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { AccountsSheet } from './Accounts.tsx';
 import { Connecting, Login, SignedInElsewhere, SignInFailed, WaitingForMicrosoft, cleanUrl, readCallback } from './signin.tsx';
@@ -82,7 +82,7 @@ function Shell() {
     case 'later': return <Later s={s} />;
     case 'triage': return <Triage s={s} />;
     case 'compose': return <Compose s={s} mode={route.mode} account={route.account} id={route.id} />;
-    case 'settings': return route.page === 'alerts' ? <Alerts s={s} /> : route.page === 'hours' ? <Hours s={s} email={route.account ?? ''} /> : route.page === 'appearance' ? <Appearance s={s} /> : <Settings s={s} />;
+    case 'settings': return route.page === 'alerts' ? <Alerts s={s} /> : route.page === 'hours' ? <Hours s={s} email={route.account ?? ''} /> : route.page === 'appearance' ? <Appearance s={s} /> : route.page === 'sorting' ? <Sorting s={s} /> : <Settings s={s} />;
     case 'accounts': return <><Inbox s={s} /><AccountsSheet s={s} onAdd={startAdd} onClose={() => go({ name: 'inbox' })} /></>;
     default: return <Inbox s={s} />;
   }

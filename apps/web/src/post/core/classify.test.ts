@@ -1,53 +1,225 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classify } from './classify.ts';
+import { classify, isFreemail, orgDomain, ruleFor, signalsFromHeaders, type ClassifyContext } from './classify.ts';
+import { asKind, KINDS, type Kind } from './types.ts';
 
-const base = { fromAddress: 'anna@example.no', fromName: 'Anna', subject: 'Middag?' };
+const hdr = (...a: [string, string][]) => a.map(([name, value]) => ({ name, value }));
+const UNSUB = hdr(['List-Unsubscribe', '<https://x/u>']);
+const sigOf = (headers?: [string, string][]) => (headers ? signalsFromHeaders(hdr(...headers)) : undefined);
 
-test('a normal message from a person is a person', () => {
-  const c = classify(base);
-  assert.equal(c.kind, 'person');
-  assert.deepEqual(c.why, ['Written by a person']);
+type Row = [kind: Kind, from: string, subject: string, preview?: string, headers?: [string, string][], ctx?: ClassifyContext];
+const U: [string, string][] = [['List-Unsubscribe', '<https://x/u>']];
+
+// What real inboxes look like, in Norwegian and English. Each row is one message and the tab it must land in.
+const ROWS: Row[] = [
+  // ---- people (Primary): the cost of a wrong guess is a missed mail, so anything unsure stays here
+  ['person', 'anna@example.no', 'Middag på fredag?'],
+  ['person', 'kari@firma.no', 'Møtereferat fra i går'],
+  ['person', 'per@bedrift.no', 'Re: Tilbud på nytt tak'],
+  ['person', 'per@bedrift.no', 'Svar: Tilbud på nytt tak'],
+  ['person', 'maler@malermester.no', 'Tilbud på maling av hus', 'Hei! Her er tilbudet vårt'],
+  ['person', 'info@bakeri.no', 'Svar: bestilling av kake'],
+  ['person', 'kundeservice@elkjop.no', 'Re: Din henvendelse #4455'],
+  ['person', 'agent@megler.no', 'Salgsoppgave for Storgata 5'],
+  ['person', 'anna@x.no', 'Re: ordrebekreftelse fra deg'],
+  ['person', 'anna@x.no', 'Resale of the car?'],
+  ['person', 'mailer-daemon@outlook.com', 'Undeliverable: Hei'],
+  ['person', 'postmaster@firma.no', 'Delivery Status Notification (Failure)'],
+  // ---- transactions: receipts, invoices, deliveries, bookings, codes
+  ['transaction', 'noreply@vipps.no', 'Din kvittering fra Rema 1000'],
+  ['transaction', 'no-reply@shop.com', 'Your order #123 has shipped'],
+  ['transaction', 'varsel@posten.no', 'Pakken din er levert'],
+  ['transaction', 'ordre@elkjop.no', 'Ordrebekreftelse 55566'],
+  ['transaction', 'security@microsoft.com', 'Security alert', '', [['Auto-Submitted', 'auto-generated']]],
+  ['transaction', 'noreply@id.vy.no', 'Billett til Oslo S'],
+  ['transaction', 'no-reply@accounts.google.com', 'Ny pålogging på enheten din'],
+  ['transaction', 'noreply@github.com', 'Your verification code is 123456'],
+  ['transaction', 'faktura@telenor.no', 'Faktura for oktober'],
+  ['transaction', 'booking@hotel.com', 'Booking confirmation 99'],
+  ['transaction', 'kundeservice@elkjop.no', 'Din time hos oss er bekreftet'],
+  ['transaction', 'noreply@paypal.com', 'You sent a payment', 'Payment confirmation for your purchase'],
+  ['transaction', 'orders@amazon.com', 'Your order has shipped', '', U],
+  ['transaction', 'bank@dnb.no', 'Engangskode 8841'],
+  // ---- updates: notifications, social, newsletters, mailing lists, automatic replies
+  ['update', 'notifications@github.com', 'Re: [repo] fix bug (#12)', '', [['List-Id', '<repo.github.com>'], ['In-Reply-To', '<x>']]],
+  ['update', 'noreply@linkedin.com', 'Anna viewed your profile'],
+  ['update', 'info@nrk.no', 'Dagens nyheter', '', U],
+  ['update', 'noreply@medium.com', 'Weekly digest', '', U],
+  ['update', 'newsletter@substack.com', 'The Sunday issue', '', U],
+  ['update', 'noreply@facebookmail.com', 'Du har 3 nye varsler'],
+  ['update', 'kari@club.no', 'Referat fra styremøtet', '', [['List-Id', '<styret.club.no>']]],
+  ['update', 'noreply@system.firma.no', 'Planlagt vedlikehold søndag'],
+  ['update', 'noreply@ms.com', 'Automatic reply: Out of office', '', [['Auto-Submitted', 'auto-replied']]],
+  ['update', 'post@kommune.no', 'Nyhetsbrev fra kommunen', '', U],
+  // ---- promotions: marketing
+  ['promo', 'tilbud@butikk.no', 'Stort sommersalg: opptil 70% rabatt', '', U],
+  ['promo', 'hei@brand.com', 'Last chance: 30% off everything', '', U],
+  ['promo', 'news@zalando.no', 'Nye favoritter for deg', '', U],
+  ['promo', 'marketing@elkjop.no', 'Black Friday starter nå'],
+  ['promo', 'anna@brand.com', '50% rabatt i dag!'],
+  ['promo', 'noreply@coop.no', 'Medlemstilbud denne uken', '', [['X-Mailgun-Sid', 'abc']]],
+  ['promo', 'hello@store.com', 'Free shipping this weekend', '', [['X-SG-EID', 'abc'], ['List-Unsubscribe', '<mailto:u@x>']]],
+  ['promo', 'kampanje@power.no', 'Kupong: 200 kr på alt'],
+  ['promo', 'info@spotify.com', 'Get 3 months free', '', U],
+  ['promo', 'deals@booking.com', 'Hotels from 499 kr', '', U],
+  ['promo', 'bulk@brand.no', 'Hei', '', [['Precedence', 'bulk']]],
+  ['promo', 'x@brand.no', 'Hei', '', [['X-Microsoft-Antispam', 'BCL:6;']]],
+  // ---- what Post has learned about this person
+  ['person', 'support@shop.com', 'Hvordan går det?', '', undefined, { known: new Set(['support@shop.com']) }],
+  ['person', 'boss@firma.no', 'Quarterly numbers', '', U, { vips: new Set(['boss@firma.no']) }],
+  ['promo', 'support@shop.com', 'Hvordan går det?', '', U, { known: new Set(['support@shop.com']) }],
+  ['promo', 'anna@x.no', 'Middag?', '', undefined, { overrides: { 'anna@x.no': 'promo' } }],
+  ['promo', 'a@news.brand.com', 'Hei', '', undefined, { overrides: { '@brand.com': 'promo' } }],
+  ['person', 'a@news.brand.com', 'Hei', '', undefined, { overrides: { '@brand.com': 'promo', 'a@news.brand.com': 'person' } }],
+];
+
+test('real-world mail lands in the right tab', () => {
+  const wrong: string[] = [];
+  for (const [kind, from, subject, preview, headers, ctx] of ROWS) {
+    const r = classify({ fromAddress: from, subject, preview, signals: sigOf(headers) }, ctx);
+    if (r.kind !== kind) wrong.push(`${from} | ${subject}: wanted ${kind}, got ${r.kind} (${r.why.join('; ')})`);
+  }
+  assert.deepEqual(wrong, []);
 });
 
-test('List-Unsubscribe makes a newsletter and says why', () => {
-  const c = classify({ ...base, fromAddress: 'news@butikk.no', headers: [{ name: 'List-Unsubscribe', value: '<https://x>' }] });
-  assert.equal(c.kind, 'newsletter');
-  assert.ok(c.why.includes('Has an unsubscribe link'));
-});
-
-test('header names are case-insensitive', () => {
-  assert.equal(classify({ ...base, headers: [{ name: 'LIST-ID', value: 'x' }] }).kind, 'newsletter');
-});
-
-test('Norwegian and English receipts from a robot are receipts', () => {
-  assert.equal(classify({ fromAddress: 'noreply@vipps.no', fromName: 'Vipps', subject: 'Din kvittering fra Rema' }).kind, 'receipt');
-  assert.equal(classify({ fromAddress: 'no-reply@shop.com', fromName: 'Shop', subject: 'Your order #123' }).kind, 'receipt');
-});
-
-test('a person who writes "faktura" in the subject stays a person unless it is automatic', () => {
-  assert.equal(classify({ ...base, subject: 'Re: ordrebekreftelse fra deg' }).kind, 'person');
-});
-
-test('delivery and security notifications are alerts', () => {
-  assert.equal(classify({ fromAddress: 'varsel@posten.no', fromName: 'Posten', subject: 'Pakken din er levert' }).kind, 'alert');
-  assert.equal(classify({ fromAddress: 'security@microsoft.com', fromName: 'Microsoft', subject: 'Security alert', headers: [{ name: 'Auto-Submitted', value: 'auto-generated' }] }).kind, 'alert');
-});
-
-test('Auto-Submitted: no does not count as automatic', () => {
-  assert.equal(classify({ ...base, headers: [{ name: 'Auto-Submitted', value: 'no' }] }).kind, 'person');
-});
-
-test('Precedence: bulk is a newsletter', () => {
-  assert.equal(classify({ ...base, headers: [{ name: 'Precedence', value: 'bulk' }] }).kind, 'newsletter');
-});
-
-test('a per-sender override always wins, with its own reason', () => {
-  const c = classify({ fromAddress: 'noreply@x.no', subject: 'kvittering' }, { 'noreply@x.no': 'person' });
-  assert.equal(c.kind, 'person');
-  assert.equal(c.why[0], 'You moved this sender here');
-});
-
-test('every verdict has at least one reason', () => {
+test('every verdict comes with at least one plain reason', () => {
+  for (const [, from, subject, preview, headers, ctx] of ROWS) assert.ok(classify({ fromAddress: from, subject, preview, signals: sigOf(headers) }, ctx).why.length >= 1, subject);
   for (const subject of ['a', 'Faktura', 'Levert', '']) assert.ok(classify({ fromAddress: 'info@x.no', subject }).why.length >= 1);
+  assert.deepEqual(classify({ fromAddress: '', subject: '' }).kind, 'person');
+});
+
+test('a normal message from a person says so', () => {
+  assert.deepEqual(classify({ fromAddress: 'anna@example.no', fromName: 'Anna', subject: 'Middag?' }), { kind: 'person', why: ['Written by a person'] });
+});
+
+test('the reasons name what was seen', () => {
+  const unsub = classify({ fromAddress: 'news@butikk.no', subject: 'Hei fra butikken', signals: sigOf(U) });
+  assert.equal(unsub.kind, 'promo');
+  assert.ok(unsub.why.includes('Has an unsubscribe link'));
+  assert.ok(classify({ fromAddress: 'noreply@vipps.no', subject: 'Din kvittering' }).why.includes('Looks like a receipt or an invoice'));
+  assert.ok(classify({ fromAddress: 'a@b.no', subject: 'x', signals: ['list'] }).why.includes('Sent to a mailing list'));
+  assert.ok(classify({ fromAddress: 'a@b.no', subject: 'x', signals: ['bcl'] }).why.includes('Sent as bulk mail, not to you personally'));
+  assert.deepEqual(classify({ fromAddress: 'x@y.no', subject: 'Hei' }, { known: new Set(['x@y.no']) }).why, ['You have written to this address']);
+  assert.deepEqual(classify({ fromAddress: 'x@y.no', subject: 'Re: Hei' }).why, ['Part of a conversation']);
+  assert.deepEqual(classify({ fromAddress: 'x@y.no', subject: 'Hei' }, { vips: new Set(['x@y.no']) }).why, ['On your VIP list']);
+});
+
+test('a choice you made always wins, and says whose choice it was', () => {
+  const one = classify({ fromAddress: 'noreply@x.no', subject: 'kvittering' }, { overrides: { 'noreply@x.no': 'person' } });
+  assert.equal(one.kind, 'person');
+  assert.equal(one.why[0], 'You moved this sender here');
+  const company = classify({ fromAddress: 'a@mail.x.no', subject: 'Hei' }, { overrides: { '@x.no': 'update' } });
+  assert.equal(company.kind, 'update');
+  assert.equal(company.why[0], 'You moved everything from x.no here');
+  // beats the VIP list and the bulk marks too
+  assert.equal(classify({ fromAddress: 'v@x.no', subject: 'Hei', signals: ['unsub'] }, { overrides: { 'v@x.no': 'update' }, vips: new Set(['v@x.no']) }).kind, 'update');
+});
+
+test('bulk marks are never overruled by a person-looking sender, except your own choice', () => {
+  const m = { fromAddress: 'anna.hansen@firma.no', fromName: 'Anna Hansen', subject: 'Hei der', signals: ['unsub'] };
+  assert.notEqual(classify(m).kind, 'person');
+  assert.notEqual(classify({ ...m, subject: 'Re: Hei der' }).kind, 'person');
+  assert.notEqual(classify(m, { known: new Set([m.fromAddress]) }).kind, 'person');
+  assert.equal(classify(m, { overrides: { [m.fromAddress]: 'person' } }).kind, 'person');
+});
+
+test('a mailing list without an unsubscribe link is a discussion, not an advert', () => {
+  assert.equal(classify({ fromAddress: 'kari@club.no', subject: 'Hei alle', signals: ['list'] }).kind, 'update');
+  assert.equal(classify({ fromAddress: 'kari@club.no', subject: 'Hei alle', signals: ['list', 'unsub'] }).kind, 'promo');
+});
+
+test('auto-replies and automatic mail are updates, never people', () => {
+  assert.equal(classify({ fromAddress: 'anna@x.no', subject: 'Re: Hei', signals: ['auto', 'thread'] }).kind, 'update');
+  assert.equal(classify({ fromAddress: 'anna@x.no', subject: 'Hei', signals: ['auto'] }, { known: new Set(['anna@x.no']) }).kind, 'update');
+});
+
+test('a mailing service alone is weak evidence, with a company sender or shop words it is enough', () => {
+  assert.equal(classify({ fromAddress: 'anna@x.no', subject: 'Middag?', signals: ['esp'] }).kind, 'person');
+  assert.equal(classify({ fromAddress: 'info@x.no', subject: 'Hei', signals: ['esp'] }).kind, 'update');
+  assert.equal(classify({ fromAddress: 'anna@x.no', subject: 'Din kvittering', signals: ['esp'] }).kind, 'transaction');
+});
+
+test('a person at a company is not mistaken for the company', () => {
+  // "Ola Hansen" writing from hansen.no is a person; "Elkjøp Norge" from elkjop.no is the shop.
+  assert.equal(classify({ fromAddress: 'ola@hansen.no', fromName: 'Ola Hansen', subject: 'Din bestilling er sendt' }).kind, 'person');
+  assert.equal(classify({ fromAddress: 'ola@elkjop.no', fromName: 'Elkjøp Norge', subject: 'Din bestilling er sendt' }).kind, 'transaction');
+  // a shared mail provider is never "the company"
+  assert.equal(classify({ fromAddress: 'gmail@gmail.com', fromName: 'Gmail Team', subject: 'Din bestilling er sendt' }).kind, 'person');
+});
+
+test('words match whole words, so "sale" is not found in "resale" and Norwegian letters count as letters', () => {
+  assert.equal(classify({ fromAddress: 'noreply@x.no', subject: 'Resale value', signals: ['unsub'] }).kind, 'promo'); // bulk fallback, not the word "sale"
+  assert.ok(!classify({ fromAddress: 'noreply@x.no', subject: 'Resale value', signals: ['unsub'] }).why.includes('Sounds like an offer or a sale'));
+  assert.ok(classify({ fromAddress: 'noreply@x.no', subject: 'Sale ends soon' }).why.includes('Sounds like an offer or a sale'));
+  assert.equal(classify({ fromAddress: 'noreply@x.no', subject: 'Åpent hus i Ålesund' }).kind, 'update');
+});
+
+test('a receipt that arrives with an unsubscribe link is still a receipt', () => {
+  assert.equal(classify({ fromAddress: 'orders@amazon.com', subject: 'Your order has shipped', signals: ['unsub', 'oneclick'] }).kind, 'transaction');
+  assert.equal(classify({ fromAddress: 'shop@brand.no', subject: 'Ordrebekreftelse 12', signals: ['unsub'] }).kind, 'transaction');
+});
+
+test('an unsure message stays in Primary', () => {
+  for (const subject of ['Hei', 'Kan du ringe meg?', 'Bilder fra turen', 'Re: møtet', 'Ny versjon av dokumentet']) assert.equal(classify({ fromAddress: 'ola@privat.no', subject, preview: 'hei' }).kind, 'person', subject);
+});
+
+test('signals: read from the headers, names in any case', () => {
+  assert.deepEqual(signalsFromHeaders(undefined), []);
+  assert.deepEqual(signalsFromHeaders([]), []);
+  assert.deepEqual(signalsFromHeaders(hdr(['LIST-UNSUBSCRIBE', '<mailto:u@x>'])), ['unsub']);
+  assert.deepEqual(signalsFromHeaders(hdr(['List-Unsubscribe', '<https://u>'], ['List-Unsubscribe-Post', 'List-Unsubscribe=One-Click'], ['List-Id', '<news.x.no>'])), ['unsub', 'oneclick', 'list']);
+  assert.deepEqual(signalsFromHeaders(hdr(['Precedence', 'bulk'])), ['bulk']);
+  assert.deepEqual(signalsFromHeaders(hdr(['Precedence', 'list'])), ['bulk']);
+  assert.deepEqual(signalsFromHeaders(hdr(['Precedence', 'auto_reply'])), ['auto']);
+  assert.deepEqual(signalsFromHeaders(hdr(['Auto-Submitted', 'auto-generated'])), ['auto']);
+  assert.deepEqual(signalsFromHeaders(hdr(['Auto-Submitted', 'no'])), []);
+  assert.deepEqual(signalsFromHeaders(hdr(['X-Auto-Response-Suppress', 'All'])), ['auto']);
+  assert.deepEqual(signalsFromHeaders(hdr(['X-Microsoft-Antispam', 'BCL:0;ARA:1'])), []);
+  assert.deepEqual(signalsFromHeaders(hdr(['X-Microsoft-Antispam', 'BCL:7;ARA:1'])), ['bcl']);
+  assert.deepEqual(signalsFromHeaders(hdr(['X-Mailgun-Sid', 'x'])), ['esp']);
+  assert.deepEqual(signalsFromHeaders(hdr(['Feedback-ID', 'a:b:c'])), ['esp']);
+  assert.deepEqual(signalsFromHeaders(hdr(['X-Mailer', 'Mailchimp Mailer - **CID123**'])), ['esp']);
+  assert.deepEqual(signalsFromHeaders(hdr(['X-Mailer', 'Apple Mail (2.3774)'])), []);
+  assert.deepEqual(signalsFromHeaders(hdr(['In-Reply-To', '<a@b>'])), ['thread']);
+  assert.deepEqual(signalsFromHeaders(hdr(['References', '<a@b>'])), ['thread']);
+});
+
+test('signals: only the first of a repeated header counts, odd input never throws', () => {
+  assert.deepEqual(signalsFromHeaders(hdr(['Auto-Submitted', 'no'], ['Auto-Submitted', 'auto-generated'])), []);
+  assert.deepEqual(signalsFromHeaders([{ name: '', value: 'x' }, { name: 'List-Id', value: '' }, null as never, { name: 'X-Mailer' } as never]), []);
+});
+
+test('orgDomain: the company part of an address or a domain', () => {
+  assert.equal(orgDomain('a@mail.elkjop.no'), 'elkjop.no');
+  assert.equal(orgDomain('mail.elkjop.no'), 'elkjop.no');
+  assert.equal(orgDomain('elkjop.no'), 'elkjop.no');
+  assert.equal(orgDomain('A@News.Brand.COM'), 'brand.com');
+  assert.equal(orgDomain('a@shop.example.co.uk'), 'example.co.uk');
+  assert.equal(orgDomain('localhost'), 'localhost');
+});
+
+test('isFreemail: shared mail providers are never a company rule', () => {
+  for (const d of ['gmail.com', 'anna@hotmail.com', 'mail.live.com', 'icloud.com', 'online.no']) assert.equal(isFreemail(d), true, d);
+  for (const d of ['elkjop.no', 'anna@firma.no']) assert.equal(isFreemail(d), false, d);
+});
+
+test('ruleFor: the sender first, then the company, walking up subdomains', () => {
+  const o: Record<string, Kind> = { 'a@x.brand.com': 'person', '@brand.com': 'promo', '@shop.no': 'update' };
+  assert.deepEqual(ruleFor(o, 'A@X.brand.com'), { key: 'a@x.brand.com', kind: 'person', scope: 'sender' });
+  assert.deepEqual(ruleFor(o, 'b@x.brand.com'), { key: '@brand.com', kind: 'promo', scope: 'company' });
+  assert.deepEqual(ruleFor(o, 'b@deep.er.shop.no'), { key: '@shop.no', kind: 'update', scope: 'company' });
+  assert.equal(ruleFor(o, 'b@other.no'), null);
+  assert.equal(ruleFor(undefined, 'b@other.no'), null);
+  assert.equal(ruleFor({ '@no': 'promo' }, 'b@other.no'), null, 'a bare top-level domain is never a company');
+});
+
+test('older saved names map onto the four kinds', () => {
+  assert.equal(asKind('newsletter'), 'update');
+  assert.equal(asKind('Receipts'), 'transaction');
+  assert.equal(asKind('alert'), 'update');
+  assert.equal(asKind('people'), 'person');
+  assert.equal(asKind('promo'), 'promo');
+  assert.equal(asKind('nonsense'), null);
+  assert.equal(asKind(7), null);
+  for (const k of KINDS) assert.equal(asKind(k), k);
 });

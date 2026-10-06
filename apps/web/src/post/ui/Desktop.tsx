@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
-import { filterCounts, visibleMail, type State } from '../core/controller.ts';
+import { mailCounts, visibleMail, type State, type View } from '../core/controller.ts';
 import { accountColour } from '../core/settings.ts';
 import { SHORTCUT_HELP, shortcutFor } from '../core/shortcuts.ts';
-import { mailKey, type Mail } from '../core/types.ts';
+import { KIND_TAB, mailKey, type Mail } from '../core/types.ts';
 import { Compose } from './Compose.tsx';
 import { Inbox, SnoozeSheet } from './Inbox.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
 import { Triage } from './Triage.tsx';
-import { Appearance, Settings } from './Settings.tsx';
+import { Appearance, Settings, Sorting } from './Settings.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { AccountsSheet } from './Accounts.tsx';
-import { Icon, Mark, Sheet } from './ui.tsx';
+import { Icon, KIND_ICON, Mark, Sheet } from './ui.tsx';
 import { go, resolveAccount, useC, useNow, useRoute } from './ctx.tsx';
 
 /** The computer layout: a sidebar, the message list, and the reading pane side by side. The same screens as on the phone, just in panes. */
@@ -34,7 +34,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       const t = e.target as HTMLElement | null;
       const typing = !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
       if (e.key === 'Enter' && t && /^(BUTTON|A)$/.test(t.tagName)) return;
-      const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet') });
+      const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet, .viewer') });
       if (!a) return;
       const need = (m?: Mail) => m ?? undefined;
       switch (a) {
@@ -46,7 +46,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
         case 'reply': case 'replyAll': if (!current) return; go({ name: 'compose', mode: a, account: current.account, id: current.id }); break;
         case 'compose': go({ name: 'compose', mode: 'new' }); break;
         case 'search': go({ name: 'search', q: '' }); break;
-        case 'close': if (help) setHelp(false); else if (route.name !== 'inbox') go({ name: 'inbox' }); else return; break;
+        case 'close': if (document.querySelector('.sheet, .viewer')) return; /* the sheet or the file viewer closes itself */ if (route.name !== 'inbox') go({ name: 'inbox' }); else return; break;
         case 'unread': if (!current) return; void c.setRead(current, !current.isRead); break;
         case 'flag': if (!current) return; void c.setFlag(current, !current.flagged); break;
         case 'snooze': if (!current) return; setSnoozing(current); break;
@@ -66,7 +66,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       <Sidebar s={s} onAdd={onAdd} onHelp={() => setHelp(true)} />
       {full ? (
         <main className="dsk-full">
-          {route.name === 'triage' ? <Triage s={s} /> : route.name === 'settings' ? (route.page === 'alerts' ? <Alerts s={s} /> : route.page === 'hours' ? <Hours s={s} email={route.account ?? ''} /> : route.page === 'appearance' ? <Appearance s={s} /> : <Settings s={s} />) : null}
+          {route.name === 'triage' ? <Triage s={s} /> : route.name === 'settings' ? (route.page === 'alerts' ? <Alerts s={s} /> : route.page === 'hours' ? <Hours s={s} email={route.account ?? ''} /> : route.page === 'appearance' ? <Appearance s={s} /> : route.page === 'sorting' ? <Sorting s={s} /> : <Settings s={s} />) : null}
         </main>
       ) : (
         <>
@@ -96,17 +96,26 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
   const route = useRoute();
   const now = useNow();
   const emails = s.accounts.map((a) => a.email);
-  const unreadOf = (email: string | null) => filterCounts({ mail: s.mail, accountFilter: email }, now).unread;
+  // The numbers are what is waiting in Primary (for a mailbox: its Primary). Promotions and receipts show their own numbers in their own tabs.
+  const unreadOf = (email: string | null) => mailCounts({ mail: s.mail, accountFilter: email }, now).byKind.person.unread;
+  const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter }, now);
   const inbox = route.name === 'inbox' || route.name === 'message' || route.name === 'compose' || route.name === 'accounts';
   const nav = (active: boolean, icon: string, text: string, onClick: () => void, badge?: number) => (
     <button className={`sb-it${active ? ' on' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon n={icon} size={20} />{text}{badge ? <span className="sb-n">{badge > 99 ? '99+' : badge}</span> : null}</button>
   );
+  const tab = (v: View, icon: string, text: string, n: number) => nav(inbox && s.view === v, icon, text, () => { c.setView(v); go({ name: 'inbox' }); }, n);
   return (
     <aside className="sb" aria-label="Post">
       <div className="sb-brand"><span className="sb-mark"><Mark size={22} /></span><b>Post</b></div>
       <button className="cta sb-compose" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={18} />New message</button>
-      <nav className="sb-nav" aria-label="Main">
-        {nav(inbox, 'inbox', 'Inbox', () => { c.setAccountFilter(null); go({ name: 'inbox' }); }, unreadOf(s.accountFilter))}
+      <nav className="sb-nav" aria-label="Inbox">
+        {tab('person', KIND_ICON.person, KIND_TAB.person, counts.byKind.person.unread)}
+        {tab('transaction', KIND_ICON.transaction, KIND_TAB.transaction, counts.byKind.transaction.unread)}
+        {tab('update', KIND_ICON.update, KIND_TAB.update, counts.byKind.update.unread)}
+        {tab('promo', KIND_ICON.promo, KIND_TAB.promo, counts.byKind.promo.unread)}
+        {tab('all', 'inbox', 'All mail', 0)}
+      </nav>
+      <nav className="sb-nav sb-gap" aria-label="Main">
         {nav(route.name === 'search', 'search', 'Search', () => go({ name: 'search', q: '' }))}
         {nav(route.name === 'later', 'clock', 'Later', () => go({ name: 'later' }))}
         {nav(route.name === 'triage', 'check', 'Triage mode', () => go({ name: 'triage' }))}
@@ -135,11 +144,12 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
 
 function EmptyPane({ s }: { s: State }) {
   const now = useNow();
-  const unread = filterCounts({ mail: s.mail, accountFilter: s.accountFilter }, now).unread;
+  const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter }, now);
+  const unread = s.view === 'all' ? counts.unread : counts.byKind[s.view].unread;
   return (
     <div className="dsk-empty">
       <div className="mark"><Mark size={44} /></div>
-      <h2 className="h2">{unread ? `${unread} unread` : 'All caught up'}</h2>
+      <h2 className="h2">{unread ? `${unread} unread${s.view === 'all' ? '' : ` in ${KIND_TAB[s.view]}`}` : 'All caught up'}</h2>
       <p>Choose a message to read it. <kbd>j</kbd> and <kbd>k</kbd> move through the list, <kbd>e</kbd> archives, <kbd>?</kbd> shows every shortcut.</p>
     </div>
   );
