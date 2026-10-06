@@ -293,3 +293,41 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
   button { cursor: pointer; }
 }
 @media (min-width: 560px) and (max-width: 899px) { /* a tablet-sized window keeps the phone layout, centred */ }
+
+/* ---- sign-in screens: brand panel beside a card on a computer, one centred card on a phone ---- */
+.post:has(.auth) { max-width: none; box-shadow: none; }
+.auth { position: absolute; inset: 0; display: flex; background: var(--bg); overflow-y: auto; }
+.auth-brand { display: none; }
+.auth-main { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; padding: calc(env(safe-area-inset-top, 0px) + 32px) 24px calc(env(safe-area-inset-bottom, 0px) + 32px); }
+.auth-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: stretch; text-align: center; margin: auto; }
+.auth-mark { width: 40px; height: 40px; border-radius: 12px; background: #1E2430; display: flex; align-items: center; justify-content: center; flex: none; }
+.auth-mark.big { width: 68px; height: 68px; border-radius: 20px; margin: 0 auto 22px; box-shadow: 0 8px 24px rgba(30,36,48,.22); }
+.auth-h { margin: 0; font: 700 30px/1.1 'Bricolage Grotesque', system-ui, sans-serif; letter-spacing: -.025em; }
+.auth-tag { margin: 10px 0 0; font-size: 15.5px; line-height: 1.5; color: var(--mu); }
+.auth-ms, .auth-cta, .auth-alt { margin-top: 28px; width: 100%; height: 52px; border-radius: 12px; border: 0; font-size: 15.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 12px; transition: background .15s ease, box-shadow .15s ease, transform .12s ease; }
+.auth-ms { background: var(--card); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent), 0 1px 2px rgba(30,36,48,.08); }
+.auth-ms:active, .auth-cta:active { transform: scale(.985); }
+.auth-ms[disabled] { opacity: .55; cursor: default; }
+.auth-cta { background: var(--ac); color: var(--on); }
+.auth-alt { margin-top: 10px; background: transparent; color: var(--mu); }
+.auth-fine { margin: 14px 0 0; font-size: 13px; color: var(--mu); line-height: 1.45; }
+.auth-err { margin: 16px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.45; color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, var(--card)); text-align: left; }
+.auth-trust { margin-top: 36px; padding-top: 20px; border-top: 1px solid var(--ln); display: flex; gap: 10px; text-align: left; color: var(--mu); font-size: 12.5px; line-height: 1.5; }
+.auth-trust p { margin: 0; } .auth-trust b { color: var(--ink); font-weight: 600; } .auth-trust .ic { margin-top: 1px; }
+.auth-spin { width: 26px; height: 26px; margin: 28px auto 0; border-radius: 50%; border: 3px solid var(--ln); border-top-color: var(--ac); animation: spin .9s linear infinite; }
+@media (min-width: 900px) {
+  .auth-brand { display: flex; flex-direction: column; justify-content: center; gap: 28px; width: 46%; max-width: 640px; flex: none; padding: 64px 72px; color: #fff; background: radial-gradient(120% 90% at 0% 0%, #2B3548 0%, #1E2430 55%, #161B24 100%); }
+  .auth-logo { display: flex; align-items: center; gap: 12px; font: 700 26px 'Bricolage Grotesque', system-ui, sans-serif; letter-spacing: -.02em; }
+  .auth-logo .auth-mark { background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+  .auth-pitch { margin: 0; font: 700 40px/1.08 'Bricolage Grotesque', system-ui, sans-serif; letter-spacing: -.03em; max-width: 440px; }
+  .auth-feats { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 20px; max-width: 440px; }
+  .auth-feats li { display: flex; gap: 14px; align-items: flex-start; }
+  .auth-feats b { display: block; font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .auth-feats li span:not(.auth-fi) { font-size: 13.5px; line-height: 1.5; color: rgba(255,255,255,.68); }
+  .auth-fi { width: 34px; height: 34px; border-radius: 10px; flex: none; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.1); color: #F2A38C; }
+  .auth-main { background: var(--card); }
+  .auth-mark.big { display: none; }
+  .auth-card { text-align: left; }
+  .auth-h { font-size: 32px; }
+}
+@media (hover: hover) { .auth-ms:hover { background: color-mix(in srgb, var(--ink) 4%, var(--card)); } .auth-cta:hover { filter: brightness(1.06); } .auth-alt:hover { color: var(--ink); } }
