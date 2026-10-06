@@ -59,6 +59,13 @@ test('singles gives every message its own row, newest first, with its own unread
   assert.deepEqual(t.map((x) => [x.latest.id, x.items.length, x.unread]), [['2', 1, 0], ['1', 1, 1]]);
 });
 
+test('with conversations off, two messages of one conversation are two rows with two different keys', () => {
+  const t = singles([mail({ id: '1', conversationId: 'C', received: '2026-10-01T10:00:00Z' }), mail({ id: '2', conversationId: 'C', received: '2026-10-02T10:00:00Z' }), mail({ id: '3', conversationId: '' })]);
+  assert.equal(t.length, 3);
+  assert.equal(new Set(t.map((x) => x.key)).size, 3, 'a row is picked, swiped and queued by its key, so no two rows may share one');
+  assert.ok(t.every((x) => x.items.length === 1 && x.items[0] === x.latest));
+});
+
 test('a row keeps its key when a new answer arrives', () => {
   const before = groupThreads([mail({ id: '1', conversationId: 'C' })]);
   const after = groupThreads([mail({ id: '1', conversationId: 'C' }), mail({ id: '2', conversationId: 'C', received: '2026-10-09T10:00:00Z' })]);

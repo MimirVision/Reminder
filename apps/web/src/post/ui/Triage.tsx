@@ -48,7 +48,7 @@ export function Triage({ s }: { s: State }) {
     return (
       <div className="pg">
         <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
-        <div className="empty"><span className="big">All caught up</span>{total ? `You went through ${total} message${total > 1 ? 's' : ''}.` : s.view === 'all' ? 'Nothing unread to go through.' : `Nothing unread in ${KIND_TAB[s.view]}.`}<button className="cta" style={{ marginTop: 20 }} onClick={() => go({ name: 'inbox' })}>Back to inbox</button></div>
+        <div className="empty"><span className="big">All caught up</span>{total ? `You went through ${total} ${s.settings.threads ? 'conversation' : 'message'}${total > 1 ? 's' : ''}.` : s.view === 'all' ? 'Nothing unread to go through.' : `Nothing unread in ${KIND_TAB[s.view]}.`}<button className="cta" style={{ marginTop: 20 }} onClick={() => go({ name: 'inbox' })}>Back to inbox</button></div>
       </div>
     );
   }

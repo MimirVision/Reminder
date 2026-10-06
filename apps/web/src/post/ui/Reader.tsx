@@ -30,6 +30,8 @@ const picturesSeen = new Map<string, { cids: Record<string, string>; embedded: s
 
 const newestFirst = (a: Mail, b: Mail) => b.received.localeCompare(a.received);
 const NONE: ReadonlySet<string> = new Set();
+/** Which messages of a conversation you turned over (opened one that was folded, folded one that was open), kept while Post is open: coming back from writing a reply finds the conversation as you left it. */
+const turned = new Map<string, ReadonlySet<string>>();
 
 type Found = { ck: string; items: Mail[]; state: 'loading' | 'done' | 'failed' };
 
@@ -85,7 +87,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
 
   const extras = found && found.ck === ck ? found.items : [];
   const looking = found && found.ck === ck ? found.state : 'idle';
-  const flipped = flip.key === key ? flip.keys : NONE;
+  const flipped = flip.key === key ? flip.keys : turned.get(key) ?? NONE;
 
   const local = m ? threadOf(s.mail, m, grouped) : []; // what is in the inbox on this phone, newest first
   const all: Mail[] = [];
@@ -117,7 +119,13 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   }
 
   const isOpen = (x: Mail) => !many || (x.key === key) !== flipped.has(x.key);
-  const toggle = (x: Mail) => setFlip((f) => { const keys = new Set(f.key === key ? f.keys : NONE); if (keys.has(x.key)) keys.delete(x.key); else keys.add(x.key); return { key, keys }; });
+  const toggle = (x: Mail) => {
+    const keys = new Set(flipped);
+    if (keys.has(x.key)) keys.delete(x.key); else keys.add(x.key);
+    turned.delete(key); turned.set(key, keys);
+    if (turned.size > 40) turned.delete(turned.keys().next().value!);
+    setFlip({ key, keys });
+  };
   const reply = (mode: 'reply' | 'replyAll' | 'forward', x: Mail = target) => go({ name: 'compose', mode, account: email, id: x.id });
   const archiveNext = () => { void c.archive(local, 1); open(next, true); };
   const anyUnread = local.some((x) => !x.isRead);
@@ -140,8 +148,8 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
           {(s.accounts.length > 1 || m.kind !== 'person' || many) && <div className="meta">{s.accounts.length > 1 && <span className="chip"><i style={{ background: badge?.colour ?? 'var(--at)' }} />{email}</span>}{here && m.kind !== 'person' && <span className="chip">{KIND_TAB[m.kind]}</span>}{many && <span className="chip">{all.length} messages</span>}</div>}
         </div>
         {all.map((x) => (
-          <MessageBlock key={x.key} s={s} m={x} open={isOpen(x)} many={many} anchor={x.key === key} answered={x.key === target.key} onPhone={local.some((y) => y.key === x.key)}
-            onToggle={() => toggle(x)} onReply={() => reply('reply', x)} onWhy={() => setSheet('why')}
+          <MessageBlock key={x.key} s={s} m={x} open={isOpen(x)} many={many} anchor={x.key === key} onPhone={local.some((y) => y.key === x.key)}
+            onToggle={() => toggle(x)} onReply={(mode) => reply(mode, x)} onWhy={() => setSheet('why')}
             onBody={x.key === key ? (b) => { setAnchorBody({ key, body: b }); if (here) void c.markRead(c.threadOf(here), { quiet: true }); } : undefined} />
         ))}
         {grouped && m.conversationId && looking === 'loading' && conversationLike && <p className="note" role="status">Looking for the rest of this conversation…</p>}
@@ -174,12 +182,13 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
 }
 
 /**
- * One message of the conversation. Open, it shows who it is from (with the address to copy), what is attached and the text; folded up, one line
- * with who and what it starts with. `anchor` is the message that was opened: it carries the "sorted as" bar and the unsubscribe button.
+ * One message of the conversation. Open, it shows who it is from (with the address to copy), what is attached and the text, and, in a
+ * conversation, Reply, Reply all and Forward for this very message; folded up, one line with who and what it starts with. `anchor` is the
+ * message that was opened: it carries the "sorted as" bar and the unsubscribe button.
  */
-function MessageBlock({ s, m, open, many, anchor, answered, onPhone, onToggle, onReply, onWhy, onBody }: {
-  s: State; m: Mail; open: boolean; many: boolean; anchor: boolean; /** the message the Reply button at the bottom answers */ answered: boolean; onPhone: boolean;
-  onToggle: () => void; onReply: () => void; onWhy: () => void; onBody?: (b: MailBody) => void;
+function MessageBlock({ s, m, open, many, anchor, onPhone, onToggle, onReply, onWhy, onBody }: {
+  s: State; m: Mail; open: boolean; many: boolean; anchor: boolean; onPhone: boolean;
+  onToggle: () => void; onReply: (mode: 'reply' | 'replyAll' | 'forward') => void; onWhy: () => void; onBody?: (b: MailBody) => void;
 }) {
   const c = useC();
   const dark = useDark(s.settings.theme);
@@ -262,10 +271,7 @@ function MessageBlock({ s, m, open, many, anchor, answered, onPhone, onToggle, o
           <div className="s">{to ? `to ${to} · ` : ''}{shortTime(m.received)}{many && m.flagged && <span className="fl"><Icon n="flag" size={13} /></span>}</div>
         </div>
         {many ? (
-          <>
-            {!mine && !answered && <button className="btn plain" aria-label={`Reply to ${who}`} onClick={onReply}><Icon n="reply" /></button>}
-            <button className="btn plain" aria-label="Fold this message up" aria-expanded={true} onClick={onToggle}><Icon n="up" /></button>
-          </>
+          <button className="btn plain" aria-label="Fold this message up" aria-expanded={true} onClick={onToggle}><Icon n="up" /></button>
         ) : onPhone && <button className="btn plain" aria-label={m.flagged ? 'Remove flag' : 'Flag'} onClick={() => void c.setFlag(m, !m.flagged)} style={{ color: m.flagged ? 'var(--at)' : undefined }}><Icon n="flag" /></button>}
       </div>
       {anchor && onPhone && m.kind !== 'person' && (
@@ -276,6 +282,13 @@ function MessageBlock({ s, m, open, many, anchor, answered, onPhone, onToggle, o
       {body && <FileList m={m} files={files} failed={!!body.attachmentsFailed} onRetry={() => { void c.openBody(m).then(setBody).catch(() => {}); }} />}
       {remote && !showImages && <div className="banner"><Icon n="eye" size={18} />Images are blocked<button onClick={() => setLoadImages(true)}>Load once</button></div>}
       {err ? <p className="note" style={{ margin: 16 }}>{err}</p> : body ? <Frame html={html} remote={showImages} dark={dark} /> : <p className="note" style={{ margin: '18px 16px' }}>Opening…</p>}
+      {many && (
+        <div className="macts" role="group" aria-label={`Answer or forward ${mine ? 'your message' : `the message from ${who}`}`}>
+          {!mine && <button type="button" aria-label={`Reply to ${who}`} onClick={() => onReply('reply')}><Icon n="reply" size={18} />Reply</button>}
+          {!mine && <button type="button" aria-label={`Reply all to ${who}`} onClick={() => onReply('replyAll')}><Icon n="replyAll" size={18} />Reply all</button>}
+          <button type="button" aria-label={mine ? 'Forward your message' : `Forward the message from ${who}`} onClick={() => onReply('forward')}><Icon n="forward" size={18} />Forward</button>
+        </div>
+      )}
     </article>
   );
 }

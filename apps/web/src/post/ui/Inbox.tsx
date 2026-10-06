@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { cleanUpList, mailCounts, visibleMail, visibleThreads, type Counts, type State } from '../core/controller.ts';
+import { cleanUpThreads, mailCounts, visibleThreads, type Counts, type State } from '../core/controller.ts';
 import { dayGroup, displayName, shortTime } from '../core/format.ts';
 import { isHorizontal, swipeOffset, swipeResult, SWIPE_COMMIT } from '../../lib/swipe.ts';
 import { threadWho, type Thread } from '../core/threads.ts';
@@ -128,7 +128,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
     io.observe(el); return () => io.disconnect();
   }, [shown.length, list.length]);
 
-  const promos = s.view === 'promo' ? cleanUpList(s, now, 0) : [];
+  const promos = s.view === 'promo' ? cleanUpThreads(s, now, 0) : [];
   const scope = s.accountFilter ? labelOf(s, s.accountFilter) : s.accounts.length > 1 ? 'All accounts' : s.accounts[0]?.label ?? 'Inbox';
   const when = s.sync.running ? 'Updating…' : s.sync.at ? `Updated ${Math.max(0, Math.round((now - s.sync.at) / 60000)) < 1 ? 'just now' : `${Math.round((now - s.sync.at) / 60000)} min ago`}` : '';
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -238,16 +238,17 @@ function mostlyFrom(items: Mail[]): string {
 function CleanUpSheet({ s, onClose }: { s: State; onClose: () => void }) {
   const c = useC();
   const now = useNow();
-  const all = cleanUpList(s, now, 0);
-  const old = cleanUpList(s, now, 7);
-  const unread = visibleMail({ mail: s.mail, view: 'promo', unreadOnly: true, accountFilter: s.accountFilter }, now);
+  // Rows of the Promotions tab, the same ones you see there: a conversation is one, however many messages are in it.
+  const all = cleanUpThreads(s, now, 0);
+  const old = cleanUpThreads(s, now, 7);
+  const unread = visibleThreads({ mail: s.mail, view: 'promo', unreadOnly: true, accountFilter: s.accountFilter, settings: s.settings }, now);
   return (
     <Sheet title="Clean up Promotions" onClose={onClose}>
-      <p className="note" style={{ margin: '2px 8px 12px' }}>{mostlyFrom(all)} Archived mail is moved to Archive, not deleted: search still finds it, and Undo works for a few seconds.</p>
+      <p className="note" style={{ margin: '2px 8px 12px' }}>{mostlyFrom(all.map((t) => t.latest))} Archived mail is moved to Archive, not deleted: search still finds it, and Undo works for a few seconds.</p>
       <div className="card">
         <button className="it" disabled={!old.length} onClick={() => { onClose(); void c.cleanUp(7); }}><span className="ico"><Icon n="archive" /></span>Archive older than a week<span className="v">{old.length}</span></button>
         <button className="it" disabled={!all.length} onClick={() => { onClose(); void c.cleanUp(0); }}><span className="ico"><Icon n="archive" /></span>Archive all promotions<span className="v">{all.length}</span></button>
-        <button className="it" disabled={!unread.length} onClick={() => { onClose(); void c.markRead(unread); }}><span className="ico"><Icon n="eye" /></span>Mark all as read<span className="v">{unread.length}</span></button>
+        <button className="it" disabled={!unread.length} onClick={() => { onClose(); void c.markRead(unread.flatMap((t) => t.items)); }}><span className="ico"><Icon n="eye" /></span>Mark all as read<span className="v">{unread.length}</span></button>
       </div>
       <p className="note">Mail you flagged stays where it is. A sender that should not be here? Open one of its messages, tap Why, and move it.</p>
     </Sheet>

@@ -26,13 +26,13 @@ export function threadKey(m: Pick<Mail, 'key' | 'account' | 'conversationId'>): 
 
 const newestFirst = (a: Mail, b: Mail) => b.received.localeCompare(a.received);
 
-function one(m: Mail): Thread {
-  return { key: threadKey(m), account: m.account, latest: m, items: [m], unread: m.isRead ? 0 : 1, kind: m.kind };
+function one(m: Mail, key: string): Thread {
+  return { key, account: m.account, latest: m, items: [m], unread: m.isRead ? 0 : 1, kind: m.kind };
 }
 
-/** Every message its own row (what the list shows when conversations are switched off). Newest first. */
+/** Every message its own row (what the list shows when conversations are switched off). Newest first. A row is named after its message, so two messages of one conversation are two rows. */
 export function singles(mail: Mail[]): Thread[] {
-  return [...mail].sort(newestFirst).map(one);
+  return [...mail].sort(newestFirst).map((m) => one(m, `m|${m.key}`));
 }
 
 /** Puts the messages of each conversation together. The rows come newest first, each placed by its newest message. */
@@ -41,7 +41,7 @@ export function groupThreads(mail: Mail[]): Thread[] {
   for (const m of [...mail].sort(newestFirst)) {
     const k = threadKey(m);
     const t = byKey.get(k);
-    if (!t) { byKey.set(k, one(m)); continue; }
+    if (!t) { byKey.set(k, one(m, k)); continue; }
     t.items.push(m);
     if (!m.isRead) t.unread++;
   }
