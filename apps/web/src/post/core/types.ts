@@ -60,13 +60,20 @@ export interface Mail {
   snoozedUntil?: string | null;
 }
 
+/** One attachment of a message. `kind`: a file, an attached message (saved as .eml) or a link to a cloud file; saved before 'kind' existed means a file. */
+export interface AttachmentRef { id: string; name: string; size: number; contentType: string; inline: boolean; kind?: 'file' | 'item' | 'link' }
+
 export interface MailBody {
   key: string;
   contentType: 'html' | 'text';
   content: string;
   to: { name: string; address: string }[];
   cc: { name: string; address: string }[];
-  attachments: { id: string; name: string; size: number; contentType: string; inline: boolean; cid?: string }[];
+  attachments: AttachmentRef[];
+  /** True once the list of attachments has been read from Outlook (an empty list is then a real answer). */
+  listed?: boolean;
+  /** The list of attachments could not be read the last time; it is asked for again when the message is opened. */
+  attachmentsFailed?: boolean;
 }
 
 export const mailKey = (account: string, id: string) => `${account}|${id}`;

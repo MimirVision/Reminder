@@ -22,7 +22,8 @@ html, body { margin: 0; height: 100%; background: var(--bg, #F2F3F5); overscroll
 .hd { display: flex; align-items: center; justify-content: space-between; padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 0 20px; flex: none; }
 .hd .r { display: flex; gap: 8px; }
 .nav { display: flex; align-items: center; gap: 8px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 0; flex: none; }
-.nav .sp { flex: 1; }
+.nav .sp { flex: 1; min-width: 0; }
+.nav-title { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 120px); }
 .btn { width: 44px; height: 44px; border-radius: 22px; border: 0; background: var(--card); color: var(--ink); display: flex; align-items: center; justify-content: center; flex: none; position: relative; }
 .btn.me { font: 700 16px 'Bricolage Grotesque'; background: var(--ink); color: var(--bg); }
@@ -161,16 +162,62 @@ textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: ve
 .msg { margin: 12px 16px 0; background: var(--card); border-radius: 24px; padding: 16px 0 12px; overflow: hidden; }
 .mh { display: flex; gap: 12px; align-items: center; padding: 0 12px 0 16px; }
 .mh .w { flex: 1; min-width: 0; } .mh .n { font-weight: 700; font-size: 16px; } .mh .s { font-size: 12.5px; color: var(--mu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The address the mail came from is shown in full (it wraps instead of being cut off): the part after the @ is what tells people apart. */
+.addr { display: block; max-width: 100%; margin: -3px 0; padding: 6px 0; border: 0; background: transparent; color: var(--mu); font-size: 13px; line-height: 1.3; text-align: left; overflow-wrap: anywhere; }
+.addr .ic { display: inline-block; vertical-align: -3px; margin-left: 6px; color: var(--at); }
+.addr.bold { color: var(--ink); font-weight: 700; font-size: 16px; }
 .banner { margin: 14px 12px 0; display: flex; align-items: center; gap: 10px; background: var(--wb); color: var(--wi); border-radius: 14px; padding: 4px 6px 4px 12px; font-size: 13px; font-weight: 600; }
 .banner button { margin-left: auto; height: 44px; border: 0; background: transparent; font-size: 13px; font-weight: 700; padding: 0 12px; text-decoration: underline; }
 .frame { display: block; width: 100%; border: 0; background: #fff; margin-top: 12px; min-height: 80px; }
-.att { margin: 8px 12px 0; display: flex; align-items: center; gap: 12px; background: var(--bg); border-radius: 14px; padding: 12px 14px; font-size: 14px; border: 0; width: calc(100% - 24px); text-align: left; }
-.att span { margin-left: auto; color: var(--mu); font-size: 12.5px; }
+/* files attached to a message, and the viewer that opens them */
+.files { margin: 12px 12px 0; background: var(--bg); border-radius: 16px; overflow: hidden; }
+.file { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 9px 14px; border: 0; border-top: 1px solid var(--ln); background: transparent; color: var(--ink); text-align: left; font-size: 14px; }
+.file:first-child { border-top: 0; }
+.fi { width: 42px; height: 42px; border-radius: 12px; background: var(--tint); color: var(--ti); display: flex; align-items: center; justify-content: center; font: 800 11px/1 'DM Sans', system-ui, sans-serif; letter-spacing: .02em; flex: none; }
+.fi.big { width: 72px; height: 72px; border-radius: 20px; font-size: 16px; }
+.fn { min-width: 0; flex: 1; } .fn b { display: block; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn span { display: block; font-size: 13px; color: var(--mu); margin-top: 2px; }
+.file .fc { color: var(--mu); flex: none; }
+.file.more-files { min-height: 48px; justify-content: center; color: var(--at); font-weight: 700; }
+.file.warn-row { background: var(--wb); color: var(--wi); font-size: 13px; font-weight: 600; justify-content: space-between; }
+.file.warn-row button { height: 40px; border: 0; background: transparent; font-weight: 700; text-decoration: underline; padding: 0 8px; color: inherit; font-size: 13px; white-space: nowrap; flex: none; }
+.viewer { position: fixed; inset: 0; z-index: 80; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; animation: fade .16s ease; }
+.vh { display: flex; align-items: center; gap: 8px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 8px; width: 100%; max-width: 920px; margin: 0 auto; flex: none; }
+.vt { flex: 1; min-width: 0; padding: 0 4px; } .vt b { display: block; font-size: 15.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt span { display: block; font-size: 12.5px; color: var(--mu); margin-top: 1px; }
+.vb { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; width: 100%; max-width: 920px; margin: 0 auto; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 90px); overscroll-behavior: contain; }
+.vmsg { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; padding: 56px 28px; color: var(--mu); line-height: 1.45; font-size: 14.5px; }
+.vmsg b { color: var(--ink); font: 700 20px 'Bricolage Grotesque', system-ui, sans-serif; word-break: break-word; }
+.vbtns { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 320px; margin-top: 8px; }
+.vmsg .cta, .vmsg .alt { height: 52px; border-radius: 26px; border: 0; padding: 0 22px; font-size: 15.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+.spin { width: 26px; height: 26px; border-radius: 13px; border: 3px solid var(--ln); border-top-color: var(--at); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
+.pdf { min-height: 100%; overflow-x: auto; }
+.pdf-in { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0 24px; min-width: 100%; }
+.pdf-page { position: relative; background: #fff; border-radius: 4px; box-shadow: 0 1px 8px rgba(0,0,0,.2); overflow: hidden; flex: none; }
+.pdf-page canvas { display: block; }
+.pdf-fail { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #5B6472; font-size: 13px; }
+.vimg { padding: 8px; overflow: auto; text-align: center; } .vimg img { display: block; margin: 0 auto; height: auto; border-radius: 6px; background: var(--card); }
+.vtext { margin: 8px 12px; padding: 14px; background: var(--card); border-radius: 16px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.vzoom { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); height: 52px; border-radius: 26px; padding: 4px; display: flex; align-items: center; gap: 2px; background: var(--gl); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6); border: 1px solid var(--ge); box-shadow: var(--sh); z-index: 81; }
+.vzoom button { width: 44px; height: 44px; border-radius: 22px; border: 0; background: transparent; color: var(--ink); display: flex; align-items: center; justify-content: center; } .vzoom button:disabled { opacity: .35; }
+.vzoom span { min-width: 52px; text-align: center; font-size: 13.5px; font-weight: 700; }
 .kindbar { margin: 12px 12px 0; display: flex; align-items: center; gap: 10px; background: var(--tint); color: var(--ti); border-radius: 14px; padding: 4px 6px 4px 14px; font-size: 13px; font-weight: 600; }
 .kindbar button { height: 44px; border: 0; background: transparent; font-size: 13px; font-weight: 700; padding: 0 10px; text-decoration: underline; }
 .kindbar .sp { flex: 1; }
 
 /* compose */
+.attach { margin: 10px 16px 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.attach-btn { height: 44px; border-radius: 22px; border: 0; background: var(--card); color: var(--ink); padding: 0 16px; font-size: 14.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+.attach-total { font-size: 12.5px; color: var(--mu); }
+.btn.att { position: relative; }
+.btn.att .cnt { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--ac); color: var(--on); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.files.out { margin: 10px 16px 0; background: var(--card); }
+.files.out .file { cursor: default; }
+.rm { width: 44px; height: 44px; margin: -6px -8px -6px 0; border: 0; background: transparent; color: var(--mu); display: flex; align-items: center; justify-content: center; border-radius: 22px; flex: none; }
+.note.warn { color: var(--wi); background: var(--wb); border-radius: 12px; padding: 8px 12px; margin: 8px 16px 0; }
+.dropzone { position: absolute; inset: 8px; z-index: 60; border: 2.5px dashed var(--at); border-radius: 24px; background: color-mix(in srgb, var(--bg) 88%, transparent); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font: 700 20px 'Bricolage Grotesque', system-ui, sans-serif; color: var(--at); pointer-events: none; }
 .fields { margin: 12px 16px 0; background: var(--card); border-radius: 22px; overflow: hidden; }
 .f { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; border-top: 1px solid var(--ln); }
 .f:first-child { border-top: 0; } .f .k { width: 56px; font-size: 13.5px; color: var(--mu); flex: none; }
@@ -290,7 +337,8 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .dsk-full .pg > * { width: 100%; max-width: 720px; }
 .dsk-full .pg > .scroll { overflow-y: auto; }
 .dsk-main .pg > .scroll { display: flex; flex-direction: column; align-items: center; }
-.dsk-main .pg > .scroll > * { width: 100%; max-width: 820px; }
+/* flex: none, or a long message (or a writing screen with files) is squeezed to the height of the window instead of scrolling */
+.dsk-main .pg > .scroll > * { width: 100%; max-width: 820px; flex: none; }
 .dsk-main .msg { width: calc(100% - 32px); }
 .dsk-main .bar { left: 50%; right: auto; width: min(560px, calc(100% - 32px)); transform: translateX(-50%); }
 .dsk-list .pg { background: var(--bg); }

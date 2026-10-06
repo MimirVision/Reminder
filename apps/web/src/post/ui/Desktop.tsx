@@ -34,7 +34,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       const t = e.target as HTMLElement | null;
       const typing = !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
       if (e.key === 'Enter' && t && /^(BUTTON|A)$/.test(t.tagName)) return;
-      const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet') });
+      const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet, .viewer') });
       if (!a) return;
       const need = (m?: Mail) => m ?? undefined;
       switch (a) {
@@ -46,7 +46,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
         case 'reply': case 'replyAll': if (!current) return; go({ name: 'compose', mode: a, account: current.account, id: current.id }); break;
         case 'compose': go({ name: 'compose', mode: 'new' }); break;
         case 'search': go({ name: 'search', q: '' }); break;
-        case 'close': if (help) setHelp(false); else if (route.name !== 'inbox') go({ name: 'inbox' }); else return; break;
+        case 'close': if (document.querySelector('.sheet, .viewer')) return; /* the sheet or the file viewer closes itself */ if (route.name !== 'inbox') go({ name: 'inbox' }); else return; break;
         case 'unread': if (!current) return; void c.setRead(current, !current.isRead); break;
         case 'flag': if (!current) return; void c.setFlag(current, !current.flagged); break;
         case 'snooze': if (!current) return; setSnoozing(current); break;

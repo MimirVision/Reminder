@@ -20,6 +20,8 @@ async function boot() {
   const c = createController({
     store, kv, fetch: (...a) => fetch(...a),
     serverUrl: base ? `${base}/functions/v1/post-alerts` : null,
+    // Files over 3 MB go to Outlook in slices; if the browser may not do that itself, this site's own server passes them on (worker/upload-relay.js).
+    uploadRelay: new URL('/api/post-upload', location.origin).href,
     seen: markSeen,
     pushState: hasPush,
   });

@@ -8,12 +8,13 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\" \"netlify/**/*.test.mjs\""
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\" \"netlify/**/*.test.mjs\" \"worker/**/*.test.mjs\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
     "fflate": "^0.8.3",
     "maplibre-gl": "^6.11.2",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

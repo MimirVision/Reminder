@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { State } from '../core/controller.ts';
 import { visibleMail } from '../core/controller.ts';
-import { displayName, fileSize, shortTime } from '../core/format.ts';
-import { frameDocument, hasRemoteImages, inlineCids, safeBlobType, textToHtml } from '../core/html.ts';
+import { displayName, shortTime } from '../core/format.ts';
+import { toBase64 } from '../core/graph.ts';
+import { BLANK_PICTURE, frameDocument, hasRemoteImages, inlineCids, textToHtml } from '../core/html.ts';
 import { parseUnsubscribe, type Unsub } from '../core/unsubscribe.ts';
 import { isFreemail, orgDomain, ruleFor } from '../core/classify.ts';
 import { KIND_ONE, KIND_TAB, KINDS, mailKey, type Mail, type MailBody } from '../core/types.ts';
@@ -10,6 +11,8 @@ import { Avatar, Icon, KIND_ICON, Sheet, Switch } from './ui.tsx';
 import { SnoozeSheet } from './Inbox.tsx';
 import { RemindSheet } from './Remind.tsx';
 import { back, go, labelOf, useBadge, useC, useDark, useNow } from './ctx.tsx';
+import { copyText } from './clipboard.ts';
+import { FileList } from './Attachments.tsx';
 
 function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
@@ -19,7 +22,10 @@ function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: bo
   return <iframe ref={ref} className="frame" title="Message" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={doc} onLoad={fit} />;
 }
 
-const toDataUri = (bytes: Uint8Array, type: string) => { let bin = ''; bytes.forEach((b) => { bin += String.fromCharCode(b); }); return `data:${type};base64,${btoa(bin)}`; };
+const toDataUri = (bytes: Uint8Array, type: string) => `data:${type};base64,${toBase64(bytes)}`;
+
+/** Pictures inside a message, remembered while Post is open so going back and forth between messages does not fetch them again. */
+const picturesSeen = new Map<string, { cids: Record<string, string>; embedded: string[] }>();
 
 export function Reader({ s, account, id, pane = false }: { s: State; account: string; id: string; pane?: boolean }) {
   const c = useC();
@@ -34,6 +40,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const [err, setErr] = useState<string | null>(null);
   const [loadImages, setLoadImages] = useState(false);
   const [cids, setCids] = useState<Record<string, string>>({});
+  const [embedded, setEmbedded] = useState<Set<string> | null>(null); // the attachments that are pictures inside the text; null until we know
   const [sheet, setSheet] = useState<null | 'more' | 'snooze' | 'why' | 'remind'>(null);
   const [unsub, setUnsub] = useState<Unsub | null>(null);
   const waited = useRef(false);
@@ -42,20 +49,30 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   useEffect(() => { if (!m && s.ready && acct && !waited.current) { waited.current = true; void c.sync(); } }, [m, s.ready, acct, c]);
 
   useEffect(() => {
-    setBody(null); setErr(null); setLoadImages(false); setCids({}); setUnsub(null);
+    setBody(null); setErr(null); setLoadImages(false); setCids({}); setEmbedded(null); setUnsub(null);
     if (!m) return;
     let live = true;
     c.openBody(m).then(async (b) => {
       if (!live) return;
       setBody(b);
       if (!m.isRead) void c.setRead(m, true);
-      if (b.contentType === 'html' && /cid:/i.test(b.content)) {
-        const map: Record<string, string> = {};
-        for (const a of b.attachments.filter((x) => x.inline && x.cid && x.contentType.startsWith('image/') && x.size < 1_500_000)) {
-          try { const blob = await c.attachment(m, a.id); map[a.cid!] = toDataUri(blob.bytes, blob.contentType); } catch { /* a missing picture must not break the message */ }
-        }
-        if (live) setCids(map);
+      // Pictures that are part of the text (a logo in a signature) are fetched and put in place; every other attachment is a file in the list.
+      const wanted = b.contentType === 'html' ? new Set([...b.content.matchAll(/cid:([^"'\s)>]+)/gi)].map((x) => x[1].toLowerCase())) : new Set<string>();
+      const pictures = b.attachments.filter((x) => x.inline && x.contentType.startsWith('image/'));
+      const seen = picturesSeen.get(m.key);
+      if (seen) { setCids(seen.cids); setEmbedded(new Set(seen.embedded)); return; }
+      if (!wanted.size || !pictures.length) { setEmbedded(new Set()); return; }
+      const map: Record<string, string> = {};
+      const used: string[] = [];
+      for (const a of pictures.slice(0, 12).filter((x) => x.size < 2_000_000)) {
+        try {
+          const f = await c.attachment(m, a.id);
+          if (f.cid && wanted.has(f.cid)) { map[f.cid] = toDataUri(f.bytes, f.contentType); used.push(a.id); }
+        } catch { /* a missing picture must not break the message */ }
       }
+      if (picturesSeen.size > 30) picturesSeen.delete(picturesSeen.keys().next().value!);
+      picturesSeen.set(m.key, { cids: map, embedded: used });
+      if (live) { setCids(map); setEmbedded(new Set(used)); }
     }).catch((e) => { if (live) setErr(e instanceof Error ? e.message : 'Could not open this message'); });
     return () => { live = false; };
   }, [m?.key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -84,7 +101,9 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
     );
   }
 
-  const html = body ? (body.contentType === 'html' ? inlineCids(body.content, cids) : textToHtml(body.content)) : '';
+  const html = body ? (body.contentType === 'html' ? inlineCids(body.content, cids, BLANK_PICTURE) : textToHtml(body.content)) : '';
+  // Pictures that belong to the text are not files; until it is known which are which, they are kept out of the list rather than flashing in it.
+  const files = (body?.attachments ?? []).filter((a) => !(a.inline && a.contentType.startsWith('image/') && (!embedded || embedded.has(a.id))));
   const remote = !!body && body.contentType === 'html' && hasRemoteImages(body.content);
   const showImages = loadImages || !s.settings.blockImages;
   const to = body ? body.to.map((r) => displayName(r.name, r.address).split(' ')[0]).join(', ') : '';
@@ -102,12 +121,13 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
       <div className="scroll">
         <div className="ttl">
           <h1 className="h2">{m.subject || '(no subject)'}</h1>
-          <div className="meta"><span className="chip"><i style={{ background: badge?.colour ?? 'var(--at)' }} />{email}</span>{m.kind !== 'person' && <span className="chip">{KIND_TAB[m.kind]}</span>}</div>
+          {/* Your own address is only worth showing when there is more than one mailbox to tell apart. */}
+          {(s.accounts.length > 1 || m.kind !== 'person') && <div className="meta">{s.accounts.length > 1 && <span className="chip"><i style={{ background: badge?.colour ?? 'var(--at)' }} />{email}</span>}{m.kind !== 'person' && <span className="chip">{KIND_TAB[m.kind]}</span>}</div>}
         </div>
         <article className="msg">
           <div className="mh">
             <Avatar m={m} />
-            <div className="w"><div className="n">{displayName(m.fromName, m.fromAddress)}</div><div className="s">{to ? `to ${to} · ` : ''}{shortTime(m.received)}</div></div>
+            <div className="w">{m.fromName.trim() && m.fromName.trim().toLowerCase() !== m.fromAddress.toLowerCase() && <div className="n">{m.fromName.trim()}</div>}{m.fromAddress ? <CopyAddress address={m.fromAddress} bold={!m.fromName.trim() || m.fromName.trim().toLowerCase() === m.fromAddress.toLowerCase()} /> : <div className="n">{displayName(m.fromName, m.fromAddress)}</div>}<div className="s">{to ? `to ${to} · ` : ''}{shortTime(m.received)}</div></div>
             <button className="btn plain" aria-label={m.flagged ? 'Remove flag' : 'Flag'} onClick={() => void c.setFlag(m, !m.flagged)} style={{ color: m.flagged ? 'var(--at)' : undefined }}><Icon n="flag" /></button>
           </div>
           {m.kind !== 'person' && (
@@ -115,11 +135,9 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
               {unsub && <button onClick={() => { if (unsub.https) window.open(unsub.https, '_blank', 'noopener'); else if (unsub.mailto) void c.unsubscribe(m, unsub.mailto); }}>Unsubscribe</button>}
               <button onClick={() => setSheet('why')}>Why?</button></div>
           )}
+          {body && <FileList m={m} files={files} failed={!!body.attachmentsFailed} onRetry={() => { void c.openBody(m).then(setBody).catch(() => {}); }} />}
           {remote && !showImages && <div className="banner"><Icon n="eye" size={18} />Images are blocked<button onClick={() => setLoadImages(true)}>Load once</button></div>}
           {err ? <p className="note" style={{ margin: 16 }}>{err}</p> : body ? <Frame html={html} remote={showImages} dark={dark} /> : <p className="note" style={{ margin: '18px 16px' }}>Opening…</p>}
-          {body?.attachments.filter((a) => !a.inline).map((a) => (
-            <button key={a.id} className="att" onClick={async () => { const f = await c.attachment(m, a.id); const url = URL.createObjectURL(new Blob([f.bytes as BlobPart], { type: safeBlobType(f.contentType, a.name) })); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60_000); }}><Icon n="paperclip" size={20} />{a.name}<span>{fileSize(a.size)}</span></button>
-          ))}
         </article>
       </div>
       <div className="bar" role="toolbar" aria-label="Actions">
@@ -168,4 +186,15 @@ function SortSheet({ s, m, onClose }: { s: State; m: Mail; onClose: () => void }
       </div>
     </Sheet>
   );
+}
+
+/** The address the mail really came from, as one button: tap it and it is on the clipboard. */
+function CopyAddress({ address, bold = false }: { address: string; bold?: boolean }) {
+  const c = useC();
+  const [done, setDone] = useState(false);
+  const copy = async () => {
+    if (await copyText(address)) { setDone(true); setTimeout(() => setDone(false), 1600); c.toast(`Copied ${address}`); }
+    else c.toast('Could not copy. Press and hold the address to copy it.');
+  };
+  return <button type="button" className={`addr${bold ? ' bold' : ''}`} onClick={() => void copy()} aria-label={`Copy ${address}`}><span>{address}</span><Icon n={done ? 'check' : 'copy'} size={15} /></button>;
 }
