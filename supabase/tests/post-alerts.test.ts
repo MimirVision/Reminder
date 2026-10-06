@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALERT_SCOPE, AlertGraphError, alertBuild, alertCreateSubscription, alertDecide, alertDecrypt, alertEncrypt, alertExpiry, alertDeriveKey, alertEmails, alertNewVapid, alertResolveConfig, type AlertConfigStore, alertGetInboxId, alertGetMessage,
+  AlertGraphError, alertBuild, alertCreateSubscription, alertDecide, alertDecrypt, alertEncrypt, alertExpiry, alertDeriveKey, alertEmails, alertNewVapid, alertResolveConfig, type AlertConfigStore, alertGetInboxId, alertGetMessage,
   alertKind, alertLocal, alertParseLifecycle, alertParseNotifications, alertPlanRenewals, alertRefresh, alertRenewSubscription, alertSameSecret,
   alertValidationToken, alertWithinWindow, alertProcess, alertSeen, alertSigninStart, alertSigninFinish, alertSigninPoll, alertSigninForget, alertFindBySession, alertMintToken, alertExchangeCode, ALERT_APP_SCOPE, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
 } from '../functions/post-alerts/logic.ts';
@@ -130,15 +130,16 @@ function fakeFetch(handler: (url: string, init: RequestInit) => { status?: numbe
   return { f, calls };
 }
 
-test('Graph: refresh asks for read-only mail access and returns the rotated refresh token', async () => {
+test('Graph: refresh asks for the same scopes as the sign-in (so the rotated refresh token keeps every permission) and returns it', async () => {
   const { f, calls } = fakeFetch(() => ({ body: { access_token: 'AT', refresh_token: 'RT2', expires_in: 3600 } }));
   const r = await alertRefresh(f, { clientId: 'CID', refreshToken: 'RT1' });
   assert.deepEqual(r, { accessToken: 'AT', refreshToken: 'RT2', expiresIn: 3600 });
   const body = new URLSearchParams(String(calls[0].init.body));
   assert.equal(body.get('grant_type'), 'refresh_token');
   assert.equal(body.get('refresh_token'), 'RT1');
-  assert.equal(body.get('scope'), ALERT_SCOPE);
-  assert.ok(!ALERT_SCOPE.includes('Send') && !ALERT_SCOPE.includes('ReadWrite'));
+  assert.equal(body.get('scope'), ALERT_APP_SCOPE);
+  // Microsoft only redeems a refresh token for scopes that were in the original sign-in request: every scope asked later is in it
+  for (const part of ['Mail.Read', 'Mail.ReadWrite', 'Mail.Send', 'User.Read', 'offline_access']) assert.ok(ALERT_APP_SCOPE.split(' ').some((x) => x.endsWith(part)), part);
 });
 
 test('Graph: a revoked sign-in is reported with its code, not swallowed', async () => {

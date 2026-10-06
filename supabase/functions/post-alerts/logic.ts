@@ -145,8 +145,10 @@ export function alertSameSecret(a: string | null, b: string): boolean {
 // ---- Microsoft Graph ----
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
-// Read-only on purpose: the server can read headers of new mail to decide on an alert, and cannot send, change or delete anything.
-export const ALERT_SCOPE = 'offline_access https://graph.microsoft.com/Mail.Read';
+/** What Post may do with the mail: read and change it, and send. Mail.Read is listed on its own although Mail.ReadWrite covers it: Microsoft only
+ *  lets a refresh token be redeemed for scopes that were in the original sign-in request, and the server's own refreshes use the full set, so a
+ *  rotated refresh token never ends up with fewer permissions than the sign-in gave it. */
+export const ALERT_APP_SCOPE = 'offline_access User.Read https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send';
 
 export class AlertGraphError extends Error {
   status: number;
@@ -172,14 +174,11 @@ export async function alertRefresh(f: typeof fetch, p: { clientId: string; refre
   const res = await f('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: p.clientId, grant_type: 'refresh_token', refresh_token: p.refreshToken, scope: p.scope ?? ALERT_SCOPE }).toString(),
+    body: new URLSearchParams({ client_id: p.clientId, grant_type: 'refresh_token', refresh_token: p.refreshToken, scope: p.scope ?? ALERT_APP_SCOPE }).toString(),
   });
   const b = await graphJson(res);
   return { accessToken: String(b.access_token), refreshToken: String(b.refresh_token ?? p.refreshToken), expiresIn: Number(b.expires_in ?? 3600) };
 }
-
-/** What the Post web app may do with the mail: read and change it, and send. Only ever handed out as a short-lived access token. */
-export const ALERT_APP_SCOPE = 'offline_access User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send';
 
 /** Trades the one-time code from the Microsoft sign-in page (PKCE, done in a normal browser tab) for tokens. Public client: no secret. */
 export async function alertExchangeCode(f: typeof fetch, p: { clientId: string; code: string; verifier: string; redirectUri: string }): Promise<{ accessToken: string; refreshToken: string }> {
@@ -601,7 +600,7 @@ export async function alertMintToken(d: AlertDeps, email: string): Promise<{ acc
   const a = (await d.store.allAccounts()).find((x) => x.email === email.trim().toLowerCase());
   if (!a) throw new Error('unknown account');
   const current = await alertDecrypt(a.refresh_token_enc, d.encKey);
-  const t = await alertRefresh(d.fetch, { clientId: d.clientId, refreshToken: current, scope: ALERT_APP_SCOPE });
+  const t = await alertRefresh(d.fetch, { clientId: d.clientId, refreshToken: current });
   if (t.refreshToken !== current) await d.store.update(a.id, { refresh_token_enc: await alertEncrypt(t.refreshToken, d.encKey) });
   return { accessToken: t.accessToken, expiresIn: t.expiresIn, email: a.email };
 }
