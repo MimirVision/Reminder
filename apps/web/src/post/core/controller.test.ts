@@ -1614,6 +1614,18 @@ test('leaving: what waits for its undo time goes at once, and Undo then says it 
   assert.equal(c.loadDraft(), null);
 });
 
+test('leaving: a reply to a message that is being archived goes in the same breath, to where the message is now', async () => {
+  const w = world(); w.add('m1');
+  const { c, store } = make(w);
+  await c.init();
+  await c.send({ account: ME, kind: 'reply', to: ['anna@x.no'], cc: [], subject: 'Re', body: 'Ja', replyTo: 'm1' });
+  await c.archive([c.getState().mail[0]]);
+  await c.leaving();
+  assert.ok(w.log.includes('graph move m1 archive'));
+  assert.deepEqual(w.sentMails.map((x) => [x.kind, x.replyTo]), [['reply', 'moved-m1']], 'not left for the next time Post is opened');
+  assert.deepEqual(await outboxOf(store), []);
+});
+
 test('leaving: with nothing waiting it does nothing at all', async () => {
   const w = world(); w.add('1');
   const { c } = make(w);
@@ -1657,6 +1669,41 @@ test('leaving: asked for while an ordinary send is going, it still takes what wa
   open();
   await Promise.all([running, leaving]);
   assert.deepEqual(w.sentMails.map((x) => x.subject).sort(), ['Først', 'Senere']);
+});
+
+test('leaving: an action tapped a moment ago, still being written down on the phone, goes with the rest', async () => {
+  const w = world(); w.add('1');
+  let open!: () => void;
+  const slow = new Promise<void>((r) => { open = r; });
+  const inner = memoryStore();
+  const store: Store = { ...inner, async putOp(op) { await slow; return inner.putOp(op); } }; // a phone that takes its time to save an action
+  const { c } = make(w, { store });
+  await c.init();
+  const archiving = c.archive([c.getState().mail[0]]);
+  await settle(5);
+  const leaving = c.leaving();
+  await settle(5);
+  open();
+  await Promise.all([archiving, leaving]);
+  assert.ok(w.log.includes('graph move 1 archive'), 'not left for the next time Post is opened');
+});
+
+test('leaving: a message whose files are still being saved on the phone goes too', async () => {
+  const w = world();
+  let open!: () => void;
+  const slow = new Promise<void>((r) => { open = r; });
+  const inner = memoryStore();
+  const store: Store = { ...inner, async setMeta(k, v) { if (k.includes('|outfile|')) await slow; return inner.setMeta(k, v); } };
+  const { c } = make(w, { store });
+  await c.init();
+  const sending = sendNew(c, 'Med fil', [out('a.pdf', 100)]);
+  await settle(5);
+  const leaving = c.leaving();
+  await settle(5);
+  open();
+  await Promise.all([sending, leaving]);
+  assert.deepEqual(w.sentMails.map((x) => x.subject), ['Med fil']);
+  assert.deepEqual(await outboxOf(inner), []);
 });
 
 test('sending: a message put in while another is being sent is kept, and the one being sent keeps its progress', async () => {
@@ -1753,6 +1800,19 @@ test('start: when what is saved on the phone cannot be read, Post still opens, s
   assert.ok(c.problems().some((p) => p.kind === 'start' && /boom/.test(p.text)));
 });
 
+test('start: when what is saved on the phone cannot be read and there is no connection either, Post still shows you as signed in', async () => {
+  const w = world(); w.add('1');
+  w.flags.offline = true;
+  const inner = memoryStore();
+  const store: Store = { ...inner, async getMeta<T>(k: string) { if (k === 'overrides') throw new Error('boom'); return inner.getMeta<T>(k); } };
+  const { c } = make(w, { store });
+  const firstShown: number[] = [];
+  c.subscribe(() => { const s = c.getState(); if (s.ready && !firstShown.length) firstShown.push(s.accounts.length); });
+  await c.init();
+  assert.deepEqual(firstShown, [1], 'the first thing shown already has you signed in: no flash of the sign-in screen while the server is asked');
+  assert.deepEqual(c.getState().accounts.map((a) => [a.email, a.needsSignIn]), [['a@outlook.com', false]], 'and nothing says you are signed out');
+});
+
 test('a message is still read when the phone will not keep its text', async () => {
   const w = world(); w.add('1');
   const inner = memoryStore();
@@ -1788,4 +1848,47 @@ test('"read again" brings back what the phone shows differently from Outlook, an
   await c.readAgain();
   assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', '2']);
   assert.equal(c.getState().outbox.length, 1, 'the message waiting to be sent is still waiting');
+});
+
+test('something nobody caught is written down and said once in a while, never over an Undo, never for noise or a lost connection', async () => {
+  const w = world(); w.add('1');
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  c.crashed('error', 'ResizeObserver loop completed with undelivered notifications.');
+  c.crashed('promise', new TypeError('Load failed'));
+  assert.equal(c.getState().toast, null, 'noise and a lost connection are not said');
+  assert.deepEqual(c.problems().map((p) => p.kind), ['promise'], 'a lost connection is written down, noise is not');
+  await c.archive([c.getState().mail[0]]);
+  const undoing = c.getState().toast!;
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'subject')"));
+  assert.equal(c.getState().toast!.id, undoing.id, 'an Undo is never covered');
+  assert.equal(c.problems().length, 2);
+  advance(10_000); await runTimers();            // the Undo time is over
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'from')"));
+  assert.match(c.getState().toast!.text, /Something went wrong in the background/);
+  const told = c.getState().toast!.id;
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'to')"));
+  assert.equal(c.getState().toast!.id, told, 'not said again straight away');
+  advance(6 * 60_000);
+  c.crashed('error', new TypeError("Cannot read properties of undefined (reading 'cc')"));
+  assert.notEqual(c.getState().toast!.id, told, 'said again after a while');
+});
+
+test('"read again" asked while a read is going waits for it, so the full read really happens afterwards', async () => {
+  const w = world(); w.add('1'); w.add('2');
+  w.flags.strictDelta = true;
+  let release!: () => void; let hold = false;
+  const gate = new Promise<void>((r) => { release = r; });
+  const f: typeof fetch = async (url, init) => { if (hold && String(url).includes('delta')) { hold = false; await gate; } return w.f(url, init); };
+  const { c, store } = make(w, { fetch: f });
+  await c.init();
+  await store.deleteMail([`${ME}|2`]);           // the phone has drifted
+  hold = true;
+  const running = c.sync();                      // a read that is going, held at Outlook
+  await settle(20);
+  const again = c.readAgain();
+  await settle(20);
+  release();
+  await Promise.all([running, again]);
+  assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', '2'], 'the read that was going did not write its own place back over the new start');
 });

@@ -9,8 +9,7 @@ import { Inbox, SnoozeSheet } from './Inbox.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
 import { Triage } from './Triage.tsx';
-import { Appearance, Settings, Sorting } from './Settings.tsx';
-import { Alerts, Hours } from './Alerts.tsx';
+import { SettingsPage } from './Settings.tsx';
 import { AccountsSheet } from './Accounts.tsx';
 import { Icon, KIND_ICON, Mark, Sheet } from './ui.tsx';
 import { go, resolveAccount, useC, useNow, useRoute } from './ctx.tsx';
@@ -67,7 +66,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       <Sidebar s={s} onAdd={onAdd} onHelp={() => setHelp(true)} />
       {full ? (
         <main className="dsk-full">
-          {route.name === 'triage' ? <Triage s={s} /> : route.name === 'settings' ? (route.page === 'alerts' ? <Alerts s={s} /> : route.page === 'hours' ? <Hours s={s} email={route.account ?? ''} /> : route.page === 'appearance' ? <Appearance s={s} /> : route.page === 'sorting' ? <Sorting s={s} /> : <Settings s={s} />) : null}
+          {route.name === 'triage' ? <Triage s={s} /> : route.name === 'settings' ? <SettingsPage s={s} page={route.page} account={route.account} /> : null}
         </main>
       ) : (
         <>

@@ -1,5 +1,5 @@
 import { isFreemail, orgDomain, type ClassifyContext } from './classify.ts';
-import { createDiag } from './diag.ts';
+import { createDiag, worth } from './diag.ts';
 import { createByteCache, emlName, mimeOf, saveName } from './files.ts';
 import { createGraph, GraphError, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
 import { UNDO_WINDOW_MS, createQueue, type OpType } from './queue.ts';
@@ -88,6 +88,8 @@ const PENDING_MS = 15 * 60_000;
 const SYNC_STUCK_MS = 150_000;
 /** How many "this message moved, and is now called that" notes are kept for each mailbox. */
 const MOVED_KEEP = 300;
+/** An error nobody caught is said on screen at most this often. */
+const CRASH_TOAST_EVERY_MS = 5 * 60_000;
 
 export function createController(deps: Deps) {
   const now = deps.now ?? (() => Date.now());
@@ -95,6 +97,7 @@ export function createController(deps: Deps) {
   const { store, kv } = deps;
   const diag = createDiag({ now });
   const note = diag.note;
+  let toldAboutCrash = 0; // when an error nobody caught was last said on screen
 
   // When Outlook or the server last answered, or Post last did something on the phone. A sync that has gone quiet for long is stuck.
   let lastActivity = now();
@@ -304,6 +307,11 @@ export function createController(deps: Deps) {
     if (list.some((x) => x.id === id)) await store.setMeta('outbox', list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   });
 
+  // A message is not in the outbox until its files are saved, and big files take a while. `leaving()` waits for what is still being put in,
+  // so that a message sent a moment before the person left goes with the rest.
+  const beingPutIn = new Set<Promise<unknown>>();
+  const putIn = <T,>(p: Promise<T>): Promise<T> => { beingPutIn.add(p); const done = () => { beingPutIn.delete(p); }; p.then(done, done); return p; };
+
   /** The files of an outbox item, read back from the phone. Any that are gone are named in `lost`. */
   async function loadOutFiles(it: OutboxItem): Promise<{ files: OutFile[]; lost: string[] }> {
     const files: OutFile[] = [], lost: string[] = [];
@@ -348,6 +356,27 @@ export function createController(deps: Deps) {
     it.kind === 'new' || !replyTo ? { kind: 'new', subject: it.subject, body: it.body, to: it.to, cc: it.cc }
     : it.kind === 'forward' ? { kind: 'forward', replyTo, to: it.to, body: it.body }
     : { kind: it.kind, replyTo, body: it.body };
+
+  async function putInOutbox(item: Omit<OutboxItem, 'id' | 'sendAt' | 'files' | 'attempts'>, files: OutFile[]): Promise<boolean> {
+    const delay = state.settings.undoSend * 1000;
+    const it: OutboxItem = {
+      ...item, id: `o${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, sendAt: now() + delay,
+      ...(files.length ? { files: files.map((f) => ({ name: f.name, type: f.type, size: f.bytes.byteLength })) } : {}),
+    };
+    if (files.length) {
+      try { for (let i = 0; i < files.length; i++) await store.setMeta(outFileKey(it.account, it.id, i), files[i].bytes); } catch {
+        await dropOutFiles(it);
+        toast('The files could not be kept on this phone (is the storage full?), so nothing was sent. Your message is still here.', undefined, 6000);
+        return false;
+      }
+    }
+    await outboxExclusive(async () => { await store.setMeta('outbox', [...(await readOutbox()), it]); });
+    api.saveDraft(null);
+    await reload();
+    toast(delay ? 'Sending…' : 'Sent', delay ? () => { void api.cancelSend(it.id); } : undefined, delay || undefined);
+    setTimer(() => { void api.flushOutbox().then(reload); }, delay + 100);
+    return true;
+  }
 
   async function flushOutboxOnce(early = false) {
     const list = await readOutbox();
@@ -460,7 +489,14 @@ export function createController(deps: Deps) {
      * goes now, because nothing can be relied on to run later. (Undo is only for as long as Post is in front.)
      */
     async leaving() {
-      await Promise.allSettled([runQueue(true), api.flushOutbox(true)]);
+      // What was tapped a moment ago may still be on its way into the phone's storage (an archive; a message with big files): it is waited
+      // for, so that it goes with the rest and not the next time Post is opened.
+      await Promise.allSettled([...beingPutIn]);
+      await exclusive(async () => {});
+      // In this order: a reply that waits to be sent may answer a message that was just archived, and then it goes to the message's new name,
+      // which is only known once the archive has gone through. (Neither of the two ever fails.)
+      await runQueue(true);
+      await api.flushOutbox(true);
     },
 
     // ---- signing in -------------------------------------------------------------------------------------------------------
@@ -958,25 +994,8 @@ export function createController(deps: Deps) {
      * Puts a message in the outbox. It leaves after the undo-send delay, even if the app is closed and reopened meanwhile. Its files are kept
      * on the phone until it has left. Returns false (and sends nothing) when the files could not be kept.
      */
-    async send(item: Omit<OutboxItem, 'id' | 'sendAt' | 'files' | 'attempts'>, files: OutFile[] = []): Promise<boolean> {
-      const delay = state.settings.undoSend * 1000;
-      const it: OutboxItem = {
-        ...item, id: `o${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, sendAt: now() + delay,
-        ...(files.length ? { files: files.map((f) => ({ name: f.name, type: f.type, size: f.bytes.byteLength })) } : {}),
-      };
-      if (files.length) {
-        try { for (let i = 0; i < files.length; i++) await store.setMeta(outFileKey(it.account, it.id, i), files[i].bytes); } catch {
-          await dropOutFiles(it);
-          toast('The files could not be kept on this phone (is the storage full?), so nothing was sent. Your message is still here.', undefined, 6000);
-          return false;
-        }
-      }
-      await outboxExclusive(async () => { await store.setMeta('outbox', [...(await readOutbox()), it]); });
-      api.saveDraft(null);
-      await reload();
-      toast(delay ? 'Sending…' : 'Sent', delay ? () => { void api.cancelSend(it.id); } : undefined, delay || undefined);
-      setTimer(() => { void api.flushOutbox().then(reload); }, delay + 100);
-      return true;
+    send(item: Omit<OutboxItem, 'id' | 'sendAt' | 'files' | 'attempts'>, files: OutFile[] = []): Promise<boolean> {
+      return putIn(putInOutbox(item, files));
     },
     async cancelSend(id: string) {
       const found = await outboxExclusive(async () => {
@@ -1004,12 +1023,14 @@ export function createController(deps: Deps) {
       if (early) flushAgainEarly = true;
       if (flushing) { flushAgain = true; return flushing; }
       const p: Promise<void> = (async () => {
-        do {
+        for (;;) {
           flushAgain = false;
           const everything = flushAgainEarly; flushAgainEarly = false;
           try { await flushOutboxOnce(everything); } catch (e) { note('send', e); }
-        } while (flushAgain);
-      })().finally(() => { flushing = null; });
+          // Let go in the same breath as the last look: a run asked for after it would otherwise be answered by one that has already finished.
+          if (!flushAgain) { flushing = null; return; }
+        }
+      })();
       flushing = p;
       return p;
     },
@@ -1030,6 +1051,18 @@ export function createController(deps: Deps) {
     device,
     /** Writes a problem down for the Health page and the problem report (an address in the text is replaced). */
     note,
+    /**
+     * Something nobody caught (a screen that threw, a promise nobody waited for). It is written down; unless it is only the browser talking to
+     * itself, or a lost connection (which has its own banner), it is also said on screen, at most once in a while and never over an Undo.
+     */
+    crashed(kind: string, what: unknown) {
+      const w = worth(what);
+      if (w === 'noise') return;
+      note(kind, what);
+      if (w === 'network' || state.toast?.undo || (toldAboutCrash && now() - toldAboutCrash < CRASH_TOAST_EVERY_MS)) return;
+      toldAboutCrash = now();
+      toast('Something went wrong in the background. Settings, Health has the details.', undefined, 6000);
+    },
     /** What went wrong lately, oldest first. */
     problems: diag.list,
     clearProblems: diag.clear,

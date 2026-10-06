@@ -44,6 +44,7 @@ const P: Record<string, string> = {
   minus: 'M5 12h14',
   file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  pulse: 'M3 12h4l2.5-6 4 12 2.5-6H21',
 };
 
 /** The icon of each tab, so the sidebar, the sheets and the settings agree. */

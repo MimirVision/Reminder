@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GraphError, type Graph } from './graph.ts';
 import { createQueue } from './queue.ts';
-import { memoryStore } from './store.ts';
+import { memoryStore, type Store } from './store.ts';
 
 function setup() {
   const store = memoryStore();
@@ -148,6 +148,91 @@ test('two runs at once carry each action out once, and the second still picks up
   assert.deepEqual(calls, ['read m1', 'read m2']);
   assert.deepEqual(a, b);
   assert.equal(a.sent, 2);
+});
+
+test('a run asked for in the very moment another is finishing is not lost', async () => {
+  const inner = memoryStore();
+  const calls: string[] = [];
+  const g = { async setRead(id: string) { calls.push(`read ${id}`); } } as unknown as Graph;
+  let q!: ReturnType<typeof createQueue>;
+  let sentOne = false, fired = false;
+  const store: Store = {
+    ...inner,
+    async deleteOp(id) { await inner.deleteOp(id); sentOne = true; },
+    async allOps() {
+      const list = await inner.allOps();
+      // The run has just sent the last action it knew of and is looking at the list once more, to say how many still wait: this is when the next tap comes.
+      if (sentOne && !fired) { fired = true; await q.enqueue('read', 'a', 'm2', 0); void q.flush(() => g); }
+      return list;
+    },
+  };
+  q = createQueue(store, { now: () => 1_000_000, id: (() => { let n = 0; return () => `op${++n}`; })() });
+  await q.enqueue('read', 'a', 'm1', 0);
+  const r = await q.flush(() => g);
+  assert.deepEqual(calls, ['read m1', 'read m2'], 'the second one was not left for the next time someone looks');
+  assert.deepEqual(r, { sent: 2, waiting: 0, dropped: 0 });
+});
+
+test('a run that fails altogether (the phone would not open its storage) does not stop the next one', async () => {
+  const inner = memoryStore();
+  let broken = false;
+  const store: Store = { ...inner, async allOps() { if (broken) throw new Error('the phone would not open its storage'); return inner.allOps(); } };
+  const calls: string[] = [];
+  const g = { async setRead(id: string) { calls.push(`read ${id}`); } } as unknown as Graph;
+  const q = createQueue(store, { now: () => 1_000_000, id: () => 'op1' });
+  await q.enqueue('read', 'a', 'm1', 0);
+  broken = true;
+  await assert.rejects(q.flush(() => g), /would not open/);
+  broken = false;
+  assert.deepEqual(await q.flush(() => g), { sent: 1, waiting: 0, dropped: 0 });
+  assert.deepEqual(calls, ['read m1']);
+});
+
+test('a run for everything asked for in that same moment is not turned into an ordinary one', async () => {
+  const inner = memoryStore();
+  const calls: string[] = [];
+  const g = { async setRead(id: string) { calls.push(`read ${id}`); }, async move(id: string) { calls.push(`move ${id}`); return id; } } as unknown as Graph;
+  let q!: ReturnType<typeof createQueue>;
+  let sentOne = false, fired = false;
+  const store: Store = {
+    ...inner,
+    async deleteOp(id) { await inner.deleteOp(id); sentOne = true; },
+    async allOps() {
+      const list = await inner.allOps();
+      if (sentOne && !fired) { fired = true; await q.enqueue('archive', 'a', 'm2'); void q.flush(() => g, true); } // inside its undo window, and the app is leaving
+      return list;
+    },
+  };
+  q = createQueue(store, { now: () => 1_000_000, id: (() => { let n = 0; return () => `op${++n}`; })() });
+  await q.enqueue('read', 'a', 'm1', 0);
+  await q.flush(() => g);
+  assert.deepEqual(calls, ['read m1', 'move m2']);
+  // and the wish to take everything is used up by that run: the next ordinary one leaves what is still inside its window alone
+  await q.enqueue('archive', 'a', 'm3');
+  assert.deepEqual(await q.flush(() => g), { sent: 0, waiting: 1, dropped: 0 });
+});
+
+test('the wish to take everything is used up by the go it was asked for, not by every go after it', async () => {
+  const store = memoryStore();
+  const q = createQueue(store, { now: () => 1_000_000, id: (() => { let n = 0; return () => `op${++n}`; })() });
+  const calls: string[] = [];
+  const gates: Array<() => void> = [];
+  const hold = () => new Promise<void>((r) => { gates.push(r); });
+  const g = { async setRead(id: string) { calls.push(`read ${id}`); await hold(); }, async move(id: string) { calls.push(`move ${id}`); await hold(); return id; } } as unknown as Graph;
+  await q.enqueue('read', 'a', 'm1', 0);
+  const first = q.flush(() => g);                         // go 1: an ordinary one, held up at m1
+  await new Promise((r) => setTimeout(r, 10));
+  await q.enqueue('archive', 'a', 'm2');                  // inside its undo window
+  void q.flush(() => g, true);                            // the app is leaving: go 2 takes everything
+  gates.shift()!();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(calls, ['read m1', 'move m2'], 'go 2 is held up at m2');
+  await q.enqueue('archive', 'a', 'm3');                  // inside its undo window, added while go 2 is going
+  void q.flush(() => g);                                  // an ordinary run is asked for: go 3
+  gates.shift()!();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(calls, ['read m1', 'move m2'], 'go 3 leaves m3 alone: it is not the one that was asked to take everything');
+  assert.deepEqual(await first, { sent: 2, waiting: 1, dropped: 0 });
 });
 
 test('a run for everything (the app is leaving) also takes what is still inside its undo window', async () => {

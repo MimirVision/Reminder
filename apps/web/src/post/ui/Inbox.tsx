@@ -87,6 +87,7 @@ export function StatusBanners({ s }: { s: State }) {
   return (
     <>
       {bad.map((a) => <Banner key={a.email} tone="bad" icon="warn" action={<button onClick={() => go({ name: 'accounts' })}>Sign in</button>}><b>{a.label} needs you to sign in again</b>Mail keeps its place; nothing is lost.</Banner>)}
+      {s.storage === 'memory' && <Banner tone="bad" icon="warn" action={<button onClick={() => go({ name: 'settings', page: 'health' })}>Details</button>}><b>Post cannot save on this phone right now</b>What you do here is kept only until Post is closed. Your mail is safe in Outlook.</Banner>}
       {!s.online && <Banner icon="wifi">No connection. Showing what is on this phone{s.waiting ? `; ${s.waiting} action${s.waiting > 1 ? 's' : ''} will go through when you are back online.` : '.'}</Banner>}
       {s.online && s.sync.error && !s.sync.running && <Banner tone="bad" icon="warn" action={<button onClick={() => void c.sync()}>Retry</button>}>{s.sync.error}</Banner>}
       {s.online && s.waiting > 0 && !s.sync.error && !s.sync.running && <Banner icon="refresh">{s.waiting} waiting to be sent to Outlook</Banner>}

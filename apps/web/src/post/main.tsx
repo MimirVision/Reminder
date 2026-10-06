@@ -1,9 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createController } from './core/controller.ts';
+import { createController, type Controller } from './core/controller.ts';
 import { openStore } from './idb.ts';
 import { clearBadge, hasPush, markSeen, registerWorker } from './push.ts';
 import { App } from './ui/App.tsx';
+import { showFatal } from './ui/recover.ts';
 import './post.css';
 
 const kv = {
@@ -14,7 +15,16 @@ const kv = {
 
 async function boot() {
   (window as { __first?: boolean }).__first = history.length <= 1;
-  const store = await openStore();
+  // Whatever goes wrong before there is a controller to write it down in waits here until there is one.
+  let ctl: Controller | null = null;
+  const waiting: Array<(c: Controller) => void> = [];
+  const tell = (fn: (c: Controller) => void) => { if (ctl) fn(ctl); else waiting.push(fn); };
+  window.addEventListener('error', (e) => tell((c) => c.crashed('error', e.error ?? e.message)));
+  window.addEventListener('unhandledrejection', (e) => tell((c) => c.crashed('promise', e.reason)));
+
+  const store = await openStore((kind, e) => tell((c) => c.note(kind, e)));
+  // Ask the phone to keep Post's copy of the mail rather than clear it when it is short of room. It may say no; the Health page shows what it said.
+  try { void navigator.storage?.persist?.().catch(() => {}); } catch { /* not supported */ }
   // The Post server is the Supabase function next to the database Home Memory already uses, so there is nothing to type in.
   const base = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '');
   const c = createController({
@@ -25,9 +35,12 @@ async function boot() {
     seen: markSeen,
     pushState: hasPush,
   });
+  ctl = c;
+  for (const fn of waiting.splice(0)) fn(c);
   void registerWorker();
   void clearBadge();
-  createRoot(document.getElementById('root')!).render(<StrictMode><App controller={c} /></StrictMode>);
+  // Both crash screens are in the app (see ui/Crash.tsx); this is the last resort, for when even those could not be drawn.
+  createRoot(document.getElementById('root')!, { onUncaughtError: (e) => { c.note('screen', e); showFatal(e); } }).render(<StrictMode><App controller={c} /></StrictMode>);
   void c.init();
 }
-void boot();
+boot().catch((e) => showFatal(e));

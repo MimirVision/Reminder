@@ -81,22 +81,26 @@ export function createQueue(store: Store, opts: QueueOptions = {}) {
   // A run asked for while another is going waits for that one, then goes through the list once more for what was added meanwhile.
   let running: Promise<{ sent: number; dropped: number; waiting: number }> | null = null;
   let again = false;
-  let againIgnoringWindow = false;
+  let everythingNext = false;
 
   /** Sends everything that is due (everything, with `ignoreWindow`). Returns how many went through and how many are still waiting (for the honest "n waiting" banner). */
   function flush(graphFor: (account: string) => Graph | null, ignoreWindow = false): Promise<{ sent: number; waiting: number; dropped: number }> {
-    if (running) { again = true; if (ignoreWindow) againIgnoringWindow = true; return running; }
+    if (running) { again = true; if (ignoreWindow) everythingNext = true; return running; }
+    everythingNext = ignoreWindow;
     const p = (async () => {
       let sent = 0, dropped = 0;
-      let ignore = ignoreWindow;
-      do {
-        again = false;
-        const r = await pass(graphFor, ignore);
-        sent += r.sent; dropped += r.dropped;
-        ignore = againIgnoringWindow; againIgnoringWindow = false;
-      } while (again);
-      return { sent, dropped, waiting: (await store.allOps()).length };
-    })().finally(() => { running = null; });
+      try {
+        for (;;) {
+          const everything = everythingNext; everythingNext = false; again = false;
+          const r = await pass(graphFor, everything);
+          sent += r.sent; dropped += r.dropped;
+          const waiting = (await store.allOps()).length;
+          // Looked at, and let go of, in one breath: a run asked for while the list was being counted is answered by another go through it,
+          // not by this one, which would have finished without ever seeing what was added.
+          if (!again) { running = null; return { sent, dropped, waiting }; }
+        }
+      } catch (e) { running = null; throw e; }
+    })();
     running = p;
     return p;
   }

@@ -14,6 +14,17 @@ export function plain(what: unknown): string {
   return text.replace(/[^\s@<>"',;()[\]]+@[^\s@<>"',;()[\]]+/g, '[address]').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
 }
 
+/**
+ * What an error nobody caught is worth: 'noise' (the browser telling about itself: a layout notice, a request Post cancelled on purpose, a
+ * script error with nothing in it), 'network' (no connection, which has its own banner) or null (a real problem, to be written down and told).
+ */
+export function worth(what: unknown): 'noise' | 'network' | null {
+  const text = what instanceof Error ? `${what.name}: ${what.message}` : typeof what === 'string' ? what : String((what as { message?: unknown })?.message ?? '');
+  if (/ResizeObserver loop|^Script error\.?$|\bAbortError\b|The operation was aborted|The user aborted a request/i.test(text)) return 'noise';
+  if (/Failed to fetch|Load failed|NetworkError|network connection was lost|Network request failed|The Internet connection appears to be offline/i.test(text)) return 'network';
+  return null;
+}
+
 export function createDiag(opts: { now?: () => number; max?: number } = {}) {
   const now = opts.now ?? (() => Date.now());
   const max = opts.max ?? 40;

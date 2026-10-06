@@ -23,6 +23,7 @@ test('a lost connection to the phone\'s storage is recognised for what it says, 
   assert.equal(connectionLost(gone()), true);
   assert.equal(connectionLost(Object.assign(new Error('Connection to Indexed Database server lost. Refresh the page to try again'), { name: 'UnknownError' })), true);
   assert.equal(connectionLost(Object.assign(new Error('x'), { name: 'TransactionInactiveError' })), true);
+  assert.equal(connectionLost(Object.assign(new Error('Something else entirely'), { name: 'InvalidStateError' })), true, 'by its name alone: engines word it differently');
   assert.equal(connectionLost(Object.assign(new Error('The quota has been exceeded.'), { name: 'QuotaExceededError' })), false);
   assert.equal(connectionLost(Object.assign(new Error('boom'), { name: 'UnknownError' })), false);
   assert.equal(connectionLost('text'), false);
