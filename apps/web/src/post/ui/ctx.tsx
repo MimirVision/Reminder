@@ -12,7 +12,8 @@ export function useRoute(): Route {
   useEffect(() => { const on = () => setHash(location.hash); window.addEventListener('hashchange', on); return () => window.removeEventListener('hashchange', on); }, []);
   return parseRoute(hash);
 }
-export const go = (r: Route) => { location.hash = buildRoute(r); };
+/** Goes to a screen. `replace`: instead of this one, so Back skips it (what you just archived is not worth going back to). */
+export const go = (r: Route, opts: { replace?: boolean } = {}) => { if (opts.replace) location.replace(buildRoute(r)); else location.hash = buildRoute(r); };
 export const back = (fallback: Route = { name: 'inbox' }) => { if (history.length > 1 && !(window as { __first?: boolean }).__first) history.back(); else go(fallback); };
 
 /** Re-renders now and then so a snoozed message comes back on time without a reload. */

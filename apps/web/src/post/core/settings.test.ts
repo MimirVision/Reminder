@@ -37,6 +37,14 @@ test('loadSettings: garbage and unknown values fall back to defaults', () => {
   assert.equal(s.signature.length, 500);
 });
 
+test('conversations are on unless the person turned them off', () => {
+  assert.equal(DEFAULT_SETTINGS.threads, true);
+  assert.equal(loadSettings({}).threads, true);
+  assert.equal(loadSettings({ threads: 'no' }).threads, true); // only a real false turns it off, so a damaged value never hides the feature
+  assert.equal(loadSettings({ threads: false }).threads, false);
+  assert.equal(loadSettings(JSON.parse(JSON.stringify({ ...DEFAULT_SETTINGS, threads: false }))).threads, false);
+});
+
 test('valid settings round-trip', () => {
   const s = { ...DEFAULT_SETTINGS, theme: 'dark' as const, accent: 'ocean', pureBlack: true, rowSize: 'compact' as const, swipeRight: 'delete' as const, undoSend: 0 };
   assert.deepEqual(loadSettings(JSON.parse(JSON.stringify(s))), s);

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { cleanUpList, mailCounts, visibleMail, type Counts, type State } from '../core/controller.ts';
+import { cleanUpList, mailCounts, visibleMail, visibleThreads, type Counts, type State } from '../core/controller.ts';
 import { dayGroup, displayName, shortTime } from '../core/format.ts';
 import { isHorizontal, swipeOffset, swipeResult, SWIPE_COMMIT } from '../../lib/swipe.ts';
+import { threadWho, type Thread } from '../core/threads.ts';
 import { KIND_TAB, mailKey, type Kind, type Mail } from '../core/types.ts';
 import { presets } from '../core/snooze.ts';
 import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
@@ -41,18 +42,23 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
   );
 }
 
-export function Row({ m, s, selecting, selected, onOpen, onToggle, active, tag = true }: { m: Mail; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean; tag?: boolean }) {
+/** One row. With `thread` it is a conversation: it shows the newest message, who is in it, how many messages it holds, and anything unread, flagged or attached in it. */
+export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, active, tag = true }: { m: Mail; thread?: Thread; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean; tag?: boolean }) {
   const badge = useBadge(s)(m.account);
-  const unread = !m.isRead;
+  const count = thread?.items.length ?? 1;
+  const unread = thread ? thread.unread > 0 : !m.isRead;
+  const who = thread ? threadWho(thread) : displayName(m.fromName, m.fromAddress);
+  const flagged = thread ? thread.items.some((x) => x.flagged) : m.flagged;
+  const files = thread ? thread.items.some((x) => x.hasAttachments) : m.hasAttachments;
   return (
-    <button type="button" className={`row ${s.settings.rowSize}${active ? ' active' : ''}`} aria-current={active ? 'true' : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${displayName(m.fromName, m.fromAddress)}, ${m.subject}${unread ? ', unread' : ''}`}>
+    <button type="button" className={`row ${s.settings.rowSize}${active ? ' active' : ''}`} aria-current={active ? 'true' : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${who}, ${m.subject}${count > 1 ? `, ${count} messages` : ''}${unread ? ', unread' : ''}`}>
       {unread && !selecting && <span className="dot" />}
       {selecting && <span className={`chk${selected ? ' on' : ''}`} aria-hidden="true">{selected && <Icon n="check" size={14} />}</span>}
       <Avatar m={m} badge={badge} />
       <span className="rb">
-        <span className="r1"><span className={`who${unread ? ' u' : ''}`}>{displayName(m.fromName, m.fromAddress)}</span>{tag && TAG[m.kind] && <span className="tg">{TAG[m.kind]}</span>}<span className={`tm${unread ? ' n' : ''}`}>{shortTime(m.received)}</span></span>
+        <span className="r1"><span className={`who${unread ? ' u' : ''}`}>{who}</span>{count > 1 && <span className={`cc${unread ? ' u' : ''}`} aria-hidden="true">{count}</span>}{tag && TAG[m.kind] && <span className="tg">{TAG[m.kind]}</span>}<span className={`tm${unread ? ' n' : ''}`}>{shortTime(m.received)}</span></span>
         <span className={`sj${unread ? ' u' : ''}`}>{m.subject || '(no subject)'}</span>
-        <span className="r1"><span className="pv">{m.preview}</span>{m.hasAttachments && <span className="pa"><Icon n="paperclip" size={15} /></span>}{m.flagged && <span className="pa" style={{ color: 'var(--at)' }}><Icon n="flag" size={15} /></span>}</span>
+        <span className="r1"><span className="pv">{m.preview}</span>{files && <span className="pa"><Icon n="paperclip" size={15} /></span>}{flagged && <span className="pa" style={{ color: 'var(--at)' }}><Icon n="flag" size={15} /></span>}</span>
       </span>
     </button>
   );
@@ -93,10 +99,11 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const c = useC();
   const route = useRoute();
   const activeKey = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : null;
+  const keyOf = (t: Thread) => t.key;
   const now = useNow();
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [snoozing, setSnoozing] = useState<Mail | null>(null);
+  const [snoozing, setSnoozing] = useState<Thread | null>(null);
   const [limit, setLimit] = useState(60);
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [scrolled, setScrolled] = useState(false);
@@ -105,13 +112,13 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const pullStart = useRef<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
 
-  const list = useMemo(() => visibleMail(s, now), [s.mail, s.view, s.unreadOnly, s.accountFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const counts = useMemo(() => mailCounts(s, now), [s.mail, s.accountFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => visibleThreads(s, now), [s.mail, s.view, s.unreadOnly, s.accountFilter, s.settings.threads, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const counts = useMemo(() => mailCounts(s, now), [s.mail, s.accountFilter, s.settings.threads, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const viewUnread = s.view === 'all' ? counts.unread : counts.byKind[s.view].unread;
   const shown = list.slice(0, limit);
   const groups = useMemo(() => {
-    const out: { name: string; items: Mail[] }[] = [];
-    for (const m of shown) { const g = dayGroup(m.received); const last = out[out.length - 1]; if (last?.name === g) last.items.push(m); else out.push({ name: g, items: [m] }); }
+    const out: { name: string; items: Thread[] }[] = [];
+    for (const t of shown) { const g = dayGroup(t.latest.received); const last = out[out.length - 1]; if (last?.name === g) last.items.push(t); else out.push({ name: g, items: [t] }); }
     return out;
   }, [shown.length, list]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -125,15 +132,17 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const scope = s.accountFilter ? labelOf(s, s.accountFilter) : s.accounts.length > 1 ? 'All accounts' : s.accounts[0]?.label ?? 'Inbox';
   const when = s.sync.running ? 'Updating…' : s.sync.at ? `Updated ${Math.max(0, Math.round((now - s.sync.at) / 60000)) < 1 ? 'just now' : `${Math.round((now - s.sync.at) / 60000)} min ago`}` : '';
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const chosen = list.filter((m) => picked.has(m.key));
+  const chosen = list.filter((t) => picked.has(t.key));
+  const chosenMail = chosen.flatMap((t) => t.items);
   const exit = () => { setSelecting(false); setPicked(new Set()); };
-  // A message leaving the list shrinks away first, then the action runs, so the list closes up smoothly instead of jumping.
-  const leave = (items: Mail[], then: () => void) => {
-    setLeaving((p) => new Set([...p, ...items.map((m) => m.key)]));
-    setTimeout(() => { then(); setLeaving((p) => { const n = new Set(p); items.forEach((m) => n.delete(m.key)); return n; }); }, 200);
+  // A row leaving the list shrinks away first, then the action runs, so the list closes up smoothly instead of jumping.
+  const leave = (rows: Thread[], then: () => void) => {
+    setLeaving((p) => new Set([...p, ...rows.map(keyOf)]));
+    setTimeout(() => { then(); setLeaving((p) => { const n = new Set(p); rows.forEach((t) => n.delete(t.key)); return n; }); }, 200);
   };
-  const act = (m: Mail, a: 'archive' | 'read' | 'flag' | 'delete' | 'snooze') => {
-    if (a === 'archive') leave([m], () => void c.archive([m])); else if (a === 'delete') leave([m], () => void c.trash([m])); else if (a === 'read') void c.setRead(m, !m.isRead); else if (a === 'flag') void c.setFlag(m, !m.flagged); else setSnoozing(m);
+  // Every action reaches the whole conversation (all its messages in the inbox), and the toast and the Undo count it once.
+  const act = (t: Thread, a: 'archive' | 'read' | 'flag' | 'delete' | 'snooze') => {
+    if (a === 'archive') leave([t], () => void c.archive(t.items, 1)); else if (a === 'delete') leave([t], () => void c.trash(t.items, 1)); else if (a === 'read') void c.toggleRead(t.items); else if (a === 'flag') void c.toggleFlag(t.items); else setSnoozing(t);
   };
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const t = e.currentTarget.scrollTop; setScrolled((x) => (x ? t > 8 : t > 48)); };
   const touchStart = (e: React.TouchEvent<HTMLDivElement>) => { pullStart.current = e.currentTarget.scrollTop <= 0 ? e.touches[0].clientY : null; };
@@ -171,9 +180,9 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
           <section key={g.name}>
             <div className="sec">{g.name}</div>
             <div className="card">
-              {g.items.map((m) => (
-                <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(m, s.settings.swipeRight)} onLeft={() => act(m, s.settings.swipeLeft)}>
-                  <Row m={m} s={s} tag={s.view === 'all'} active={m.key === activeKey} selecting={selecting} selected={picked.has(m.key)} onToggle={() => toggle(m.key)} onOpen={() => go({ name: 'message', account: m.account, id: m.id })} />
+              {g.items.map((t) => (
+                <SwipeRow key={t.key} leaving={leaving.has(t.key)} disabled={selecting} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
+                  <Row m={t.latest} thread={t} s={s} tag={s.view === 'all'} active={!!activeKey && t.items.some((x) => x.key === activeKey)} selecting={selecting} selected={picked.has(t.key)} onToggle={() => toggle(t.key)} onOpen={() => go({ name: 'message', account: t.latest.account, id: t.latest.id })} />
                 </SwipeRow>
               ))}
             </div>
@@ -184,10 +193,10 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
       </div>
       {selecting ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
-          <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(list.map((m) => m.key)))}><Icon n="select" /></button>
-          <button className="go" disabled={!chosen.length} onClick={() => { const items = chosen; exit(); leave(items, () => void c.archive(items)); }}><Icon n="archive" />Archive {chosen.length || ''}</button>
-          <button className="ib" aria-label="Mark read" disabled={!chosen.length} onClick={() => { const items = chosen; exit(); void c.markRead(items); }}><Icon n="eye" /></button>
-          <button className="ib" aria-label="Delete" disabled={!chosen.length} onClick={() => { const items = chosen; exit(); leave(items, () => void c.trash(items)); }}><Icon n="trash" /></button>
+          <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(list.map(keyOf)))}><Icon n="select" /></button>
+          <button className="go" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.archive(items, rows.length)); }}><Icon n="archive" />Archive {chosen.length || ''}</button>
+          <button className="ib" aria-label="Mark read" disabled={!chosen.length} onClick={() => { const items = chosenMail; exit(); void c.markRead(items); }}><Icon n="eye" /></button>
+          <button className="ib" aria-label="Delete" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.trash(items, rows.length)); }}><Icon n="trash" /></button>
         </div>
       ) : (
         <>
@@ -195,7 +204,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
           {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
         </>
       )}
-      {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing, at, label); setSnoozing(null); }} />}
+      {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing.items, at, label); setSnoozing(null); }} />}
       {cleaning && <CleanUpSheet s={s} onClose={() => setCleaning(false)} />}
     </div>
   );

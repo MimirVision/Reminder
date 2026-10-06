@@ -325,3 +325,41 @@ test('Microsoft refusing a slice is reported as it is, the relay is not a second
   await assert.rejects(() => g.sendMail({ subject: 's', body: 'b', to: ['a@b.no'], files: [file('big.pdf', 3_100_000)] }), (e: GraphError) => e.status === 403);
   assert.equal(calls.some((c) => c.url === 'https://site.example/api/post-upload'), false);
 });
+
+// ---- conversations -----------------------------------------------------------------------------------------------------------------------
+
+test('a conversation is asked for by its id, safely quoted and encoded, without a sort order Microsoft would refuse', async () => {
+  const { g, calls } = setup([res(200, { value: [{ id: 'm1' }, { id: 'm2' }] })]);
+  const rows = await g.conversation("AAQk=/+it's");
+  assert.deepEqual(rows.map((r) => r.id), ['m1', 'm2']);
+  const url = decodeURIComponent(calls[0].url.replace('https://graph.microsoft.com/v1.0', ''));
+  assert.match(url, /^\/me\/messages\?\$filter=conversationId eq 'AAQk=\/\+it''s'&\$select=.*parentFolderId.*,isDraft&\$top=50$/);
+  assert.doesNotMatch(url, /orderby/i);
+  assert.doesNotMatch(calls[0].url, /it's/); // the quote itself is encoded, so it cannot end the filter early
+});
+
+test('a long conversation is followed over pages, up to the limit', async () => {
+  const page = (from: number, next?: string) => res(200, { value: Array.from({ length: 50 }, (_, i) => ({ id: `m${from + i}` })), ...(next ? { '@odata.nextLink': next } : {}) });
+  const a = setup([page(0, 'https://graph/p2'), page(50, 'https://graph/p3'), page(100)]);
+  assert.equal((await a.g.conversation('C')).length, 100); // the default limit is two full pages, so the third is never asked for
+  assert.equal(a.calls.length, 2);
+  assert.equal(a.calls[1].url, 'https://graph/p2');
+  const b = setup([page(0, 'https://graph/p2'), page(50)]);
+  assert.equal((await b.g.conversation('C', 30)).length, 30); // a smaller limit is respected in what is given back
+  assert.equal(b.calls.length, 1);
+});
+
+test('a conversation Microsoft cannot find is an empty list, and a failure is an error the caller can show', async () => {
+  const { g } = setup([res(200, {}), res(500, { error: { code: 'ErrorInternalServerError', message: 'x' } })]);
+  assert.deepEqual(await g.conversation('C'), []);
+  await assert.rejects(() => g.conversation('C'), (e: GraphError) => e.status === 500);
+});
+
+test('folder ids come from one batch, and a folder that is missing is left out', async () => {
+  const { g, calls } = setup([res(200, { responses: [{ id: '0', status: 200, body: { id: 'DEL' } }, { id: '1', status: 404, body: { error: {} } }, { id: '2', status: 200, body: { id: 'DRAFTS' } }] })]);
+  const ids = await g.folderIds(['deleteditems', 'junkemail', 'drafts']);
+  assert.deepEqual(ids, { deleteditems: 'DEL', drafts: 'DRAFTS' });
+  assert.equal(calls.length, 1);
+  const sent = JSON.parse(String(calls[0].init.body)).requests.map((r: any) => r.url);
+  assert.deepEqual(sent, ['/me/mailFolders/deleteditems?$select=id', '/me/mailFolders/junkemail?$select=id', '/me/mailFolders/drafts?$select=id']);
+});

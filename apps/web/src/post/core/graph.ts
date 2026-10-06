@@ -44,6 +44,7 @@ export interface RawMessage {
   hasAttachments?: boolean;
   inferenceClassification?: string;
   parentFolderId?: string;
+  isDraft?: boolean;
   internetMessageHeaders?: { name: string; value: string }[];
   '@removed'?: { reason?: string };
 }
@@ -179,8 +180,25 @@ export function createGraph(deps: GraphDeps) {
     }
   }
 
+  /** Up to 20 calls in one request. Returns the status of each, in order. A call Microsoft asked us to slow down on also says for how long (`retryAfter`, seconds). */
+  async function batch(calls: { method: string; url: string; body?: unknown }[]): Promise<{ status: number; body: any; retryAfter?: number }[]> {
+    const out: { status: number; body: any; retryAfter?: number }[] = [];
+    for (let i = 0; i < calls.length; i += 20) {
+      const chunk = calls.slice(i, i + 20);
+      const j = await request('POST', '/$batch', { requests: chunk.map((c, n) => ({ id: String(n), method: c.method, url: c.url, ...(c.body ? { body: c.body, headers: { 'Content-Type': 'application/json' } } : {}) })) });
+      const byId = new Map<string, { status: number; body: any; retryAfter?: number }>((j?.responses ?? []).map((r: any) => {
+        const h = r?.headers ?? {};
+        const wait = Number(h['Retry-After'] ?? h['retry-after']);
+        return [String(r.id), { status: Number(r.status), body: r.body, ...(Number.isFinite(wait) && wait > 0 ? { retryAfter: wait } : {}) }];
+      }));
+      for (let n = 0; n < chunk.length; n++) out.push(byId.get(String(n)) ?? { status: 0, body: null });
+    }
+    return out;
+  }
+
   return {
     request,
+    batch,
 
     /** One page of changes in a folder. Pass the previous deltaLink to get only what changed since. */
     async deltaPage(folder: WellKnownFolder, link?: string, sinceIso?: string): Promise<{ value: RawMessage[]; next?: string; delta?: string }> {
@@ -207,19 +225,27 @@ export function createGraph(deps: GraphDeps) {
       return String(j?.id ?? id);
     },
 
-    /** Up to 20 calls in one request. Returns the status of each, in order. A call Microsoft asked us to slow down on also says for how long (`retryAfter`, seconds). */
-    async batch(calls: { method: string; url: string; body?: unknown }[]): Promise<{ status: number; body: any; retryAfter?: number }[]> {
-      const out: { status: number; body: any; retryAfter?: number }[] = [];
-      for (let i = 0; i < calls.length; i += 20) {
-        const chunk = calls.slice(i, i + 20);
-        const j = await request('POST', '/$batch', { requests: chunk.map((c, n) => ({ id: String(n), method: c.method, url: c.url, ...(c.body ? { body: c.body, headers: { 'Content-Type': 'application/json' } } : {}) })) });
-        const byId = new Map<string, { status: number; body: any; retryAfter?: number }>((j?.responses ?? []).map((r: any) => {
-          const h = r?.headers ?? {};
-          const wait = Number(h['Retry-After'] ?? h['retry-after']);
-          return [String(r.id), { status: Number(r.status), body: r.body, ...(Number.isFinite(wait) && wait > 0 ? { retryAfter: wait } : {}) }];
-        }));
-        for (let n = 0; n < chunk.length; n++) out.push(byId.get(String(n)) ?? { status: 0, body: null });
+    /**
+     * Every message of one conversation, from every folder (Sent Items and the Archive too), in no particular order. Microsoft refuses to sort
+     * a conversation lookup, so the caller sorts. Drafts are marked (`isDraft`), and each message says its folder (`parentFolderId`).
+     */
+    async conversation(conversationId: string, max = 100): Promise<RawMessage[]> {
+      const filter = encodeURIComponent(`conversationId eq '${conversationId.replace(/'/g, "''")}'`);
+      let link: string | undefined = `/me/messages?$filter=${filter}&$select=${LIST_FIELDS},isDraft&$top=50`;
+      const out: RawMessage[] = [];
+      for (let pages = 0; link && out.length < max && pages < 4; pages++) {
+        const j: any = await request('GET', link);
+        out.push(...((j?.value ?? []) as RawMessage[]));
+        link = j?.['@odata.nextLink'];
       }
+      return out.slice(0, max);
+    },
+
+    /** The ids of some of the standard folders (messages say where they are by id). A folder Microsoft cannot find is left out. */
+    async folderIds(names: WellKnownFolder[]): Promise<Partial<Record<WellKnownFolder, string>>> {
+      const res = await batch(names.map((n) => ({ method: 'GET', url: `/me/mailFolders/${n}?$select=id` })));
+      const out: Partial<Record<WellKnownFolder, string>> = {};
+      names.forEach((n, i) => { const id = res[i]?.status === 200 ? String(res[i].body?.id ?? '') : ''; if (id) out[n] = id; });
       return out;
     },
 

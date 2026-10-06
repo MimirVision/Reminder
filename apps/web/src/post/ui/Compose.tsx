@@ -3,6 +3,7 @@ import type { State } from '../core/controller.ts';
 import { MAX_OUT_TOTAL, addPicked, tileLabel, totalBytes, type Picked } from '../core/files.ts';
 import { displayName, fileSize, initials } from '../core/format.ts';
 import type { OutFile } from '../core/graph.ts';
+import { isMine } from '../core/threads.ts';
 import { mailKey } from '../core/types.ts';
 import { Icon } from './ui.tsx';
 import { back, go, labelOf, useC } from './ctx.tsx';
@@ -12,7 +13,8 @@ const addresses = (s: string) => [...new Set((s.match(EMAIL) ?? []).map((x) => x
 
 export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'reply' | 'replyAll' | 'forward'; account?: string; id?: string }) {
   const c = useC();
-  const original = useMemo(() => (id && account ? s.mail.find((m) => m.key === mailKey(account, id)) : undefined), [s.mail, id, account]);
+  // The message being answered: one in the inbox on this phone, or one only seen in Outlook (a search result, an older message of a conversation).
+  const original = useMemo(() => (id && account ? s.mail.find((m) => m.key === mailKey(account, id)) ?? c.remoteMail(account, id) : undefined), [s.mail, id, account]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = useRef(true);
   const sent = useRef(false);
   const [from, setFrom] = useState(account ?? s.accounts[0]?.email ?? '');
@@ -42,7 +44,8 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
     if (mode === 'new') { if (s.settings.signature) setText(`\n\n${s.settings.signature}`); return; }
     if (original) {
       setSubject(`${mode === 'forward' ? 'Fwd' : 'Re'}: ${original.subject.replace(/^(re|fw|fwd|sv|vs):\s*/i, '')}`);
-      if (mode !== 'forward') setTo(original.fromAddress);
+      // Answering something you wrote yourself goes to the people you wrote it to, not to you.
+      if (mode !== 'forward') { if (isMine(original)) void c.openBody(original).then((b) => setTo((cur) => cur || b.to.map((r) => r.address).join(', '))).catch(() => {}); else setTo(original.fromAddress); }
       if (s.settings.signature) setText(`\n\n${s.settings.signature}`);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

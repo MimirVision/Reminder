@@ -42,6 +42,11 @@ export function Settings({ s }: { s: State }) {
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{Object.keys(s.overrides).length ? `${Object.keys(s.overrides).length} rule${Object.keys(s.overrides).length > 1 ? 's' : ''}` : 'Automatic'}<Icon n="chev" /></span></button>
         </div>
+        <div className="lbl">Conversations</div>
+        <div className="card">
+          <div className="it"><span className="ico"><Icon n="reply" /></span>Group replies together<Switch on={s.settings.threads} onChange={(v) => set({ threads: v })} label="Group replies together" /></div>
+        </div>
+        <p className="note">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. Nothing is hidden: every message is still there.</p>
         <div className="lbl">Swipe</div>
         <div className="card">
           <Pick icon="archive" label="Swipe right" value={s.settings.swipeRight} options={SWIPE} onChange={(v) => set({ swipeRight: v })} />
@@ -120,7 +125,8 @@ export function Appearance({ s }: { s: State }) {
 export function Sorting({ s }: { s: State }) {
   const c = useC();
   const now = useNow();
-  const counts = mailCounts({ mail: s.mail, accountFilter: null }, now);
+  // The sorting is about messages, so this page counts messages even when the list groups them into conversations.
+  const counts = mailCounts({ mail: s.mail, accountFilter: null, settings: { ...s.settings, threads: false } }, now);
   const rules = Object.entries(s.overrides).sort((a, b) => a[0].localeCompare(b[0]));
   const [report, setReport] = useState<string | null>(null);
   const [note, setNote] = useState('');

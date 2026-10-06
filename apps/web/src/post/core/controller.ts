@@ -7,7 +7,8 @@ import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
 import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, syncAccount, toMail } from './sync.ts';
 import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store } from './store.ts';
-import { asKind, KIND_TAB, KINDS, type AttachmentRef, type Kind, type Mail, type MailBody } from './types.ts';
+import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
+import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type Kind, type Mail, type MailBody } from './types.ts';
 
 // The brain of the app, with no browser or React in it so it is tested in Node. The screens only read `state` and call these methods.
 // Rule everywhere: the screen changes first, the network follows, and nothing the user did is ever lost or silently undone.
@@ -44,6 +45,8 @@ export interface State {
   outbox: OutboxItem[];
   toast: Toast | null;
   alertsOn: boolean; // this phone is paired for the icon number
+  /** How many messages have left the outbox since Post was opened (a conversation on screen asks again, to show your answer in it). */
+  sent: number;
 }
 
 export interface Deps {
@@ -69,6 +72,10 @@ const MAX_TRIES = 3;          // a message with files is tried this many times (
 const DRAFT_FILES = 'draft-files';
 const outFileKey = (account: string, itemId: string, i: number) => `${account}|outfile|${itemId}|${i}`;
 const SENDING_TOAST_MS = 180_000;
+/** The rest of a conversation, as Outlook gave it, is trusted this long before it is asked for again. */
+const CONVERSATION_FRESH_MS = 90_000;
+/** Folders whose messages are not part of a conversation you read: what you deleted, junk, and drafts that are not sent. */
+const HIDDEN_FOLDERS = ['deleteditems', 'junkemail', 'drafts'] as const;
 
 const NEEDS_SIGN_IN = /AADSTS(70000|700082|700084|50173|50076|50079|65001|70008|500011)|invalid_grant|interaction_required|unknown account|signed out/i;
 type Session = { email: string; id: string; label: string; session: string };
@@ -82,7 +89,7 @@ export function createController(deps: Deps) {
 
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
-    sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false,
+    sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, sent: 0,
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -101,6 +108,17 @@ export function createController(deps: Deps) {
   let syncRun: Promise<void> | null = null;
   const downloads = createByteCache<Opened>(48 * 1024 * 1024); // files already fetched for reading, so opening one again is instant
   const fetching = new Map<string, Promise<Opened>>();
+  // Messages seen in Outlook that are not in the inbox on this phone (the rest of a conversation, results of "search all of Outlook"). Kept only
+  // while Post is open: they are never saved, so nothing piles up on the phone and nothing old can come back to the list.
+  const remote = new Map<string, Mail>();
+  const remoteBodies = new Map<string, MailBody>();
+  const conversations = new Map<string, { at: number; items: Mail[] }>();
+  const keepLatest = <T,>(map: Map<string, T>, key: string, value: T, max: number) => { map.delete(key); map.set(key, value); while (map.size > max) map.delete(map.keys().next().value!); };
+  const remember = (list: Mail[]) => { for (const m of list) keepLatest(remote, m.key, m, 600); };
+  // Changes that read a message from the phone and write it back (read, flag, snooze) go one after the other, so two of them started together
+  // can never overwrite each other: the second one always sees what the first one saved.
+  let editing: Promise<unknown> = Promise.resolve();
+  const exclusive = <T,>(fn: () => Promise<T>): Promise<T> => { const run = editing.then(fn, fn); editing = run.catch(() => {}); return run; };
 
   /** Everything the sorting knows besides the message itself: what you moved by hand, who you have written to, your VIPs. */
   const sortCtx = (): ClassifyContext => ({ overrides: state.overrides, known, vips: new Set(state.accounts.flatMap((a) => a.vips ?? []).map((v) => v.toLowerCase())) });
@@ -150,6 +168,17 @@ export function createController(deps: Deps) {
       await reclassifyAll(store, sortCtx());
       await reload();
     } catch { /* a nicety: the next sync tries again */ }
+  }
+
+  /** The ids of the folders whose messages are left out of a conversation. Asked of Outlook once and kept on the phone. */
+  async function hiddenFolders(account: string, g: Graph): Promise<Set<string>> {
+    const key = `${account}|folders`;
+    let ids = await store.getMeta<Record<string, string>>(key);
+    if (!ids?.deleteditems) {
+      try { ids = await g.folderIds([...HIDDEN_FOLDERS]); } catch { ids = undefined; } // not worth failing the conversation for: it is shown with deleted mail in it rather than not at all
+      if (ids?.deleteditems) await store.setMeta(key, ids);
+    }
+    return new Set(Object.values(ids ?? {}));
   }
 
   /** Asks the server about each signed-in mailbox. A mailbox the server no longer recognises is marked "sign in again", never dropped. */
@@ -239,6 +268,7 @@ export function createController(deps: Deps) {
         else if (it.kind === 'forward' && it.replyTo) await g.forward(it.replyTo, it.to, it.body, files);
         else if (it.replyTo) await g.reply(it.replyTo, it.body, it.kind === 'replyAll', files);
         sent++;
+        conversations.clear(); // your message is in Sent Items now: the next time a conversation is opened it is asked for again
         finished.add(it.id);
         await dropOutFiles(it);
         if (await rememberKnown(store, it.account, [...it.to, ...it.cc])) learned = true;
@@ -256,6 +286,7 @@ export function createController(deps: Deps) {
     const remaining = fresh.filter((x) => !finished.has(x.id)).map((x) => retried.get(x.id) ?? x);
     if (finished.size || retried.size) await store.setMeta('outbox', remaining);
     if (learned) { known = await loadKnown(store, state.accounts.map((a) => a.email)); await reclassifyAll(store, sortCtx()); }
+    if (sent) set({ sent: state.sent + sent });
     if (sent && !remaining.length) toast(sent === 1 ? 'Sent' : `Sent ${sent}`);
     else if (retried.size) toast('Not sent yet. Post will try again.', undefined, 6000);
     else if (sendingToast && state.toast?.id === sendingToast) set({ toast: null });
@@ -442,16 +473,17 @@ export function createController(deps: Deps) {
     },
 
     // ---- triage -------------------------------------------------------------------------------------------------------------
-    async archive(items: Mail[]) { return await api.moveAway(items, 'archive', 'Archived'); },
-    async trash(items: Mail[]) { return await api.moveAway(items, 'delete', 'Deleted'); },
+    /** `rows`: how many rows of the list this was (a conversation is one row, however many messages it holds); the toast counts rows. */
+    async archive(items: Mail[], rows: number = items.length) { return await api.moveAway(items, 'archive', 'Archived', rows); },
+    async trash(items: Mail[], rows: number = items.length) { return await api.moveAway(items, 'delete', 'Deleted', rows); },
 
-    async moveAway(items: Mail[], type: Extract<OpType, 'archive' | 'delete'>, word: string) {
+    async moveAway(items: Mail[], type: Extract<OpType, 'archive' | 'delete'>, word: string, rows: number = items.length) {
       if (!items.length) return;
       const ops: PendingOp[] = [];
       for (const m of items) { trash.set(m.key, m); ops.push(await queue.enqueue(type, m.account, m.id)); }
       await store.deleteMail(items.map((m) => m.key));
       await reload();
-      const label = items.length === 1 ? word : `${word} ${items.length}`;
+      const label = rows <= 1 ? word : `${word} ${rows}`;
       toast(label, () => { void api.undo(ops.map((o) => o.id), items); });
       setTimer(() => { void queue.flush(graphFor).then(reload); }, UNDO_WINDOW_MS + 200);
     },
@@ -466,30 +498,63 @@ export function createController(deps: Deps) {
       toast(late ? 'Too late: it already went through' : 'Undone');
     },
 
-    async setRead(m: Mail, isRead: boolean) {
-      if (m.isRead === isRead) return;
-      await store.putMail([{ ...m, isRead }]);
-      await queue.enqueue(isRead ? 'read' : 'unread', m.account, m.id, 0);
-      await reload();
-      void queue.flush(graphFor).then(reload);
+    setRead(m: Mail, isRead: boolean) {
+      return exclusive(async () => {
+        const cur = await store.getMail(m.key); // a message that is not on this phone (archived meanwhile, or only seen in Outlook) is left alone
+        if (!cur || cur.isRead === isRead) return;
+        await store.putMail([{ ...cur, isRead }]);
+        await queue.enqueue(isRead ? 'read' : 'unread', m.account, m.id, 0);
+        await reload();
+        void queue.flush(graphFor).then(reload);
+      });
     },
 
-    async setFlag(m: Mail, flagged: boolean) {
-      await store.putMail([{ ...m, flagged }]);
-      await queue.enqueue(flagged ? 'flag' : 'unflag', m.account, m.id, 0);
-      await reload();
-      void queue.flush(graphFor).then(reload);
+    setFlag(m: Mail, flagged: boolean) { return api.setFlags([m], flagged); },
+
+    setFlags(items: Mail[], flagged: boolean) {
+      return exclusive(async () => {
+        const todo: Mail[] = [];
+        for (const m of items) { const cur = await store.getMail(m.key); if (cur && cur.flagged !== flagged) todo.push(cur); }
+        if (!todo.length) return;
+        await store.putMail(todo.map((m) => ({ ...m, flagged })));
+        for (const m of todo) await queue.enqueue(flagged ? 'flag' : 'unflag', m.account, m.id, 0);
+        await reload();
+        void queue.flush(graphFor).then(reload);
+      });
     },
 
-    async snooze(m: Mail, until: Date, label: string) {
-      await store.putMail([{ ...m, snoozedUntil: until.toISOString() }]);
-      await reload();
-      toast(`Snoozed until ${label}`, () => { void api.unsnooze(m); });
+    /** Flags a conversation (its newest message), or, when something in it is already flagged, takes the flag off every message that has one. */
+    async toggleFlag(items: Mail[]) {
+      const flagged = items.filter((m) => m.flagged);
+      if (flagged.length) await api.setFlags(flagged, false); else if (items[0]) await api.setFlags([items[0]], true);
     },
-    async unsnooze(m: Mail) {
-      const cur = await store.getMail(m.key);
-      if (cur) await store.putMail([{ ...cur, snoozedUntil: null }]);
-      await reload();
+
+    /** "Answer this later": flags the conversation's newest message and marks the conversation read, so it leaves Unread but stays in Later. */
+    async replyLater(items: Mail[]) {
+      if (items[0]) await api.setFlags([items[0]], true);
+      await api.markRead(items, { quiet: true });
+    },
+
+    /** Snoozes a message or a whole conversation (its messages that are in the inbox), with one Undo. */
+    snooze(m: Mail | Mail[], until: Date, label: string) {
+      return exclusive(async () => {
+        const items = Array.isArray(m) ? m : [m];
+        const fresh: Mail[] = [];
+        for (const x of items) { const cur = await store.getMail(x.key); if (cur) fresh.push({ ...cur, snoozedUntil: until.toISOString() }); } // one archived meanwhile must not come back
+        if (!fresh.length) return;
+        await store.putMail(fresh);
+        await reload();
+        toast(`Snoozed until ${label}`, () => { void api.unsnooze(fresh); });
+      });
+    },
+    unsnooze(m: Mail | Mail[]) {
+      return exclusive(async () => {
+        for (const x of Array.isArray(m) ? m : [m]) {
+          const cur = await store.getMail(x.key);
+          if (cur) await store.putMail([{ ...cur, snoozedUntil: null }]);
+        }
+        await reload();
+      });
     },
 
     /**
@@ -517,15 +582,25 @@ export function createController(deps: Deps) {
       toast('Rule removed', () => { void applyOverrides(before); });
     },
 
-    /** Marks these as read in one go, with one toast. */
-    async markRead(items: Mail[]) {
-      const todo = items.filter((m) => !m.isRead);
-      if (!todo.length) return;
-      await store.putMail(todo.map((m) => ({ ...m, isRead: true })));
-      for (const m of todo) await queue.enqueue('read', m.account, m.id, 0);
-      await reload();
-      toast(todo.length === 1 ? 'Marked as read' : `Marked ${todo.length} as read`);
-      void queue.flush(graphFor).then(reload);
+    /** Marks these as read in one go, with one toast (or none, when `quiet`: opening a conversation marks it read without a word). */
+    markRead(items: Mail[], opts: { quiet?: boolean } = {}) {
+      return exclusive(async () => {
+        // The copy on the phone as it is now: one archived or changed meanwhile must not be brought back or overwritten with an older copy.
+        const todo: Mail[] = [];
+        for (const m of items) { const cur = await store.getMail(m.key); if (cur && !cur.isRead) todo.push(cur); }
+        if (!todo.length) return;
+        await store.putMail(todo.map((m) => ({ ...m, isRead: true })));
+        for (const m of todo) await queue.enqueue('read', m.account, m.id, 0);
+        await reload();
+        if (!opts.quiet) toast(todo.length === 1 ? 'Marked as read' : `Marked ${todo.length} as read`);
+        void queue.flush(graphFor).then(reload);
+      });
+    },
+
+    /** Read and unread for a conversation (newest message first): anything unread in it is marked read; when it is all read, its newest message becomes unread. */
+    async toggleRead(items: Mail[]) {
+      if (items.some((m) => !m.isRead)) await api.markRead(items, { quiet: true });
+      else if (items[0]) await api.setRead(items[0], false);
     },
 
     /** Archives the Promotions older than `days` days (never a flagged one), with one Undo. Returns how many. */
@@ -542,7 +617,10 @@ export function createController(deps: Deps) {
      * shows, and the list is asked for again the next time the message is opened, so a file is never silently missing.
      */
     async openBody(m: Mail): Promise<MailBody> {
-      let body = await store.getBody(m.key);
+      // A message that is on this phone keeps its text there; one that is only seen in Outlook (an older message of a conversation, a search
+      // result) is kept in memory while Post is open, so reading it never fills the phone.
+      const onPhone = !!(await store.getMail(m.key));
+      let body = onPhone ? await store.getBody(m.key) : remoteBodies.get(m.key);
       if (body?.listed && !body.attachmentsFailed) return body;
       const g = graphFor(m.account);
       if (!g) { if (body) return body; throw new Error('Sign in again to read this message'); }
@@ -559,7 +637,8 @@ export function createController(deps: Deps) {
           to: (j?.toRecipients ?? []).map(addr), cc: (j?.ccRecipients ?? []).map(addr), attachments: [], ...l,
         };
       }
-      await store.putBody(body);
+      if (onPhone && (await store.getMail(m.key))) await store.putBody(body); // not when it was archived while its text was coming
+      else keepLatest(remoteBodies, m.key, body, 40);
       return body;
     },
 
@@ -626,7 +705,45 @@ export function createController(deps: Deps) {
           for (const r of rows) { const m = toMail(a.email, r, sortCtx()); if (!seen.has(m.key)) out.push({ ...m, folder: 'archive' }); }
         } catch { /* one account failing must not hide the others' results */ }
       }
-      return out.sort((x, y) => y.received.localeCompare(x.received));
+      out.sort((x, y) => y.received.localeCompare(x.received));
+      remember(out);
+      return out;
+    },
+
+    // ---- conversations -----------------------------------------------------------------------------------------------------------
+    /** The messages that go with this one: the whole conversation when conversations are on (just this message when they are off), newest first, inbox only. */
+    threadOf(m: Mail): Mail[] { return threadOf(state.mail, m, state.settings.threads); },
+
+    /** A message Post has seen in Outlook this time it was open (the rest of a conversation, a search result), though it is not in the inbox on this phone. */
+    remoteMail(account: string, id: string): Mail | undefined { return remote.get(mailKey(account, id)); },
+
+    /**
+     * The rest of this message's conversation from Outlook itself: your own replies (Sent Items), messages archived or moved to other folders,
+     * and older mail the phone does not hold. Not what is in the inbox on this phone (that is already here), and never drafts, deleted or junk.
+     * Newest first. Kept only while Post is open; nothing is saved, so the inbox on this phone stays what it was.
+     */
+    async loadConversation(m: Mail, opts: { force?: boolean } = {}): Promise<Mail[]> {
+      if (!m.conversationId) return [];
+      const g = graphFor(m.account);
+      if (!g) throw new Error('Sign in again to see the rest of this conversation');
+      const ck = threadKey(m);
+      const hit = conversations.get(ck);
+      if (hit && !opts.force && now() - hit.at < CONVERSATION_FRESH_MS) return hit.items;
+      const [raw, hidden, ops] = await Promise.all([g.conversation(m.conversationId), hiddenFolders(m.account, g), queue.pending()]);
+      const here = new Set(state.mail.map((x) => x.key));
+      // Archived or deleted here a moment ago, and Outlook has not been told yet: it is not part of what is left.
+      const leaving = new Set(ops.filter((o) => o.type === 'archive' || o.type === 'delete').map((o) => mailKey(o.account, o.messageId)));
+      const items: Mail[] = [];
+      for (const r of raw) {
+        if (r.isDraft || (r.parentFolderId && hidden.has(r.parentFolderId))) continue;
+        const x = toMail(m.account, r, sortCtx());
+        if (here.has(x.key) || leaving.has(x.key)) continue;
+        items.push({ ...x, folder: 'archive', snoozedUntil: null });
+      }
+      items.sort((x, y) => y.received.localeCompare(x.received));
+      remember(items);
+      keepLatest(conversations, ck, { at: now(), items }, 60);
+      return items;
     },
 
     // ---- writing ----------------------------------------------------------------------------------------------------------------
@@ -723,9 +840,30 @@ export function visibleMail(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'acc
   });
 }
 
+const isSnoozed = (m: Mail, nowMs: number) => !!m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs;
+
+/** The inbox messages of the chosen mailbox as rows: one per conversation, or one per message when conversations are off. Newest first. */
+function inboxThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settings'>): Thread[] {
+  const inbox = s.mail.filter((m) => m.folder === 'inbox' && (!s.accountFilter || m.account === s.accountFilter));
+  return s.settings.threads ? groupThreads(inbox) : singles(inbox);
+}
+
+/**
+ * What the list shows, a row at a time. A conversation is one row, placed by its newest message and in that message's tab, and it is hidden
+ * while that message is snoozed (a new answer brings it back). Unread means anything unread in it.
+ */
+export function visibleThreads(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter' | 'settings'>, nowMs: number): Thread[] {
+  return inboxThreads(s).filter((t) => {
+    if (isSnoozed(t.latest, nowMs)) return false;
+    if (s.unreadOnly && !t.unread) return false;
+    return s.view === 'all' || t.kind === s.view;
+  });
+}
+
 export interface Counts {
-  /** Everything in the inbox that is not snoozed (for the chosen mailbox). */
+  /** Rows in the inbox that are not snoozed (for the chosen mailbox): conversations, or messages when conversations are off. */
   total: number;
+  /** Rows with something unread in them. */
   unread: number;
   /** The same per tab, so each tab can show what is waiting in it. */
   byKind: Record<Kind, { total: number; unread: number }>;
@@ -733,15 +871,15 @@ export interface Counts {
   unsorted: number;
 }
 
-/** Numbers for the tabs. They count what is really there, never a hidden remainder. */
-export function mailCounts(s: Pick<State, 'mail' | 'accountFilter'>, nowMs: number): Counts {
+/** Numbers for the tabs. They count the rows of the list, and what is really there, never a hidden remainder. */
+export function mailCounts(s: Pick<State, 'mail' | 'accountFilter' | 'settings'>, nowMs: number): Counts {
   const byKind = Object.fromEntries(KINDS.map((k) => [k, { total: 0, unread: 0 }])) as Counts['byKind'];
   let total = 0, unread = 0, unsorted = 0;
-  for (const m of visibleMail({ mail: s.mail, view: 'all', unreadOnly: false, accountFilter: s.accountFilter }, nowMs)) {
-    const k = byKind[m.kind] ?? byKind.person;
+  for (const t of visibleThreads({ mail: s.mail, view: 'all', unreadOnly: false, accountFilter: s.accountFilter, settings: s.settings }, nowMs)) {
+    const k = byKind[t.kind] ?? byKind.person;
     total++; k.total++;
-    if (!m.isRead) { unread++; k.unread++; }
-    if (m.sig === undefined) unsorted++;
+    if (t.unread) { unread++; k.unread++; }
+    for (const m of t.items) if (m.sig === undefined) unsorted++;
   }
   return { total, unread, byKind, unsorted };
 }
@@ -752,5 +890,9 @@ export function cleanUpList(s: Pick<State, 'mail' | 'accountFilter'>, nowMs: num
   return visibleMail({ mail: s.mail, view: 'promo', unreadOnly: false, accountFilter: s.accountFilter }, nowMs).filter((m) => !m.flagged && (days <= 0 || new Date(m.received).getTime() < cutoff));
 }
 
-export const snoozedMail = (mail: Mail[], nowMs: number) => mail.filter((m) => m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs).sort((a, b) => String(a.snoozedUntil).localeCompare(String(b.snoozedUntil)));
-export const replyLaterMail = (mail: Mail[], nowMs: number) => mail.filter((m) => m.flagged && m.folder === 'inbox' && !(m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs));
+/** What is snoozed, a row at a time, the one that comes back first on top. */
+export const snoozedThreads = (s: Pick<State, 'mail' | 'settings'>, nowMs: number): Thread[] =>
+  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => isSnoozed(t.latest, nowMs)).sort((a, b) => String(a.latest.snoozedUntil).localeCompare(String(b.latest.snoozedUntil)));
+/** What you flagged to answer later (any message of a conversation flagged is enough), a row at a time. Snoozed ones wait for their time. */
+export const replyLaterThreads = (s: Pick<State, 'mail' | 'settings'>, nowMs: number): Thread[] =>
+  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => t.items.some((m) => m.flagged) && !isSnoozed(t.latest, nowMs));
