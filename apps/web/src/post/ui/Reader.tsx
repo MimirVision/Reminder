@@ -120,7 +120,8 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const all: Mail[] = [];
   if (m) {
     const have = new Set(local.map((x) => x.key));
-    all.push(...local, ...extras.filter((x) => !have.has(x.key)));
+    // The message that is open is the one the screen has now: the copy the conversation lookup brought of it is older (it would show a flag that was taken off).
+    all.push(...local, ...extras.filter((x) => !have.has(x.key) && x.key !== m.key));
     if (!all.some((x) => x.key === m.key)) all.push(m);
     all.sort(newestFirst);
   }

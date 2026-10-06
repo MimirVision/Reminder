@@ -2,7 +2,7 @@ import { isFreemail, orgDomain, type ClassifyContext } from './classify.ts';
 import { createDiag, worth } from './diag.ts';
 import { createByteCache, emlName, mimeOf, saveName } from './files.ts';
 import { buildFolders, folderMail, folderOfMail, GRAPH_NAME, recipientsOf } from './folders.ts';
-import { createGraph, GraphError, type AttachmentInfo, type DraftContent, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
+import { createGraph, GraphError, type AttachmentInfo, type DraftContent, type DraftField, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
 import { UNDO_WINDOW_MS, createQueue, isMove, type OpType } from './queue.ts';
 import { createServer, createTokens, ServerError, type AccountStatus, type DeviceApi, type Server, type SignedIn } from './server.ts';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
@@ -44,8 +44,12 @@ export const folderKey = (t: FolderTarget) => `${t.kind}|${t.account ?? ''}|${t.
 /** A file waiting to be sent: what the outbox list knows about it. The file itself is kept apart, under the account's own name, so removing the account removes it. */
 export interface OutFileRef { name: string; type: string; size: number }
 export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward' | 'draft'; to: string[]; cc: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number;
-  /** How far the message got at Outlook (its draft, and whether "send" was asked for): kept so that a try that was cut short is carried on, never repeated. */ draft?: DraftProgress }
-export interface Draft { account: string; to: string; cc: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind'] }
+  /** How far the message got at Outlook (its draft, and whether "send" was asked for): kept so that a try that was cut short is carried on, never repeated. */ draft?: DraftProgress;
+  /** For a draft that lives at Outlook: which parts of it were changed here. The rest is left as Outlook has it. Everything, when it is not said. */ edited?: DraftField[] }
+/** Half-written text. `modified`: for a draft that lives at Outlook, when Outlook last changed it as of the time this text was read, so that a change made over there since is noticed. */
+export interface Draft { account: string; to: string; cc: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind']; modified?: string }
+/** A draft that lives at Outlook. What was changed in it here is kept apart from the message being written (see `saveDraft`). */
+export interface DraftOf { account: string; id: string }
 
 export interface AppAccount extends AccountStatus { needsSignIn: boolean }
 
@@ -105,6 +109,12 @@ export interface Opened { name: string; type: string; bytes: Uint8Array; link?: 
 
 const MAX_TRIES = 3;          // a message with files is tried this many times (time offline does not count) and is then handed back as a draft
 const DRAFT_FILES = 'draft-files';
+/** What was changed in drafts that live at Outlook and was not saved or sent (kv: one entry per draft), and how long such a change is kept when the draft is never opened again. */
+const EDITS = 'post.draftedits';
+const EDITS_KEPT_MS = 30 * 24 * 3600 * 1000;
+type Edits = Record<string, Draft & { at: number }>;
+const editsKey = (of: DraftOf) => `${of.account}|${of.id}`;
+const editFilesKey = (of: DraftOf) => `${of.account}|draftfiles|${of.id}`;
 const outFileKey = (account: string, itemId: string, i: number) => `${account}|outfile|${itemId}|${i}`;
 const SENDING_TOAST_MS = 180_000;
 /** The rest of a conversation, as Outlook gave it, is trusted this long before it is asked for again. */
@@ -301,10 +311,10 @@ export function createController(deps: Deps) {
 
   /** Drafts that are on their way out (outbox id -> the draft as the list had it): Undo, or a send that failed, lists the draft again at once. */
   const draftsOnTheirWay = new Map<string, Mail>();
-  const relistDraft = (it: OutboxItem) => {
+  const relistDraft = (it: OutboxItem, again = true) => {
     const copy = draftsOnTheirWay.get(it.id);
     draftsOnTheirWay.delete(it.id);
-    if (copy) putBack(copy);
+    if (copy && again) putBack(copy);
     staleView();
   };
 
@@ -323,7 +333,7 @@ export function createController(deps: Deps) {
         const mine = await store.getMail(m.key);
         const cur = mine ?? copyOf(m.key);
         if (!cur) continue; // no longer in the inbox on this phone (moved somewhere else a moment ago) and not seen in Outlook either: nothing to take away
-        ops.push(await queue.enqueue(op.type, cur.account, cur.id, undefined, op.to));
+        ops.push(await queue.enqueue(op.type, cur.account, cur.id, undefined, op.to, !mine));
         taken.push({ mail: cur, inbox: !!mine });
       }
       if (!taken.length) return null;
@@ -341,7 +351,9 @@ export function createController(deps: Deps) {
     setTimer(() => {
       void runQueue()
         .then(() => (op.to === GRAPH_NAME.inbox ? api.sync() : undefined)) // mail moved to the inbox shows up there with its new name
-        .then(() => (state.folders.length ? api.loadFolders({ force: true }) : undefined)) // and the folders' numbers follow
+        // and the folders' numbers follow: at once when mail moved to or from a folder of its own (those numbers are not kept up to date here), otherwise
+        // when the list of folders is next due (plain archiving and deleting from the inbox must not read the whole list of folders every time)
+        .then(() => (state.folders.length ? api.loadFolders(op.type === 'move' || moved.taken.some((t) => !t.inbox) ? { force: true } : undefined) : undefined))
         .then(reload);
     }, UNDO_WINDOW_MS + 200);
   }
@@ -359,8 +371,11 @@ export function createController(deps: Deps) {
     if (lost.length) {
       const verb = lost.every((o) => o.type === 'archive') ? 'archive' : lost.every((o) => o.type === 'delete') ? 'delete' : 'move';
       const some = lost.length === 1 ? 'a message' : `${lost.length} messages`;
+      const one = lost.length === 1;
       // Mail that was in the inbox comes back to it; mail that was moved out of a folder is simply where it was (its folder is read again).
-      toast(lost.some((o) => o.type === 'move') ? `Outlook would not move ${some}, so ${lost.length === 1 ? 'it stays' : 'they stay'} where ${lost.length === 1 ? 'it was' : 'they were'}.` : `Outlook would not ${verb} ${some}, so ${lost.length === 1 ? 'it comes' : 'they come'} back to your inbox.`, undefined, 6000);
+      const stays = (o: PendingOp) => o.type === 'move' || !!o.fromFolder;
+      const where = lost.every(stays) ? `${one ? 'it stays' : 'they stay'} where ${one ? 'it was' : 'they were'}` : lost.some(stays) ? `${one ? 'it is' : 'they are'} back where ${one ? 'it was' : 'they were'}` : `${one ? 'it comes' : 'they come'} back to your inbox`;
+      toast(`Outlook would not ${verb} ${some}, so ${where}.`, undefined, 6000);
       if (state.folder) void api.openFolder(state.folder.target, { force: true });
     }
     setTimer(() => { void api.sync(); }, 300);
@@ -508,15 +523,42 @@ export function createController(deps: Deps) {
     for (let i = 0; i < (it.files?.length ?? 0); i++) { try { await store.setMeta(outFileKey(it.account, it.id, i), undefined); } catch { /* nothing more to do */ } }
   }
 
-  /** The message goes back to the editor, with its files, and the person is told why. Its half-made copy at Outlook is thrown away. */
-  async function handBack(it: OutboxItem, given: OutFile[], why: string, g: Graph) {
+  // What was changed in drafts that live at Outlook and not saved or sent yet: one entry per draft, apart from the message being written (see `saveDraft`).
+  const readEdits = (): Edits => { try { const x = JSON.parse(kv.get(EDITS) ?? '{}'); return x && typeof x === 'object' && !Array.isArray(x) ? x : {}; } catch { return {}; } };
+  const writeEdits = (all: Edits) => { if (Object.keys(all).length) kv.set(EDITS, JSON.stringify(all)); else kv.del(EDITS); };
+  /**
+   * Lets go of kept changes that nobody will come back for: those of one mailbox that was removed (`account`), or, with none given, those of
+   * drafts that were not opened for a month (a draft sent from another app leaves its changes behind on this phone).
+   */
+  function sweepEdits(account?: string) {
+    const all = readEdits();
+    let changed = false;
+    for (const [k, d] of Object.entries(all)) {
+      const bar = k.indexOf('|');
+      if (account ? k.slice(0, bar) !== account : now() - (d?.at ?? 0) < EDITS_KEPT_MS) continue;
+      delete all[k]; changed = true;
+      if (!account && bar > 0) void store.setMeta(editFilesKey({ account: k.slice(0, bar), id: k.slice(bar + 1) }), undefined).catch(() => {}); // a removed mailbox's files go with it
+    }
+    if (changed) writeEdits(all);
+  }
+
+  /** Where the text of a message that comes back from the outbox is kept: a draft that lives at Outlook has a place of its own, everything else is the message being written. */
+  const placeOf = (it: OutboxItem): DraftOf | undefined => (it.kind === 'draft' && it.replyTo ? { account: it.account, id: it.replyTo } : undefined);
+  const textOf = (it: OutboxItem): Draft => ({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
+
+  /**
+   * The message goes back to the editor, with its files, and the person is told why. Its half-made copy at Outlook is thrown away.
+   * `vanished`: it was a draft at Outlook and that draft is not there any more: it has nowhere to be edited, so it comes back as a message of its own.
+   */
+  async function handBack(it: OutboxItem, given: OutFile[], why: string, g: Graph, vanished = false) {
     const progress = (await readOutbox()).find((x) => x.id === it.id)?.draft ?? it.draft;
     // Once "send" was asked for the files were not needed from the phone any more, so they were not read: the person gets them back all the same.
     const files = given.length || !it.files?.length ? given : (await loadOutFiles(it)).files;
-    api.saveDraft({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
-    if (files.length) await api.saveDraftFiles(files);
+    const place = vanished ? undefined : placeOf(it);
+    api.saveDraft(vanished ? { ...textOf(it), mode: 'new', replyTo: undefined } : textOf(it), place);
+    if (files.length) await api.saveDraftFiles(files, place);
     await dropOutFiles(it);
-    if (it.kind === 'draft') relistDraft(it); // the draft is still at Outlook: the Drafts list lists it again
+    if (it.kind === 'draft') relistDraft(it, !vanished); // the draft is still at Outlook (unless it vanished): the Drafts list lists it again
     toast(`Could not send: ${why}. Your message${files.length ? ' and its files are' : ' is'} saved as a draft.`, undefined, files.length ? 8000 : undefined);
     if (progress && it.kind !== 'draft') await g.discard(progress.id); // a draft that was already at Outlook is the person's own: it stays
   }
@@ -535,7 +577,7 @@ export function createController(deps: Deps) {
   }
 
   const outgoing = (it: OutboxItem, replyTo: string | undefined): Outgoing =>
-    it.kind === 'draft' && replyTo ? { kind: 'draft', draftId: replyTo, subject: it.subject, body: it.body, to: it.to, cc: it.cc }
+    it.kind === 'draft' && replyTo ? { kind: 'draft', draftId: replyTo, subject: it.subject, body: it.body, to: it.to, cc: it.cc, ...(it.edited ? { edited: it.edited } : {}) }
     : it.kind === 'new' || it.kind === 'draft' || !replyTo ? { kind: 'new', subject: it.subject, body: it.body, to: it.to, cc: it.cc }
     : it.kind === 'forward' ? { kind: 'forward', replyTo, to: it.to, body: it.body }
     : { kind: it.kind, replyTo, body: it.body };
@@ -560,9 +602,11 @@ export function createController(deps: Deps) {
       if (copy) draftsOnTheirWay.set(it.id, copy);
       dropCopy(key);
     }
-    // The saved draft is cleared when it is this message (a reply sent while another message is half written must not throw that one away).
-    const saved = api.loadDraft();
-    if (!saved || (saved.mode === item.kind && saved.replyTo === item.replyTo)) api.saveDraft(null);
+    // The text kept for this message goes with it: a draft at Outlook has a place of its own, and sending it never touches the message that is being written.
+    // (A reply sent while another message is half written must not throw that one away either.)
+    const place = placeOf(it);
+    if (place) api.saveDraft(null, place);
+    else { const saved = api.loadDraft(); if (!saved || (saved.mode === item.kind && saved.replyTo === item.replyTo)) api.saveDraft(null); }
     await reload();
     toast(delay ? 'Sending…' : 'Sent', delay ? () => { void api.cancelSend(it.id); } : undefined, delay || undefined);
     setTimer(() => { void api.flushOutbox().then(reload); }, delay + 100);
@@ -610,7 +654,9 @@ export function createController(deps: Deps) {
         const refused = e instanceof GraphError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 429;
         // A message with files is not tried for ever either: a big upload that keeps failing while the connection is fine is handed back.
         const tries = (it.attempts ?? 0) + (e instanceof GraphError && e.status === 0 && !state.online ? 0 : 1);
-        if (refused) { await handBack(it, files, e instanceof Error ? e.message : 'Outlook said no', g); finished.add(it.id); }
+        // A draft that is not at Outlook any more (sent or deleted somewhere else) is not a message that was sent: its text is kept, as a message of its own.
+        const vanished = it.kind === 'draft' && e instanceof GraphError && e.status === 404;
+        if (refused) { await handBack(it, files, e instanceof Error ? e.message : 'Outlook said no', g, vanished); finished.add(it.id); }
         else if (it.files?.length && tries >= MAX_TRIES) {
           const went = await wentAlready(it, g);
           if (went === 'went') await gone(it);
@@ -653,6 +699,7 @@ export function createController(deps: Deps) {
         let settings = DEFAULT_SETTINGS;
         try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
         set({ settings, accounts: cachedAccounts, overrides, signingIn: !!readPending() });
+        try { sweepEdits(); } catch { /* only tidying */ }
         known = await loadKnown(store, cachedAccounts.map((a) => a.email));
         await reclassifyAll(store, sortCtx()); // every start: a better rule applies to mail already on the phone, and older saved kinds are renamed
         await reload();
@@ -855,6 +902,7 @@ export function createController(deps: Deps) {
       for (const [k, m] of remote) if (m.account === email) { remote.delete(k); remoteBodies.delete(k); }
       await Promise.allSettled([syncRun, sortingRun, foldersRun]);
       await store.clearAccount(email);
+      try { sweepEdits(email); } catch { /* the kept changes are small; they are let go of at the next start at the latest */ }
       await outboxExclusive(async () => {
         const waiting = await readOutbox();
         if (waiting.some((x) => x.account === email)) await store.setMeta('outbox', waiting.filter((x) => x.account !== email)); // their files went with clearAccount
@@ -1288,37 +1336,63 @@ export function createController(deps: Deps) {
     async openDraft(account: string, id: string): Promise<{ content: DraftContent; files: AttachmentInfo[] }> {
       const g = graphFor(account);
       if (!g) throw new Error('Sign in again to open this draft');
-      const [content, files] = await Promise.all([g.getDraft(id), g.attachments(id)]);
+      let content: DraftContent, files: AttachmentInfo[];
+      try { [content, files] = await Promise.all([g.getDraft(id), g.attachments(id)]); } catch (e) {
+        if (e instanceof GraphError && (e.status === 404 || e.status === 410)) throw new Error('This draft is not in Outlook any more. It may have been sent or deleted in another app.');
+        throw e;
+      }
       if (!content.isDraft) throw new Error('This message has already been sent.');
       return { content, files };
     },
 
     /**
-     * Saves what the editor has into the draft at Outlook without sending it (text and recipients; files are added when it is sent). Throws when
-     * Outlook would not take it, so the editor can say so and keep what was typed.
+     * Saves what the editor has into the draft at Outlook without sending it: what was changed (`edited`: all of it when it is not said) and the
+     * files that were added. Throws when Outlook would not take it, so the editor can say so and keep what was typed; trying again is safe (a file that
+     * is on the draft already is not added twice).
      */
-    async saveDraftEdits(account: string, id: string, f: { subject: string; body: string; to: string[]; cc: string[] }): Promise<void> {
+    async saveDraftEdits(account: string, id: string, f: { subject: string; body: string; to: string[]; cc: string[]; edited?: DraftField[] }, files: OutFile[] = []): Promise<void> {
       const g = graphFor(account);
       if (!g) throw new Error('Sign in again to save this draft');
-      await g.updateDraft(id, f);
+      try {
+        await g.updateDraft(id, f);
+        await g.addToDraft(id, files);
+      } catch (e) {
+        if (e instanceof GraphError && (e.status === 404 || e.status === 410)) throw new Error('This draft is no longer in Outlook.');
+        throw e;
+      }
       editCopy(mailKey(account, id), { subject: f.subject, preview: f.body.replace(/\s+/g, ' ').trim().slice(0, 200), ...recipientsOf(f.to.map((address) => ({ emailAddress: { address } }))), received: new Date(now()).toISOString() });
       staleView();
     },
 
     // ---- writing ----------------------------------------------------------------------------------------------------------------
-    saveDraft(d: Draft | null) { if (d) kv.set('post.draft', JSON.stringify(d)); else { kv.del('post.draft'); void store.setMeta(DRAFT_FILES, undefined).catch(() => {}); } },
-    loadDraft(): Draft | null { try { return JSON.parse(kv.get('post.draft') ?? 'null'); } catch { return null; } },
+    // Two kinds of half-written text are kept on the phone, apart from each other: the message being written here (new, a reply or a forward; one
+    // at a time) and, for each draft that is open from Outlook (`of`), what was changed in it. Opening or editing one never touches the other.
+    saveDraft(d: Draft | null, of?: DraftOf) {
+      if (!of) { if (d) kv.set('post.draft', JSON.stringify(d)); else { kv.del('post.draft'); void store.setMeta(DRAFT_FILES, undefined).catch(() => {}); } return; }
+      const all = readEdits();
+      if (d) all[editsKey(of)] = { ...d, at: now() }; else delete all[editsKey(of)];
+      writeEdits(all);
+      if (!d) void store.setMeta(editFilesKey(of), undefined).catch(() => {});
+    },
+    loadDraft(of?: DraftOf): Draft | null {
+      if (!of) { try { return JSON.parse(kv.get('post.draft') ?? 'null'); } catch { return null; } }
+      const kept = readEdits()[editsKey(of)];
+      if (!kept) return null;
+      const d: Draft & { at?: number } = { ...kept };
+      delete d.at;
+      return d;
+    },
 
     /** The files attached to the draft being written. They live next to the text, so closing the app loses neither. */
-    async loadDraftFiles(): Promise<OutFile[]> {
+    async loadDraftFiles(of?: DraftOf): Promise<OutFile[]> {
       try {
-        const v = await store.getMeta<OutFile[]>(DRAFT_FILES);
+        const v = await store.getMeta<OutFile[]>(of ? editFilesKey(of) : DRAFT_FILES);
         return Array.isArray(v) ? v.filter((f) => f && typeof f.name === 'string' && f.bytes instanceof Uint8Array) : [];
       } catch { return []; }
     },
     /** Returns false when the phone would not keep them (storage full): the files then stay on screen but would be lost if the app closes. */
-    async saveDraftFiles(files: OutFile[]): Promise<boolean> {
-      try { await store.setMeta(DRAFT_FILES, files.length ? files : undefined); return true; } catch { return false; }
+    async saveDraftFiles(files: OutFile[], of?: DraftOf): Promise<boolean> {
+      try { await store.setMeta(of ? editFilesKey(of) : DRAFT_FILES, files.length ? files : undefined); return true; } catch { return false; }
     },
 
     /**
@@ -1339,8 +1413,8 @@ export function createController(deps: Deps) {
       });
       const { it, files } = found;
       if (!found.taken || !it) { toast(it ? 'Too late: it is already on its way' : 'Too late: it was already sent'); return; }
-      api.saveDraft({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
-      if (files.length) await api.saveDraftFiles(files);
+      api.saveDraft(textOf(it), placeOf(it));
+      if (files.length) await api.saveDraftFiles(files, placeOf(it));
       await dropOutFiles(it);
       if (it.kind === 'draft') relistDraft(it); // it is among the drafts again
       await reload();

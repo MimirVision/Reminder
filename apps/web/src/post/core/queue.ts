@@ -25,10 +25,10 @@ export function createQueue(store: Store, opts: QueueOptions = {}) {
   const now = opts.now ?? (() => Date.now());
   const newId = opts.id ?? (() => Math.random().toString(36).slice(2) + now().toString(36));
 
-  async function enqueue(type: OpType, account: string, messageId: string, delayMs = UNDO_WINDOW_MS, to?: string): Promise<PendingOp> {
+  async function enqueue(type: OpType, account: string, messageId: string, delayMs = UNDO_WINDOW_MS, to?: string, fromFolder?: boolean): Promise<PendingOp> {
     // A newer choice for the same message replaces the older one in the same family (read then unread, flag then unflag, archive then move).
     for (const o of await store.allOps()) if (o.account === account && o.messageId === messageId && FAMILY[o.type] === FAMILY[type]) await store.deleteOp(o.id);
-    const op: PendingOp = { id: newId(), type, account, messageId, runAfter: now() + delayMs, attempts: 0, ...(to ? { to } : {}) };
+    const op: PendingOp = { id: newId(), type, account, messageId, runAfter: now() + delayMs, attempts: 0, ...(to ? { to } : {}), ...(fromFolder ? { fromFolder: true } : {}) };
     await store.putOp(op);
     return op;
   }
@@ -71,7 +71,14 @@ export function createQueue(store: Store, opts: QueueOptions = {}) {
       } catch (e) {
         const status = e instanceof GraphError ? e.status : 0;
         // A move to a folder that has been deleted since is a refusal that will not change, not a message that is gone: the message is still where it was.
-        const noFolder = op.type === 'move' && status === 404 && /folder/i.test((e as GraphError).code);
+        // Outlook does not always say which of the two is "not found" (it may answer "item not found" for a deleted folder), so a move that was
+        // not found is told apart by looking for the message: if it is there, it is the folder.
+        let noFolder = op.type === 'move' && status === 404 && /folder/i.test((e as GraphError).code);
+        if (op.type === 'move' && (status === 404 || status === 410) && !noFolder) {
+          try { await g.getMessage(op.messageId); noFolder = true; } catch (look) {
+            if (!(look instanceof GraphError && (look.status === 404 || look.status === 410))) { await store.putOp({ ...op, attempts: op.attempts + 1 }); continue; } // cannot tell now: tried again
+          }
+        }
         if (!noFolder && (status === 404 || status === 410)) { await store.deleteOp(op.id); dropped++; } // the message is gone: nothing left to do
         else if (noFolder || (status >= 400 && status < 500 && status !== 401 && status !== 429 && op.attempts >= 2)) {
           await store.deleteOp(op.id); dropped++;

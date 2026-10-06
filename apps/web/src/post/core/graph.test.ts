@@ -616,10 +616,10 @@ test('a draft that is no longer a draft (it was sent from another app) is not se
 });
 
 test('a draft is read for editing as plain text, with its recipients, and Bcc kept apart', async () => {
-  const { g, calls } = setup([res(200, { subject: 'Ferie', isDraft: true, body: { contentType: 'text', content: 'Hei\r\n\r\nHa det' }, toRecipients: [{ emailAddress: { name: 'Maria', address: 'maria@x.no' } }], ccRecipients: [], bccRecipients: [{ emailAddress: { address: 'skjult@x.no' } }] })]);
+  const { g, calls } = setup([res(200, { subject: 'Ferie', isDraft: true, lastModifiedDateTime: '2026-10-05T11:00:00Z', body: { contentType: 'text', content: 'Hei\r\n\r\nHa det' }, toRecipients: [{ emailAddress: { name: 'Maria', address: 'maria@x.no' } }], ccRecipients: [], bccRecipients: [{ emailAddress: { address: 'skjult@x.no' } }] })]);
   const d = await g.getDraft('ID/1=');
-  assert.deepEqual(d, { subject: 'Ferie', body: 'Hei\n\nHa det', to: ['maria@x.no'], cc: [], bcc: ['skjult@x.no'], isDraft: true });
-  assert.match(path(calls[0]), /^\/me\/messages\/ID%2F1%3D\?\$select=subject,body,toRecipients,ccRecipients,bccRecipients,isDraft$/);
+  assert.deepEqual(d, { subject: 'Ferie', body: 'Hei\n\nHa det', to: ['maria@x.no'], cc: [], bcc: ['skjult@x.no'], isDraft: true, modified: '2026-10-05T11:00:00Z' });
+  assert.match(path(calls[0]), /^\/me\/messages\/ID%2F1%3D\?\$select=subject,body,toRecipients,ccRecipients,bccRecipients,isDraft,lastModifiedDateTime$/);
   assert.equal(hdr(calls[0]).Prefer, 'outlook.body-content-type="text"');
 });
 
@@ -629,6 +629,28 @@ test('saving a draft rewrites its subject, text and recipients, and can be repea
   await g.updateDraft('D1', { subject: 'S', body: 'B', to: ['a@b.no'] });
   assert.deepEqual(steps(calls), ['PATCH /me/messages/D1', 'PATCH /me/messages/D1']);
   assert.deepEqual(JSON.parse(String(calls[0].init.body)).ccRecipients, []);
+});
+
+test('saving a draft writes only the parts that were changed, and nothing at all when none was', async () => {
+  const { g, calls } = setup([res(200), res(200), res(200)]);
+  await g.updateDraft('D1', { subject: 'Nytt', body: 'B', to: ['a@b.no'], cc: [], edited: ['subject'] });
+  assert.deepEqual(JSON.parse(String(calls[0].init.body)), { subject: 'Nytt' }, 'the text and the people are left as Outlook has them');
+  await g.updateDraft('D1', { subject: 'S', body: 'Ny tekst', to: ['a@b.no'], cc: ['c@d.no'], edited: ['body', 'cc'] });
+  assert.deepEqual(JSON.parse(String(calls[1].init.body)), { body: { contentType: 'Text', content: 'Ny tekst' }, ccRecipients: [{ emailAddress: { address: 'c@d.no' } }] });
+  await g.updateDraft('D1', { subject: 'S', body: 'B', to: ['a@b.no'], edited: [] });
+  assert.equal(calls.length, 2, 'nothing changed, nothing asked');
+});
+
+test('files are put on a draft that is at Outlook once: one that is on it already is not added again, and a retry adds nothing twice', async () => {
+  const f = (name: string, n: number) => ({ name, type: 'application/pdf', bytes: new Uint8Array(n) });
+  const { g, calls } = setup([res(200, { value: [{ name: 'a.pdf', size: 1000 }] }), res(201, {}), res(200, { value: [{ name: 'a.pdf', size: 1000 }, { name: 'b.pdf', size: 50 }] })]);
+  await g.addToDraft('D1', [f('a.pdf', 1000), f('b.pdf', 50)]);
+  assert.deepEqual(steps(calls), ['GET /me/messages/D1/attachments?$select=name,size', 'POST /me/messages/D1/attachments']);
+  assert.equal(JSON.parse(String(calls[1].init.body)).name, 'b.pdf');
+  await g.addToDraft('D1', []);
+  assert.equal(calls.length, 2, 'no files, no calls');
+  await g.addToDraft('D1', [f('a.pdf', 1000), f('b.pdf', 50)]);
+  assert.deepEqual(steps(calls).slice(2), ['GET /me/messages/D1/attachments?$select=name,size'], 'both are there already');
 });
 
 // ---- folders -----------------------------------------------------------------------------------------------------------------------------------
@@ -696,7 +718,7 @@ const STANDARD_NAMES = ['inbox', 'drafts', 'sentitems', 'archive', 'junkemail', 
 const PLUMBING_NAMES = ['outbox', 'syncissues', 'conversationhistory', 'clutter', 'scheduled', 'recoverableitemsdeletions'];
 const named = (n: string, id: string, extra: object = {}) => [`/me/mailFolders/${n}?$select=${F}`, { body: one(id, n, extra) }] as const;
 
-test('the folders of a mailbox: the standard ones are found by name, the ones you made by listing, children by one batch per level', async () => {
+test('the folders of a mailbox: the standard ones are found by name, the ones you made by listing, children one batch per level', async () => {
   const { g, log } = folders({
     ...Object.fromEntries([...STANDARD_NAMES.map((n) => named(n, `ID-${n}`, n === 'inbox' ? { childFolderCount: 1, unreadItemCount: 4, totalItemCount: 90 } : {})), named('outbox', 'ID-outbox'), named('scheduled', 'ID-scheduled')]),
     [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [one('ID-inbox', 'Inbox', { childFolderCount: 1, unreadItemCount: 4, totalItemCount: 90 }), one('ID-drafts', 'Drafts'), one('ID-outbox', 'Outbox'), one('ID-scheduled', 'Scheduled'), one('P', 'Prosjekter', { childFolderCount: 1 }), one('ID-sentitems', 'Sent Items')] } },
@@ -712,7 +734,7 @@ test('the folders of a mailbox: the standard ones are found by name, the ones yo
   for (const want of ['ID-inbox', 'ID-drafts', 'ID-sentitems', 'ID-archive', 'ID-junkemail', 'ID-deleteditems', 'P', 'K', 'P26', 'P26A']) assert.ok(ids.includes(want), want);
   assert.equal(t.folders.find((f) => f.id === 'K')!.parentFolderId, 'ID-inbox', 'a child knows its parent even when Outlook leaves it out');
   assert.equal(t.folders.find((f) => f.id === 'ID-inbox')!.unreadItemCount, 4);
-  assert.equal(log.filter((l) => l.startsWith('batch')).length, 3, 'one batch for the names, then one for each level of folders that have folders in them (two here)');
+  assert.equal(log.filter((l) => l.startsWith('batch')).length, 5, 'three batches of four for the twelve names, then one for each level of folders that have folders in them (two here)');
 });
 
 test('a mailbox whose folders go deeper than three levels is cut off, not failed', async () => {
@@ -734,9 +756,61 @@ test('a folder that goes away while the tree is read is skipped; a call told to 
   await assert.rejects(() => bad.g.folderTree(), (e: GraphError) => e.status === 500 && e.code === 'folders');
 });
 
-test('every plumbing name and every standard name is asked for in one go', async () => {
+test('every plumbing name and every standard name is asked for, four to a batch: Outlook refuses more than four calls to one mailbox at a time', async () => {
   const { g, log } = folders({ [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [] } } });
   await g.folderTree();
-  const asked = log[0].replace(/^batch /, '').split(' | ').map((u) => /mailFolders\/(\w+)\?/.exec(u)![1]);
-  assert.deepEqual(asked, [...STANDARD_NAMES, ...PLUMBING_NAMES]);
+  const batches = log.filter((l) => l.startsWith('batch')).map((l) => l.replace(/^batch /, '').split(' | ').map((u) => /mailFolders\/(\w+)\?/.exec(u)![1]));
+  assert.deepEqual(batches.map((b) => b.length), [4, 4, 4]);
+  assert.deepEqual(batches.flat(), [...STANDARD_NAMES, ...PLUMBING_NAMES]);
+});
+
+test('a name that was told to slow down is asked again after the wait Outlook asked for, and is used when it comes through', async () => {
+  const { g, sleeps } = folders({
+    ...Object.fromEntries([...STANDARD_NAMES.map((n) => named(n, `ID-${n}`)), named('conversationhistory', 'ID-hist')]),
+    [`/me/mailFolders/archive?$select=${F}`]: (n) => (n <= 2 ? { status: 429 } : { body: one('ID-archive', 'Arkiv') }),
+    [`/me/mailFolders/clutter?$select=${F}`]: (n) => (n <= 1 ? { status: 429 } : { status: 404 }),
+    [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [one('ID-hist', 'Conversation History'), one('M', 'Mine')] } },
+  });
+  const t = await g.folderTree();
+  assert.equal(t.standard.archive, 'ID-archive', 'the third try was answered');
+  assert.deepEqual(t.hidden, ['ID-hist'], 'and the plumbing is still left out of the list');
+  assert.deepEqual(t.folders.map((f) => f.id).filter((id) => id === 'ID-hist'), [], 'not shown as a folder of your own');
+  assert.deepEqual(sleeps, [2000, 2000], 'it waited as long as Outlook asked, once for each go');
+});
+
+test('a name that is never answered fails the list: half the answers would show Outlook\'s plumbing as folders of your own', async () => {
+  const { g, sleeps } = folders({
+    ...Object.fromEntries(STANDARD_NAMES.map((n) => named(n, `ID-${n}`))),
+    [`/me/mailFolders/conversationhistory?$select=${F}`]: { status: 429 },
+    [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [one('ID-hist', 'Conversation History')] } },
+  });
+  await assert.rejects(() => g.folderTree(), (e: GraphError) => e.status === 429 && e.code === 'folders');
+  assert.equal(sleeps.length, 3, 'after three more goes');
+});
+
+test('a name Outlook says no to (no such folder, or not for you) is a mailbox without that folder', async () => {
+  const { g } = folders({
+    ...Object.fromEntries(STANDARD_NAMES.filter((n) => n !== 'archive').map((n) => named(n, `ID-${n}`))),
+    [`/me/mailFolders/recoverableitemsdeletions?$select=${F}`]: { status: 403 },
+    [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: [one('ID-inbox', 'Inbox')] } },
+  });
+  const t = await g.folderTree();
+  assert.equal(t.standard.archive, undefined);
+  assert.deepEqual(t.hidden, []);
+});
+
+test('folders with folders in them are read four at a time, and a folder with more than a hundred folders in it is read on to its next page', async () => {
+  const roots = Array.from({ length: 9 }, (_, i) => one(`R${i}`, `Root ${i}`, { childFolderCount: 1 }));
+  const kidsOf: Record<string, unknown> = {};
+  for (let i = 0; i < 9; i++) kidsOf[`/me/mailFolders/R${i}/childFolders?$top=100&$select=${F}`] = { body: { value: [one(`C${i}`, `Child ${i}`)] } };
+  kidsOf[`/me/mailFolders/R3/childFolders?$top=100&$select=${F}`] = { body: { value: [one('C3', 'Child 3')], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/mailFolders/R3/childFolders?$skiptoken=2' } };
+  kidsOf['/me/mailFolders/R3/childFolders?$skiptoken=2'] = { body: { value: [one('C3b', 'Child 3, the rest'), one('C3c', 'Child 3, last')] } };
+  const { g, log } = folders({ [`/me/mailFolders?$top=100&$select=${F}`]: { body: { value: roots } }, ...(kidsOf as Record<string, { body: unknown }>) });
+  const t = await g.folderTree();
+  const levelBatches = log.filter((l) => l.startsWith('batch') && l.includes('childFolders')).map((l) => l.split(' | ').length);
+  assert.deepEqual(levelBatches, [4, 4, 1], 'nine at once would be too many for Outlook');
+  const ids = t.folders.map((f) => f.id);
+  for (const want of ['C0', 'C1', 'C2', 'C3', 'C3b', 'C3c', 'C8']) assert.ok(ids.includes(want), want);
+  assert.equal(t.folders.find((f) => f.id === 'C3b')!.parentFolderId, 'R3', 'a folder from the second page knows its parent too');
+  assert.ok(log.includes('/me/mailFolders/R3/childFolders?$skiptoken=2'));
 });

@@ -10,6 +10,8 @@ export interface PendingOp {
   messageId: string;
   /** For a move: where it goes, as Outlook is told (a standard folder's name, or the id of any other folder). */
   to?: string;
+  /** The message was not in the inbox on this phone but in a folder at Outlook: if Outlook refuses, it stays in that folder (and does not come back to the inbox). */
+  fromFolder?: boolean;
   runAfter: number; // epoch ms: the undo window. Cancelling before this time means nothing ever reaches the server.
   attempts: number;
 }

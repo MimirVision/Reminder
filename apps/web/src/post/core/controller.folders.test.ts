@@ -24,6 +24,7 @@ function outlook(emails: string[] = [A]) {
   const log: string[] = [];
   const flags = {
     offline: false, down: new Set<string>(), moveStatus: 201, sendStatus: 202, patchStatus: 200,
+    /** What Outlook calls a move to a folder that is not there (it may say "item not found", as for a message that is gone). */ missingFolder: 'ErrorFolderNotFound',
     /** Calls that Outlook carries out and then loses the answer to (the connection drops on the way back). */ loseAfter: [] as string[],
     /** A folder whose pages are held back until the gate opens. */ hold: null as null | { folder: string; until: Promise<void> },
   };
@@ -47,6 +48,9 @@ function outlook(emails: string[] = [A]) {
   const fail = (status: number, code: string, message: string): Answer => ({ status, body: { error: { code, message } } });
   const missing = () => fail(404, 'ErrorItemNotFound', 'The specified object was not found in the store.');
   let seq = 0;
+  let stamps = 0;
+  /** Every change to a message moves its "last changed" forward, as Outlook does. */
+  const stamp = () => new Date(Date.parse('2026-10-05T11:00:00Z') + (++stamps) * 1000).toISOString();
 
   async function handle(email: string, b: Box, method: string, path: string, body: any): Promise<Answer> {
     const url = new URL(path.startsWith('http') ? path : `${GRAPH}${path}`);
@@ -93,7 +97,7 @@ function outlook(emails: string[] = [A]) {
       const x = b.msgs.get(id);
       if (!x) return missing();
       const to = dest(String(body.destinationId));
-      if (!to) return fail(404, 'ErrorFolderNotFound', 'The folder was not found.');
+      if (!to) return fail(404, flags.missingFolder, 'The folder was not found.');
       b.msgs.delete(id);
       b.msgs.set(`${id}~`, { ...x, id: `${id}~`, folder: to });
       return ok({ id: `${id}~` }, 201);
@@ -105,6 +109,7 @@ function outlook(emails: string[] = [A]) {
       const x = b.msgs.get(id);
       if (!x) return missing();
       const addresses = (rs: any[]): Person[] => rs.map((r) => ({ name: r.emailAddress.address, address: r.emailAddress.address }));
+      x.modified = stamp();
       if ('isRead' in body) x.isRead = !!body.isRead;
       if (body.flag) x.flagged = body.flag.flagStatus === 'flagged';
       if ('subject' in body) x.subject = body.subject;
@@ -119,7 +124,7 @@ function outlook(emails: string[] = [A]) {
       if (!x) return missing();
       if (select === 'isDraft') { log.push(`isDraft ${id}`); return ok({ isDraft: !!x.draft }); }
       if (select === 'internetMessageHeaders') return ok({ internetMessageHeaders: [] });
-      if (select.includes('bccRecipients')) return ok({ subject: x.subject, body: { contentType: 'text', content: x.body ?? '' }, toRecipients: people(x.to), ccRecipients: people(x.cc), bccRecipients: people(x.bcc), isDraft: !!x.draft });
+      if (select.includes('bccRecipients')) return ok({ subject: x.subject, body: { contentType: 'text', content: x.body ?? '' }, toRecipients: people(x.to), ccRecipients: people(x.cc), bccRecipients: people(x.bcc), isDraft: !!x.draft, lastModifiedDateTime: x.modified ?? x.received });
       if (select.startsWith('body')) return ok({ body: { contentType: 'html', content: `<p>${x.body ?? 'Hei'}</p>` }, toRecipients: people(x.to), hasAttachments: !!x.attachments?.length });
       log.push(`get ${id}`);
       return ok(raw(x));
@@ -173,15 +178,15 @@ function outlook(emails: string[] = [A]) {
     return new Response(a.status === 204 || a.status === 202 ? null : JSON.stringify(a.body ?? {}), { status: a.status });
   }) as typeof fetch;
 
-  return { f, log, flags, put, folder, ids, dropFolder: (email: string, id: string) => { box(email).folders.delete(id); }, get: (email: string, id: string) => box(email).msgs.get(id) };
+  return { f, log, flags, put, folder, ids, dropFolder: (email: string, id: string) => { box(email).folders.delete(id); }, drop: (email: string, id: string) => { box(email).msgs.delete(id); }, get: (email: string, id: string) => box(email).msgs.get(id) };
 }
 
-function make(w = outlook(), opts: { emails?: string[]; store?: Store } = {}) {
+function make(w = outlook(), opts: { emails?: string[]; store?: Store; kv?: Map<string, string>; at?: number } = {}) {
   const emails = opts.emails ?? [A];
   const store = opts.store ?? memoryStore();
-  const kv = new Map<string, string>([['post.sessions', JSON.stringify(emails.map((e, i) => ({ email: e, id: String(i + 1), label: e === A ? 'Personal' : 'Work', session: `${i + 1}.s-${e}` })))]]);
+  const kv = opts.kv ?? new Map<string, string>([['post.sessions', JSON.stringify(emails.map((e, i) => ({ email: e, id: String(i + 1), label: e === A ? 'Personal' : 'Work', session: `${i + 1}.s-${e}` })))]]);
   const timers: { fn: () => void; ms: number }[] = [];
-  let t = Date.parse('2026-10-05T10:00:00Z');
+  let t = opts.at ?? Date.parse('2026-10-05T10:00:00Z');
   const c = createController({
     store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     kv: { get: (k) => kv.get(k) ?? null, set: (k, v) => void kv.set(k, v), del: (k) => void kv.delete(k) },
@@ -531,6 +536,58 @@ test('a move to a folder that was deleted meanwhile is refused at once and the m
   assert.equal(c.getState().waiting, 0);
 });
 
+test('a move to a folder that Outlook answers "item not found" for is still a refused move when the message is there: it stays where it was', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder');
+  w.flags.missingFolder = 'ErrorItemNotFound';
+  w.put(A, 'archive', { id: 'x1' });
+  const made = make(w); const { c } = made;
+  await c.init(); await c.loadFolders(); await c.openFolder({ kind: 'archive' });
+  await c.moveTo([c.getState().folder!.items[0]], { to: 'K', name: 'Kunder' });
+  w.dropFolder(A, 'K');
+  made.advance(7_000);
+  await c.sync();
+  assert.match(c.getState().toast!.text, /Outlook would not move a message, so it stays where it was/, 'the person is told');
+  await until(() => c.getState().folder!.items.some((x) => x.id === 'x1'), 'the folder to be read again');
+  assert.deepEqual(w.ids(A, 'archive'), ['x1']);
+  assert.equal(c.getState().waiting, 0);
+});
+
+test('when Outlook will not archive mail that was in a folder, Post says it stays there; mail from the inbox comes back to the inbox', async () => {
+  const w = outlook();
+  w.put(A, 'sentitems', { id: 's1', to: [MARIA] }); w.put(A, 'inbox', { id: 'i1' });
+  const made = make(w); const { c } = made;
+  await c.init(); await c.openFolder({ kind: 'sent' });
+  await c.archive([c.getState().folder!.items[0]]);
+  w.flags.moveStatus = 403;
+  made.advance(7_000);
+  await c.sync(); await c.sync(); await c.sync();
+  assert.match(c.getState().toast!.text, /Outlook would not archive a message, so it stays where it was\./);
+  assert.doesNotMatch(c.getState().toast!.text, /inbox/);
+  await c.archive([c.getState().mail.find((m) => m.id === 'i1')!]);
+  made.advance(7_000);
+  await c.sync(); await c.sync(); await c.sync();
+  assert.match(c.getState().toast!.text, /Outlook would not archive a message, so it comes back to your inbox\./);
+});
+
+test('archiving or deleting from the inbox does not read the whole list of folders again each time, but moving mail to a folder of your own does', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder');
+  for (const id of ['i1', 'i2', 'i3', 'i4']) w.put(A, 'inbox', { id, isRead: false });
+  const made = make(w); const { c } = made;
+  await c.init(); await c.loadFolders();
+  const reads = () => w.log.filter((l) => l === 'folders').length;
+  assert.equal(reads(), 1);
+  const mail = (id: string) => c.getState().mail.find((m) => m.id === id)!;
+  await c.archive([mail('i1')]); await settle(made);
+  await c.trash([mail('i2')]); await settle(made); await tick(50);
+  assert.equal(reads(), 1, 'the list was read a moment ago: it is not read again after each one');
+  made.advance(60_000);
+  await c.archive([mail('i3')]); await settle(made);
+  await until(() => reads() === 2, 'the list of folders to be read again once it is old');
+  await c.moveTo([mail('i4')], { to: 'K', name: 'Kunder' }); await settle(made);
+  await until(() => reads() === 3, 'mail moved into a folder of your own to be counted at once, however new the list is');
+  assert.equal(c.getState().folders.find((f) => f.name === 'Kunder')!.unread, 1);
+});
+
 // ---- reading and flagging mail that is not in the inbox ------------------------------------------------------------------------------------------
 
 test('reading and flagging mail in a folder changes the copy on screen, reaches Outlook at once, and keeps the folder\'s unread number right', async () => {
@@ -604,6 +661,7 @@ test('search results from Outlook know their folder, and one from Sent says who 
 
 // ---- drafts ---------------------------------------------------------------------------------------------------------------------------------------
 
+const D1 = { account: A, id: 'd1' };
 const DRAFT = { id: 'd1', draft: true, subject: 'Tilbud', body: 'Hei Maria\n\nHer er tilbudet.', to: [MARIA], cc: [{ name: 'Kari', address: 'kari@x.no' }], bcc: [{ name: 'Meg', address: 'meg@x.no' }], attachments: [{ name: 'tilbud.pdf', size: 1200 }] };
 
 test('a draft is opened with its text, who it is for and the files already on it; one that has gone out is refused', async () => {
@@ -612,10 +670,10 @@ test('a draft is opened with its text, who it is for and the files already on it
   const { c } = make(w);
   await c.init();
   const d = await c.openDraft(A, 'd1');
-  assert.deepEqual(d.content, { subject: 'Tilbud', body: 'Hei Maria\n\nHer er tilbudet.', to: ['maria@x.no'], cc: ['kari@x.no'], bcc: ['meg@x.no'], isDraft: true });
+  assert.deepEqual(d.content, { subject: 'Tilbud', body: 'Hei Maria\n\nHer er tilbudet.', to: ['maria@x.no'], cc: ['kari@x.no'], bcc: ['meg@x.no'], isDraft: true, modified: '2026-10-01T10:00:00Z' });
   assert.deepEqual(d.files.map((x) => [x.name, x.size, x.kind]), [['tilbud.pdf', 1200, 'file']]);
   await assert.rejects(c.openDraft(A, 's9'), /already been sent/);
-  await assert.rejects(c.openDraft(A, 'missing'), /not found/);
+  await assert.rejects(c.openDraft(A, 'missing'), /not in Outlook any more/);
 });
 
 test('saving a draft changes it at Outlook (text and who it is for, never its Bcc or files) and the list shows the change', async () => {
@@ -683,8 +741,9 @@ test('a draft Outlook refuses to send stays a draft at Outlook, and what was typ
   assert.equal((await waiting(made)).length, 0);
   assert.ok(w.get(A, 'd1'), 'the draft is still at Outlook');
   assert.equal(w.log.some((l) => l.startsWith('delete')), false, 'a draft that is the person\'s own is never thrown away');
-  const saved = c.loadDraft();
+  const saved = c.loadDraft(D1);
   assert.deepEqual([saved?.mode, saved?.replyTo, saved?.body], ['draft', 'd1', 'ny tekst']);
+  assert.equal(c.loadDraft(), null, 'it comes back to the draft\'s own place, not to the message being written');
   assert.match(c.getState().toast!.text, /Could not send/);
 });
 
@@ -698,7 +757,8 @@ test('Undo while a draft waits brings it back: it is a draft again, and what was
   assert.deepEqual(c.getState().folder!.items, [], 'waiting to be sent: not listed');
   await c.cancelSend(c.getState().outbox[0].id);
   assert.equal((await waiting(made)).length, 0);
-  assert.deepEqual([c.loadDraft()?.mode, c.loadDraft()?.replyTo, c.loadDraft()?.body], ['draft', 'd1', 'ny tekst']);
+  assert.deepEqual([c.loadDraft(D1)?.mode, c.loadDraft(D1)?.replyTo, c.loadDraft(D1)?.body], ['draft', 'd1', 'ny tekst']);
+  assert.equal(c.loadDraft(), null, 'and the message being written is not touched');
   await c.openFolder({ kind: 'drafts' });
   assert.deepEqual(c.getState().folder!.items.map((m) => m.id), ['d1']);
   assert.equal(w.log.some((l) => l === 'send d1'), false);
@@ -729,13 +789,139 @@ test('sending a draft does not throw away a different message that is half writt
   await c.init(); c.setSettings({ undoSend: 0 });
   const half = { account: A, to: 'x@y.no', cc: '', subject: 'halv', body: 'halvferdig', mode: 'new' as const };
   c.saveDraft(half);
+  c.saveDraft({ ...half, subject: 'endret', mode: 'draft', replyTo: 'd1' }, D1);
   await c.send({ account: A, kind: 'draft', to: ['maria@x.no'], cc: [], subject: 'Tilbud', body: 'tekst', replyTo: 'd1' });
-  assert.equal(c.loadDraft()?.subject, 'halv');
+  assert.equal(c.loadDraft()?.subject, 'halv', 'the message being written stays');
+  assert.equal(c.loadDraft(D1), null, 'what was kept for the draft that went goes with it');
   await c.send({ account: A, kind: 'new', to: ['x@y.no'], cc: [], subject: 'halv', body: 'halvferdig' });
+  assert.equal(c.loadDraft(), null, 'sending that message clears it');
+});
+
+test('what is kept for a draft at Outlook and the message being written never touch each other, files included', async () => {
+  const w = outlook();
+  w.put(A, 'drafts', DRAFT); w.put(A, 'drafts', { ...DRAFT, id: 'd2', subject: 'Annen' });
+  const { c } = make(w);
+  await c.init();
+  const file = (name: string, n: number) => ({ name, type: 'application/pdf', bytes: new Uint8Array(n) });
+  const D2 = { account: A, id: 'd2' };
+  const mine = { account: A, to: 'x@y.no', cc: '', subject: 'halv', body: 'halvferdig', mode: 'new' as const };
+  c.saveDraft(mine); await c.saveDraftFiles([file('ny.pdf', 10)]);
+  // opening a draft and changing it leaves the half-written message, and its file, as they were
+  c.saveDraft({ account: A, to: 'maria@x.no', cc: '', subject: 'Tilbud 2', body: 'endret', replyTo: 'd1', mode: 'draft' }, D1);
+  await c.saveDraftFiles([file('d1.pdf', 20)], D1);
+  c.saveDraft({ account: A, to: 'maria@x.no', cc: '', subject: 'Annen 2', body: 'endret', replyTo: 'd2', mode: 'draft' }, D2);
+  assert.equal(c.loadDraft()?.subject, 'halv');
+  assert.deepEqual((await c.loadDraftFiles()).map((f) => f.name), ['ny.pdf']);
+  assert.deepEqual([c.loadDraft(D1)?.subject, c.loadDraft(D2)?.subject], ['Tilbud 2', 'Annen 2'], 'each draft has its own');
+  assert.deepEqual((await c.loadDraftFiles(D1)).map((f) => f.name), ['d1.pdf']);
+  assert.deepEqual(await c.loadDraftFiles(D2), [], 'a draft that was given no files has none');
+  // and the other way round: writing, or giving up on, the message being written leaves the drafts' changes
+  c.saveDraft(null);
   assert.equal(c.loadDraft(), null);
-  c.saveDraft({ ...half, mode: 'draft', replyTo: 'd1' });
-  await c.send({ account: A, kind: 'draft', to: ['maria@x.no'], cc: [], subject: 'Tilbud', body: 'tekst', replyTo: 'd1' });
-  assert.equal(c.loadDraft(), null, 'the saved copy of that very draft goes with it');
+  assert.deepEqual(await c.loadDraftFiles(), [], 'its file went with it');
+  assert.deepEqual([c.loadDraft(D1)?.subject, c.loadDraft(D2)?.subject], ['Tilbud 2', 'Annen 2']);
+  assert.deepEqual((await c.loadDraftFiles(D1)).map((f) => f.name), ['d1.pdf'], 'and so did not the draft\'s file');
+  // giving up on one draft's changes leaves the other's
+  c.saveDraft(null, D1); await tick(20);
+  assert.equal(c.loadDraft(D1), null);
+  assert.deepEqual(await c.loadDraftFiles(D1), []);
+  assert.equal(c.loadDraft(D2)?.subject, 'Annen 2');
+  assert.equal(c.loadDraft({ account: W, id: 'd2' }), null, 'the same id in another mailbox is another draft');
+});
+
+test('changes kept for a draft are let go of when its mailbox is removed, and when nobody has opened the draft for a month', async () => {
+  const w = outlook([A, W]);
+  const kv = new Map<string, string>([['post.sessions', JSON.stringify([A, W].map((e, i) => ({ email: e, id: String(i + 1), label: e === A ? 'Personal' : 'Work', session: `${i + 1}.s-${e}` })))]]);
+  const store = memoryStore();
+  const first = make(w, { emails: [A, W], store, kv });
+  await first.c.init();
+  const file = [{ name: 'a.pdf', type: 'application/pdf', bytes: new Uint8Array(5) }];
+  const edit = (account: string, id: string) => ({ account, to: 'x@y.no', cc: '', subject: `endret ${id}`, body: 't', replyTo: id, mode: 'draft' as const });
+  first.c.saveDraft(edit(A, 'old'), { account: A, id: 'old' }); await first.c.saveDraftFiles(file, { account: A, id: 'old' });
+  first.advance(20 * 24 * 3600 * 1000);
+  first.c.saveDraft(edit(A, 'new'), { account: A, id: 'new' });
+  first.c.saveDraft(edit(W, 'w1'), { account: W, id: 'w1' }); await first.c.saveDraftFiles(file, { account: W, id: 'w1' });
+  // a start 20 days later: the first is 40 days old, the others 20 days or less
+  const later = make(w, { emails: [A, W], store, kv, at: Date.parse('2026-10-05T10:00:00Z') + 40 * 24 * 3600 * 1000 });
+  await later.c.init(); await tick(20);
+  assert.equal(later.c.loadDraft({ account: A, id: 'old' }), null, 'a month old: let go of');
+  assert.deepEqual(await later.c.loadDraftFiles({ account: A, id: 'old' }), [], 'with its files');
+  assert.equal(later.c.loadDraft({ account: A, id: 'new' })?.subject, 'endret new', 'a recent one stays');
+  await later.c.removeAccount(W);
+  assert.equal(later.c.loadDraft({ account: W, id: 'w1' }), null, 'a removed mailbox takes what was kept for its drafts');
+  assert.deepEqual(await later.c.loadDraftFiles({ account: W, id: 'w1' }), [], 'and their files');
+  assert.equal(later.c.loadDraft({ account: A, id: 'new' })?.subject, 'endret new', 'the other mailbox keeps its own');
+});
+
+test('a draft that is not at Outlook any more when it is sent is not lost: its text comes back as a message of its own, and is not listed as a draft', async () => {
+  const w = outlook();
+  w.put(A, 'drafts', DRAFT);
+  const made = make(w); const { c } = made;
+  await c.init(); c.setSettings({ undoSend: 0 }); await c.openFolder({ kind: 'drafts' });
+  await c.send({ account: A, kind: 'draft', to: ['maria@x.no'], cc: [], subject: 'Tilbud', body: 'ny tekst', replyTo: 'd1' }, [{ name: 'a.pdf', type: 'application/pdf', bytes: new Uint8Array(30) }]);
+  w.drop(A, 'd1'); // sent or deleted in another app meanwhile
+  await c.flushOutbox();
+  assert.equal((await waiting(made)).length, 0);
+  const back = c.loadDraft();
+  assert.deepEqual([back?.mode, back?.replyTo, back?.subject, back?.body, back?.to], ['new', undefined, 'Tilbud', 'ny tekst', 'maria@x.no'], 'handed back as a new message');
+  assert.deepEqual((await c.loadDraftFiles()).map((f) => f.name), ['a.pdf'], 'with its file');
+  assert.equal(c.loadDraft(D1), null, 'nothing is kept for a draft that cannot be opened');
+  assert.deepEqual(c.getState().folder!.items, [], 'and the Drafts list has no row that cannot be opened');
+  assert.match(c.getState().toast!.text, /no longer in Outlook/);
+  assert.equal(w.log.some((l) => l.startsWith('delete')), false);
+});
+
+test('only what was changed in a draft is written back: a text left alone is not replaced by the plain text it was read as', async () => {
+  const w = outlook();
+  w.put(A, 'drafts', { ...DRAFT, body: 'plain text of a formatted draft' });
+  const made = make(w); const { c } = made;
+  await c.init(); c.setSettings({ undoSend: 0 });
+  // sent without a change: nothing is written to the draft before it goes
+  await c.send({ account: A, kind: 'draft', to: ['maria@x.no'], cc: ['kari@x.no'], subject: 'Tilbud', body: 'plain text of a formatted draft', replyTo: 'd1', edited: [] });
+  await c.flushOutbox();
+  assert.equal(w.log.some((l) => l.startsWith('patch')), false, 'no change, no write');
+  assert.equal(w.log.filter((l) => l === 'send d1').length, 1);
+  assert.equal(w.get(A, 'd1~')!.body, 'plain text of a formatted draft');
+  // only the subject was changed: only the subject is written
+  w.put(A, 'drafts', { ...DRAFT, id: 'd3' });
+  await c.send({ account: A, kind: 'draft', to: ['maria@x.no'], cc: ['kari@x.no'], subject: 'Nytt emne', body: 'plain text', replyTo: 'd3', edited: ['subject'] });
+  await c.flushOutbox();
+  const patch = w.log.filter((l) => l.startsWith('patch d3'));
+  assert.deepEqual(patch, ['patch d3 {"subject":"Nytt emne"}'], 'the subject and nothing else');
+  assert.equal(w.get(A, 'd3~')!.body, DRAFT.body, 'the text of the draft is as it was');
+  assert.deepEqual(w.get(A, 'd3~')!.to!.map((p) => p.name), ['Maria Lund'], 'and so is the name that went with the address');
+  // an outbox item from before this was told (no `edited`) writes everything, as it always did
+  w.put(A, 'drafts', { ...DRAFT, id: 'd4' });
+  await c.send({ account: A, kind: 'draft', to: ['maria@x.no'], cc: [], subject: 'S', body: 'B', replyTo: 'd4' });
+  await c.flushOutbox();
+  assert.equal(w.log.filter((l) => l.startsWith('patch d4'))[0], 'patch d4 {"subject":"S","body":{"contentType":"Text","content":"B"},"toRecipients":[{"emailAddress":{"address":"maria@x.no"}}],"ccRecipients":[]}');
+});
+
+test('saving a draft puts the files that were added on it too, once however often it is tried, and only what was changed is written', async () => {
+  const w = outlook();
+  w.put(A, 'drafts', DRAFT);
+  const { c } = make(w);
+  await c.init();
+  const file = (name: string, n: number) => ({ name, type: 'application/pdf', bytes: new Uint8Array(n) });
+  await c.saveDraftEdits(A, 'd1', { subject: 'Tilbud', body: 'x', to: ['maria@x.no'], cc: ['kari@x.no'], edited: [] }, [file('tilbud.pdf', 1200), file('ny.pdf', 50)]);
+  assert.deepEqual(w.get(A, 'd1')!.attachments!.map((a) => a.name), ['tilbud.pdf', 'ny.pdf'], 'the one that was there is not added again');
+  assert.equal(w.log.some((l) => l.startsWith('patch')), false, 'nothing was changed in the text, so nothing is written to it');
+  await c.saveDraftEdits(A, 'd1', { subject: 'Tilbud', body: 'x', to: ['maria@x.no'], cc: [], edited: ['cc'] }, [file('ny.pdf', 50)]);
+  assert.equal(w.get(A, 'd1')!.attachments!.length, 2, 'trying again never adds a file twice');
+  assert.deepEqual(w.log.filter((l) => l.startsWith('patch')), ['patch d1 {"ccRecipients":[]}']);
+  w.drop(A, 'd1');
+  await assert.rejects(c.saveDraftEdits(A, 'd1', { subject: 'X', body: 'Y', to: [], cc: [] }), /no longer in Outlook/);
+});
+
+test('a draft says when Outlook last changed it, and that moves on when the draft is saved', async () => {
+  const w = outlook();
+  w.put(A, 'drafts', DRAFT);
+  const { c } = make(w);
+  await c.init();
+  const before = (await c.openDraft(A, 'd1')).content.modified;
+  await c.saveDraftEdits(A, 'd1', { subject: 'Nytt', body: 'x', to: ['maria@x.no'], cc: [], edited: ['subject'] });
+  const after = (await c.openDraft(A, 'd1')).content.modified;
+  assert.ok(before && after && after > before, `${before} -> ${after}`);
 });
 
 // ---- mailboxes -----------------------------------------------------------------------------------------------------------------------------------

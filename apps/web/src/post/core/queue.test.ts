@@ -139,10 +139,35 @@ test('a move to a folder that has been deleted since is a refusal at once, and t
   await q.enqueue('move', 'a', 'm1', 0, 'FOLDER');
   assert.deepEqual(await q.flush(() => g), { sent: 0, waiting: 0, dropped: 1 });
   assert.deepEqual(refused, ['move m1 FOLDER ErrorFolderNotFound']);
-  const gone = { async move() { throw new GraphError(404, 'ErrorItemNotFound', 'The message is gone'); } } as unknown as Graph;
+  const gone = { async move() { throw new GraphError(404, 'ErrorItemNotFound', 'The message is gone'); }, async getMessage() { throw new GraphError(404, 'ErrorItemNotFound', 'The message is gone'); } } as unknown as Graph;
   await q.enqueue('move', 'a', 'm2', 0, 'FOLDER');
-  await q.flush(() => gone);
+  assert.deepEqual(await q.flush(() => gone), { sent: 0, waiting: 0, dropped: 1 });
   assert.equal(refused.length, 1, 'a message that is gone is still only the end of it');
+});
+
+test('a move that Outlook says "item not found" to is a refused move when the message is still there (the folder is what is gone), and tried again when that cannot be told', async () => {
+  const store = memoryStore();
+  const refused: string[] = [];
+  const q = createQueue(store, { now: () => 1_000_000, id: (() => { let n = 0; return () => `op${++n}`; })(), onRefused: (op, e) => { refused.push(`${op.type} ${op.messageId} ${op.to} ${e.code}`); } });
+  const looked: string[] = [];
+  const there = { async move() { throw new GraphError(404, 'ErrorItemNotFound', 'The specified object was not found in the store.'); }, async getMessage(id: string) { looked.push(id); return { id }; } } as unknown as Graph;
+  await q.enqueue('move', 'a', 'm1', 0, 'FOLDER');
+  assert.deepEqual(await q.flush(() => there), { sent: 0, waiting: 0, dropped: 1 });
+  assert.deepEqual(refused, ['move m1 FOLDER ErrorItemNotFound'], 'the person is told, the message is where it was');
+  assert.deepEqual(looked, ['m1']);
+  const cannotLook = { async move() { throw new GraphError(404, 'ErrorItemNotFound', 'x'); }, async getMessage() { throw new GraphError(0, 'network', 'offline'); } } as unknown as Graph;
+  await q.enqueue('move', 'a', 'm2', 0, 'FOLDER');
+  assert.deepEqual(await q.flush(() => cannotLook), { sent: 0, waiting: 1, dropped: 0 });
+  assert.equal(refused.length, 1, 'neither dropped nor refused while it cannot be told');
+  assert.deepEqual((await q.pending()).map((o) => [o.messageId, o.attempts]), [['m2', 1]]);
+  assert.deepEqual(await q.flush(() => there), { sent: 0, waiting: 0, dropped: 1 });
+  assert.equal(refused.length, 2, 'once it can be told, it is a refused move');
+  // archive and delete are not moves to a folder of one's own: not found is the message
+  const archive = { async move() { throw new GraphError(404, 'ErrorItemNotFound', 'x'); }, async getMessage() { looked.push('never'); return { id: 'x' }; } } as unknown as Graph;
+  await q.enqueue('archive', 'a', 'm3', 0);
+  assert.deepEqual(await q.flush(() => archive), { sent: 0, waiting: 0, dropped: 1 });
+  assert.equal(refused.length, 2);
+  assert.equal(looked.includes('never'), false);
 });
 
 test('two runs at once carry each action out once, and the second still picks up what was added meanwhile', async () => {

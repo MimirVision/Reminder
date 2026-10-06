@@ -144,12 +144,13 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
     return () => clearTimeout(t);
   }, [s.sent]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The next page is read when the end of the list comes near.
+  // The next page is read when the end of the list comes near. Not after a page that could not be read (that would ask again, and again, as long as the
+  // end of the list is on the screen): "Show more" and the banner's Retry are the way to try again.
   useEffect(() => {
-    const el = sentinel.current; if (!el || !v?.more) return;
+    const el = sentinel.current; if (!el || !v?.more || v.error || v.partial.length) return;
     const io = new IntersectionObserver((e) => { if (e[0].isIntersecting) void c.moreInFolder(); }, { rootMargin: '400px' });
     io.observe(el); return () => io.disconnect();
-  }, [v?.items.length, v?.more, v?.paging, v?.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [v?.items.length, v?.more, v?.paging, v?.state, v?.error, v?.partial.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const items = v?.items ?? [];
   const groups: { name: string; items: Mail[] }[] = [];
