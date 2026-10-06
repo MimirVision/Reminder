@@ -22,7 +22,7 @@ function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: bo
 
 const toDataUri = (bytes: Uint8Array, type: string) => { let bin = ''; bytes.forEach((b) => { bin += String.fromCharCode(b); }); return `data:${type};base64,${btoa(bin)}`; };
 
-export function Reader({ s, account, id }: { s: State; account: string; id: string }) {
+export function Reader({ s, account, id, pane = false }: { s: State; account: string; id: string; pane?: boolean }) {
   const c = useC();
   const now = useNow();
   const dark = useDark(s.settings.theme);
@@ -92,7 +92,7 @@ export function Reader({ s, account, id }: { s: State; account: string; id: stri
   return (
     <div className="pg">
       <div className="nav">
-        <button className="back" onClick={() => back()} aria-label="Back to inbox"><Icon n="back" />Inbox</button>
+        {!pane && <button className="back" onClick={() => back()} aria-label="Back to inbox"><Icon n="back" />Inbox</button>}
         <span className="sp" />
         {idx >= 0 && <span style={{ fontSize: 13, color: 'var(--mu)' }}>{idx + 1} of {list.length}</span>}
         <button className="btn" aria-label="Previous message" disabled={!prev} onClick={() => open(prev)} style={{ opacity: prev ? 1 : .4 }}><Icon n="up" /></button>

@@ -83,7 +83,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
         )}
         <div className="write"><textarea aria-label="Message" autoFocus={mode !== 'new'} value={text} onChange={(e) => setText(e.target.value)} placeholder={mode === 'forward' ? 'Add a note (optional)' : 'Write your message'} /></div>
         {original && mode !== 'new' && <p className="note">The original message is added below your text automatically, like a normal reply. Sending from {labelOf(s, from)}.</p>}
-        <p className="note" style={{ marginTop: 6 }}>{s.settings.undoSend ? `You get ${s.settings.undoSend} seconds to undo after tapping Send. ` : ''}Your draft is saved on this phone as you type.</p>
+        <p className="note" style={{ marginTop: 6 }}>{s.settings.undoSend ? `You get ${s.settings.undoSend} seconds to undo after tapping Send. ` : ''}Your draft is saved on this device as you type.</p>
         {mode === 'new' && !s.accounts.length && <button className="cta" style={{ margin: 16, width: 'calc(100% - 32px)' }} onClick={() => go({ name: 'accounts' })}>Add an account first</button>}
       </div>
     </div>

@@ -15,13 +15,14 @@ const kv = {
 async function boot() {
   (window as { __first?: boolean }).__first = history.length <= 1;
   const store = await openStore();
-  const ref: { c?: ReturnType<typeof createController> } = {};
+  // The Post server is the Supabase function next to the database Home Memory already uses, so there is nothing to type in.
+  const base = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '');
   const c = createController({
     store, kv, fetch: (...a) => fetch(...a),
-    seen: async () => { await markSeen(ref.c?.getServer() ?? null); },
+    serverUrl: base ? `${base}/functions/v1/post-alerts` : null,
+    seen: markSeen,
     pushState: hasPush,
   });
-  ref.c = c;
   void registerWorker();
   void clearBadge();
   createRoot(document.getElementById('root')!).render(<StrictMode><App controller={c} /></StrictMode>);

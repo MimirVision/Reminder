@@ -17,9 +17,9 @@ export function Alerts({ s }: { s: State }) {
   const perm = pushSupported() ? Notification.permission : 'denied';
   useEffect(() => {
     const t0 = performance.now();
-    c.getServer()?.status().then(() => setMs(Math.round(performance.now() - t0))).catch(() => setMs(null));
+    c.device()?.ping().then(() => setMs(Math.round(performance.now() - t0))).catch(() => setMs(null));
   }, [c]);
-  const server = c.getServer();
+  const server = c.device();
   const turnOn = async () => {
     if (!server) return;
     setBusy(true); setMsg('');

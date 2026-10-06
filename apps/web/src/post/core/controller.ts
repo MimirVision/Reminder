@@ -1,8 +1,7 @@
 import { createGraph, GraphError, type Graph, type RawMessage } from './graph.ts';
 import { UNDO_WINDOW_MS, createQueue, type OpType } from './queue.ts';
-import { createServer, createTokens, ServerError, type AccountStatus, type Server } from './server.ts';
+import { createServer, createTokens, ServerError, type AccountStatus, type DeviceApi, type Server, type SignedIn } from './server.ts';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
-import { validConfig, type Config } from './setup.ts';
 import { reclassifyAll, syncAccount, toMail } from './sync.ts';
 import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store } from './store.ts';
@@ -20,7 +19,10 @@ export interface AppAccount extends AccountStatus { needsSignIn: boolean }
 
 export interface State {
   ready: boolean;
-  config: Config | null;
+  /** True when this site knows where its Post server is. Without it nothing can be signed in. */
+  serverReady: boolean;
+  /** A sign-in started on this device and not finished yet. */
+  signingIn: boolean;
   accounts: AppAccount[];
   mail: Mail[];
   settings: Settings;
@@ -40,14 +42,18 @@ export interface Deps {
   kv: { get(k: string): string | null; set(k: string, v: string): void; del(k: string): void };
   fetch: typeof fetch;
   now?: () => number;
+  /** The address of your Post server (the Supabase function). */
+  serverUrl: string | null;
   /** Clears the icon number on this phone and tells the server it was seen. */
-  seen?: () => Promise<void>;
+  seen?: (device: DeviceApi | null) => Promise<void>;
   pushState?: () => Promise<boolean>;
   setTimer?: (fn: () => void, ms: number) => unknown;
   sleep?: (ms: number) => Promise<void>;
 }
 
-const NEEDS_SIGN_IN = /AADSTS(70000|700082|700084|50173|50076|50079|65001|70008|500011)|invalid_grant|interaction_required|unknown account/i;
+const NEEDS_SIGN_IN = /AADSTS(70000|700082|700084|50173|50076|50079|65001|70008|500011)|invalid_grant|interaction_required|unknown account|signed out/i;
+type Session = { email: string; id: string; label: string; session: string };
+const PENDING_MS = 15 * 60_000;
 
 export function createController(deps: Deps) {
   const now = deps.now ?? (() => Date.now());
@@ -56,15 +62,18 @@ export function createController(deps: Deps) {
   const queue = createQueue(store, { now });
 
   let state: State = {
-    ready: false, config: null, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, filter: 'all', accountFilter: null,
+    ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, filter: 'all', accountFilter: null,
     sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false,
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
   const set = (patch: Partial<State>) => { state = { ...state, ...patch }; emit(); };
 
-  let server: Server | null = null;
-  let tokens: ReturnType<typeof createTokens> | null = null;
+  const server: Server | null = deps.serverUrl ? createServer(deps.serverUrl, (...a) => deps.fetch(...a)) : null;
+  let sessions: Session[] = [];
+  const sessionOf = (email: string) => sessions.find((x) => x.email === email)?.session;
+  const tokens = server ? createTokens(server, sessionOf, now) : null;
+  const saveSessions = () => kv.set('post.sessions', JSON.stringify(sessions));
   const graphs = new Map<string, Graph>();
   let toastSeq = 0;
   const trash = new Map<string, Mail>(); // copies kept for Undo
@@ -75,12 +84,6 @@ export function createController(deps: Deps) {
     if (!g) { g = createGraph({ fetch: (...a) => deps.fetch(...a), token: tokens.source(email), sleep: deps.sleep }); graphs.set(email, g); }
     return g;
   };
-
-  function useConfig(c: Config | null) {
-    server = c ? createServer({ url: c.url, key: c.key }, (...a) => deps.fetch(...a)) : null;
-    tokens = server ? createTokens(server, now) : null;
-    graphs.clear();
-  }
 
   function toast(text: string, undo?: () => void, ms?: number) {
     const id = ++toastSeq;
@@ -98,18 +101,43 @@ export function createController(deps: Deps) {
 
   function saveSettings(s: Settings) { kv.set('post.settings', JSON.stringify(s)); set({ settings: s }); }
 
+  /** Asks the server about each signed-in mailbox. A mailbox the server no longer recognises is marked "sign in again", never dropped. */
   async function refreshAccounts(): Promise<void> {
     if (!server) return;
-    try {
-      const s = await server.status();
-      const prev = new Map(state.accounts.map((a) => [a.email, a.needsSignIn]));
-      const accounts = s.accounts.map((a) => ({ ...a, needsSignIn: prev.get(a.email) ?? false }));
-      await store.setMeta('accounts', accounts);
-      set({ accounts, online: true });
-    } catch (e) {
-      if (e instanceof ServerError && e.status === 0) set({ online: false });
-      else set({ sync: { ...state.sync, error: e instanceof Error ? e.message : 'Could not reach the alert server' } });
+    const prev = new Map(state.accounts.map((a) => [a.email, a]));
+    const out: AppAccount[] = [];
+    let offline = false;
+    for (const x of sessions) {
+      const old = prev.get(x.email);
+      try {
+        const r = await server.status(x.session);
+        const a = r.accounts.find((y) => y.email === x.email) ?? r.accounts[0];
+        out.push({ ...(a as AccountStatus), needsSignIn: old?.needsSignIn && !a ? true : false });
+      } catch (e) {
+        if (e instanceof ServerError && e.status === 0) offline = true;
+        const signedOut = e instanceof ServerError && e.status === 401;
+        out.push({ ...(old ?? { id: x.id, email: x.email, label: x.label, mode: 'people', quiet: null, vips: [], subscription_expires_at: null, last_alert_at: null }), needsSignIn: signedOut || (old?.needsSignIn ?? false) });
+      }
     }
+    await store.setMeta('accounts', out);
+    set({ accounts: out, ...(offline ? { online: false } : { online: true }) });
+  }
+
+  /** Any signed-in session, for things that belong to the device rather than to one mailbox (alerts, the icon number). */
+  function device(): DeviceApi | null {
+    const x = sessions.find((y) => !state.accounts.find((a) => a.email === y.email)?.needsSignIn) ?? sessions[0];
+    if (!server || !x) return null;
+    return {
+      vapid: () => server.vapid(),
+      pair: (p) => server.pair(x.session, p),
+      seen: (endpoint) => server.seen(x.session, endpoint),
+      test: () => server.test(x.session),
+      ping: async () => { const t0 = Date.now(); await server.status(x.session); return Date.now() - t0; },
+    };
+  }
+
+  function readPending(): { handle: string; at: number } | null {
+    try { const p = JSON.parse(kv.get('post.pending') ?? 'null'); return p && typeof p.handle === 'string' && Date.now() - p.at < PENDING_MS ? p : null; } catch { return null; }
   }
 
   const api = {
@@ -117,37 +145,75 @@ export function createController(deps: Deps) {
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
 
     async init() {
-      const accounts = (await store.getMeta<AppAccount[]>('accounts')) ?? [];
       const overrides = (await store.getMeta<Record<string, Kind>>('overrides')) ?? {};
-      let cfg: Config | null = null;
-      try { const c = JSON.parse(kv.get('post.config') ?? 'null'); if (c && validConfig(c)) cfg = c; } catch { /* keep null */ }
+      try { const x = JSON.parse(kv.get('post.sessions') ?? '[]'); sessions = Array.isArray(x) ? x.filter((y: Session) => y && typeof y.email === 'string' && typeof y.session === 'string') : []; } catch { sessions = []; }
+      const known = ((await store.getMeta<AppAccount[]>('accounts')) ?? []).filter((a) => sessions.some((x) => x.email === a.email));
       let settings = DEFAULT_SETTINGS;
       try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
-      useConfig(cfg);
-      set({ config: cfg, settings, accounts, overrides });
+      set({ settings, accounts: known, overrides, signingIn: !!readPending() });
       await reload();
       set({ ready: true });
-      if (cfg) { await api.opened(); }
+      await api.opened();
     },
 
     /** Called when the app opens or comes back to the front: this is "I have looked". */
     async opened() {
-      try { await deps.seen?.(); } catch { /* the number is a nicety; never block reading on it */ }
+      await api.collectSignIn();
+      if (!sessions.length) return;
+      try { await deps.seen?.(device()); } catch { /* the number is a nicety; never block reading on it */ }
       try { set({ alertsOn: (await deps.pushState?.()) ?? false }); } catch { /* ignore */ }
       await api.sync();
     },
 
-    setConfig(c: Config) {
-      kv.set('post.config', JSON.stringify(c));
-      useConfig(c);
-      set({ config: c });
-      void api.opened();
+    // ---- signing in -------------------------------------------------------------------------------------------------------
+    /** One button: returns the Microsoft address to send this window to. */
+    async startSignIn(redirectUri: string, hint?: string): Promise<string> {
+      if (!server) throw new Error('This site does not know where your Post server is yet.');
+      const r = await server.signinStart(redirectUri, hint);
+      kv.set('post.pending', JSON.stringify({ handle: r.handle, at: Date.now() }));
+      set({ signingIn: true });
+      return r.url;
+    },
+
+    /** The window Microsoft sent us back to: finish the sign-in. */
+    async finishSignIn(code: string, state: string): Promise<{ email: string; fromThisApp: boolean }> {
+      if (!server) throw new Error('This site does not know where your Post server is yet.');
+      const pending = readPending();
+      const r = await server.signinFinish({ code, state });
+      // Whether this window is the one that started the sign-in: if not, the server keeps the result for the app that did.
+      if (pending) { kv.del('post.pending'); void server.signinForget(pending.handle).catch(() => {}); }
+      if (pending) await api.signedIn(r);
+      return { email: r.email, fromThisApp: !!pending };
+    },
+
+    /** The sign-in finished in another window (iOS can open it separately): collect it now. */
+    async collectSignIn() {
+      const p = readPending();
+      if (!p) { if (state.signingIn) set({ signingIn: false }); return; }
+      if (!server) return;
+      try {
+        const r = await server.signinPoll(p.handle);
+        if (r.status === 'done') { kv.del('post.pending'); await api.signedIn(r); }
+      } catch { /* try again next time the app is looked at */ }
+    },
+
+    cancelSignIn() { kv.del('post.pending'); set({ signingIn: false }); },
+
+    async signedIn(r: SignedIn) {
+      sessions = [...sessions.filter((x) => x.email !== r.email), { email: r.email, id: r.id, label: r.label, session: r.session }];
+      saveSessions();
+      kv.del('post.pending');
+      graphs.delete(r.email); tokens?.forget(r.email);
+      set({ signingIn: false });
+      await refreshAccounts();
+      void api.sync();
     },
 
     forgetEverything() {
-      kv.del('post.config'); kv.del('post.settings');
-      useConfig(null);
-      set({ config: null, accounts: [], mail: [], settings: DEFAULT_SETTINGS });
+      kv.del('post.sessions'); kv.del('post.settings'); kv.del('post.pending');
+      sessions = [];
+      graphs.clear();
+      set({ accounts: [], mail: [], settings: DEFAULT_SETTINGS, signingIn: false });
     },
 
     // ---- sync -----------------------------------------------------------------------------------------------------------
@@ -183,20 +249,12 @@ export function createController(deps: Deps) {
     },
 
     // ---- accounts ---------------------------------------------------------------------------------------------------------
-    /** Trades the sign-in code for an account on the server, then reads its mail. */
-    async connect(p: { code: string; verifier: string; redirectUri: string; label?: string }): Promise<{ email: string }> {
-      if (!server) throw new Error('Not set up yet');
-      const r = await server.connect(p);
-      await refreshAccounts();
-      set({ accounts: state.accounts.map((a) => (a.email === r.email ? { ...a, needsSignIn: false } : a)) });
-      graphs.delete(r.email); tokens?.forget(r.email);
-      void api.sync();
-      return { email: r.email };
-    },
-
     async removeAccount(email: string) {
-      if (!server) return;
-      await server.unregister(email);
+      const x = sessions.find((y) => y.email === email);
+      if (!server || !x) return;
+      try { await server.unregister(x.session); } catch (e) { if (!(e instanceof ServerError && e.status === 401)) throw e; }
+      sessions = sessions.filter((y) => y.email !== email);
+      saveSessions();
       await store.clearAccount(email);
       graphs.delete(email); tokens?.forget(email);
       await refreshAccounts();
@@ -207,7 +265,8 @@ export function createController(deps: Deps) {
       if (!server) return;
       const before = state.accounts;
       set({ accounts: before.map((a) => (a.email === email ? { ...a, ...patch, vips: patch.vips ?? a.vips } : a)) });
-      try { await server.update(email, patch); } catch (e) {
+      const x = sessions.find((y) => y.email === email);
+      try { if (!x) throw new Error('Sign in again first'); await server.update(x.session, patch); } catch (e) {
         set({ accounts: before });
         toast(e instanceof Error ? e.message : 'Could not save');
       }
@@ -377,7 +436,7 @@ export function createController(deps: Deps) {
     setAccountFilter(accountFilter: string | null) { set({ accountFilter }); },
     setSettings(patch: Partial<Settings>) { saveSettings({ ...state.settings, ...patch }); },
     toast,
-    getServer: () => server,
+    device,
   };
   return api;
 }

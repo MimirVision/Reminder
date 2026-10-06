@@ -1,7 +1,8 @@
 # Post: a mail app for your iPhone (a Home Screen web app, free)
 
-Post is a fast, calm replacement for Apple Mail for your **Outlook** accounts (personal and work). It lives at `/post/` on the same web hosting as Home Memory,
-you add it to your Home Screen, and it shows **the number on its icon** when new mail has arrived. No Mac, no Sideloadly, no 7-day re-install, nothing paid.
+Post is a fast, calm replacement for Apple Mail for your **Outlook** accounts (personal and work). It lives at `/post/` on the same web hosting as Home Memory.
+On a phone you add it to your Home Screen and it shows **the number on its icon** when new mail has arrived; on a computer it is a three-pane mail app with keyboard shortcuts.
+You sign in with one button, **Continue with Microsoft**, the same on a phone and a computer. No Mac, no Sideloadly, no 7-day re-install, nothing paid.
 
 The look is the "A2" design on the canvas: https://claude.ai/artifact/QCFREjFYyX2YG2T91zTQGq
 
@@ -23,18 +24,20 @@ New mail arrives in Outlook
 - **Privacy**: remote images (tracking pixels) blocked until you tap Load once, no read receipts, no "Sent from Post", and your mail is shown in a sandbox that cannot run scripts.
 - **Reliable**: opens instantly from what is on the phone, works offline, every action waits safely in a queue until Outlook confirms it, drafts are saved as you type, and a mail you sent is held for the undo window even if you close the app.
 - Light, dark and pure-black themes, 8 accent colours, three row sizes, a colour per account.
+- **Phone and computer**: on a window wider than about 900 px Post shows a sidebar, the message list and the reading pane side by side, with keyboard shortcuts (`j`/`k`, `e` archive, `r` reply, `c` write, `/` search, `?` for the list).
 
 ## The honest limits
 - **iPhone, iOS 16.4 or newer**, and the icon number only works from the **Home Screen icon**.
 - **The number counts alerts since you last opened Post.** iOS only lets a web app change its number when a notification is delivered, so the number **cannot go down by itself** if you read mail elsewhere (Outlook on your PC). It corrects as soon as you open Post, and reading mail inside Post clears it.
 - iOS requires every web push to be a notification. If you choose **Badges only** in iOS Settings (below) you will see just the number, no banners, no sounds.
-- Microsoft's sign-in page does not work inside a Home Screen app, so **adding an account is done in Safari** (the app gives you a link). You do it once per account.
-- Your own Supabase keeps an **encrypted sign-in** for each account (so it can see new mail arriving, and so the app does not have to ask you to sign in every day). It is yours, and "Remove" in Post deletes it.
+- Each device signs in on its own (Safari and the Home Screen icon do not share a sign-in on iPhone), so the first time you open the Home Screen icon you press the same button again. It takes ten seconds.
+- Google/Gmail and iCloud are not supported yet: **Continue with Microsoft** is the only button, because Outlook is what Post is built for.
+- Your own Supabase keeps an **encrypted sign-in** for each account (so it can see new mail arriving, and so the app does not have to ask you to sign in every day). It is yours, and removing the account in Post deletes it. A device proves it belongs to a mailbox with a secret it gets at sign-in (only a hash is stored); only the addresses you list in `POST_ALLOWED_EMAILS` can sign in at all.
 - Not in this version: conversation threads, attachments in compose, Outlook folders other than Inbox/Archive/Deleted, rules, Gmail/iCloud (Outlook only for now).
 - **Work accounts** (Microsoft 365): your employer may need to approve the app. If the sign-in says "approval required", that is why.
 
-## One-time setup (about 30 minutes)
-You already have Supabase and the web hosting for Home Memory, and the Web Push keys from `docs/NOTIFICATIONS.md`. This reuses them.
+## One-time setup (about 20 minutes, once, for everyone who will use it)
+The two things Microsoft and your server need to know before a login button can exist. After this, nothing is typed or pasted on any device.
 
 ### 1. Microsoft (Azure) registration
 1. Open https://entra.microsoft.com, sign in with your personal Microsoft account. Microsoft may ask you to create a free directory first; follow the prompts.
@@ -45,26 +48,25 @@ You already have Supabase and the web hosting for Home Memory, and the Web Push 
 5. **Authentication**: **Allow public client flows: Yes**. Save.
 
 ### 2. Supabase
-1. **Database.** Run `supabase/upgrade.sql` in the SQL Editor (adds three server-only tables). Safe to repeat.
+1. **Database.** Run `supabase/upgrade.sql` in the SQL Editor (adds the server-only tables). Safe to repeat.
 2. **Secrets** (Edge Functions, Secrets):
-   - `POST_ALERTS_KEY` = a long random password you make up
-   - `ALERTS_ENC_KEY` = 32 random bytes as base64url. Make one by pasting this into a browser console (F12): `btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')`
    - `MS_CLIENT_ID` = the Application (client) ID from step 1
+   - `POST_ALLOWED_EMAILS` = the addresses allowed to sign in, comma separated, for example `you@outlook.com, you@yourfirm.no`. Use the exact address Microsoft reports (if one is refused, the message shows the address it saw).
+   - `ALERTS_ENC_KEY` = 32 random bytes as base64url. Make one by pasting this into a browser console (F12): `btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')`
+   - `POST_ALERTS_KEY` = any long random text. Only the renewal schedule below uses it.
    - (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` are already there from Home Memory notifications)
-3. **The function.** Edge Functions, Deploy a new function, Via Editor: name `post-alerts`, paste all of `supabase/dashboard/post-alerts.ts`, **turn "Verify JWT" OFF**. Deploy.
-   Its address is `https://<your project>.supabase.co/functions/v1/post-alerts`.
+3. **The function.** Edge Functions, Deploy a new function, Via Editor: name `post-alerts`, paste all of `supabase/dashboard/post-alerts.ts`, **turn "Verify JWT" OFF**. Deploy. (Updating? Paste it again over the old one.)
 4. **Keep it alive.** Integrations, Cron, Create job: name `post-alerts-renew`, schedule `0 */6 * * *`, type Supabase Edge Function, function `post-alerts`, POST, header `x-alerts-key` = your `POST_ALERTS_KEY`, body `{"op":"renew"}`.
 
 ### 3. The web app
-It deploys with the rest of the site (Netlify or Cloudflare, same as Home Memory): push this branch / merge it and the page appears at `https://<your web address>/post/`.
+Nothing to set. It uses the same address Home Memory already has for Supabase (`VITE_SUPABASE_URL`), so the login button finds your server by itself. It deploys with the rest of the site.
 
-### 4. Your phone (about 5 minutes)
-1. In **Safari**, open `https://<your web address>/post/`. First run asks for a **setup code**. If you do not have one, tap *Type the three values* and enter the alert server address, your `POST_ALERTS_KEY` and the Azure client ID. (The app shows the exact redirect address to register in Azure.)
-2. Type your email address and tap **Continue with Microsoft**. Do the same for your second account from the account sheet (tap your initial at the top right, **Add account**).
-3. Tap Share, **Add to Home Screen**, then open **Post** from the new icon. It asks for the setup code once: tap *Copy setup code* in Safari first (the Connected screen has the button), then **Paste** in Post.
-4. In Post: Settings, **Icon number & alerts**, **Turn on the icon number**, allow notifications.
-5. iPhone Settings, Notifications, **Post**: turn on **Badges**; turn off Lock Screen, Notification Centre, Banners and Sounds if you only want the number.
-6. Settings, Alerts, **Send a test alert**: the icon number should go up by one in a few seconds. Open Post: it goes back to zero.
+### 4. Every phone and computer
+1. Open `https://<your web address>/post/` and press **Continue with Microsoft**. That is the whole sign-in. Press it again for your second account (tap your initial at the top right, or "Add account" in the sidebar).
+2. **iPhone:** in Safari tap Share, **Add to Home Screen**, then open **Post** from the new icon and press the same button once more (the icon keeps its own sign-in).
+3. In Post: Settings, **Icon number & alerts**, **Turn on the icon number**, allow notifications.
+4. iPhone Settings, Notifications, **Post**: turn on **Badges**; turn off Lock Screen, Notification Centre, Banners and Sounds if you only want the number.
+5. Settings, Alerts, **Send a test alert**: the icon number should go up by one in a few seconds. Open Post: it goes back to zero.
 
 ## The evening test (30 minutes): is this better than Apple Mail?
 Do these in order. If one fails, tell me which and what you saw.
@@ -80,6 +82,7 @@ If 1 or 2 fail, the fallback is the sideloaded native app (parked in `apps/mail`
 ## Troubleshooting
 - **"The redirect address is not set up in Azure"**: the redirect URI must be exactly `https://<your web address>/post/` under *Mobile and desktop applications*.
 - **"Your organisation needs to approve Post"**: ask your IT admin to grant consent for the app, or use the account without it.
+- **"… is not on this server's allowed list"**: add that exact address to `POST_ALLOWED_EMAILS` in the Supabase secrets (then try again).
 - **Banner "Sign in again"**: Microsoft revoked the sign-in (password change, policy). Tap Sign in; nothing is lost.
 - **No number appears**: Settings, Icon number & alerts shows three checks (on Home Screen, notifications allowed, server answers). Supabase, Edge Functions, `post-alerts`, Logs show each decision ("alerted (a person)", "skipped: bulk mail", "skipped: outside this account's alert hours").
 - **The number stays after you read mail elsewhere**: see the honest limits. Open Post to clear it.
@@ -88,5 +91,5 @@ If 1 or 2 fail, the fallback is the sideloaded native app (parked in `apps/mail`
 ## For developers
 - `apps/web/src/post/core/` has no browser or React code and is tested in Node: `cd apps/web && npm test` (Graph client with retries and token refresh, delta sync, undo queue, outbox, classification, search, snooze, sign-in, the controller against a fake Outlook).
 - `apps/web/src/post/ui/` are the screens; `idb.ts` is the IndexedDB store; `push.ts` the push and icon number code; `public/post/sw.js` the service worker.
-- `supabase/functions/post-alerts/` is the server (change notifications, alert rules, token minting); `npm test` in `supabase/`.
+- `supabase/functions/post-alerts/` is the server (sign-in, sessions, change notifications, alert rules, token minting); `npm test` in `supabase/`.
 - The native sideloaded build (`apps/mail`, `docs/MAIL.md`) is parked, not deleted.

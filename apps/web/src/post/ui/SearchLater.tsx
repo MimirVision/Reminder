@@ -10,7 +10,7 @@ import { go, useC, useNow } from './ctx.tsx';
 
 const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:newsletters', 'account:work'];
 
-export function Search({ s, q: initial }: { s: State; q: string }) {
+export function Search({ s, q: initial, pane = false }: { s: State; q: string; pane?: boolean }) {
   const c = useC();
   const [q, setQ] = useState(initial);
   const [remote, setRemote] = useState<Mail[] | null>(null);
@@ -52,12 +52,12 @@ export function Search({ s, q: initial }: { s: State; q: string }) {
           </>
         )}
       </div>
-      <Tabs at="search" s={s} />
+      {!pane && <Tabs at="search" s={s} />}
     </div>
   );
 }
 
-export function Later({ s }: { s: State }) {
+export function Later({ s, pane = false }: { s: State; pane?: boolean }) {
   const c = useC();
   const now = useNow();
   const snoozed = snoozedMail(s.mail, now);
@@ -75,7 +75,7 @@ export function Later({ s }: { s: State }) {
         <div className="sec">Reply later</div>
         {later.length ? <div className="card">{later.map((m) => <div key={m.key} className="sw-row"><Row m={m} s={s} selecting={false} selected={false} onOpen={() => open(m)} onToggle={() => {}} /></div>)}</div> : <p className="note">Flagged messages show up here, so “I will answer that later” does not get lost.</p>}
       </div>
-      <Tabs at="later" s={s} />
+      {!pane && <Tabs at="later" s={s} />}
     </div>
   );
 }

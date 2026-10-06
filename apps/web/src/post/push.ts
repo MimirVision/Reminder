@@ -1,4 +1,4 @@
-import type { Server } from './core/server.ts';
+import type { DeviceApi } from './core/server.ts';
 
 // The browser side of the icon number. A push from your alert server wakes the service worker (sw.js), which sets the number even
 // when Post is closed. Opening Post counts as "I have looked": the number is cleared here and on the server.
@@ -26,16 +26,16 @@ export async function clearBadge() {
 }
 
 /** Marks everything as looked at: clears the icon number here and on the server. */
-export async function markSeen(server: Server | null) {
+export async function markSeen(device: DeviceApi | null) {
   await clearBadge();
   const sub = await subscription();
-  if (sub && server) await server.seen(sub.endpoint);
+  if (sub && device) await device.seen(sub.endpoint);
 }
 
 export type EnableResult = { ok: true } | { ok: false; reason: 'unsupported' | 'denied' | 'failed'; message: string };
 
 /** Asks for permission, subscribes this phone to your alert server, and pairs it. Must be called from a tap. */
-export async function enablePush(server: Server, lang: string): Promise<EnableResult> {
+export async function enablePush(server: DeviceApi, lang: string): Promise<EnableResult> {
   if (!pushSupported()) return { ok: false, reason: 'unsupported', message: 'This needs iOS 16.4 or newer, and Post added to the Home Screen.' };
   try {
     const { publicKey } = await server.vapid();
