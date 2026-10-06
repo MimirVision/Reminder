@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { mailCounts, type State } from '../core/controller.ts';
-import { ACCENTS, ACCOUNT_COLOURS, accountColour, type Settings as Cfg } from '../core/settings.ts';
+import { ACCENTS, ACCOUNT_COLOURS, LOOKS, accountColour, lookChange, type Settings as Cfg } from '../core/settings.ts';
 import { sortingReport } from '../core/report.ts';
 import { asKind, KINDS, KIND_TAB, type Kind } from '../core/types.ts';
 import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
@@ -82,6 +82,7 @@ export function Settings({ s }: { s: State }) {
         <p className="note">Undo works while Post is on screen. If you leave Post, what is waiting is sent right away, so it never gets stuck on a phone that has put Post to sleep.</p>
         <div className="lbl">Appearance</div>
         <div className="card">
+          <Pick label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => set(lookChange(s.settings, v))} />
           <button className="it" onClick={() => go({ name: 'settings', page: 'appearance' })}>Accent colour<span className="v"><i className="swatch" style={{ background: a.light }} />{a.name}<Icon n="chev" /></span></button>
           <Pick label="Theme" value={s.settings.theme} options={[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => set({ theme: v })} />
           <Pick label="Row size" value={s.settings.rowSize} options={[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]} onChange={(v) => set({ rowSize: v })} />
@@ -113,6 +114,9 @@ export function Appearance({ s }: { s: State }) {
       <div className="nav"><button className="back" onClick={() => go({ name: 'settings', page: '' })}><Icon n="back" />Settings</button></div>
       <div className="ttl"><h1 className="h1">Appearance</h1></div>
       <div className="scroll">
+        <div className="lbl">Look</div>
+        <div className="panel" style={{ marginTop: 0 }}><Seg label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => c.setSettings(lookChange(s.settings, v))} /></div>
+        <p className="note">Refined is warm, with rounded cards. Calm is plain and quiet, close to the apps that come with the phone. The same mail, the same buttons: only how it looks changes.</p>
         <div className="lbl">Accent colour</div>
         <div className="card"><div className="accent-grid" role="radiogroup" aria-label="Accent colour">
           {ACCENTS.map((a) => <button key={a.id} role="radio" aria-checked={s.settings.accent === a.id} className={`accent${s.settings.accent === a.id ? ' on' : ''}`} onClick={() => c.setSettings({ accent: a.id })}><i style={{ background: a.light }} />{a.name}</button>)}
@@ -157,7 +161,7 @@ export function Sorting({ s }: { s: State }) {
       <div className="nav"><button className="back" onClick={() => go({ name: 'settings', page: '' })}><Icon n="back" />Settings</button></div>
       <div className="ttl"><h1 className="h1">Sorting</h1></div>
       <div className="scroll">
-        <p className="note" style={{ marginTop: 0 }}>Post puts each message in one of four tabs, like iOS Mail. It looks at who sent it, what the subject says, and the hidden marks that bulk mail carries. Nothing is ever hidden: All shows everything, and a message it is unsure about stays in Primary.</p>
+        <p className="note" style={{ marginTop: 8 }}>Post puts each message in one of four tabs, like iOS Mail. It looks at who sent it, what the subject says, and the hidden marks that bulk mail carries. Nothing is ever hidden: All shows everything, and a message it is unsure about stays in Primary.</p>
         <div className="lbl">In your inbox now</div>
         <div className="card">
           {KINDS.map((k) => <div key={k} className="it"><span className="ico"><Icon n={KIND_ICON[k]} /></span>{KIND_TAB[k]}<span className="v">{counts.byKind[k].total}{counts.byKind[k].unread ? ` · ${counts.byKind[k].unread} unread` : ''}</span></div>)}

@@ -119,7 +119,7 @@ function Themed({ controller }: { controller: Controller }) {
   }, [vars]);
   const wide = useWide();
   return (
-    <div className={`post${dark ? ' dark' : ''}${wide ? ' wide' : ''}`} style={vars as React.CSSProperties}>
+    <div className={`post${dark ? ' dark' : ''}${wide ? ' wide' : ''}`} data-look={s.settings.look} style={vars as React.CSSProperties}>
       <ErrorBoundary controller={controller}><Shell /><Toasts /></ErrorBoundary>
     </div>
   );
