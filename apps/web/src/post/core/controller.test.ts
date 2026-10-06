@@ -1739,3 +1739,53 @@ test('what went wrong is written down for the Health page, without addresses', a
   assert.doesNotMatch(list[0].text, /@/);
   assert.match(list[0].text, /\[address\]/);
 });
+
+test('start: when what is saved on the phone cannot be read, Post still opens, still signed in, and reads the mail again', async () => {
+  const w = world(); w.add('1');
+  const inner = memoryStore();
+  let fail = true;
+  const store: Store = { ...inner, async getMeta<T>(k: string) { if (fail && k === 'overrides') { fail = false; throw new Error('boom'); } return inner.getMeta<T>(k); } };
+  const { c } = make(w, { store });
+  await c.init();
+  assert.equal(c.getState().ready, true);
+  assert.deepEqual(c.getState().accounts.map((a) => a.email), ['a@outlook.com']);
+  assert.equal(c.getState().mail.length, 1, 'the mail came back from Outlook');
+  assert.ok(c.problems().some((p) => p.kind === 'start' && /boom/.test(p.text)));
+});
+
+test('a message is still read when the phone will not keep its text', async () => {
+  const w = world(); w.add('1');
+  const inner = memoryStore();
+  const store: Store = { ...inner, putBody: () => Promise.reject(Object.assign(new Error('The quota has been exceeded.'), { name: 'QuotaExceededError' })) };
+  const { c } = make(w, { store });
+  await c.init();
+  const body = await c.openBody(c.getState().mail[0]);
+  assert.equal(body.content, '<p>Hei</p>');
+  assert.ok(c.problems().some((p) => p.kind === 'storage' && /quota/.test(p.text)));
+});
+
+test('the screen is told when the phone would not give storage, so that Post says so', async () => {
+  const w = world();
+  const inner = memoryStore();
+  const { c } = make(w, { store: { ...inner, status: () => ({ kind: 'memory' as const, reopened: 0, lastError: 'blocked' }) } });
+  await c.init();
+  assert.equal(c.getState().storage, 'memory');
+  assert.deepEqual(c.storageStatus(), { kind: 'memory', reopened: 0, lastError: 'blocked' });
+  const fine = make(world());
+  await fine.c.init();
+  assert.equal(fine.c.getState().storage, 'device');
+});
+
+test('"read again" brings back what the phone shows differently from Outlook, and keeps what waits to be sent', async () => {
+  const w = world(); w.add('1'); w.add('2');
+  w.flags.strictDelta = true;                    // a later sync hears only what changed, as the real thing does
+  const { c, store } = make(w);
+  await c.init();
+  await store.deleteMail([`${ME}|2`]);           // the phone has drifted: Outlook still has message 2 in the inbox
+  await c.sync();
+  assert.deepEqual((await store.allMail()).map((m) => m.id), ['1'], 'an ordinary sync does not notice');
+  await sendNew(c, 'Venter');
+  await c.readAgain();
+  assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', '2']);
+  assert.equal(c.getState().outbox.length, 1, 'the message waiting to be sent is still waiting');
+});

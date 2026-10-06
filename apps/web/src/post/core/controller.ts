@@ -7,7 +7,7 @@ import { createServer, createTokens, ServerError, type AccountStatus, type Devic
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
 import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, syncAccount, toMail } from './sync.ts';
 import { search as searchLocal } from './search.ts';
-import type { PendingOp, Store } from './store.ts';
+import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
 import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type Kind, type Mail, type MailBody } from './types.ts';
 
@@ -49,6 +49,8 @@ export interface State {
   alertsOn: boolean; // this phone is paired for the icon number
   /** How many messages have left the outbox since Post was opened (a conversation on screen asks again, to show your answer in it). */
   sent: number;
+  /** Where Post's copy of the mail is kept: on the phone, or (when the phone would not let it) only in memory until Post is closed. */
+  storage: 'device' | 'memory';
 }
 
 export interface Deps {
@@ -121,7 +123,7 @@ export function createController(deps: Deps) {
 
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
-    sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, sent: 0,
+    sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, sent: 0, storage: 'device',
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -208,7 +210,7 @@ export function createController(deps: Deps) {
     mail.sort((a, b) => b.received.localeCompare(a.received));
     // "Waiting" means held up, not just inside the undo window: only actions that are already due and still not confirmed count.
     const waiting = ops.filter((o) => o.runAfter <= now()).length + (outbox ?? []).filter((o) => o.sendAt <= now()).length;
-    set({ mail, waiting, outbox: outbox ?? [] });
+    set({ mail, waiting, outbox: outbox ?? [], storage: store.status?.().kind === 'memory' ? 'memory' : 'device' });
   }
 
   function saveSettings(s: Settings) { kv.set('post.settings', JSON.stringify(s)); set({ settings: s }); }
@@ -415,19 +417,31 @@ export function createController(deps: Deps) {
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
 
     async init() {
-      // Older versions saved other names (newsletter, receipt, alert): they become the nearest of the four kinds.
-      const savedRules = (await store.getMeta<Record<string, unknown>>('overrides')) ?? {};
-      const overrides: Record<string, Kind> = {};
-      for (const [who, v] of Object.entries(savedRules)) { const kind = asKind(v); if (kind) overrides[who] = kind; }
-      if (JSON.stringify(savedRules) !== JSON.stringify(overrides)) await store.setMeta('overrides', overrides);
-      try { const x = JSON.parse(kv.get('post.sessions') ?? '[]'); sessions = Array.isArray(x) ? x.filter((y: Session) => y && typeof y.email === 'string' && typeof y.session === 'string') : []; } catch { sessions = []; }
-      const cachedAccounts = ((await store.getMeta<AppAccount[]>('accounts')) ?? []).filter((a) => sessions.some((x) => x.email === a.email));
-      let settings = DEFAULT_SETTINGS;
-      try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
-      set({ settings, accounts: cachedAccounts, overrides, signingIn: !!readPending() });
-      known = await loadKnown(store, cachedAccounts.map((a) => a.email));
-      await reclassifyAll(store, sortCtx()); // every start: a better rule applies to mail already on the phone, and older saved kinds are renamed
-      await reload();
+      // Whatever goes wrong while reading what is saved on the phone, Post still opens (with what it could read) and reads the mail again:
+      // a start that waits for ever on a splash screen is the worst thing it could do.
+      try {
+        // Older versions saved other names (newsletter, receipt, alert): they become the nearest of the four kinds.
+        const savedRules = (await store.getMeta<Record<string, unknown>>('overrides')) ?? {};
+        const overrides: Record<string, Kind> = {};
+        for (const [who, v] of Object.entries(savedRules)) { const kind = asKind(v); if (kind) overrides[who] = kind; }
+        if (JSON.stringify(savedRules) !== JSON.stringify(overrides)) await store.setMeta('overrides', overrides);
+        try { const x = JSON.parse(kv.get('post.sessions') ?? '[]'); sessions = Array.isArray(x) ? x.filter((y: Session) => y && typeof y.email === 'string' && typeof y.session === 'string') : []; } catch { sessions = []; }
+        const cachedAccounts = ((await store.getMeta<AppAccount[]>('accounts')) ?? []).filter((a) => sessions.some((x) => x.email === a.email));
+        let settings = DEFAULT_SETTINGS;
+        try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
+        set({ settings, accounts: cachedAccounts, overrides, signingIn: !!readPending() });
+        known = await loadKnown(store, cachedAccounts.map((a) => a.email));
+        await reclassifyAll(store, sortCtx()); // every start: a better rule applies to mail already on the phone, and older saved kinds are renamed
+        await reload();
+      } catch (e) {
+        note('start', e);
+        try { sessions = (JSON.parse(kv.get('post.sessions') ?? '[]') as Session[]).filter((y) => y && typeof y.email === 'string' && typeof y.session === 'string'); } catch { sessions = []; }
+        // Still signed in: the mailboxes are listed as they were signed in until the server has been asked, so the sign-in screen does not flash up.
+        set({
+          accounts: sessions.map((x) => ({ id: x.id, email: x.email, label: x.label, mode: 'people', quiet: null, vips: [], subscription_expires_at: null, last_alert_at: null, needsSignIn: false })),
+          sync: { ...state.sync, error: 'Post could not read everything that is saved on this phone. It is reading your mail again.' },
+        });
+      }
       set({ ready: true });
       await api.opened();
     },
@@ -547,6 +561,20 @@ export function createController(deps: Deps) {
       }
       void api.sortInBackground();
     },
+
+    /**
+     * Reads every mailbox again from Outlook's side, as on the first day. What is waiting to be sent is kept. The cure for a phone that shows
+     * something different from Outlook, whatever the reason.
+     */
+    async readAgain() {
+      if (syncRun) await syncRun.catch(() => {}); // a read that is going would write its own place back over the one forgotten here
+      for (const a of state.accounts) await store.setMeta(`${a.email}|delta`, undefined);
+      toast('Reading your mail again from Outlook…', undefined, 4000);
+      await api.sync();
+    },
+
+    /** Where Post's copy of the mail is kept, for the Health page. */
+    storageStatus(): StoreStatus { return store.status?.() ?? { kind: 'device', reopened: 0, lastError: null }; },
 
     /**
      * Reads the hidden header marks of mail that has only had a first guess, a group at a time, and moves each message to its tab as soon as
@@ -799,8 +827,11 @@ export function createController(deps: Deps) {
           to: (j?.toRecipients ?? []).map(addr), cc: (j?.ccRecipients ?? []).map(addr), attachments: [], ...l,
         };
       }
-      if (onPhone && (await store.getMail(m.key))) await store.putBody(body); // not when it was archived while its text was coming
-      else keepLatest(remoteBodies, m.key, body, 40);
+      // Kept on the phone for next time, unless it was archived while its text was coming. The phone refusing (storage full) must never keep the
+      // message from being read: it is then kept in memory while Post is open instead.
+      let kept = false;
+      if (onPhone && (await store.getMail(m.key))) { try { await store.putBody(body); kept = true; } catch (e) { note('storage', e); } }
+      if (!kept) keepLatest(remoteBodies, m.key, body, 40);
       return body;
     },
 

@@ -1,8 +1,10 @@
-import { memoryStore, type PendingOp, type Store } from './core/store.ts';
+import { resilientStore } from './core/resilient.ts';
+import type { PendingOp, Store } from './core/store.ts';
 import type { Mail, MailBody } from './core/types.ts';
 
-// The phone's copy of the mail, in IndexedDB. If the browser refuses (private window, storage blocked) the app still works from memory
-// for that session instead of failing, and says nothing alarming: reading mail must never depend on storage.
+// The phone's copy of the mail, in IndexedDB. Reading mail must never depend on storage: a connection that iOS closed while the app was away
+// is opened again (core/resilient.ts), and if the browser will not give storage at all (private window, blocked) the app works from memory
+// for that visit, and the Inbox says so.
 
 const DB = 'post-mail';
 const STORES = ['mail', 'bodies', 'meta', 'ops'] as const;
@@ -26,9 +28,9 @@ function open(): Promise<IDBDatabase> {
 const wrap = <T,>(r: IDBRequest<T>) => new Promise<T>((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const done = (tx: IDBTransaction) => new Promise<void>((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error); });
 
-export async function openStore(): Promise<Store> {
-  let db: IDBDatabase;
-  try { db = await open(); } catch { return memoryStore(); }
+/** A store on one connection to the database. It throws when the database cannot be opened, and when its connection is lost later (see openStore). */
+async function openIdb(): Promise<Store> {
+  const db = await open();
   const all = async <T,>(name: (typeof STORES)[number]) => await wrap(db.transaction(name).objectStore(name).getAll() as IDBRequest<T[]>);
   const put = async (name: (typeof STORES)[number], items: unknown[], key?: IDBValidKey) => {
     const tx = db.transaction(name, 'readwrite');
@@ -74,3 +76,6 @@ export async function openStore(): Promise<Store> {
     },
   };
 }
+
+/** The phone's own storage, kept going through lost connections. `onProblem` hears what it had to do to keep going. */
+export const openStore = (onProblem?: (kind: string, e: unknown) => void): Promise<Store> => resilientStore(openIdb, { onProblem });

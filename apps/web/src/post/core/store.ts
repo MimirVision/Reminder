@@ -12,7 +12,12 @@ export interface PendingOp {
   attempts: number;
 }
 
+/** Where a store really keeps things: on the device, or (when the device would not let it) only in memory until Post is closed. */
+export interface StoreStatus { kind: 'device' | 'memory'; /** how often the connection to the device's storage was lost and opened again */ reopened: number; lastError: string | null }
+
 export interface Store {
+  /** Only a store that can fall back to memory says where it stands. */
+  status?(): StoreStatus;
   allMail(): Promise<Mail[]>;
   getMail(key: string): Promise<Mail | undefined>;
   putMail(items: Mail[]): Promise<void>;
