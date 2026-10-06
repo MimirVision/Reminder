@@ -23,6 +23,8 @@ test('plain-language errors for 401, 503, offline and server messages', async ()
   await assert.rejects(() => mk(() => json(503, {})).status('x'), /not set up yet/);
   await assert.rejects(() => mk(() => { throw new Error('x'); }).status('x'), (e: ServerError) => e.status === 0 && /Cannot reach/.test(e.message));
   await assert.rejects(() => mk(() => json(400, { error: 'ann@x.no is not on this server' })).signinFinish({ code: 'c', state: 's' }), /not on this server/);
+  // the server says what is missing and how to fix it: that is what the person sees
+  await assert.rejects(() => mk(() => json(503, { error: 'not_configured', message: 'No client ID yet. Run: select post_setup(...)' })).signinStart('https://site/post/'), /No client ID yet. Run: select post_setup/);
 });
 
 const sessions = (m: Record<string, string>) => (email: string) => m[email];

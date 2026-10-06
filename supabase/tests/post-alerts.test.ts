@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALERT_SCOPE, AlertGraphError, alertBuild, alertCreateSubscription, alertDecide, alertDecrypt, alertEncrypt, alertExpiry, alertGetInboxId, alertGetMessage,
+  ALERT_SCOPE, AlertGraphError, alertBuild, alertCreateSubscription, alertDecide, alertDecrypt, alertEncrypt, alertExpiry, alertDeriveKey, alertEmails, alertNewVapid, alertResolveConfig, type AlertConfigStore, alertGetInboxId, alertGetMessage,
   alertKind, alertLocal, alertParseLifecycle, alertParseNotifications, alertPlanRenewals, alertRefresh, alertRenewSubscription, alertSameSecret,
   alertValidationToken, alertWithinWindow, alertProcess, alertSeen, alertSigninStart, alertSigninFinish, alertSigninPoll, alertSigninForget, alertFindBySession, alertMintToken, alertExchangeCode, ALERT_APP_SCOPE, alertRegister, alertSettingsPatch, alertUnregister, alertRenewAll, alertLifecycle, alertTest, type AlertAccount, type AlertDeps, type AlertDevice, type AlertStore, type AlertStored, type GraphMessage,
 } from '../functions/post-alerts/logic.ts';
+import { b64uToBytes, vapidAuthorization } from '../functions/notify-partner/logic.ts';
 
 const acct = (over: Partial<AlertAccount> = {}): AlertAccount => ({ id: 'a1', email: 'andreas@outlook.com', label: 'Personal', mode: 'people', vips: [], quiet: null, tz: 'Europe/Oslo', inbox_folder_id: 'INBOX-ID', ...over });
 const msg = (over: Partial<GraphMessage> = {}): GraphMessage => ({
@@ -167,16 +168,20 @@ test('Graph: message, inbox id, create and renew subscription use the right call
   assert.equal((calls[0].init.headers as Record<string, string>).Authorization, 'Bearer T');
 });
 
-test('expiry stays under Microsoft\'s 7-day limit; renewal planning picks missing and soon-to-expire subscriptions', () => {
+test('expiry stays under the 4 230 minutes Microsoft allows personal accounts; renewal planning picks missing and soon-to-expire subscriptions', () => {
   const now = new Date('2026-10-05T08:00:00Z');
   const exp = new Date(alertExpiry(now)).getTime() - now.getTime();
-  assert.ok(exp < 10_080 * 60_000 && exp > 3 * 86_400_000);
+  assert.ok(exp < 4_230 * 60_000 && exp > 2.5 * 86_400_000);
   const accounts = [
     { id: 'none', subscription_id: null, subscription_expires_at: null },
     { id: 'soon', subscription_id: 's', subscription_expires_at: '2026-10-06T08:00:00Z' },
     { id: 'fine', subscription_id: 's', subscription_expires_at: '2026-10-09T08:00:00Z' },
   ];
   assert.deepEqual(alertPlanRenewals(accounts, now).map((a) => a.id), ['none', 'soon']);
+  // an account Microsoft refused a moment ago is left alone for half an hour, then tried again
+  const refused = [{ id: 'refused', subscription_id: null, subscription_expires_at: null, sub_error_at: '2026-10-05T07:50:00Z' }];
+  assert.deepEqual(alertPlanRenewals(refused, now), []);
+  assert.deepEqual(alertPlanRenewals(refused, new Date('2026-10-05T08:30:00Z')).map((a) => a.id), ['refused']);
 });
 
 // ---- orchestration with an in-memory store and a fake Microsoft ----
@@ -438,7 +443,7 @@ test('sign-in finish: a forged or expired state, and a mailbox that is not on th
   open.deps.allowedEmails = [];
   msFake(open);
   const so = await alertSigninStart(open.deps, { redirectUri: 'https://app.example/post/' });
-  await assert.rejects(alertSigninFinish(open.deps, { code: 'c', state: new URL(so.url).searchParams.get('state')! }), /POST_ALLOWED_EMAILS/);
+  await assert.rejects(alertSigninFinish(open.deps, { code: 'c', state: new URL(so.url).searchParams.get('state')! }), /select post_allow\('andreas@firma.no'\)/);
   assert.equal(open.accounts.length, 0);
 });
 
@@ -479,4 +484,156 @@ test('mint token: a short-lived full-scope token for a known mailbox, the stored
   assert.equal(scopes[0], ALERT_APP_SCOPE);
   assert.equal(await alertDecrypt(s.accounts[0].refresh_token_enc, KEY), 'ROTATED');
   await assert.rejects(alertMintToken(s.deps, 'nobody@x.no'), /unknown account/);
+});
+
+// ---- personal accounts: what Microsoft really does ----
+
+test('a personal account: Microsoft caps the alert subscription at 4 230 minutes, so the request is retried shorter instead of failing the sign-in', async () => {
+  const asked: { expires: string; lifecycle: boolean }[] = [];
+  const f = fakeFetch((url, init) => {
+    const b = JSON.parse(String(init.body));
+    asked.push({ expires: b.expirationDateTime, lifecycle: 'lifecycleNotificationUrl' in b });
+    const minutes = (new Date(b.expirationDateTime).getTime() - MON_10.getTime()) / 60_000;
+    if (minutes > 4230) return { status: 400, body: { error: { code: 'ExtensionError', message: 'Subscription expiration can only be 4230 minutes in the future.' } } };
+    return { status: 201, body: { id: 'SUB', expirationDateTime: b.expirationDateTime } };
+  });
+  const long = new Date(MON_10.getTime() + 5760 * 60_000).toISOString();
+  const sub = await alertCreateSubscription(f.f, 'T', { notificationUrl: 'https://h/n', lifecycleUrl: 'https://h/n?lifecycle=1', clientState: 'cs', expires: long, now: () => MON_10 });
+  assert.equal(sub.id, 'SUB');
+  assert.equal(asked.length, 2);
+  assert.ok((new Date(sub.expires).getTime() - MON_10.getTime()) / 60_000 <= 4230);
+});
+
+test('an account that does not take lifecycle notifications still gets its subscription (without them)', async () => {
+  const f = fakeFetch((url, init) => {
+    const b = JSON.parse(String(init.body));
+    if ('lifecycleNotificationUrl' in b) return { status: 400, body: { error: { code: 'InvalidRequest', message: 'lifecycleNotificationUrl is not supported for this resource.' } } };
+    return { status: 201, body: { id: 'SUB2', expirationDateTime: b.expirationDateTime } };
+  });
+  const sub = await alertCreateSubscription(f.f, 'T', { notificationUrl: 'https://h/n', lifecycleUrl: 'https://h/n?lifecycle=1', clientState: 'cs', expires: alertExpiry(MON_10) });
+  assert.equal(sub.id, 'SUB2');
+  // other 400s are real errors and are not retried forever
+  const bad = fakeFetch(() => ({ status: 400, body: { error: { code: 'InvalidRequest', message: 'Nope.' } } }));
+  await assert.rejects(alertCreateSubscription(bad.f, 'T', { notificationUrl: 'https://h/n', lifecycleUrl: 'x', clientState: 'cs', expires: alertExpiry(MON_10) }), /Nope/);
+  assert.equal(bad.calls.length, 2, 'once with, once without lifecycle notifications');
+});
+
+test('renewing too far ahead is retried shorter too', async () => {
+  let n = 0;
+  const f = fakeFetch((url, init) => {
+    n++;
+    const b = JSON.parse(String(init.body));
+    return (new Date(b.expirationDateTime).getTime() - MON_10.getTime()) / 60_000 > 4230
+      ? { status: 400, body: { error: { code: 'ExtensionError', message: 'Subscription expiration can only be 4230 minutes in the future.' } } }
+      : { body: { expirationDateTime: b.expirationDateTime } };
+  });
+  const out = await alertRenewSubscription(f.f, 'T', 'SUB1', new Date(MON_10.getTime() + 9000 * 60_000).toISOString(), () => MON_10);
+  assert.equal(n, 2);
+  assert.ok((new Date(out).getTime() - MON_10.getTime()) / 60_000 <= 4230);
+});
+
+test('register: if Microsoft refuses the alert subscription the sign-in is kept (mail works), the reason is stored, and the schedule retries later', async () => {
+  const s = setup();
+  const realFetch = s.deps.fetch;
+  let refuse = true;
+  s.deps.fetch = (async (url: string, init?: RequestInit) => (refuse && String(url).endsWith('/subscriptions') && init?.method === 'POST'
+    ? new Response(JSON.stringify({ error: { code: 'InvalidRequest', message: 'Subscriptions are not available for this mailbox.' } }), { status: 403 })
+    : realFetch(url, init))) as typeof fetch;
+  const r = await alertRegister(s.deps, { email: 'andreas@outlook.com', label: 'Personal', refreshToken: 'RT-original' });
+  assert.match(r.alertsError ?? '', /not available/);
+  assert.equal(r.expires, '');
+  const a = s.accounts[0];
+  assert.equal(a.inbox_folder_id, 'INBOX-ID');
+  assert.equal(a.subscription_id, null);
+  assert.match(a.sub_error ?? '', /not available/);
+  // just refused: opening the app does not try again at once
+  assert.deepEqual(await alertRenewAll(s.deps), []);
+  // later (and now allowed) the schedule creates it and the reason is gone
+  refuse = false;
+  s.deps.now = () => new Date(MON_10.getTime() + 31 * 60_000);
+  assert.deepEqual((await alertRenewAll(s.deps)).map((x) => x.outcome), ['recreated']);
+  assert.equal(a.subscription_id, 'NEWSUB');
+  assert.equal(a.sub_error, null);
+  // a sign-in that does not work at all (no inbox, bad token) still leaves nothing behind
+  const bad = setup({ refreshFails: 'invalid_grant' });
+  await assert.rejects(alertRegister(bad.deps, { email: 'a@b.no', refreshToken: 'x' }), (e: unknown) => e instanceof AlertGraphError);
+  assert.equal(bad.accounts.length, 0);
+});
+
+// ---- setup without secrets ----
+
+test('a sealing key derived from the service role key is stable, 32 bytes, different per secret, and works for sealing', async () => {
+  const a = await alertDeriveKey('service-role-key-1');
+  assert.equal(a, await alertDeriveKey('service-role-key-1'));
+  assert.notEqual(a, await alertDeriveKey('service-role-key-2'));
+  assert.equal(b64uToBytes(a).length, 32);
+  assert.equal(await alertDecrypt(await alertEncrypt('RT', a), a), 'RT');
+});
+
+test('a made-up VAPID pair has the shape Web Push needs (65-byte public point, 32-byte private scalar) and signs', async () => {
+  const v = await alertNewVapid();
+  assert.equal(b64uToBytes(v.publicKey).length, 65);
+  assert.equal(b64uToBytes(v.privateKey).length, 32);
+  const header = await vapidAuthorization('https://push.example/x', 'mailto:a@b.no', b64uToBytes(v.publicKey), b64uToBytes(v.privateKey));
+  assert.match(header, /^vapid t=.+\..+\..+, k=/);
+});
+
+test('address lists: commas, semicolons and spaces, any case', () => {
+  assert.deepEqual(alertEmails(' Andreas@Outlook.com, andreas@firma.no;x@y.no  z@w.no '), ['andreas@outlook.com', 'andreas@firma.no', 'x@y.no', 'z@w.no']);
+  assert.deepEqual(alertEmails(undefined), []);
+});
+
+function configStore(initial: Record<string, string> = {}, opts: { missing?: boolean } = {}) {
+  const rows = { ...initial };
+  const log: string[] = [];
+  const store: AlertConfigStore = {
+    load: async () => { if (opts.missing) throw new Error('relation "post_config" does not exist'); return { ...rows }; },
+    putIfMissing: async (k, v) => { log.push(`putIfMissing ${k}`); if (!(k in rows)) rows[k] = v; },
+    put: async (k, v) => { log.push(`put ${k}`); rows[k] = v; },
+  };
+  return { store, rows, log };
+}
+const URL_FN = 'https://proj.supabase.co/functions/v1/post-alerts';
+
+test('config: nothing set up but the database row: client id and mailbox come from the table, the rest is made up once and kept', async () => {
+  const c = configStore({ ms_client_id: '11111111-2222-3333-4444-555555555555', allowed_emails: 'andreas@outlook.com,andreas@firma.no' });
+  const env = (k: string) => ({ SUPABASE_SERVICE_ROLE_KEY: 'srk' } as Record<string, string>)[k];
+  const a = await alertResolveConfig(env, c.store, URL_FN);
+  assert.equal(a.clientId, '11111111-2222-3333-4444-555555555555');
+  assert.deepEqual(a.allowedEmails, ['andreas@outlook.com', 'andreas@firma.no']);
+  assert.equal(a.encKey, await alertDeriveKey('srk'));
+  assert.ok(a.vapid && b64uToBytes(a.vapid.publicKey).length === 65);
+  assert.equal(a.adminKeys.length, 1);
+  assert.equal(c.rows.function_url, URL_FN, 'the function tells the database where it lives, for the schedule');
+  assert.equal(c.rows.cron_key, a.adminKeys[0]);
+  // the second request reads the same things back and makes nothing new
+  const before = c.log.length;
+  const b = await alertResolveConfig(env, c.store, URL_FN);
+  assert.deepEqual(b.vapid, a.vapid);
+  assert.deepEqual(b.adminKeys, a.adminKeys);
+  assert.equal(c.log.length, before);
+});
+
+test('config: Supabase secrets win over the table, and a VAPID pair from the environment is used as given (shared with Home Memory)', async () => {
+  const c = configStore({ ms_client_id: 'from-table', allowed_emails: 'table@x.no' });
+  const env = (k: string) => ({ MS_CLIENT_ID: 'from-env', POST_ALLOWED_EMAILS: 'Env@x.no', ALERTS_ENC_KEY: 'K'.repeat(43), VAPID_PUBLIC_KEY: 'PUB', VAPID_PRIVATE_KEY: 'PRIV', POST_ALERTS_KEY: 'secret-key', SUPABASE_SERVICE_ROLE_KEY: 'srk' } as Record<string, string>)[k];
+  const a = await alertResolveConfig(env, c.store, URL_FN);
+  assert.equal(a.clientId, 'from-env');
+  assert.deepEqual(a.allowedEmails, ['env@x.no', 'table@x.no']);
+  assert.equal(a.encKey, 'K'.repeat(43));
+  assert.deepEqual(a.vapid, { publicKey: 'PUB', privateKey: 'PRIV' });
+  assert.ok(a.adminKeys.includes('secret-key') && a.adminKeys.includes(c.rows.cron_key), 'the schedule key from the table keeps working');
+  assert.equal('vapid' in c.rows, false, 'no pair is made when one is given');
+});
+
+test('config: before the post_config table exists the function still runs on secrets alone, and makes nothing up it cannot keep', async () => {
+  const c = configStore({}, { missing: true });
+  const a = await alertResolveConfig((k) => ({ MS_CLIENT_ID: 'cid', ALERTS_ENC_KEY: 'K'.repeat(43) } as Record<string, string>)[k], c.store, URL_FN);
+  assert.equal(a.clientId, 'cid');
+  assert.equal(a.vapid, null);
+  assert.deepEqual(a.adminKeys, []);
+  assert.deepEqual(c.log, []);
+  const none = await alertResolveConfig(() => undefined, configStore().store, URL_FN);
+  assert.equal(none.clientId, null);
+  assert.equal(none.encKey, null, 'without the service role key (or ALERTS_ENC_KEY) nothing can be sealed');
 });

@@ -203,3 +203,71 @@ test('a stranger cannot sign in: not on the allowed list means nothing is stored
   assert.equal(db.post_alert_accounts.length, 0);
   env.POST_ALLOWED_EMAILS = 'Andreas@Outlook.com, andreas@firma.no';
 });
+
+test('no secrets at all: client id and mailbox come from the database, push keys and the schedule key are made once, and it all keeps working request after request', async () => {
+  const saved = { ...env };
+  for (const k of ['MS_CLIENT_ID', 'POST_ALLOWED_EMAILS', 'ALERTS_ENC_KEY', 'POST_ALERTS_KEY', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']) delete env[k];
+  db.post_config = [];
+  db.post_alert_devices = [];
+  try {
+    // Before `post_setup` has been run there is no client id: a calm 503 that says what to do.
+    const early = await call({ op: 'config' }, null);
+    assert.equal(early.status, 503);
+    assert.match((await early.json()).message, /select post_setup/);
+    db.post_config.push({ key: 'ms_client_id', value: 'DB-CID' }, { key: 'allowed_emails', value: 'andreas@outlook.com' });
+    assert.equal((await (await call({ op: 'config' }, null)).json()).clientId, 'DB-CID');
+
+    // The push key pair is made on first need and then stays the same.
+    const v1 = (await (await call({ op: 'vapid' }, null)).json()).publicKey;
+    assert.ok(v1 && v1.length > 80);
+    assert.equal((await (await call({ op: 'vapid' }, null)).json()).publicKey, v1);
+    const cfg = Object.fromEntries(db.post_config.map((r) => [r.key, r.value]));
+    assert.equal(cfg.function_url, URL0, 'the function tells the database where it lives, for the 6-hourly schedule');
+    assert.ok(cfg.cron_key && cfg.cron_key.length >= 30);
+
+    // A real sign-in with nothing but the database row, then the whole alert path with the made-up push keys.
+    const start = await (await call({ op: 'signin_start', redirectUri: 'https://site.example/post/' }, null)).json();
+    const done = await (await call({ op: 'signin_finish', code: 'CODE', state: new URL(start.url).searchParams.get('state')! }, null)).json();
+    assert.equal(done.email, 'andreas@outlook.com');
+    const as = (session: string, body: unknown) => handler(new Request(URL0, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-post-session': session }, body: JSON.stringify(body) }));
+    const p256dh = bytesToB64u(new Uint8Array(await crypto.subtle.exportKey('raw', ua.publicKey)));
+    assert.equal((await as(done.session, { op: 'pair', endpoint: 'https://push.example/own-keys', p256dh, auth: bytesToB64u(crypto.getRandomValues(new Uint8Array(16))), lang: 'en' })).status, 200);
+    const before = pushed.length;
+    assert.equal((await (await as(done.session, { op: 'test' })).json()).sent, 1);
+    assert.equal(pushed.length, before + 1);
+
+    // The schedule authenticates with the key the function made; anything else is refused.
+    assert.equal((await call({ op: 'renew' }, 'wrong')).status, 401);
+    assert.equal((await call({ op: 'renew' }, cfg.cron_key)).status, 200);
+
+    // Opening Post (status) is also a renewal moment; the status lists why alerts would be off, if they were.
+    const st = await (await as(done.session, { op: 'status' })).json();
+    assert.equal(st.accounts[0].sub_error, null);
+    await as(done.session, { op: 'unregister' });
+  } finally {
+    Object.assign(env, saved);
+    db.post_config = [];
+    db.post_alert_devices = [];
+  }
+});
+
+test('Microsoft refusing the alert subscription does not stop the sign-in: the mailbox works and Settings can say why alerts are off', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL, init: RequestInit = {}) => (String(url).endsWith('/subscriptions') && init.method === 'POST'
+    ? new Response(JSON.stringify({ error: { code: 'InvalidRequest', message: 'Subscription validation request failed.' } }), { status: 400 })
+    : realFetch(url as string, init))) as typeof fetch;
+  try {
+    const start = await (await call({ op: 'signin_start', redirectUri: 'https://site.example/post/' }, null)).json();
+    const res = await call({ op: 'signin_finish', code: 'CODE', state: new URL(start.url).searchParams.get('state')! }, null);
+    assert.equal(res.status, 200);
+    const done = await res.json();
+    assert.match(done.alertsError, /validation request failed/);
+    const status = await (await handler(new Request(URL0, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-post-session': done.session }, body: JSON.stringify({ op: 'status' }) }))).json();
+    assert.match(status.accounts[0].sub_error, /validation request failed/);
+    assert.equal(status.accounts[0].subscription_expires_at, null);
+    assert.equal((await handler(new Request(URL0, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-post-session': done.session }, body: JSON.stringify({ op: 'token' }) }))).status, 200, 'mail access still works');
+    await call({ op: 'unregister', email: 'andreas@outlook.com' });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
