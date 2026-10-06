@@ -101,7 +101,7 @@ button.find::after { content: ''; position: absolute; inset: -3px 0; } /* the se
 .empty .big { font: 700 22px var(--font-h); color: var(--ink); margin-bottom: 8px; display: block; }
 .more { display: block; margin: 14px auto; height: 44px; padding: 0 20px; border-radius: var(--r-ctl); border: 0; background: var(--card); font-weight: 600; font-size: 14px; }
 
-.tabs { position: absolute; left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: 240px; height: 60px; border-radius: 30px; padding: 5px; display: flex; gap: 2px; background: var(--gl); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6); border: 1px solid var(--ge); box-shadow: var(--sh); }
+.tabs { position: absolute; left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: min(284px, calc(100% - 108px)); height: 60px; border-radius: 30px; padding: 5px; display: flex; gap: 2px; background: var(--gl); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6); border: 1px solid var(--ge); box-shadow: var(--sh); }
 .tab { position: relative; flex: 1; border: 0; background: transparent; border-radius: 25px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 10.5px; font-weight: 600; }
 .tab.on { background: var(--pill); color: var(--at); }
 .bdg { position: absolute; top: 3px; left: calc(50% + 4px); min-width: 18px; height: 18px; border-radius: 9px; background: var(--ac); color: var(--on); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
@@ -111,6 +111,7 @@ button.find::after { content: ''; position: absolute; inset: -3px 0; } /* the se
 .bar .ib .lb { font-size: 10.5px; font-weight: 600; line-height: 1; color: var(--mu); }
 .bar .go { flex: 1; height: 52px; border-radius: calc(var(--r-bar) - 6px); border: 0; background: var(--ac); color: var(--on); font-size: 15.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .bar .go small { font-weight: 500; opacity: .85; font-size: 14px; }
+@media (max-width: 359px) { .bar .go { min-width: 0; } .bar .go small { display: none; } } /* a very narrow phone: the main button keeps its word, the little "next" gives way */
 .bar.sel .go { background: var(--ink); color: var(--bg); }
 
 .toast-dock { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 100px); display: flex; justify-content: center; pointer-events: none; z-index: 40; }
@@ -175,7 +176,7 @@ textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: ve
 .steps li::before { content: counter(s); width: 26px; height: 26px; border-radius: 13px; background: var(--tint); color: var(--ti); font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; font-size: 13px; }
 .code { font: 12px/1.4 ui-monospace, monospace; word-break: break-all; background: var(--bg); border-radius: 12px; padding: 10px 12px; margin-top: 8px; color: var(--mu); }
 .link { color: var(--at); font-weight: 600; background: none; border: 0; padding: 0; text-decoration: underline; font-size: inherit; }
-.f .link { text-decoration: none; padding: 0 10px; margin-right: -6px; }
+.f .link { text-decoration: none; padding: 0 10px; margin-right: -6px; min-width: 44px; }
 
 /* reading */
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; border-radius: 14px; background: var(--card); padding: 0 10px; font-size: 12.5px; font-weight: 600; color: var(--mu); border: 0; }
@@ -469,6 +470,24 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .crash .auth-fine { text-align: center; }
 .crash .code-box { margin: 14px 0 0; width: 100%; }
 
+/* ---- folders: the Folders tab, the list of one folder, Move to, the draft editor, the sidebar ---- */
+.hd > div { min-width: 0; }
+.hd.under { padding-top: 0; }
+.hd .sub { margin: 4px 0 0; }
+.it.fr { min-height: 54px; }
+.it.fr.nested { padding-left: calc(16px + var(--d, 0) * 22px); }
+.it.fr .cnt { font-size: 14.5px; font-weight: 700; color: var(--at); }
+.it.fr .cnt.mu { color: var(--mu); font-weight: 600; }
+.it.fr .v .ic { color: var(--mu); }
+.tg.dr { color: var(--at); border-color: color-mix(in srgb, var(--at) 38%, var(--ln)); }
+.who.nobody { color: var(--mu); font-style: italic; font-weight: 400; }
+.row .av .ic { color: var(--mu); }
+.f .ro { flex: 1; min-width: 0; padding: 14px 0; font-size: 15px; line-height: 1.3; color: var(--mu); overflow-wrap: anywhere; }
+.f select:disabled { opacity: .7; }
+.sb-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-h.sub { margin: 12px 12px 4px; font-size: 11px; letter-spacing: .05em; text-transform: none; font-weight: 600; }
+.sb-n.mu { color: var(--mu); font-weight: 600; }
+
 /* ---- the Calm look: the same screens, plain and quiet, in the manner of the apps that come with the phone.
    Everything below overrides the Refined rules above and only applies under [data-look="calm"]. ---- */
 .post[data-look="calm"] {
@@ -540,3 +559,6 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post.wide[data-look="calm"] .msg { box-shadow: inset 0 0 0 var(--hair) var(--ln); }
 .post.wide[data-look="calm"] .fields, .post.wide[data-look="calm"] .write { box-shadow: inset 0 0 0 var(--hair) var(--ln); }
 .post.wide[data-look="calm"] .dsk-main .pg > .nav { background: var(--card); }
+.post[data-look="calm"] .it.fr .cnt { color: var(--mu); font-weight: 400; }
+.post[data-look="calm"] .tg.dr { border-color: transparent; background: var(--tint); color: var(--ti); }
+.post.wide[data-look="calm"] .sb-h.sub { text-transform: none; }

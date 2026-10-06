@@ -1,7 +1,8 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import type { Controller } from '../core/controller.ts';
+import { folderKey, type Controller } from '../core/controller.ts';
 import { themeVars } from '../core/settings.ts';
 import { Compose } from './Compose.tsx';
+import { FolderList, FoldersScreen } from './Folders.tsx';
 import { Inbox } from './Inbox.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
@@ -11,7 +12,7 @@ import { AccountsSheet } from './Accounts.tsx';
 import { ErrorBoundary } from './Crash.tsx';
 import { Connecting, Login, SignedInElsewhere, SignInFailed, WaitingForMicrosoft, cleanUrl, readCallback } from './signin.tsx';
 import { Desktop } from './Desktop.tsx';
-import { Ctx, go, useDark, useRoute, useS, useWide } from './ctx.tsx';
+import { Ctx, go, targetOfRoute, useDark, useRoute, useS, useWide } from './ctx.tsx';
 import { Mark } from './ui.tsx';
 
 function Toasts() {
@@ -92,7 +93,10 @@ function Shell() {
     case 'search': return <Search s={s} q={route.q} />;
     case 'later': return <Later s={s} />;
     case 'triage': return <Triage s={s} />;
-    case 'compose': return <Compose s={s} mode={route.mode} account={route.account} id={route.id} />;
+    case 'folders': return <FoldersScreen s={s} />;
+    case 'folder': return <FolderList s={s} target={targetOfRoute(route)} key={folderKey(targetOfRoute(route))} />;
+    // keyed: a draft opened after another one is a new editor, never the old one with the new draft's address
+    case 'compose': return <Compose s={s} mode={route.mode} account={route.account} id={route.id} key={`${route.mode}|${route.account ?? ''}|${route.id ?? ''}`} />;
     case 'settings': return <SettingsPage s={s} page={route.page} account={route.account} />;
     case 'accounts': return <><Inbox s={s} /><AccountsSheet s={s} onAdd={startAdd} onClose={() => go({ name: 'inbox' })} /></>;
     default: return <Inbox s={s} />;

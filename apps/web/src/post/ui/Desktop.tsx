@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
-import { mailCounts, visibleThreads, type State, type View } from '../core/controller.ts';
+import { folderKey, mailCounts, visibleThreads, type State, type View } from '../core/controller.ts';
+import { DELETE_WAY, placeActions } from '../core/folders.ts';
 import { accountColour } from '../core/settings.ts';
 import { SHORTCUT_HELP, shortcutFor } from '../core/shortcuts.ts';
 import { replyTarget, type Thread } from '../core/threads.ts';
-import { KIND_TAB, mailKey } from '../core/types.ts';
+import { KIND_TAB, mailKey, type Mail } from '../core/types.ts';
 import { Compose } from './Compose.tsx';
+import { FolderList, SidebarFolders } from './Folders.tsx';
 import { Inbox, SnoozeSheet } from './Inbox.tsx';
+import { moveWay } from './Move.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
 import { Triage } from './Triage.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { AccountsSheet } from './Accounts.tsx';
 import { Icon, KIND_ICON, Mark, Sheet } from './ui.tsx';
-import { go, resolveAccount, useC, useNow, useRoute } from './ctx.tsx';
+import { folderContext, folderTitle, go, openMail as openItem, resolveAccount, routeOfFolder, targetOfRoute, useC, useNow, useRoute } from './ctx.tsx';
 
 /** The computer layout: a sidebar, the message list, and the reading pane side by side. The same screens as on the phone, just in panes. */
 export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void }) {
@@ -22,15 +25,23 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
   const [help, setHelp] = useState(false);
   const [snoozing, setSnoozing] = useState<Thread | null>(null);
 
-  // The list is a row per conversation, and the keys act on the whole conversation of the row that is open.
-  const list = visibleThreads(s, now);
+  // What the list shows, and what the keys move through: a folder (when it is open, or holds the message that is), or the inbox (a row per conversation).
   const open = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : null;
-  const idx = open ? list.findIndex((t) => t.items.some((m) => m.key === open)) : -1;
-  const current = idx >= 0 ? list[idx] : undefined;
-  const openMail = (t?: Thread) => { if (t) go({ name: 'message', account: t.latest.account, id: t.latest.id }); };
+  const inInbox = !!open && s.mail.some((m) => m.key === open);
+  const view = route.name === 'folder' ? (s.folder?.key === folderKey(targetOfRoute(route)) ? s.folder : null) : inInbox ? null : folderContext(s, open);
+  const inFolder = route.name === 'folder' || (route.name === 'message' && !!view);
+  const list = visibleThreads(s, now);
+  const rows = inFolder ? view?.items ?? [] : [];
+  const idx = !open ? -1 : inFolder ? rows.findIndex((m) => m.key === open) : list.findIndex((t) => t.items.some((m) => m.key === open));
+  const size = inFolder ? rows.length : list.length;
+  const at = (i: number): Mail | undefined => (inFolder ? rows[i] : list[i]?.latest);
+  const currentMail = idx >= 0 ? at(idx) : undefined;
+  const current = !inFolder && idx >= 0 ? list[idx] : undefined; // the conversation of the inbox that is open
+  const home = inFolder && view ? routeOfFolder(view.target) : { name: 'inbox' as const };
 
   // Keyboard: j and k move through the list, e archives, and so on. Ignored while typing, and while a sheet is open.
   useEffect(() => {
+    const goNext = () => { const n = at(idx + 1) ?? at(idx - 1); if (n) openItem(n); else go(home); }; // after a message has left the list
     const on = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       const typing = !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
@@ -38,29 +49,54 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet, .viewer') });
       if (!a) return;
       switch (a) {
-        case 'next': openMail(idx >= 0 ? list[idx + 1] ?? list[idx] : list[0]); break;
-        case 'prev': openMail(idx > 0 ? list[idx - 1] : list[0]); break;
-        case 'open': if (!current) openMail(list[0]); else return; break;
-        case 'archive': { if (!current) return; void c.archive(current.items, 1); openMail(list[idx + 1] ?? list[idx - 1]); if (!list[idx + 1] && !list[idx - 1]) go({ name: 'inbox' }); break; }
-        case 'delete': { if (!current) return; void c.trash(current.items, 1); openMail(list[idx + 1] ?? list[idx - 1]); if (!list[idx + 1] && !list[idx - 1]) go({ name: 'inbox' }); break; }
-        case 'reply': case 'replyAll': if (!current) return; go({ name: 'compose', mode: a, account: current.account, id: (replyTarget(current.items) ?? current.latest).id }); break;
+        case 'next': { const n = idx >= 0 ? at(idx + 1) ?? at(idx) : at(0); if (n) openItem(n); break; }
+        case 'prev': { const n = idx > 0 ? at(idx - 1) : at(0); if (n) openItem(n); break; }
+        case 'open': if (!currentMail) { const n = at(0); if (n) openItem(n); } else return; break;
+        case 'archive': {
+          if (inFolder) { // the button of the folder it is in: Archive for a sent message, Inbox for an archived one ...
+            const w = currentMail ? placeActions(currentMail.fk ?? view?.target.kind ?? 'unknown').primary : null;
+            if (!currentMail || !w) return;
+            void moveWay(c, [currentMail], w); goNext(); break;
+          }
+          if (!current) return; void c.archive(current.items, 1); goNext(); break;
+        }
+        case 'delete': {
+          if (inFolder) {
+            if (!currentMail || !placeActions(currentMail.fk ?? view?.target.kind ?? 'unknown').canDelete) return;
+            void moveWay(c, [currentMail], DELETE_WAY); goNext(); break;
+          }
+          if (!current) return; void c.trash(current.items, 1); goNext(); break;
+        }
+        case 'reply': case 'replyAll': {
+          if (inFolder) { if (!currentMail) return; go({ name: 'compose', mode: a, account: currentMail.account, id: currentMail.id }); break; }
+          if (!current) return; go({ name: 'compose', mode: a, account: current.account, id: (replyTarget(current.items) ?? current.latest).id }); break;
+        }
         case 'compose': go({ name: 'compose', mode: 'new' }); break;
         case 'search': go({ name: 'search', q: '' }); break;
-        case 'close': if (document.querySelector('.sheet, .viewer')) return; /* the sheet or the file viewer closes itself */ if (route.name !== 'inbox') go({ name: 'inbox' }); else return; break;
-        case 'unread': if (!current) return; void c.toggleRead(current.items); break;
-        case 'flag': if (!current) return; void c.toggleFlag(current.items); break;
+        case 'close':
+          if (document.querySelector('.sheet, .viewer')) return; /* the sheet or the file viewer closes itself */
+          if (route.name === 'message' && inFolder) go(home);
+          else if (route.name === 'compose' && route.mode === 'draft' && s.folder?.target.kind === 'drafts') go(routeOfFolder(s.folder.target));
+          else if (route.name !== 'inbox' && route.name !== 'folder') go({ name: 'inbox' });
+          else return;
+          break;
+        case 'unread': if (inFolder) { if (!currentMail) return; void c.toggleRead([currentMail]); } else { if (!current) return; void c.toggleRead(current.items); } break;
+        case 'flag': if (inFolder) { if (!currentMail) return; void c.toggleFlag([currentMail]); } else { if (!current) return; void c.toggleFlag(current.items); } break;
         case 'snooze': if (!current) return; setSnoozing(current); break;
         case 'undo': { const u = s.toast?.undo; if (!u) return; u(); break; }
-        case 'refresh': void c.sync(); break;
+        case 'refresh': void c.sync(); if (inFolder) void c.refreshFolder(); break;
         case 'help': setHelp(true); break;
       }
       e.preventDefault();
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
-  }, [c, list, idx, current, route.name, help, s.toast]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [c, list, rows, idx, size, current, currentMail, inFolder, route.name, help, s.toast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const full = route.name === 'settings' || route.name === 'triage';
+  // The list pane follows the message or the draft that is open: a message read from Sent keeps Sent in the list, a draft keeps Drafts.
+  const draftsOpen = route.name === 'compose' && route.mode === 'draft' && s.folder?.target.kind === 'drafts' ? s.folder.target : null;
+  const folderPane = route.name === 'folder' ? targetOfRoute(route) : route.name === 'message' && view ? view.target : draftsOpen;
   return (
     <div className="dsk">
       <Sidebar s={s} onAdd={onAdd} onHelp={() => setHelp(true)} />
@@ -71,12 +107,12 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       ) : (
         <>
           <section className="dsk-list" aria-label="Messages">
-            {route.name === 'search' ? <Search s={s} q={route.q} pane /> : route.name === 'later' ? <Later s={s} pane /> : <Inbox s={s} pane />}
+            {folderPane ? <FolderList s={s} target={folderPane} pane /> : route.name === 'search' ? <Search s={s} q={route.q} pane /> : route.name === 'later' ? <Later s={s} pane /> : <Inbox s={s} pane />}
           </section>
           <main className="dsk-main">
             {route.name === 'message' ? <Reader s={s} account={route.account} id={route.id} pane key={open ?? ''} />
-              : route.name === 'compose' ? <Compose s={s} mode={route.mode} account={route.account} id={route.id} />
-                : <EmptyPane s={s} />}
+              : route.name === 'compose' ? <Compose s={s} mode={route.mode} account={route.account} id={route.id} key={`${route.mode}|${route.account ?? ''}|${route.id ?? ''}`} />
+                : <EmptyPane s={s} folder={route.name === 'folder' ? folderTitle(s, targetOfRoute(route)) : null} />}
           </main>
         </>
       )}
@@ -99,7 +135,12 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
   // The numbers are what is waiting in Primary (for a mailbox: its Primary). Promotions and receipts show their own numbers in their own tabs.
   const unreadOf = (email: string | null) => mailCounts({ mail: s.mail, accountFilter: email, settings: s.settings }, now).byKind.person.unread;
   const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter, settings: s.settings }, now);
-  const inbox = route.name === 'inbox' || route.name === 'message' || route.name === 'compose' || route.name === 'accounts';
+  // The folder that is open (or the one the open message or draft was opened from), so its row in the sidebar shows where you are.
+  const open = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : null;
+  const folder = route.name === 'folder' ? folderKey(targetOfRoute(route))
+    : route.name === 'message' && !s.mail.some((m) => m.key === open) ? folderContext(s, open)?.key ?? null
+      : route.name === 'compose' && route.mode === 'draft' && s.folder?.target.kind === 'drafts' ? s.folder.key : null;
+  const inbox = !folder && (route.name === 'inbox' || route.name === 'folders' || route.name === 'message' || route.name === 'compose' || route.name === 'accounts');
   const nav = (active: boolean, icon: string, text: string, onClick: () => void, badge?: number) => (
     <button className={`sb-it${active ? ' on' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon n={icon} size={20} />{text}{badge ? <span className="sb-n">{badge > 99 ? '99+' : badge}</span> : null}</button>
   );
@@ -115,6 +156,7 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
         {tab('promo', KIND_ICON.promo, KIND_TAB.promo, counts.byKind.promo.unread)}
         {tab('all', 'inbox', 'All mail', 0)}
       </nav>
+      <SidebarFolders s={s} active={folder} />
       <nav className="sb-nav sb-gap" aria-label="Main">
         {nav(route.name === 'search', 'search', 'Search', () => go({ name: 'search', q: '' }))}
         {nav(route.name === 'later', 'clock', 'Later', () => go({ name: 'later' }))}
@@ -142,14 +184,14 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
   );
 }
 
-function EmptyPane({ s }: { s: State }) {
+function EmptyPane({ s, folder }: { s: State; folder: string | null }) {
   const now = useNow();
   const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter, settings: s.settings }, now);
   const unread = s.view === 'all' ? counts.unread : counts.byKind[s.view].unread;
   return (
     <div className="dsk-empty">
       <div className="mark"><Mark size={44} /></div>
-      <h2 className="h2">{unread ? `${unread} unread${s.view === 'all' ? '' : ` in ${KIND_TAB[s.view]}`}` : 'All caught up'}</h2>
+      <h2 className="h2">{folder ?? (unread ? `${unread} unread${s.view === 'all' ? '' : ` in ${KIND_TAB[s.view]}`}` : 'All caught up')}</h2>
       <p>Choose a message to read it. <kbd>j</kbd> and <kbd>k</kbd> move through the list, <kbd>e</kbd> archives, <kbd>?</kbd> shows every shortcut.</p>
     </div>
   );

@@ -1,15 +1,16 @@
 import { isFreemail, orgDomain, type ClassifyContext } from './classify.ts';
 import { createDiag, worth } from './diag.ts';
 import { createByteCache, emlName, mimeOf, saveName } from './files.ts';
-import { createGraph, GraphError, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
-import { UNDO_WINDOW_MS, createQueue, type OpType } from './queue.ts';
+import { buildFolders, folderMail, folderOfMail, GRAPH_NAME, recipientsOf } from './folders.ts';
+import { createGraph, GraphError, type AttachmentInfo, type DraftContent, type DraftField, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
+import { UNDO_WINDOW_MS, createQueue, isMove, type OpType } from './queue.ts';
 import { createServer, createTokens, ServerError, type AccountStatus, type DeviceApi, type Server, type SignedIn } from './server.ts';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
-import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, syncAccount, toMail } from './sync.ts';
+import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, syncAccount } from './sync.ts';
 import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
-import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type Kind, type Mail, type MailBody } from './types.ts';
+import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, type FolderKind, type Kind, type Mail, type MailBody } from './types.ts';
 
 // The brain of the app, with no browser or React in it so it is tested in Node. The screens only read `state` and call these methods.
 // Rule everywhere: the screen changes first, the network follows, and nothing the user did is ever lost or silently undone.
@@ -17,11 +18,38 @@ import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type Kind, type M
 /** Which tab of the inbox is open: one of the four kinds (Primary is 'person'), or everything. */
 export type View = 'all' | Kind;
 export interface Toast { id: number; text: string; undo?: () => void }
+
+/** Which folder to open: a standard one (of one mailbox, or of every mailbox), or one of your own (always of one mailbox, by its id). */
+export interface FolderTarget { kind: FolderKind; account?: string; id?: string }
+/** The list of messages in a folder: read from Outlook when the folder is opened, kept only while Post is open. */
+export interface FolderView {
+  key: string;
+  target: FolderTarget;
+  /** Newest first. */
+  items: Mail[];
+  /** There is more to read below (the next page of at least one mailbox). */
+  more: boolean;
+  /** 'loading': being read (the items may be the ones from last time); 'failed': nothing could be read and there is nothing to show. */
+  state: 'loading' | 'ready' | 'failed';
+  /** The next page is being read. */
+  paging: boolean;
+  /** What went wrong with the last read, when it did. The items shown are then the ones from before. */
+  error: string | null;
+  /** The labels of mailboxes that could not be read when others could. */
+  partial: string[];
+  /** When it was last read (0: not yet). */
+  at: number;
+}
+export const folderKey = (t: FolderTarget) => `${t.kind}|${t.account ?? ''}|${t.id ?? ''}`;
 /** A file waiting to be sent: what the outbox list knows about it. The file itself is kept apart, under the account's own name, so removing the account removes it. */
 export interface OutFileRef { name: string; type: string; size: number }
-export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward'; to: string[]; cc: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number;
-  /** How far the message got at Outlook (its draft, and whether "send" was asked for): kept so that a try that was cut short is carried on, never repeated. */ draft?: DraftProgress }
-export interface Draft { account: string; to: string; cc: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind'] }
+export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward' | 'draft'; to: string[]; cc: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number;
+  /** How far the message got at Outlook (its draft, and whether "send" was asked for): kept so that a try that was cut short is carried on, never repeated. */ draft?: DraftProgress;
+  /** For a draft that lives at Outlook: which parts of it were changed here. The rest is left as Outlook has it. Everything, when it is not said. */ edited?: DraftField[] }
+/** Half-written text. `modified`: for a draft that lives at Outlook, when Outlook last changed it as of the time this text was read, so that a change made over there since is noticed. */
+export interface Draft { account: string; to: string; cc: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind']; modified?: string }
+/** A draft that lives at Outlook. What was changed in it here is kept apart from the message being written (see `saveDraft`). */
+export interface DraftOf { account: string; id: string }
 
 export interface AppAccount extends AccountStatus { needsSignIn: boolean }
 
@@ -51,6 +79,13 @@ export interface State {
   sent: number;
   /** Where Post's copy of the mail is kept: on the phone, or (when the phone would not let it) only in memory until Post is closed. */
   storage: 'device' | 'memory';
+  /** The folders of every signed-in mailbox, as Outlook last listed them (empty until something asked for them). */
+  folders: FolderInfo[];
+  foldersLoading: boolean;
+  /** Set when the folders could not be updated; `folders` is then the list from last time (or empty). */
+  foldersError: string | null;
+  /** The folder that is open, or was open last. */
+  folder: FolderView | null;
 }
 
 export interface Deps {
@@ -74,10 +109,20 @@ export interface Opened { name: string; type: string; bytes: Uint8Array; link?: 
 
 const MAX_TRIES = 3;          // a message with files is tried this many times (time offline does not count) and is then handed back as a draft
 const DRAFT_FILES = 'draft-files';
+/** What was changed in drafts that live at Outlook and was not saved or sent (kv: one entry per draft), and how long such a change is kept when the draft is never opened again. */
+const EDITS = 'post.draftedits';
+const EDITS_KEPT_MS = 30 * 24 * 3600 * 1000;
+type Edits = Record<string, Draft & { at: number }>;
+const editsKey = (of: DraftOf) => `${of.account}|${of.id}`;
+const editFilesKey = (of: DraftOf) => `${of.account}|draftfiles|${of.id}`;
 const outFileKey = (account: string, itemId: string, i: number) => `${account}|outfile|${itemId}|${i}`;
 const SENDING_TOAST_MS = 180_000;
 /** The rest of a conversation, as Outlook gave it, is trusted this long before it is asked for again. */
 const CONVERSATION_FRESH_MS = 90_000;
+/** The list of folders is trusted this long before it is asked for again. */
+const FOLDERS_FRESH_MS = 45_000;
+/** The messages of a folder just read are trusted this long when the folder is opened again (a pull to refresh always asks). */
+const FOLDER_FRESH_MS = 20_000;
 /** Folders whose messages are not part of a conversation you read: what you deleted, junk, and drafts that are not sent. */
 const HIDDEN_FOLDERS = ['deleteditems', 'junkemail', 'drafts'] as const;
 
@@ -127,6 +172,7 @@ export function createController(deps: Deps) {
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
     sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, sent: 0, storage: 'device',
+    folders: [], foldersLoading: false, foldersError: null, folder: null,
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -139,7 +185,6 @@ export function createController(deps: Deps) {
   const saveSessions = () => kv.set('post.sessions', JSON.stringify(sessions));
   const graphs = new Map<string, Graph>();
   let toastSeq = 0;
-  const trash = new Map<string, Mail>(); // copies kept for Undo
   let known: ReadonlySet<string> = new Set(); // addresses any signed-in mailbox has written to
   let sortingRun: Promise<void> | null = null;
   let syncRun: Promise<void> | null = null;
@@ -168,6 +213,151 @@ export function createController(deps: Deps) {
   /** Everything the sorting knows besides the message itself: what you moved by hand, who you have written to, your VIPs. */
   const sortCtx = (): ClassifyContext => ({ overrides: state.overrides, known, vips: new Set(state.accounts.flatMap((a) => a.vips ?? []).map((v) => v.toLowerCase())) });
 
+  // ---- folders: what Outlook has besides the inbox ------------------------------------------------------------------------------------------
+  // A folder is read from Outlook when it is opened and kept only while Post is open (like search results): the inbox is the only mail that lives
+  // on the phone. What is read is `remember`ed, so the reader can open it, and acting on it (move, read, flag) works like acting on inbox mail:
+  // the screen changes first, the queue carries it out after the undo time.
+  const folderCursors = new Map<string, Record<string, string | null>>(); // folder key -> mailbox -> where its next page starts (null: nothing more there)
+  let folderSeq = 0;                                                      // which opening of a folder is the current one: an answer for an older one is dropped
+  let foldersAt = 0;
+  let foldersRun: Promise<void> | null = null;
+  const labelFor = (account: string) => state.accounts.find((a) => a.email === account)?.label ?? account;
+  const describe = (e: unknown, fallback = 'Could not read this folder.') => ((e instanceof GraphError || e instanceof ServerError) && e.status === 0 ? 'No connection.' : e instanceof Error && e.message ? e.message : fallback);
+
+  /** Messages that are waiting to be moved: no list shows them, even while Outlook still says they are where they were. */
+  const leavingKeys = async () => new Set((await queue.pending()).filter((o) => isMove(o.type)).map((o) => mailKey(o.account, o.messageId)));
+
+  /** A message seen in Outlook rather than in the inbox on this phone: in the folder that is open, or among what was seen this time. */
+  const copyOf = (key: string): Mail | undefined => state.folder?.items.find((m) => m.key === key) ?? remote.get(key);
+
+  /** What kind of folder a message is in, by the id Outlook gave the folder; null when the folders are not listed (yet) or Outlook did not say. */
+  const kindOfFolder = (account: string, fid?: string): FolderKind | null => (fid ? state.folders.find((f) => f.account === account && f.id === fid)?.kind ?? null : null);
+
+  const setView = (fn: (v: FolderView) => FolderView) => { if (state.folder) set({ folder: fn(state.folder) }); };
+
+  /** Changes a message seen in Outlook, wherever it is kept: in the folder that is open and among what was seen this time. */
+  function editCopy(key: string, patch: Partial<Mail>): Mail | undefined {
+    const cur = copyOf(key);
+    if (!cur) return undefined;
+    const next = { ...cur, ...patch };
+    if (remote.has(key)) keepLatest(remote, key, next, 600);
+    // A new state either way: the reader of a message that is only among what was seen (a search result) must show the change too.
+    const v = state.folder;
+    set(v?.items.some((m) => m.key === key) ? { folder: { ...v, items: v.items.map((m) => (m.key === key ? next : m)) } } : {});
+    return next;
+  }
+
+  /** Keeps the unread number of a folder right while mail in it is read or moved (Outlook is asked again when the folders are next opened). */
+  const bumpUnread = (m: Pick<Mail, 'account' | 'fid'>, by: number) => {
+    if (!m.fid || !state.folders.some((f) => f.account === m.account && f.id === m.fid)) return;
+    set({ folders: state.folders.map((f) => (f.account === m.account && f.id === m.fid ? { ...f, unread: Math.max(0, f.unread + by) } : f)) });
+  };
+
+  /** Whether a message belongs in the folder list that is open (so that Undo can put it back there). */
+  const belongsInView = (v: FolderView, m: Mail) => (v.target.kind === 'other' ? !!m.fid && m.fid === v.target.id && m.account === v.target.account : m.fk === v.target.kind && (!v.target.account || v.target.account === m.account));
+
+  /**
+   * Reads the first page of a folder (the next one, with `more`) from Outlook into the open list. A mailbox that cannot be read is named while the
+   * others still show; when none can be read, what was shown stays and the problem is said.
+   */
+  async function fillFolder(mine: number, key: string, t: FolderTarget, more: boolean) {
+    const accounts = t.account ? [t.account] : state.accounts.filter((a) => !a.needsSignIn).map((a) => a.email);
+    const cursors: Record<string, string | null> = more ? { ...(folderCursors.get(key) ?? {}) } : {};
+    const folder = t.kind === 'other' ? t.id ?? '' : GRAPH_NAME[t.kind];
+    const results = await Promise.allSettled(accounts.map(async (account) => {
+      if (more && cursors[account] === null) return { account, items: [] as Mail[], next: null as string | null };
+      const g = graphFor(account);
+      if (!g) throw new Error('Sign in again');
+      const page = await g.folderPage(folder, { link: more ? cursors[account] ?? undefined : undefined, byChange: t.kind === 'drafts' });
+      return { account, items: page.value.map((r) => folderMail(account, r, t.kind, sortCtx())), next: page.next ?? null };
+    }));
+    // Asked after the answers came: what was moved while Outlook was thinking is still on its way out, and a draft that is waiting to be sent is not a draft to open.
+    const leaving = await leavingKeys();
+    for (const o of await readOutbox()) if (o.kind === 'draft' && o.replyTo) leaving.add(mailKey(o.account, o.replyTo));
+    const current = state.folder;
+    if (mine !== folderSeq || !current || current.key !== key) return; // another folder was opened meanwhile
+    const ok = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+    const failed = accounts.filter((_, i) => results[i].status === 'rejected');
+    const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')?.reason;
+    if (firstError) note('folder', firstError);
+    const byKey = new Map<string, Mail>();
+    for (const m of [...(more ? current.items : []), ...ok.flatMap((r) => r.items)]) if (!leaving.has(m.key)) byKey.set(m.key, m);
+    const items = [...byKey.values()].sort((a, b) => b.received.localeCompare(a.received));
+    if (!ok.length) { // nothing could be read: what was shown stays
+      set({ folder: { ...current, state: current.items.length ? 'ready' : 'failed', paging: false, error: describe(firstError) } });
+      return;
+    }
+    for (const r of ok) cursors[r.account] = r.next;
+    folderCursors.set(key, cursors);
+    remember(ok.flatMap((r) => r.items));
+    set({ folder: { ...current, items, more: Object.values(cursors).some((c) => typeof c === 'string'), state: 'ready', paging: false, error: null, partial: failed.map(labelFor), at: now() } });
+  }
+
+  /** Puts a message seen in Outlook back where it was (Undo of a move): into the folder list when that is the one open. */
+  const putBack = (m: Mail) => {
+    keepLatest(remote, m.key, m, 600);
+    setView((v) => (belongsInView(v, m) && !v.items.some((x) => x.key === m.key) ? { ...v, items: [...v.items, m].sort((a, b) => b.received.localeCompare(a.received)) } : v));
+    if (!m.isRead) bumpUnread(m, 1);
+  };
+
+  /** A message seen in Outlook that is gone (a draft that was sent): no list shows it any more. */
+  const dropCopy = (key: string) => {
+    remote.delete(key); remoteBodies.delete(key);
+    setView((v) => (v.items.some((m) => m.key === key) ? { ...v, items: v.items.filter((m) => m.key !== key) } : v));
+  };
+
+  /** The open folder is read again the next time it is opened, however recently it was read. */
+  const staleView = () => { if (state.folder && state.folder.at) setView((v) => ({ ...v, at: 0 })); };
+
+  /** Drafts that are on their way out (outbox id -> the draft as the list had it): Undo, or a send that failed, lists the draft again at once. */
+  const draftsOnTheirWay = new Map<string, Mail>();
+  const relistDraft = (it: OutboxItem, again = true) => {
+    const copy = draftsOnTheirWay.get(it.id);
+    draftsOnTheirWay.delete(it.id);
+    if (copy && again) putBack(copy);
+    staleView();
+  };
+
+  /**
+   * Takes messages out of the folder they are in and sends them somewhere else once the undo time has passed: archive, delete, or a move to any
+   * folder. The messages are the ones in the inbox on this phone or ones seen in Outlook (a folder, a search result); both leave the screen at once.
+   * It goes in line with the changes that read a message from the phone and write it back (read, flag, snooze): none of them may put back a
+   * message that was just taken away. Undo gets the copies as they were at this moment.
+   */
+  async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string) {
+    if (!items.length) return;
+    const moved = await exclusive(async () => {
+      const taken: { mail: Mail; inbox: boolean }[] = [];
+      const ops: PendingOp[] = [];
+      for (const m of items) {
+        const mine = await store.getMail(m.key);
+        const cur = mine ?? copyOf(m.key);
+        if (!cur) continue; // no longer in the inbox on this phone (moved somewhere else a moment ago) and not seen in Outlook either: nothing to take away
+        ops.push(await queue.enqueue(op.type, cur.account, cur.id, undefined, op.to, !mine));
+        taken.push({ mail: cur, inbox: !!mine });
+      }
+      if (!taken.length) return null;
+      const inInbox = taken.filter((t) => t.inbox).map((t) => t.mail.key);
+      if (inInbox.length) await store.deleteMail(inInbox);
+      const away = new Set(taken.map((t) => t.mail.key));
+      setView((v) => (v.items.some((m) => away.has(m.key)) ? { ...v, items: v.items.filter((m) => !away.has(m.key)) } : v));
+      for (const t of taken) if (!t.mail.isRead) bumpUnread(t.mail, -1);
+      if (op.type === 'delete' || op.to === GRAPH_NAME.deleted || op.to === GRAPH_NAME.junk) forgetInConversations(taken.map((t) => t.mail));
+      await reload();
+      return { taken, ops };
+    });
+    if (!moved) return;
+    toast(label, () => { void api.undo(moved.ops.map((o) => o.id), moved.taken.map((t) => t.mail), moved.taken.map((t) => t.inbox)); });
+    setTimer(() => {
+      void runQueue()
+        .then(() => (op.to === GRAPH_NAME.inbox ? api.sync() : undefined)) // mail moved to the inbox shows up there with its new name
+        // and the folders' numbers follow: at once when mail moved to or from a folder of its own (those numbers are not kept up to date here), otherwise
+        // when the list of folders is next due (plain archiving and deleting from the inbox must not read the whole list of folders every time)
+        .then(() => (state.folders.length ? api.loadFolders(op.type === 'move' || moved.taken.some((t) => !t.inbox) ? { force: true } : undefined) : undefined))
+        .then(reload);
+    }, UNDO_WINDOW_MS + 200);
+  }
+
   /**
    * Carries out what is due at Outlook (everything, when the app is leaving). Never fails. What Outlook would not do (a refusal that will not
    * change) is put right at once: that mailbox is read again from Outlook's side, so nothing on the phone goes on showing what did not happen.
@@ -177,10 +367,16 @@ export function createController(deps: Deps) {
     const refused = refusedNow; refusedNow = [];
     if (!refused.length) return;
     try { for (const account of new Set(refused.map((o) => o.account))) await store.setMeta(`${account}|delta`, undefined); } catch (e) { note('queue', e); }
-    const lost = refused.filter((o) => o.type === 'archive' || o.type === 'delete');
+    const lost = refused.filter((o) => isMove(o.type));
     if (lost.length) {
       const verb = lost.every((o) => o.type === 'archive') ? 'archive' : lost.every((o) => o.type === 'delete') ? 'delete' : 'move';
-      toast(`Outlook would not ${verb} ${lost.length === 1 ? 'a message' : `${lost.length} messages`}, so ${lost.length === 1 ? 'it comes' : 'they come'} back to your inbox.`, undefined, 6000);
+      const some = lost.length === 1 ? 'a message' : `${lost.length} messages`;
+      const one = lost.length === 1;
+      // Mail that was in the inbox comes back to it; mail that was moved out of a folder is simply where it was (its folder is read again).
+      const stays = (o: PendingOp) => o.type === 'move' || !!o.fromFolder;
+      const where = lost.every(stays) ? `${one ? 'it stays' : 'they stay'} where ${one ? 'it was' : 'they were'}` : lost.some(stays) ? `${one ? 'it is' : 'they are'} back where ${one ? 'it was' : 'they were'}` : `${one ? 'it comes' : 'they come'} back to your inbox`;
+      toast(`Outlook would not ${verb} ${some}, so ${where}.`, undefined, 6000);
+      if (state.folder) void api.openFolder(state.folder.target, { force: true });
     }
     setTimer(() => { void api.sync(); }, 300);
   }
@@ -208,7 +404,7 @@ export function createController(deps: Deps) {
     const [stored, ops, outbox] = await Promise.all([store.allMail(), queue.pending(), store.getMeta<OutboxItem[]>('outbox')]);
     // Archived or deleted here and Outlook not told yet: it stays out of the list, even if something that was busy with an older copy of it
     // (sorting the mail, for one) wrote it back to the phone a moment later. Undo, or Outlook's answer, settles it.
-    const leaving = new Set(ops.filter((o) => o.type === 'archive' || o.type === 'delete').map((o) => mailKey(o.account, o.messageId)));
+    const leaving = new Set(ops.filter((o) => isMove(o.type)).map((o) => mailKey(o.account, o.messageId)));
     const mail = leaving.size ? stored.filter((m) => !leaving.has(m.key)) : stored;
     mail.sort((a, b) => b.received.localeCompare(a.received));
     // "Waiting" means held up, not just inside the undo window: only actions that are already due and still not confirmed count.
@@ -327,16 +523,44 @@ export function createController(deps: Deps) {
     for (let i = 0; i < (it.files?.length ?? 0); i++) { try { await store.setMeta(outFileKey(it.account, it.id, i), undefined); } catch { /* nothing more to do */ } }
   }
 
-  /** The message goes back to the editor, with its files, and the person is told why. Its half-made copy at Outlook is thrown away. */
-  async function handBack(it: OutboxItem, given: OutFile[], why: string, g: Graph) {
+  // What was changed in drafts that live at Outlook and not saved or sent yet: one entry per draft, apart from the message being written (see `saveDraft`).
+  const readEdits = (): Edits => { try { const x = JSON.parse(kv.get(EDITS) ?? '{}'); return x && typeof x === 'object' && !Array.isArray(x) ? x : {}; } catch { return {}; } };
+  const writeEdits = (all: Edits) => { if (Object.keys(all).length) kv.set(EDITS, JSON.stringify(all)); else kv.del(EDITS); };
+  /**
+   * Lets go of kept changes that nobody will come back for: those of one mailbox that was removed (`account`), or, with none given, those of
+   * drafts that were not opened for a month (a draft sent from another app leaves its changes behind on this phone).
+   */
+  function sweepEdits(account?: string) {
+    const all = readEdits();
+    let changed = false;
+    for (const [k, d] of Object.entries(all)) {
+      const bar = k.indexOf('|');
+      if (account ? k.slice(0, bar) !== account : now() - (d?.at ?? 0) < EDITS_KEPT_MS) continue;
+      delete all[k]; changed = true;
+      if (!account && bar > 0) void store.setMeta(editFilesKey({ account: k.slice(0, bar), id: k.slice(bar + 1) }), undefined).catch(() => {}); // a removed mailbox's files go with it
+    }
+    if (changed) writeEdits(all);
+  }
+
+  /** Where the text of a message that comes back from the outbox is kept: a draft that lives at Outlook has a place of its own, everything else is the message being written. */
+  const placeOf = (it: OutboxItem): DraftOf | undefined => (it.kind === 'draft' && it.replyTo ? { account: it.account, id: it.replyTo } : undefined);
+  const textOf = (it: OutboxItem): Draft => ({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
+
+  /**
+   * The message goes back to the editor, with its files, and the person is told why. Its half-made copy at Outlook is thrown away.
+   * `vanished`: it was a draft at Outlook and that draft is not there any more: it has nowhere to be edited, so it comes back as a message of its own.
+   */
+  async function handBack(it: OutboxItem, given: OutFile[], why: string, g: Graph, vanished = false) {
     const progress = (await readOutbox()).find((x) => x.id === it.id)?.draft ?? it.draft;
     // Once "send" was asked for the files were not needed from the phone any more, so they were not read: the person gets them back all the same.
     const files = given.length || !it.files?.length ? given : (await loadOutFiles(it)).files;
-    api.saveDraft({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
-    if (files.length) await api.saveDraftFiles(files);
+    const place = vanished ? undefined : placeOf(it);
+    api.saveDraft(vanished ? { ...textOf(it), mode: 'new', replyTo: undefined } : textOf(it), place);
+    if (files.length) await api.saveDraftFiles(files, place);
     await dropOutFiles(it);
+    if (it.kind === 'draft') relistDraft(it, !vanished); // the draft is still at Outlook (unless it vanished): the Drafts list lists it again
     toast(`Could not send: ${why}. Your message${files.length ? ' and its files are' : ' is'} saved as a draft.`, undefined, files.length ? 8000 : undefined);
-    if (progress) await g.discard(progress.id);
+    if (progress && it.kind !== 'draft') await g.discard(progress.id); // a draft that was already at Outlook is the person's own: it stays
   }
 
   /** Whether a message that is about to be given up on had in fact gone out: it is only handed back when Outlook still holds it as a draft, so it can never go twice. */
@@ -349,11 +573,12 @@ export function createController(deps: Deps) {
   /** The message a waiting reply answers is being moved away (an archive waiting or just done): "not found" is then only "not yet", and its new name is known soon. */
   async function followingMove(account: string, id: string, used: string): Promise<boolean> {
     if ((await currentId(account, id)) !== used) return true;
-    return (await queue.pending()).some((o) => o.account === account && o.messageId === id && (o.type === 'archive' || o.type === 'delete'));
+    return (await queue.pending()).some((o) => o.account === account && o.messageId === id && isMove(o.type));
   }
 
   const outgoing = (it: OutboxItem, replyTo: string | undefined): Outgoing =>
-    it.kind === 'new' || !replyTo ? { kind: 'new', subject: it.subject, body: it.body, to: it.to, cc: it.cc }
+    it.kind === 'draft' && replyTo ? { kind: 'draft', draftId: replyTo, subject: it.subject, body: it.body, to: it.to, cc: it.cc, ...(it.edited ? { edited: it.edited } : {}) }
+    : it.kind === 'new' || it.kind === 'draft' || !replyTo ? { kind: 'new', subject: it.subject, body: it.body, to: it.to, cc: it.cc }
     : it.kind === 'forward' ? { kind: 'forward', replyTo, to: it.to, body: it.body }
     : { kind: it.kind, replyTo, body: it.body };
 
@@ -371,7 +596,17 @@ export function createController(deps: Deps) {
       }
     }
     await outboxExclusive(async () => { await store.setMeta('outbox', [...(await readOutbox()), it]); });
-    api.saveDraft(null);
+    if (it.kind === 'draft' && it.replyTo) { // a draft that is on its way is not a draft to open (it is listed again if Undo is used)
+      const key = mailKey(it.account, it.replyTo);
+      const copy = copyOf(key);
+      if (copy) draftsOnTheirWay.set(it.id, copy);
+      dropCopy(key);
+    }
+    // The text kept for this message goes with it: a draft at Outlook has a place of its own, and sending it never touches the message that is being written.
+    // (A reply sent while another message is half written must not throw that one away either.)
+    const place = placeOf(it);
+    if (place) api.saveDraft(null, place);
+    else { const saved = api.loadDraft(); if (!saved || (saved.mode === item.kind && saved.replyTo === item.replyTo)) api.saveDraft(null); }
     await reload();
     toast(delay ? 'Sending…' : 'Sent', delay ? () => { void api.cancelSend(it.id); } : undefined, delay || undefined);
     setTimer(() => { void api.flushOutbox().then(reload); }, delay + 100);
@@ -388,6 +623,9 @@ export function createController(deps: Deps) {
     const gone = async (it: OutboxItem) => {
       sent++;
       conversations.clear(); // your message is in Sent Items now: the next time a conversation is opened it is asked for again
+      draftsOnTheirWay.delete(it.id);
+      if (it.kind === 'draft' && it.replyTo) dropCopy(mailKey(it.account, it.replyTo)); // it is not among the drafts any more
+      staleView();                                                                        // and Sent has one more
       finished.add(it.id);
       await dropOutFiles(it);
       if (await rememberKnown(store, it.account, [...it.to, ...it.cc])) learned = true;
@@ -416,7 +654,9 @@ export function createController(deps: Deps) {
         const refused = e instanceof GraphError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 429;
         // A message with files is not tried for ever either: a big upload that keeps failing while the connection is fine is handed back.
         const tries = (it.attempts ?? 0) + (e instanceof GraphError && e.status === 0 && !state.online ? 0 : 1);
-        if (refused) { await handBack(it, files, e instanceof Error ? e.message : 'Outlook said no', g); finished.add(it.id); }
+        // A draft that is not at Outlook any more (sent or deleted somewhere else) is not a message that was sent: its text is kept, as a message of its own.
+        const vanished = it.kind === 'draft' && e instanceof GraphError && e.status === 404;
+        if (refused) { await handBack(it, files, e instanceof Error ? e.message : 'Outlook said no', g, vanished); finished.add(it.id); }
         else if (it.files?.length && tries >= MAX_TRIES) {
           const went = await wentAlready(it, g);
           if (went === 'went') await gone(it);
@@ -459,6 +699,7 @@ export function createController(deps: Deps) {
         let settings = DEFAULT_SETTINGS;
         try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
         set({ settings, accounts: cachedAccounts, overrides, signingIn: !!readPending() });
+        try { sweepEdits(); } catch { /* only tidying */ }
         known = await loadKnown(store, cachedAccounts.map((a) => a.email));
         await reclassifyAll(store, sortCtx()); // every start: a better rule applies to mail already on the phone, and older saved kinds are renamed
         await reload();
@@ -547,7 +788,8 @@ export function createController(deps: Deps) {
       kv.del('post.sessions'); kv.del('post.settings'); kv.del('post.pending');
       sessions = [];
       graphs.clear();
-      set({ accounts: [], mail: [], settings: DEFAULT_SETTINGS, signingIn: false });
+      remote.clear(); remoteBodies.clear(); folderCursors.clear(); foldersAt = 0;
+      set({ accounts: [], mail: [], settings: DEFAULT_SETTINGS, signingIn: false, folders: [], foldersLoading: false, foldersError: null, folder: null });
     },
 
     // ---- sync -----------------------------------------------------------------------------------------------------------
@@ -652,9 +894,15 @@ export function createController(deps: Deps) {
       graphs.delete(email); tokens?.forget(email);
       // Work going on for this mailbox stops at its next step, and what is already under way finishes before anything is cleared:
       // a message saved a moment after the clearing would bring the mailbox back onto the phone.
-      set({ accounts: state.accounts.filter((a) => a.email !== email) });
-      await Promise.allSettled([syncRun, sortingRun]);
+      set({
+        accounts: state.accounts.filter((a) => a.email !== email),
+        folders: state.folders.filter((f) => f.account !== email),
+        folder: !state.folder || state.folder.target.account === email ? null : { ...state.folder, items: state.folder.items.filter((m) => m.account !== email) },
+      });
+      for (const [k, m] of remote) if (m.account === email) { remote.delete(k); remoteBodies.delete(k); }
+      await Promise.allSettled([syncRun, sortingRun, foldersRun]);
       await store.clearAccount(email);
+      try { sweepEdits(email); } catch { /* the kept changes are small; they are let go of at the next start at the latest */ }
       await outboxExclusive(async () => {
         const waiting = await readOutbox();
         if (waiting.some((x) => x.account === email)) await store.setMeta('outbox', waiting.filter((x) => x.account !== email)); // their files went with clearAccount
@@ -681,37 +929,21 @@ export function createController(deps: Deps) {
     async trash(items: Mail[], rows: number = items.length) { return await api.moveAway(items, 'delete', 'Deleted', rows); },
 
     async moveAway(items: Mail[], type: Extract<OpType, 'archive' | 'delete'>, word: string, rows: number = items.length) {
-      if (!items.length) return;
-      // Goes in line with the changes that read a message from the phone and write it back (read, flag, snooze): none of them may put back
-      // a message that was just taken away. Undo gets the copies as they were on the phone at this moment.
-      const moved = await exclusive(async () => {
-        const taken: Mail[] = [];
-        const ops: PendingOp[] = [];
-        for (const m of items) {
-          const cur = await store.getMail(m.key);
-          if (!cur) continue; // no longer in the inbox on this phone (moved somewhere else a moment ago): nothing to take away
-          trash.set(cur.key, cur);
-          ops.push(await queue.enqueue(type, cur.account, cur.id));
-          taken.push(cur);
-        }
-        if (!taken.length) return null;
-        await store.deleteMail(taken.map((m) => m.key));
-        if (type === 'delete') forgetInConversations(taken);
-        await reload();
-        return { taken, ops };
-      });
-      if (!moved) return;
-      const label = rows <= 1 ? word : `${word} ${rows}`;
-      toast(label, () => { void api.undo(moved.ops.map((o) => o.id), moved.taken); });
-      setTimer(() => { void runQueue().then(reload); }, UNDO_WINDOW_MS + 200);
+      await relocate(items, { type }, rows <= 1 ? word : `${word} ${rows}`);
     },
 
-    async undo(opIds: string[], items: Mail[]) {
+    /** Moves messages (from the inbox, or seen in a folder) to another folder, with one Undo. `rows`: how many rows of the list this was, for the toast. */
+    async moveTo(items: Mail[], to: { to: string; name: string }, rows: number = items.length) {
+      await relocate(items, { type: 'move', to: to.to }, rows <= 1 ? `Moved to ${to.name}` : `Moved ${rows} to ${to.name}`);
+    },
+
+    /** `inbox`: for each message, whether it came from the inbox on this phone (it goes back there) or was only seen in Outlook (it goes back into its folder list). Not given: all from the inbox. */
+    async undo(opIds: string[], items: Mail[], inbox?: boolean[]) {
       const late = await exclusive(async () => {
         let n = 0;
         for (let i = 0; i < opIds.length; i++) {
-          if (await queue.cancel(opIds[i])) await store.putMail([items[i]]);
-          else n++;
+          if (!(await queue.cancel(opIds[i]))) { n++; continue; }
+          if (inbox?.[i] === false) putBack(items[i]); else await store.putMail([items[i]]);
         }
         await reload();
         return n;
@@ -721,8 +953,17 @@ export function createController(deps: Deps) {
 
     setRead(m: Mail, isRead: boolean) {
       return exclusive(async () => {
-        const cur = await store.getMail(m.key); // a message that is not on this phone (archived meanwhile, or only seen in Outlook) is left alone
-        if (!cur || cur.isRead === isRead) return;
+        const cur = await store.getMail(m.key);
+        if (!cur) { // not in the inbox on this phone: one seen in a folder is changed there and at Outlook; anything else (archived meanwhile) is left alone
+          const far = copyOf(m.key);
+          if (!far || far.isRead === isRead) return;
+          editCopy(far.key, { isRead });
+          bumpUnread(far, isRead ? -1 : 1);
+          await queue.enqueue(isRead ? 'read' : 'unread', far.account, far.id, 0);
+          void runQueue().then(reload);
+          return;
+        }
+        if (cur.isRead === isRead) return;
         await store.putMail([{ ...cur, isRead }]);
         await queue.enqueue(isRead ? 'read' : 'unread', m.account, m.id, 0);
         await reload();
@@ -735,10 +976,17 @@ export function createController(deps: Deps) {
     setFlags(items: Mail[], flagged: boolean) {
       return exclusive(async () => {
         const todo: Mail[] = [];
-        for (const m of items) { const cur = await store.getMail(m.key); if (cur && cur.flagged !== flagged) todo.push(cur); }
-        if (!todo.length) return;
-        await store.putMail(todo.map((m) => ({ ...m, flagged })));
-        for (const m of todo) await queue.enqueue(flagged ? 'flag' : 'unflag', m.account, m.id, 0);
+        const far: Mail[] = []; // seen in a folder, not in the inbox on this phone
+        for (const m of items) {
+          const cur = await store.getMail(m.key);
+          if (cur) { if (cur.flagged !== flagged) todo.push(cur); continue; }
+          const seen = copyOf(m.key);
+          if (seen && seen.flagged !== flagged) far.push(seen);
+        }
+        if (!todo.length && !far.length) return;
+        if (todo.length) await store.putMail(todo.map((m) => ({ ...m, flagged })));
+        for (const m of far) editCopy(m.key, { flagged });
+        for (const m of [...todo, ...far]) await queue.enqueue(flagged ? 'flag' : 'unflag', m.account, m.id, 0);
         await reload();
         void runQueue().then(reload);
       });
@@ -811,13 +1059,20 @@ export function createController(deps: Deps) {
       return exclusive(async () => {
         // The copy on the phone as it is now: one archived or changed meanwhile must not be brought back or overwritten with an older copy.
         const todo: Mail[] = [];
-        for (const m of items) { const cur = await store.getMail(m.key); if (cur && !cur.isRead) todo.push(cur); }
-        if (!todo.length) return;
-        await store.putMail(todo.map((m) => ({ ...m, isRead: true })));
-        for (const m of todo) await queue.enqueue('read', m.account, m.id, 0);
+        const far: Mail[] = []; // seen in a folder, not in the inbox on this phone
+        for (const m of items) {
+          const cur = await store.getMail(m.key);
+          if (cur) { if (!cur.isRead) todo.push(cur); continue; }
+          const seen = copyOf(m.key);
+          if (seen && !seen.isRead) far.push(seen);
+        }
+        if (!todo.length && !far.length) return;
+        if (todo.length) await store.putMail(todo.map((m) => ({ ...m, isRead: true })));
+        for (const m of far) { editCopy(m.key, { isRead: true }); bumpUnread(m, -1); }
+        for (const m of [...todo, ...far]) await queue.enqueue('read', m.account, m.id, 0);
         await reload();
         // The toast counts rows of the list: a conversation is one, however many messages in it were unread.
-        const rows = state.settings.threads ? new Set(todo.map(threadKey)).size : todo.length;
+        const rows = (state.settings.threads ? new Set(todo.map(threadKey)).size : todo.length) + far.length;
         if (!opts.quiet) toast(rows === 1 ? 'Marked as read' : `Marked ${rows} as read`);
         void runQueue().then(reload);
       });
@@ -922,17 +1177,20 @@ export function createController(deps: Deps) {
       const labels: Record<string, string> = Object.fromEntries(state.accounts.map((a) => [a.email, a.label]));
       return searchLocal(state.mail, q, labels);
     },
-    /** Asks Outlook itself, for mail older than what is stored on the phone. */
+    /** Asks Outlook itself, for mail older than what is stored on the phone. Each result knows which folder it is in, once the folders are listed. */
     async searchRemote(q: string): Promise<Mail[]> {
       const out: Mail[] = [];
       const seen = new Set(state.mail.map((m) => m.key));
+      const listing = state.folders.length ? undefined : api.loadFolders().catch(() => {}); // asked side by side with the search; a failure only means the results do not say their folder
+      const found: { account: string; rows: RawMessage[] }[] = [];
       for (const a of state.accounts) {
         const g = graphFor(a.email);
         if (!g) continue;
-        try {
-          const rows: RawMessage[] = await g.search(q.replace(/\b(from|is|has|in|account):\S*/gi, '').trim() || q);
-          for (const r of rows) { const m = toMail(a.email, r, sortCtx()); if (!seen.has(m.key)) out.push({ ...m, folder: 'archive' }); }
-        } catch { /* one account failing must not hide the others' results */ }
+        try { found.push({ account: a.email, rows: await g.search(q.replace(/\b(from|is|has|in|account):\S*/gi, '').trim() || q) }); } catch { /* one account failing must not hide the others' results */ }
+      }
+      await listing;
+      for (const { account, rows } of found) {
+        for (const r of rows) { const m = folderMail(account, r, kindOfFolder(account, r.parentFolderId), sortCtx()); if (!seen.has(m.key)) out.push(m); }
       }
       out.sort((x, y) => y.received.localeCompare(x.received));
       remember(out);
@@ -961,33 +1219,180 @@ export function createController(deps: Deps) {
       if (hit && !opts.force && now() - hit.at < CONVERSATION_FRESH_MS) found = hit.items;
       else {
         const [raw, hidden] = await Promise.all([g.conversation(m.conversationId), hiddenFolders(m.account, g)]);
-        found = raw.filter((r) => !r.isDraft && !(r.parentFolderId && hidden.has(r.parentFolderId))).map((r) => toMail(m.account, r, sortCtx()));
+        found = raw.filter((r) => !r.isDraft && !(r.parentFolderId && hidden.has(r.parentFolderId))).map((r) => folderMail(m.account, r, kindOfFolder(m.account, r.parentFolderId), sortCtx()));
         keepLatest(conversations, ck, { at: now(), items: found }, 60);
       }
       // Not what is in the inbox on this phone (that is already here), and not what was archived or deleted here a moment ago and Outlook has
       // not been told yet. Worked out now, not when Outlook was asked, because mail moves in between.
       const here = new Set(state.mail.map((x) => x.key));
-      const leaving = new Set((await queue.pending()).filter((o) => o.type === 'archive' || o.type === 'delete').map((o) => mailKey(o.account, o.messageId)));
+      const leaving = await leavingKeys();
       const items = found.filter((x) => !here.has(x.key) && !leaving.has(x.key)).map((x): Mail => ({ ...x, folder: 'archive', snoozedUntil: null }));
       items.sort((x, y) => y.received.localeCompare(x.received));
       remember(items);
       return items;
     },
 
+    // ---- folders -----------------------------------------------------------------------------------------------------------------
+    /**
+     * The folders of every signed-in mailbox, from Outlook. What Outlook said last time is kept on the phone and used at once (so the screen is
+     * not empty while Outlook is asked, and a phone with no connection still has the list); a list that is only a moment old is not asked for
+     * again unless `force`. A mailbox that cannot be read keeps the list it had, and the problem is said in `foldersError`.
+     */
+    async loadFolders(opts: { force?: boolean } = {}): Promise<void> {
+      if (!state.folders.length) {
+        try {
+          const saved = (await Promise.all(state.accounts.filter((a) => !a.needsSignIn).map(async (a) => (await store.getMeta<FolderInfo[]>(`${a.email}|foldertree`)) ?? []))).flat();
+          if (saved.length && !state.folders.length) set({ folders: saved });
+        } catch (e) { note('folders', e); }
+      }
+      if (foldersRun) {
+        if (!opts.force) return foldersRun;
+        await foldersRun.catch(() => {});  // one that began before what the caller has just done (a move) may have missed it: ask again
+        if (foldersRun) return foldersRun; // another began meanwhile, and it is as new as this one would be
+      } else if (!opts.force && foldersAt && now() - foldersAt < FOLDERS_FRESH_MS) return;
+      const accounts = state.accounts.filter((a) => !a.needsSignIn).map((a) => a.email);
+      if (!accounts.length) return;
+      const run: Promise<void> = (async () => {
+        set({ foldersLoading: true });
+        try {
+          const results = await Promise.allSettled(accounts.map(async (account) => {
+            const g = graphFor(account);
+            if (!g) throw new Error('Sign in again');
+            return { account, list: buildFolders(account, await g.folderTree()) };
+          }));
+          const here = (account: string) => state.accounts.some((a) => a.email === account && !a.needsSignIn); // a mailbox removed meanwhile is not brought back
+          const ok = results.flatMap((r) => (r.status === 'fulfilled' && here(r.value.account) ? [r.value] : []));
+          const failed = accounts.filter((a, i) => results[i].status === 'rejected' && here(a));
+          const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')?.reason;
+          if (firstError) note('folders', firstError);
+          for (const o of ok) { try { await store.setMeta(`${o.account}|foldertree`, o.list); } catch (e) { note('storage', e); } }
+          const fresh = new Map(ok.map((o) => [o.account, o.list]));
+          const folders = state.accounts.flatMap((a) => fresh.get(a.email) ?? state.folders.filter((f) => f.account === a.email));
+          if (ok.length) foldersAt = failed.length ? 0 : now();
+          set({
+            folders, foldersLoading: false,
+            foldersError: !failed.length ? null : ok.length ? `Could not update the folders of ${failed.map(labelFor).join(' and ')}.` : describe(firstError, 'Could not read your folders.'),
+          });
+        } catch (e) {
+          note('folders', e);
+          set({ foldersLoading: false, foldersError: describe(e, 'Could not read your folders.') });
+        }
+      })().finally(() => { foldersRun = null; });
+      foldersRun = run;
+      return run;
+    },
+
+    /** The folder a message was seen in, when the folders are listed. */
+    folderOf(m: Pick<Mail, 'account' | 'fid'>): FolderInfo | undefined { return folderOfMail(state.folders, m); },
+
+    /**
+     * Opens a folder: its newest messages are read from Outlook into `state.folder`. What was there from the last time the same folder was open
+     * stays on screen while it is read again. A folder read a moment ago is not read again unless `force` (a pull to refresh, Retry).
+     */
+    async openFolder(t: FolderTarget, opts: { force?: boolean } = {}): Promise<void> {
+      const key = folderKey(t);
+      const same = state.folder?.key === key ? state.folder : null;
+      if (same && !opts.force && (same.state === 'loading' || (same.state === 'ready' && now() - same.at < FOLDER_FRESH_MS))) return;
+      const mine = ++folderSeq;
+      set({ folder: { key, target: t, items: same?.items ?? [], more: same?.more ?? false, state: 'loading', paging: false, error: null, partial: [], at: same?.at ?? 0 } });
+      await fillFolder(mine, key, t, false);
+    },
+    /** The next page of the open folder. */
+    async moreInFolder(): Promise<void> {
+      const v = state.folder;
+      if (!v || !v.more || v.paging || v.state !== 'ready') return;
+      const mine = ++folderSeq;
+      set({ folder: { ...v, paging: true, error: null } });
+      await fillFolder(mine, v.key, v.target, true);
+    },
+    /** Reads the open folder again from Outlook. */
+    refreshFolder(): Promise<void> { return state.folder ? api.openFolder(state.folder.target, { force: true }) : Promise.resolve(); },
+    /** Leaves the folder: its list is forgotten (the next opening reads it afresh). */
+    closeFolder() { if (state.folder) set({ folder: null }); },
+
+    /**
+     * A message by its id, when Post has not seen it this time (the address of a message that was moved since, a link kept from earlier): it is
+     * asked of Outlook. Null when Outlook does not have it any more.
+     */
+    async findMail(account: string, id: string): Promise<Mail | null> {
+      const known = (await store.getMail(mailKey(account, id))) ?? copyOf(mailKey(account, id));
+      if (known) return known;
+      const g = graphFor(account);
+      if (!g) throw new Error('Sign in again to open this message');
+      const cur = await currentId(account, id); // a message that was moved by Post is called something else now
+      const seen = cur === id ? undefined : (await store.getMail(mailKey(account, cur))) ?? copyOf(mailKey(account, cur));
+      if (seen) return seen;
+      let r: RawMessage;
+      try { r = await g.getMessage(cur); } catch (e) { if (e instanceof GraphError && (e.status === 404 || e.status === 410)) return null; throw e; }
+      const m = folderMail(account, r, kindOfFolder(account, r.parentFolderId), sortCtx());
+      remember([m]);
+      return m;
+    },
+
+    /**
+     * A draft as the editor needs it, with the files already on it. It fails (and the editor says so) when the draft is not a draft any more or its
+     * files cannot be listed: a draft opened without its files would look like one that has none.
+     */
+    async openDraft(account: string, id: string): Promise<{ content: DraftContent; files: AttachmentInfo[] }> {
+      const g = graphFor(account);
+      if (!g) throw new Error('Sign in again to open this draft');
+      let content: DraftContent, files: AttachmentInfo[];
+      try { [content, files] = await Promise.all([g.getDraft(id), g.attachments(id)]); } catch (e) {
+        if (e instanceof GraphError && (e.status === 404 || e.status === 410)) throw new Error('This draft is not in Outlook any more. It may have been sent or deleted in another app.');
+        throw e;
+      }
+      if (!content.isDraft) throw new Error('This message has already been sent.');
+      return { content, files };
+    },
+
+    /**
+     * Saves what the editor has into the draft at Outlook without sending it: what was changed (`edited`: all of it when it is not said) and the
+     * files that were added. Throws when Outlook would not take it, so the editor can say so and keep what was typed; trying again is safe (a file that
+     * is on the draft already is not added twice).
+     */
+    async saveDraftEdits(account: string, id: string, f: { subject: string; body: string; to: string[]; cc: string[]; edited?: DraftField[] }, files: OutFile[] = []): Promise<void> {
+      const g = graphFor(account);
+      if (!g) throw new Error('Sign in again to save this draft');
+      try {
+        await g.updateDraft(id, f);
+        await g.addToDraft(id, files);
+      } catch (e) {
+        if (e instanceof GraphError && (e.status === 404 || e.status === 410)) throw new Error('This draft is no longer in Outlook.');
+        throw e;
+      }
+      editCopy(mailKey(account, id), { subject: f.subject, preview: f.body.replace(/\s+/g, ' ').trim().slice(0, 200), ...recipientsOf(f.to.map((address) => ({ emailAddress: { address } }))), received: new Date(now()).toISOString() });
+      staleView();
+    },
+
     // ---- writing ----------------------------------------------------------------------------------------------------------------
-    saveDraft(d: Draft | null) { if (d) kv.set('post.draft', JSON.stringify(d)); else { kv.del('post.draft'); void store.setMeta(DRAFT_FILES, undefined).catch(() => {}); } },
-    loadDraft(): Draft | null { try { return JSON.parse(kv.get('post.draft') ?? 'null'); } catch { return null; } },
+    // Two kinds of half-written text are kept on the phone, apart from each other: the message being written here (new, a reply or a forward; one
+    // at a time) and, for each draft that is open from Outlook (`of`), what was changed in it. Opening or editing one never touches the other.
+    saveDraft(d: Draft | null, of?: DraftOf) {
+      if (!of) { if (d) kv.set('post.draft', JSON.stringify(d)); else { kv.del('post.draft'); void store.setMeta(DRAFT_FILES, undefined).catch(() => {}); } return; }
+      const all = readEdits();
+      if (d) all[editsKey(of)] = { ...d, at: now() }; else delete all[editsKey(of)];
+      writeEdits(all);
+      if (!d) void store.setMeta(editFilesKey(of), undefined).catch(() => {});
+    },
+    loadDraft(of?: DraftOf): Draft | null {
+      if (!of) { try { return JSON.parse(kv.get('post.draft') ?? 'null'); } catch { return null; } }
+      const kept = readEdits()[editsKey(of)];
+      if (!kept) return null;
+      const d: Draft & { at?: number } = { ...kept };
+      delete d.at;
+      return d;
+    },
 
     /** The files attached to the draft being written. They live next to the text, so closing the app loses neither. */
-    async loadDraftFiles(): Promise<OutFile[]> {
+    async loadDraftFiles(of?: DraftOf): Promise<OutFile[]> {
       try {
-        const v = await store.getMeta<OutFile[]>(DRAFT_FILES);
+        const v = await store.getMeta<OutFile[]>(of ? editFilesKey(of) : DRAFT_FILES);
         return Array.isArray(v) ? v.filter((f) => f && typeof f.name === 'string' && f.bytes instanceof Uint8Array) : [];
       } catch { return []; }
     },
     /** Returns false when the phone would not keep them (storage full): the files then stay on screen but would be lost if the app closes. */
-    async saveDraftFiles(files: OutFile[]): Promise<boolean> {
-      try { await store.setMeta(DRAFT_FILES, files.length ? files : undefined); return true; } catch { return false; }
+    async saveDraftFiles(files: OutFile[], of?: DraftOf): Promise<boolean> {
+      try { await store.setMeta(of ? editFilesKey(of) : DRAFT_FILES, files.length ? files : undefined); return true; } catch { return false; }
     },
 
     /**
@@ -1008,9 +1413,10 @@ export function createController(deps: Deps) {
       });
       const { it, files } = found;
       if (!found.taken || !it) { toast(it ? 'Too late: it is already on its way' : 'Too late: it was already sent'); return; }
-      api.saveDraft({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
-      if (files.length) await api.saveDraftFiles(files);
+      api.saveDraft(textOf(it), placeOf(it));
+      if (files.length) await api.saveDraftFiles(files, placeOf(it));
       await dropOutFiles(it);
+      if (it.kind === 'draft') relistDraft(it); // it is among the drafts again
       await reload();
       toast(`Not sent. Your message${files.length ? ' and its files are' : ' is'} back in the editor.`);
     },

@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
-import type { Controller, State } from '../core/controller.ts';
+import type { Controller, FolderTarget, FolderView, State } from '../core/controller.ts';
+import { FOLDER_NAME } from '../core/folders.ts';
 import { buildRoute, parseRoute, type Route } from '../core/route.ts';
 import { accountColour } from '../core/settings.ts';
+import type { Mail } from '../core/types.ts';
 
 export const Ctx = createContext<Controller>(null as unknown as Controller);
 export const useC = () => useContext(Ctx);
@@ -15,6 +17,24 @@ export function useRoute(): Route {
 /** Goes to a screen. `replace`: instead of this one, so Back skips it (what you just archived is not worth going back to). */
 export const go = (r: Route, opts: { replace?: boolean } = {}) => { if (opts.replace) location.replace(buildRoute(r)); else location.hash = buildRoute(r); };
 export const back = (fallback: Route = { name: 'inbox' }) => { if (history.length > 1 && !(window as { __first?: boolean }).__first) history.back(); else go(fallback); };
+
+/** Opens a message: a draft goes to the editor (it is not read, it is finished), anything else to the reader. */
+export const openMail = (m: Pick<Mail, 'account' | 'id' | 'draft'>, opts: { replace?: boolean } = {}) =>
+  go(m.draft ? { name: 'compose', mode: 'draft', account: m.account, id: m.id } : { name: 'message', account: m.account, id: m.id }, opts);
+
+/** The screen of a folder (the inbox is the inbox). */
+export const routeOfFolder = (t: FolderTarget): Route =>
+  t.kind === 'inbox' ? { name: 'inbox' } : { name: 'folder', kind: t.kind, ...(t.account ? { account: t.account } : {}), ...(t.id ? { id: t.id } : {}) };
+
+/** The folder a folder route means. */
+export const targetOfRoute = (r: Extract<Route, { name: 'folder' }>): FolderTarget => ({ kind: r.kind, ...(r.account ? { account: r.account } : {}), ...(r.id ? { id: r.id } : {}) });
+
+/** The open folder, when it holds this message: the list the reader moves through (next, previous) and goes back to. */
+export const folderContext = (s: State, key: string | null): FolderView | null => (key && s.folder?.items.some((m) => m.key === key) ? s.folder : null);
+
+/** What a folder is called on screen: the standard ones in Post's words, one of your own by the name you gave it (once the folders are listed). */
+export const folderTitle = (s: State, t: FolderTarget): string =>
+  t.kind === 'other' ? s.folders.find((f) => f.account === t.account && f.id === t.id)?.name ?? 'Folder' : FOLDER_NAME[t.kind];
 
 /** Re-renders now and then so a snoozed message comes back on time without a reload. */
 export function useNow(ms = 30_000): number {
