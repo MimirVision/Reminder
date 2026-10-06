@@ -1,4 +1,4 @@
-import type { Mail } from './types.ts';
+import { asKind, type Kind, type Mail } from './types.ts';
 
 // Search on the phone: instant, works offline, and understands Norwegian letters (a search for "ostlandet" finds "Østlandet").
 // Server search ($search in Graph) is the fallback for mail older than what is stored here.
@@ -15,12 +15,10 @@ export interface Query {
   flagged: boolean;
   attachment: boolean;
   account: string | null;
-  kind: Mail['kind'] | null;
+  kind: Kind | null;
 }
 
-const KINDS: Record<string, Mail['kind']> = { people: 'person', person: 'person', newsletter: 'newsletter', newsletters: 'newsletter', receipt: 'receipt', receipts: 'receipt', alert: 'alert', alerts: 'alert' };
-
-/** `from:anna is:unread has:attachment is:flagged in:people account:work meeting` */
+/** `from:anna is:unread has:attachment is:flagged in:primary account:work meeting` (in: takes primary, transactions, updates or promotions; older names work too) */
 export function parseQuery(input: string): Query {
   const q: Query = { words: [], from: [], unread: false, flagged: false, attachment: false, account: null, kind: null };
   for (const raw of input.trim().split(/\s+/).filter(Boolean)) {
@@ -29,7 +27,7 @@ export function parseQuery(input: string): Query {
     else if (t === 'is:unread') q.unread = true;
     else if (t === 'is:flagged') q.flagged = true;
     else if (t === 'has:attachment') q.attachment = true;
-    else if (t.startsWith('in:') && KINDS[t.slice(3)]) q.kind = KINDS[t.slice(3)];
+    else if (t.startsWith('in:') && asKind(t.slice(3))) q.kind = asKind(t.slice(3));
     else if (t.startsWith('account:') && t.length > 8) q.account = raw.slice(8).toLowerCase();
     else q.words.push(fold(raw));
   }

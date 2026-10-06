@@ -108,13 +108,17 @@ export function createGraph(deps: GraphDeps) {
       return String(j?.id ?? id);
     },
 
-    /** Up to 20 calls in one request. Returns the status of each, in order. */
-    async batch(calls: { method: string; url: string; body?: unknown }[]): Promise<{ status: number; body: any }[]> {
-      const out: { status: number; body: any }[] = [];
+    /** Up to 20 calls in one request. Returns the status of each, in order. A call Microsoft asked us to slow down on also says for how long (`retryAfter`, seconds). */
+    async batch(calls: { method: string; url: string; body?: unknown }[]): Promise<{ status: number; body: any; retryAfter?: number }[]> {
+      const out: { status: number; body: any; retryAfter?: number }[] = [];
       for (let i = 0; i < calls.length; i += 20) {
         const chunk = calls.slice(i, i + 20);
         const j = await request('POST', '/$batch', { requests: chunk.map((c, n) => ({ id: String(n), method: c.method, url: c.url, ...(c.body ? { body: c.body, headers: { 'Content-Type': 'application/json' } } : {}) })) });
-        const byId = new Map<string, { status: number; body: any }>((j?.responses ?? []).map((r: any) => [String(r.id), { status: Number(r.status), body: r.body }]));
+        const byId = new Map<string, { status: number; body: any; retryAfter?: number }>((j?.responses ?? []).map((r: any) => {
+          const h = r?.headers ?? {};
+          const wait = Number(h['Retry-After'] ?? h['retry-after']);
+          return [String(r.id), { status: Number(r.status), body: r.body, ...(Number.isFinite(wait) && wait > 0 ? { retryAfter: wait } : {}) }];
+        }));
         for (let n = 0; n < chunk.length; n++) out.push(byId.get(String(n)) ?? { status: 0, body: null });
       }
       return out;
@@ -141,6 +145,23 @@ export function createGraph(deps: GraphDeps) {
       const q = query.replace(/"/g, '');
       const j = await request('GET', `/me/messages?$search="${encodeURIComponent(q)}"&$top=${top}&$select=${LIST_FIELDS}`);
       return (j?.value ?? []) as RawMessage[];
+    },
+
+    /** The addresses you have written to, from Sent Items (newest messages first, `pages` of 100). Post treats mail from them as personal. */
+    async sentRecipients(pages = 3): Promise<string[]> {
+      const out = new Set<string>();
+      let link: string | undefined = '/me/mailFolders/sentitems/messages?$select=toRecipients,ccRecipients&$orderby=sentDateTime desc&$top=100';
+      for (let i = 0; link && i < pages; i++) {
+        const j = await request('GET', link);
+        for (const m of (j?.value ?? []) as any[]) {
+          for (const r of [...(m?.toRecipients ?? []), ...(m?.ccRecipients ?? [])]) {
+            const a = String(r?.emailAddress?.address ?? '').trim().toLowerCase();
+            if (a.includes('@')) out.add(a);
+          }
+        }
+        link = j?.['@odata.nextLink'];
+      }
+      return [...out];
     },
 
     async unreadCount(folder: WellKnownFolder = 'inbox'): Promise<number> {

@@ -8,7 +8,7 @@ import { Row } from './Inbox.tsx';
 import { Tabs } from './Tabs.tsx';
 import { go, useC, useNow } from './ctx.tsx';
 
-const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:newsletters', 'account:work'];
+const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:promotions', 'account:work'];
 
 export function Search({ s, q: initial, pane = false }: { s: State; q: string; pane?: boolean }) {
   const c = useC();

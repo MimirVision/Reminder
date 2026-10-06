@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createController, filterCounts, visibleMail, type Deps } from './controller.ts';
+import { cleanUpList, createController, mailCounts, visibleMail, type Deps } from './controller.ts';
 import { memoryStore } from './store.ts';
 
 const SERVER = 'https://s.example/fn';
@@ -13,6 +13,8 @@ function world() {
   let nextDelta = 1;
   const accounts = new Map([['a@outlook.com', acct('a@outlook.com', 'Personal')]]);
   const flags = { offline: false, tokenFail: new Set<string>(), polled: false, nextEmail: 'w@firma.no' };
+  const headers: Record<string, { name: string; value: string }[]> = {}; // what the hidden headers of each message say
+  const sent: string[] = []; // who the person has written to (Sent Items)
   const add = (id: string, o: any = {}) => inbox.set(id, { id, subject: `Subject ${id}`, receivedDateTime: '2026-10-05T08:00:00Z', from: { emailAddress: { name: 'Anna', address: 'anna@x.no' } }, isRead: false, bodyPreview: 'preview', ...o });
   const f = (async (url: string, init: RequestInit = {}) => {
     if (flags.offline) throw new Error('offline');
@@ -37,7 +39,8 @@ function world() {
     }
     const path = u.replace('https://graph.microsoft.com/v1.0', '');
     if (/messages\/delta/.test(path) || u.includes('graph/delta')) { log.push('graph delta'); return new Response(JSON.stringify({ value: [...inbox.values()], '@odata.deltaLink': `https://graph/delta?d=${nextDelta++}` })); }
-    if (path === '/$batch') return new Response(JSON.stringify({ responses: body.requests.map((r: any) => ({ id: r.id, status: 200, body: { internetMessageHeaders: [] } })) }));
+    if (path === '/$batch') return new Response(JSON.stringify({ responses: body.requests.map((r: any) => ({ id: r.id, status: 200, body: { internetMessageHeaders: headers[decodeURIComponent(/messages\/([^?]+)/.exec(r.url)![1])] ?? [] } })) }));
+    if (path.startsWith('/me/mailFolders/sentitems/messages')) { log.push('graph sent'); return new Response(JSON.stringify({ value: sent.map((address) => ({ toRecipients: [{ emailAddress: { address } }], ccRecipients: [] })) })); }
     let m: RegExpExecArray | null;
     if ((m = /^\/me\/messages\/([^/]+)\/move$/.exec(path))) { log.push(`graph move ${decodeURIComponent(m[1])} ${body.destinationId}`); inbox.delete(decodeURIComponent(m[1])); return new Response(JSON.stringify({ id: 'new' }), { status: 201 }); }
     if ((m = /^\/me\/messages\/([^/?]+)$/.exec(path)) && init.method === 'PATCH') { log.push(`graph patch ${decodeURIComponent(m[1])} ${JSON.stringify(body)}`); return new Response('{}'); }
@@ -47,7 +50,7 @@ function world() {
     if (path.startsWith('/me/messages?$search')) { log.push('graph search'); return new Response(JSON.stringify({ value: [{ id: 'old1', subject: 'Gammel faktura', from: { emailAddress: { address: 'x@y.no' } }, receivedDateTime: '2025-01-01T00:00:00Z' }, ...[...inbox.values()].slice(0, 1)] })); }
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
-  return { f, log, add, inbox, flags, accounts: () => [...accounts.values()] };
+  return { f, log, add, inbox, flags, headers, sent, accounts: () => [...accounts.values()] };
 }
 
 function make(w = world(), extra: Partial<Deps> = {}) {
@@ -279,15 +282,186 @@ test('a queued mail survives closing the app: the next start sends it', async ()
   assert.ok(w.log.includes('graph reply'));
 });
 
-test('moving a sender re-sorts all their mail', async () => {
+test('moving a sender re-sorts all their mail, with an Undo', async () => {
   const w = world(); w.add('1'); w.add('2');
   const { c } = make(w);
   await c.init();
-  await c.moveSender('anna@x.no', 'newsletter');
-  assert.ok(c.getState().mail.every((m) => m.kind === 'newsletter'));
-  assert.equal(filterCounts(c.getState(), Date.parse('2026-10-05T10:00:00Z')).newsletter, 2);
+  const t = Date.parse('2026-10-05T10:00:00Z');
+  assert.ok(c.getState().mail.every((m) => m.kind === 'person'));
+  await c.moveSender('anna@x.no', 'promo');
+  assert.ok(c.getState().mail.every((m) => m.kind === 'promo'));
+  assert.match(c.getState().toast!.text, /Moved to Promotions/);
+  assert.deepEqual([mailCounts(c.getState(), t).byKind.promo.unread, mailCounts(c.getState(), t).byKind.person.unread], [2, 0]);
+  c.getState().toast!.undo!();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.ok(c.getState().mail.every((m) => m.kind === 'person'));
+  await c.moveSender('anna@x.no', 'promo');
   await c.moveSender('anna@x.no', null);
   assert.ok(c.getState().mail.every((m) => m.kind === 'person'));
+  assert.deepEqual(c.getState().overrides, {});
+});
+
+test('moving a whole company moves every sender at that domain, and a shared mail provider is never a company', async () => {
+  const w = world(); w.add('1', { from: { emailAddress: { name: 'Ola', address: 'ola@mail.butikk.no' } } }); w.add('2', { from: { emailAddress: { name: 'Kari', address: 'kari@butikk.no' } } }); w.add('3', { from: { emailAddress: { name: 'Per', address: 'per@gmail.com' } } });
+  const { c } = make(w);
+  await c.init();
+  await c.moveSender('ola@mail.butikk.no', 'update', 'company');
+  assert.deepEqual(c.getState().overrides, { '@butikk.no': 'update' });
+  assert.deepEqual(c.getState().mail.map((m) => [m.id, m.kind]).sort(), [['1', 'update'], ['2', 'update'], ['3', 'person']]);
+  assert.match(c.getState().toast!.text, /Everything from butikk\.no/);
+  await c.moveSender('per@gmail.com', 'promo', 'company');
+  assert.deepEqual(c.getState().overrides, { '@butikk.no': 'update', 'per@gmail.com': 'promo' });
+  await c.removeRule('@butikk.no');
+  assert.deepEqual(c.getState().mail.map((m) => [m.id, m.kind]).sort(), [['1', 'person'], ['2', 'person'], ['3', 'promo']]);
+});
+
+test('older saved choices (newsletter, receipt, alert) are renamed when the app opens, and still apply', async () => {
+  const w = world(); w.add('1');
+  const { c, store } = make(w);
+  await store.setMeta('overrides', { 'anna@x.no': 'newsletter', 'x@y.no': 'receipt', 'z@y.no': 'nonsense' });
+  await c.init();
+  assert.deepEqual(c.getState().overrides, { 'anna@x.no': 'update', 'x@y.no': 'transaction' });
+  assert.deepEqual(await store.getMeta('overrides'), { 'anna@x.no': 'update', 'x@y.no': 'transaction' });
+  assert.equal(c.getState().mail[0].kind, 'update');
+});
+
+test('the inbox opens on Primary; each tab shows its own mail and its own unread count; nothing is hidden from All', async () => {
+  const w = world();
+  w.add('1', { subject: 'Middag?' });
+  w.add('2', { subject: 'Ukens tilbud', from: { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } } });
+  w.add('3', { subject: 'Din kvittering', from: { emailAddress: { name: 'Vipps', address: 'noreply@vipps.no' } }, isRead: true });
+  w.headers['2'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const { c } = make(w);
+  await c.init();
+  await c.sortInBackground();
+  const t = Date.parse('2026-10-05T10:00:00Z');
+  const s = c.getState();
+  assert.equal(s.view, 'person');
+  assert.deepEqual(visibleMail(s, t).map((m) => m.id), ['1']);
+  assert.deepEqual(visibleMail({ ...s, view: 'promo' }, t).map((m) => m.id), ['2']);
+  assert.deepEqual(visibleMail({ ...s, view: 'transaction' }, t).map((m) => m.id), ['3']);
+  assert.deepEqual(visibleMail({ ...s, view: 'all' }, t).map((m) => m.id).sort(), ['1', '2', '3']);
+  assert.deepEqual(visibleMail({ ...s, view: 'all', unreadOnly: true }, t).map((m) => m.id).sort(), ['1', '2']);
+  const n = mailCounts(s, t);
+  assert.deepEqual([n.total, n.unread, n.unsorted], [3, 2, 0]);
+  assert.deepEqual(Object.fromEntries(Object.entries(n.byKind).map(([k, v]) => [k, `${v.unread}/${v.total}`])), { person: '1/1', transaction: '0/1', update: '0/0', promo: '1/1' });
+  c.setView('promo'); c.setUnreadOnly(true);
+  assert.deepEqual([c.getState().view, c.getState().unreadOnly], ['promo', true]);
+});
+
+test('mail is first sorted by words, then by its hidden headers in the background, and the screen says so while that runs', async () => {
+  const w = world();
+  for (let i = 1; i <= 3; i++) { w.add(String(i), { subject: `Nytt ${i}` }); w.headers[String(i)] = [{ name: 'List-Unsubscribe', value: '<https://u>' }]; }
+  const { c } = make(w);
+  const seen: boolean[] = [];
+  c.subscribe(() => { const x = c.getState().sorting; if (seen[seen.length - 1] !== x) seen.push(x); });
+  await c.init();
+  await c.sortInBackground();
+  assert.ok(c.getState().mail.every((m) => m.kind === 'promo' && m.sig?.includes('unsub')));
+  assert.deepEqual(seen, [false, true, false], 'sorting switched on while it ran, and off when it was done');
+  assert.equal(c.getState().sorting, false);
+  // a second look does not ask again
+  const asks = () => w.log.filter((l) => l === 'graph delta').length;
+  const before = asks();
+  await c.sync(); await c.sortInBackground();
+  assert.equal(asks(), before + 1);
+});
+
+test('sorting runs alongside everything else, and two runs never overlap', async () => {
+  const w = world(); w.add('1');
+  const { c } = make(w);
+  await c.init();
+  w.add('2'); w.headers['2'] = [{ name: 'Precedence', value: 'bulk' }];
+  const first = c.sortInBackground();
+  assert.equal(c.sortInBackground(), first);
+  await first;
+  assert.equal(c.getState().sorting, false);
+});
+
+test('people you have written to are Primary even from a shop-like address; Sent Items is looked at again after six hours', async () => {
+  const w = world();
+  const at = (address: string) => ({ emailAddress: { name: 'Support', address } });
+  w.add('1', { subject: 'Hvordan går det?', from: at('support@shop.no') });
+  w.add('2', { subject: 'Hei', from: at('info@firma.no') });
+  w.headers['1'] = w.headers['2'] = [{ name: 'X-Mailgun-Sid', value: 'abc' }];
+  w.sent.push('Support@Shop.no');
+  const { c, advance } = make(w);
+  await c.init();
+  await c.sortInBackground();
+  const kinds = () => Object.fromEntries(c.getState().mail.map((m) => [m.id, m.kind]));
+  assert.deepEqual(kinds(), { 1: 'person', 2: 'update' });
+  assert.deepEqual(c.getState().mail.find((m) => m.id === '1')!.why, ['You have written to this address']);
+  w.sent.push('info@firma.no');
+  await c.sync();
+  assert.equal(kinds()[2], 'update', 'Sent Items was looked at a moment ago');
+  advance(7 * 3_600_000);
+  await c.sync();
+  assert.deepEqual(kinds(), { 1: 'person', 2: 'person' });
+});
+
+test('a message you send makes the recipient known at once', async () => {
+  const w = world();
+  w.add('1', { subject: 'Hvordan går det?', from: { emailAddress: { name: 'Support', address: 'support@shop.no' } } });
+  w.headers['1'] = [{ name: 'X-Mailgun-Sid', value: 'abc' }];
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  await c.sortInBackground();
+  assert.equal(c.getState().mail[0].kind, 'update', 'a mailing service on a role address: not a person');
+  await c.send({ account: 'a@outlook.com', kind: 'new', to: ['support@shop.no'], cc: [], subject: 'Hei', body: 'Tekst' });
+  advance(11_000);
+  await runTimers();
+  assert.equal(c.getState().mail[0].kind, 'person');
+});
+
+test('a new VIP is always Primary', async () => {
+  const w = world();
+  w.add('1', { subject: 'Ukens tilbud', from: { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } } });
+  w.headers['1'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const { c } = make(w);
+  await c.init();
+  await c.sortInBackground();
+  assert.equal(c.getState().mail[0].kind, 'promo');
+  await c.setAlerts('a@outlook.com', { vips: ['tilbud@butikk.no'] });
+  assert.equal(c.getState().mail[0].kind, 'person');
+  assert.deepEqual(c.getState().mail[0].why, ['On your VIP list']);
+});
+
+test('Clean up archives promotions older than a week, never a flagged one, never another tab, with one Undo', async () => {
+  const w = world();
+  const shop = { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } };
+  w.add('old1', { from: shop, subject: 'Rabatt 50%', receivedDateTime: '2026-09-20T08:00:00Z' });
+  w.add('old2', { from: shop, subject: 'Rabatt 40%', receivedDateTime: '2026-09-21T08:00:00Z', isRead: true });
+  w.add('flagged', { from: shop, subject: 'Rabatt 30%', receivedDateTime: '2026-09-21T09:00:00Z', flag: { flagStatus: 'flagged' } });
+  w.add('fresh', { from: shop, subject: 'Rabatt 20%', receivedDateTime: '2026-10-04T08:00:00Z' });
+  w.add('person', { subject: 'Middag?', receivedDateTime: '2026-09-01T08:00:00Z' });
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  const t = Date.parse('2026-10-05T10:00:00Z');
+  assert.deepEqual(cleanUpList(c.getState(), t, 7).map((m) => m.id).sort(), ['old1', 'old2']);
+  assert.deepEqual(cleanUpList(c.getState(), t, 0).map((m) => m.id).sort(), ['fresh', 'old1', 'old2']);
+  assert.equal(await c.cleanUp(7, t), 2);
+  assert.equal(c.getState().toast!.text, 'Archived 2');
+  assert.deepEqual(c.getState().mail.map((m) => m.id).sort(), ['flagged', 'fresh', 'person']);
+  c.getState().toast!.undo!();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(c.getState().mail.length, 5);
+  assert.equal(w.log.some((l) => l.startsWith('graph move')), false, 'nothing reached Outlook');
+  assert.equal(await c.cleanUp(7, t), 2);
+  advance(7000);
+  await runTimers();
+  assert.deepEqual(w.log.filter((l) => l.startsWith('graph move')).sort(), ['graph move old1 archive', 'graph move old2 archive']);
+  assert.equal(await c.cleanUp(7, t), 0, 'nothing left to clean');
+});
+
+test('mark many as read: one toast, each one goes to Outlook', async () => {
+  const w = world(); w.add('1'); w.add('2'); w.add('3', { isRead: true });
+  const { c } = make(w);
+  await c.init();
+  await c.markRead(c.getState().mail);
+  assert.equal(c.getState().toast!.text, 'Marked 2 as read');
+  assert.ok(c.getState().mail.every((m) => m.isRead));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(w.log.filter((l) => l.includes('"isRead":true')).length, 2);
 });
 
 test('search: local first, then older mail from Outlook, without duplicates', async () => {

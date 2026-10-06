@@ -109,3 +109,27 @@ test('attachmentBlob decodes base64', async () => {
   const a = await g.attachmentBlob('m', 'a');
   assert.equal(new TextDecoder().decode(a.bytes), 'hi');
 });
+
+test('batch says how long to wait for a call Microsoft asked us to slow down on', async () => {
+  const { g } = setup([res(200, { responses: [{ id: '0', status: 200, body: {} }, { id: '1', status: 429, headers: { 'Retry-After': '7' }, body: {} }, { id: '2', status: 429, headers: { 'retry-after': 'soon' }, body: {} }] })]);
+  const out = await g.batch([{ method: 'GET', url: '/a' }, { method: 'GET', url: '/b' }, { method: 'GET', url: '/c' }]);
+  assert.deepEqual(out.map((o) => [o.status, o.retryAfter]), [[200, undefined], [429, 7], [429, undefined]]);
+});
+
+test('sentRecipients collects each address you have written to once, in lower case, across pages', async () => {
+  const msg = (...to: string[]) => ({ toRecipients: to.map((address) => ({ emailAddress: { address } })), ccRecipients: [{ emailAddress: { address: 'CC@x.no' } }] });
+  const { g, calls } = setup([
+    res(200, { value: [msg('Anna@X.no', 'per@x.no'), msg('anna@x.no')], '@odata.nextLink': 'https://graph/next?p=2' }),
+    res(200, { value: [msg('kari@x.no', 'not-an-address', '')] }),
+  ]);
+  assert.deepEqual((await g.sentRecipients()).sort(), ['anna@x.no', 'cc@x.no', 'kari@x.no', 'per@x.no']);
+  assert.match(calls[0].url, /mailFolders\/sentitems\/messages\?\$select=toRecipients,ccRecipients&\$orderby=sentDateTime desc&\$top=100/);
+  assert.equal(calls[1].url, 'https://graph/next?p=2');
+});
+
+test('sentRecipients stops after the pages it was asked for', async () => {
+  const page = () => res(200, { value: [], '@odata.nextLink': 'https://graph/next' });
+  const { g, calls } = setup([page(), page(), page()]);
+  await g.sentRecipients(2);
+  assert.equal(calls.length, 2);
+});

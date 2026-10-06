@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { visibleMail, type State } from '../core/controller.ts';
 import { displayName, initials, shortTime } from '../core/format.ts';
-import type { Mail } from '../core/types.ts';
+import { KIND_TAB, type Mail } from '../core/types.ts';
 import { isHorizontal, swipeResult } from '../../lib/swipe.ts';
 import { Icon } from './ui.tsx';
 import { SnoozeSheet } from './Inbox.tsx';
@@ -17,7 +17,7 @@ export function Triage({ s }: { s: State }) {
   const c = useC();
   const badgeOf = useBadge(s);
   const queue = useRef<string[] | null>(null);
-  if (!queue.current) queue.current = visibleMail({ mail: s.mail, filter: 'unread', accountFilter: s.accountFilter }, Date.now()).filter((m) => !m.flagged).map((m) => m.key);
+  if (!queue.current) queue.current = visibleMail({ mail: s.mail, view: s.view, unreadOnly: true, accountFilter: s.accountFilter }, Date.now()).filter((m) => !m.flagged).map((m) => m.key);
   const [handled, setHandled] = useState<string[]>([]);
   const [snooze, setSnooze] = useState(false);
   const [dx, setDx] = useState(0);
@@ -44,7 +44,7 @@ export function Triage({ s }: { s: State }) {
     return (
       <div className="pg">
         <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
-        <div className="empty"><span className="big">All caught up</span>{total ? `You went through ${total} message${total > 1 ? 's' : ''}.` : 'Nothing unread to go through.'}<button className="cta" style={{ marginTop: 20 }} onClick={() => go({ name: 'inbox' })}>Back to inbox</button></div>
+        <div className="empty"><span className="big">All caught up</span>{total ? `You went through ${total} message${total > 1 ? 's' : ''}.` : s.view === 'all' ? 'Nothing unread to go through.' : `Nothing unread in ${KIND_TAB[s.view]}.`}<button className="cta" style={{ marginTop: 20 }} onClick={() => go({ name: 'inbox' })}>Back to inbox</button></div>
       </div>
     );
   }

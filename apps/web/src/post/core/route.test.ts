@@ -9,7 +9,7 @@ test('every route survives a round trip, including odd ids', () => {
     { name: 'search', q: 'from:anna æøå' },
     { name: 'compose', mode: 'new' },
     { name: 'compose', mode: 'replyAll', account: 'a@o.no', id: 'AAA=' },
-    { name: 'settings', page: '' }, { name: 'settings', page: 'alerts' }, { name: 'settings', page: 'hours', account: 'w@firma.no' },
+    { name: 'settings', page: '' }, { name: 'settings', page: 'alerts' }, { name: 'settings', page: 'sorting' }, { name: 'settings', page: 'hours', account: 'w@firma.no' },
   ];
   for (const r of routes) assert.deepEqual(parseRoute(buildRoute(r)), r);
 });

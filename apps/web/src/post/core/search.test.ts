@@ -10,8 +10,18 @@ test('folds Nordic letters and accents', () => {
 });
 
 test('parses operators and keeps the rest as words', () => {
-  const q = parseQuery('from:Anna is:unread has:attachment in:newsletters account:work Møte');
-  assert.deepEqual(q, { words: ['mote'], from: ['anna'], unread: true, flagged: false, attachment: true, account: 'work', kind: 'newsletter' });
+  const q = parseQuery('from:Anna is:unread has:attachment in:promotions account:work Møte');
+  assert.deepEqual(q, { words: ['mote'], from: ['anna'], unread: true, flagged: false, attachment: true, account: 'work', kind: 'promo' });
+});
+
+test('in: takes the tab names, and the older names still work', () => {
+  assert.equal(parseQuery('in:primary').kind, 'person');
+  assert.equal(parseQuery('in:transactions').kind, 'transaction');
+  assert.equal(parseQuery('in:updates').kind, 'update');
+  assert.equal(parseQuery('in:newsletters').kind, 'update');
+  assert.equal(parseQuery('in:receipts').kind, 'transaction');
+  assert.deepEqual(parseQuery('in:nonsense').words, ['in:nonsense']);
+  assert.deepEqual(search([m({ id: '1', kind: 'promo', subject: 'tilbud' }), m({ id: '2', kind: 'person', subject: 'tilbud' })], 'in:promotions tilbud').map((x) => x.id), ['1']);
 });
 
 test('"from:" alone is just a word, not a broken filter', () => {

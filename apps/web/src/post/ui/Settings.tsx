@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import type { State } from '../core/controller.ts';
+import { mailCounts, type State } from '../core/controller.ts';
 import { ACCENTS, ACCOUNT_COLOURS, accountColour, type Settings as Cfg } from '../core/settings.ts';
-import { Icon, Seg, Switch } from './ui.tsx';
-import { go, useC } from './ctx.tsx';
+import { sortingReport } from '../core/report.ts';
+import { asKind, KINDS, KIND_TAB, type Kind } from '../core/types.ts';
+import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
+import { go, useC, useNow } from './ctx.tsx';
 
 declare const __BUILD__: string;
 
@@ -35,6 +37,10 @@ export function Settings({ s }: { s: State }) {
         <div className="lbl">Alerts</div>
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'alerts' })}><span className="ico"><Icon n="bell" /></span>Icon number & alerts<span className="v"><i className={`ok-dot${s.alertsOn ? '' : ' bad-dot'}`} />{alertsLine}<Icon n="chev" /></span></button>
+        </div>
+        <div className="lbl">Sorting</div>
+        <div className="card">
+          <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{Object.keys(s.overrides).length ? `${Object.keys(s.overrides).length} rule${Object.keys(s.overrides).length > 1 ? 's' : ''}` : 'Automatic'}<Icon n="chev" /></span></button>
         </div>
         <div className="lbl">Swipe</div>
         <div className="card">
@@ -105,6 +111,57 @@ export function Appearance({ s }: { s: State }) {
             })}</div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** How the inbox is sorted: the four tabs and what is in them, the rules you made by moving a sender, and a report for improving the rules. */
+export function Sorting({ s }: { s: State }) {
+  const c = useC();
+  const now = useNow();
+  const counts = mailCounts({ mail: s.mail, accountFilter: null }, now);
+  const rules = Object.entries(s.overrides).sort((a, b) => a[0].localeCompare(b[0]));
+  const [report, setReport] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const copy = async () => {
+    const text = sortingReport(s.mail, s.overrides, new Date().toISOString().slice(0, 10));
+    setReport(text);
+    try { await navigator.clipboard.writeText(text); setNote('Copied. Paste it where you report problems with the sorting.'); } catch { setNote('Press and hold the text below to copy it.'); }
+  };
+  return (
+    <div className="pg">
+      <div className="nav"><button className="back" onClick={() => go({ name: 'settings', page: '' })}><Icon n="back" />Settings</button></div>
+      <div className="ttl"><h1 className="h1">Sorting</h1></div>
+      <div className="scroll">
+        <p className="note" style={{ marginTop: 0 }}>Post puts each message in one of four tabs, like iOS Mail. It looks at who sent it, what the subject says, and the hidden marks that bulk mail carries. Nothing is ever hidden: All shows everything, and a message it is unsure about stays in Primary.</p>
+        <div className="lbl">In your inbox now</div>
+        <div className="card">
+          {KINDS.map((k) => <div key={k} className="it"><span className="ico"><Icon n={KIND_ICON[k]} /></span>{KIND_TAB[k]}<span className="v">{counts.byKind[k].total}{counts.byKind[k].unread ? ` · ${counts.byKind[k].unread} unread` : ''}</span></div>)}
+        </div>
+        {counts.unsorted > 0 && <p className="note">{counts.unsorted} of {counts.total} are still first guesses. Post reads the hidden marks of the rest in the background.</p>}
+        <div className="lbl">Your rules</div>
+        {rules.length ? (
+          <div className="card">
+            {rules.map(([key, kind]) => (
+              <div key={key} className="it rule">
+                <span className="ico"><Icon n={KIND_ICON[kind]} /></span>
+                <span className="rw">{key.startsWith('@') ? key.slice(1) : key}<small>{key.startsWith('@') ? 'Everything from this company' : 'This sender only'}</small></span>
+                <label className="rs">{KIND_TAB[kind]}<Icon n="chev" size={16} />
+                  <select aria-label={`Tab for ${key}`} value={kind} onChange={(e) => { const k = asKind(e.target.value); if (k) void c.moveSender(key.startsWith('@') ? `x${key}` : key, k as Kind, key.startsWith('@') ? 'company' : 'sender'); }}>
+                    {KINDS.map((k) => <option key={k} value={k}>{KIND_TAB[k]}</option>)}
+                  </select>
+                </label>
+                <button className="btn plain" aria-label={`Remove the rule for ${key}`} style={{ width: 40, height: 40 }} onClick={() => void c.removeRule(key)}><Icon n="x" size={16} /></button>
+              </div>
+            ))}
+          </div>
+        ) : <p className="note" style={{ marginTop: 0 }}>No rules yet. When a message is in the wrong tab, open it, tap Why, and move it: one tap fixes that sender from then on.</p>}
+        <div className="lbl">Help improve the sorting</div>
+        <div className="card"><button className="it" onClick={() => void copy()}><span className="ico"><Icon n="copy" /></span>Copy sorting report</button></div>
+        <p className="note">A summary of how your inbox was sorted: companies and counts only, never subjects, names or addresses.</p>
+        {note && <p className="note" role="status" style={{ color: 'var(--ink)' }}>{note}</p>}
+        {report && <textarea className="field code-box" readOnly aria-label="Sorting report" rows={10} value={report} onFocus={(e) => e.currentTarget.select()} />}
       </div>
     </div>
   );

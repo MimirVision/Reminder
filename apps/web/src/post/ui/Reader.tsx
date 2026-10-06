@@ -4,13 +4,12 @@ import { visibleMail } from '../core/controller.ts';
 import { displayName, fileSize, shortTime } from '../core/format.ts';
 import { frameDocument, hasRemoteImages, inlineCids, safeBlobType, textToHtml } from '../core/html.ts';
 import { parseUnsubscribe, type Unsub } from '../core/unsubscribe.ts';
-import { mailKey, type Kind, type Mail, type MailBody } from '../core/types.ts';
-import { Avatar, Icon, Sheet } from './ui.tsx';
+import { isFreemail, orgDomain, ruleFor } from '../core/classify.ts';
+import { KIND_ONE, KIND_TAB, KINDS, mailKey, type Mail, type MailBody } from '../core/types.ts';
+import { Avatar, Icon, KIND_ICON, Sheet, Switch } from './ui.tsx';
 import { SnoozeSheet } from './Inbox.tsx';
 import { RemindSheet } from './Remind.tsx';
 import { back, go, labelOf, useBadge, useC, useDark, useNow } from './ctx.tsx';
-
-const KIND_NAME: Record<Kind, string> = { person: 'a person', newsletter: 'a newsletter', receipt: 'a receipt', alert: 'an automatic alert' };
 
 function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
@@ -61,14 +60,16 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
     return () => { live = false; };
   }, [m?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Only mail that says it has an unsubscribe link (or has not been read in detail yet) is worth asking Outlook for the headers.
   useEffect(() => {
-    if (!m || m.kind !== 'newsletter') return;
+    if (!m || (m.kind !== 'promo' && m.kind !== 'update') || (m.sig && !m.sig.includes('unsub'))) return;
     let live = true;
     c.headersOf(m).then((h) => { if (live) setUnsub(parseUnsubscribe(h)); }).catch(() => {});
     return () => { live = false; };
   }, [m?.key, m?.kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const list = visibleMail(s, now);
+  // Next and previous follow the tab you came from. Reading a message must not drop it from "unread only" while you are still on it.
+  const list = visibleMail({ ...s, unreadOnly: false }, now);
   const idx = list.findIndex((x) => x.key === key);
   const next = idx >= 0 ? list[idx + 1] ?? null : null;
   const prev = idx > 0 ? list[idx - 1] : null;
@@ -101,7 +102,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
       <div className="scroll">
         <div className="ttl">
           <h1 className="h2">{m.subject || '(no subject)'}</h1>
-          <div className="meta"><span className="chip"><i style={{ background: badge?.colour ?? 'var(--at)' }} />{email}</span>{m.kind !== 'person' && <span className="chip">{m.kind}</span>}</div>
+          <div className="meta"><span className="chip"><i style={{ background: badge?.colour ?? 'var(--at)' }} />{email}</span>{m.kind !== 'person' && <span className="chip">{KIND_TAB[m.kind]}</span>}</div>
         </div>
         <article className="msg">
           <div className="mh">
@@ -110,7 +111,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             <button className="btn plain" aria-label={m.flagged ? 'Remove flag' : 'Flag'} onClick={() => void c.setFlag(m, !m.flagged)} style={{ color: m.flagged ? 'var(--at)' : undefined }}><Icon n="flag" /></button>
           </div>
           {m.kind !== 'person' && (
-            <div className="kindbar"><Icon n="inbox" size={18} /><span>Sorted as {KIND_NAME[m.kind]}</span><span className="sp" />
+            <div className="kindbar"><Icon n="inbox" size={18} /><span>Sorted as {KIND_ONE[m.kind]}</span><span className="sp" />
               {unsub && <button onClick={() => { if (unsub.https) window.open(unsub.https, '_blank', 'noopener'); else if (unsub.mailto) void c.unsubscribe(m, unsub.mailto); }}>Unsubscribe</button>}
               <button onClick={() => setSheet('why')}>Why?</button></div>
           )}
@@ -129,17 +130,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
       </div>
       {sheet === 'snooze' && <SnoozeSheet onClose={() => setSheet(null)} onPick={(at, label) => { void c.snooze(m, at, label); setSheet(null); open(next); }} />}
       {sheet === 'remind' && <RemindSheet m={m} preview={body?.contentType === 'text' ? body.content : m.preview} onClose={() => setSheet(null)} />}
-      {sheet === 'why' && (
-        <Sheet title="Why is this here?" onClose={() => setSheet(null)}>
-          <div className="card">{m.why.map((w) => <div key={w} className="it"><span className="ico"><Icon n="check" /></span>{w}</div>)}</div>
-          <p className="note">Post never hides mail. Sorting only decides which filter shows it. If it is wrong, fix it once and every message from {displayName(m.fromName, m.fromAddress)} follows.</p>
-          <div className="lbl">Move this sender to</div>
-          <div className="card">
-            {(['person', 'newsletter', 'receipt', 'alert'] as Kind[]).map((k) => <button key={k} className="it" onClick={() => { void c.moveSender(m.fromAddress, k); setSheet(null); }}>{k === 'person' ? 'People' : k === 'newsletter' ? 'Newsletters' : k === 'receipt' ? 'Receipts' : 'Alerts'}{m.kind === k && <span className="v"><Icon n="check" /></span>}</button>)}
-            <button className="it" onClick={() => { void c.moveSender(m.fromAddress, null); setSheet(null); }}>Back to automatic<span className="v" /></button>
-          </div>
-        </Sheet>
-      )}
+      {sheet === 'why' && <SortSheet s={s} m={m} onClose={() => setSheet(null)} />}
       {sheet === 'more' && (
         <Sheet title={labelOf(s, email)} onClose={() => setSheet(null)}>
           <div className="card">
@@ -148,11 +139,33 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             <button className="it" onClick={() => setSheet('remind')}><span className="ico"><Icon n="home" /></span>Remind me<span className="v">in Home Memory</span></button>
             <button className="it" onClick={() => { void c.setRead(m, false); setSheet(null); go({ name: 'inbox' }); }}><span className="ico"><Icon n="mail" /></span>Mark as unread</button>
             <button className="it" onClick={() => { void c.setFlag(m, !m.flagged); setSheet(null); }}><span className="ico"><Icon n="flag" /></span>{m.flagged ? 'Remove flag' : 'Flag'}</button>
-            <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {m.kind === 'person' ? 'people' : m.kind}<span className="v">Change</span></button>
+            <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {KIND_TAB[m.kind]}<span className="v">Change</span></button>
             <button className="it danger" onClick={() => { void c.trash([m]); setSheet(null); open(next); }}><span className="ico"><Icon n="trash" /></span>Delete</button>
           </div>
         </Sheet>
       )}
     </div>
+  );
+}
+
+/** "Why is this here?": the reasons in plain words, and the fix: move this sender (or everything from their company) to another tab. */
+function SortSheet({ s, m, onClose }: { s: State; m: Mail; onClose: () => void }) {
+  const c = useC();
+  const rule = ruleFor(s.overrides, m.fromAddress);
+  const domain = orgDomain(m.fromAddress);
+  const canCompany = !!domain && !isFreemail(domain);
+  const [company, setCompany] = useState(rule?.scope === 'company');
+  const move = (k: Mail['kind'] | null, scope: 'sender' | 'company') => { void c.moveSender(m.fromAddress, k, scope); onClose(); };
+  return (
+    <Sheet title="Why is this here?" onClose={onClose}>
+      <div className="card">{m.why.map((w) => <div key={w} className="it"><span className="ico"><Icon n="check" /></span>{w}</div>)}</div>
+      <p className="note">Post never hides mail: sorting only decides which tab shows it, and All shows everything. If it is wrong, fix it once and the next mail follows.</p>
+      <div className="lbl">Move to</div>
+      <div className="card">
+        {canCompany && <div className="it"><span className="rw">Everything from {domain}<small>Not only this sender</small></span><Switch on={company} onChange={setCompany} label={`Everything from ${domain}`} /></div>}
+        {KINDS.map((k) => <button key={k} className="it" onClick={() => move(k, company && canCompany ? 'company' : 'sender')}><span className="ico"><Icon n={KIND_ICON[k]} /></span>{KIND_TAB[k]}{m.kind === k && <span className="v"><Icon n="check" /></span>}</button>)}
+        {rule && <button className="it" onClick={() => move(null, rule.scope)}>Back to automatic<span className="v">{rule.scope === 'company' ? `rule for ${rule.key.slice(1)}` : 'rule for this sender'}</span></button>}
+      </div>
+    </Sheet>
   );
 }
