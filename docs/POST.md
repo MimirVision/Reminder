@@ -95,6 +95,7 @@ If 1 or 2 fail, the fallback is the sideloaded native app (parked in `apps/mail`
 - **"Your organisation needs to approve Post"**: ask your IT admin to grant consent for the app, or use the account without it.
 - **"… is not on this server's allowed list"**: run `select post_allow('that address');` in the Supabase SQL editor (then try again).
 - **"Post's server has no Microsoft client ID yet"**: run `select post_setup('<client id>', 'you@outlook.com');` in the Supabase SQL editor (step 2).
+- **"Supabase is blocking Post's server"**: **Verify JWT** is still on for the function. In Supabase open Edge Functions, `post-alerts`, turn **Verify JWT** off, and try again.
 - **Settings, Alerts says "Mail only"**: Microsoft would not start new-mail alerts for that mailbox; the reason is shown under it, and your mail works as normal. Post tries again every 6 hours and whenever you open it.
 - **Banner "Sign in again"**: Microsoft revoked the sign-in (password change, policy). Tap Sign in; nothing is lost.
 - **No number appears**: Settings, Icon number & alerts shows three checks (on Home Screen, notifications allowed, server answers). Supabase, Edge Functions, `post-alerts`, Logs show each decision ("alerted (a person)", "skipped: bulk mail", "skipped: outside this account's alert hours").
