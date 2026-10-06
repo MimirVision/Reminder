@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { mailCounts, visibleMail, type State, type View } from '../core/controller.ts';
+import { mailCounts, visibleThreads, type State, type View } from '../core/controller.ts';
 import { accountColour } from '../core/settings.ts';
 import { SHORTCUT_HELP, shortcutFor } from '../core/shortcuts.ts';
-import { KIND_TAB, mailKey, type Mail } from '../core/types.ts';
+import { replyTarget, type Thread } from '../core/threads.ts';
+import { KIND_TAB, mailKey } from '../core/types.ts';
 import { Compose } from './Compose.tsx';
 import { Inbox, SnoozeSheet } from './Inbox.tsx';
 import { Later, Search } from './SearchLater.tsx';
@@ -20,13 +21,14 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
   const route = useRoute();
   const now = useNow();
   const [help, setHelp] = useState(false);
-  const [snoozing, setSnoozing] = useState<Mail | null>(null);
+  const [snoozing, setSnoozing] = useState<Thread | null>(null);
 
-  const list = visibleMail(s, now);
+  // The list is a row per conversation, and the keys act on the whole conversation of the row that is open.
+  const list = visibleThreads(s, now);
   const open = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : null;
-  const idx = open ? list.findIndex((m) => m.key === open) : -1;
+  const idx = open ? list.findIndex((t) => t.items.some((m) => m.key === open)) : -1;
   const current = idx >= 0 ? list[idx] : undefined;
-  const openMail = (m?: Mail) => { if (m) go({ name: 'message', account: m.account, id: m.id }); };
+  const openMail = (t?: Thread) => { if (t) go({ name: 'message', account: t.latest.account, id: t.latest.id }); };
 
   // Keyboard: j and k move through the list, e archives, and so on. Ignored while typing, and while a sheet is open.
   useEffect(() => {
@@ -36,19 +38,18 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       if (e.key === 'Enter' && t && /^(BUTTON|A)$/.test(t.tagName)) return;
       const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet, .viewer') });
       if (!a) return;
-      const need = (m?: Mail) => m ?? undefined;
       switch (a) {
         case 'next': openMail(idx >= 0 ? list[idx + 1] ?? list[idx] : list[0]); break;
         case 'prev': openMail(idx > 0 ? list[idx - 1] : list[0]); break;
         case 'open': if (!current) openMail(list[0]); else return; break;
-        case 'archive': { const m = need(current); if (!m) return; void c.archive([m]); openMail(list[idx + 1] ?? list[idx - 1]); if (!list[idx + 1] && !list[idx - 1]) go({ name: 'inbox' }); break; }
-        case 'delete': { const m = need(current); if (!m) return; void c.trash([m]); openMail(list[idx + 1] ?? list[idx - 1]); if (!list[idx + 1] && !list[idx - 1]) go({ name: 'inbox' }); break; }
-        case 'reply': case 'replyAll': if (!current) return; go({ name: 'compose', mode: a, account: current.account, id: current.id }); break;
+        case 'archive': { if (!current) return; void c.archive(current.items, 1); openMail(list[idx + 1] ?? list[idx - 1]); if (!list[idx + 1] && !list[idx - 1]) go({ name: 'inbox' }); break; }
+        case 'delete': { if (!current) return; void c.trash(current.items, 1); openMail(list[idx + 1] ?? list[idx - 1]); if (!list[idx + 1] && !list[idx - 1]) go({ name: 'inbox' }); break; }
+        case 'reply': case 'replyAll': if (!current) return; go({ name: 'compose', mode: a, account: current.account, id: (replyTarget(current.items) ?? current.latest).id }); break;
         case 'compose': go({ name: 'compose', mode: 'new' }); break;
         case 'search': go({ name: 'search', q: '' }); break;
         case 'close': if (document.querySelector('.sheet, .viewer')) return; /* the sheet or the file viewer closes itself */ if (route.name !== 'inbox') go({ name: 'inbox' }); else return; break;
-        case 'unread': if (!current) return; void c.setRead(current, !current.isRead); break;
-        case 'flag': if (!current) return; void c.setFlag(current, !current.flagged); break;
+        case 'unread': if (!current) return; void c.toggleRead(current.items); break;
+        case 'flag': if (!current) return; void c.toggleFlag(current.items); break;
         case 'snooze': if (!current) return; setSnoozing(current); break;
         case 'undo': { const u = s.toast?.undo; if (!u) return; u(); break; }
         case 'refresh': void c.sync(); break;
@@ -81,7 +82,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
         </>
       )}
       {route.name === 'accounts' && <AccountsSheet s={s} onAdd={onAdd} onClose={() => go({ name: 'inbox' })} />}
-      {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing, at, label); setSnoozing(null); }} />}
+      {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing.items, at, label); setSnoozing(null); }} />}
       {help && (
         <Sheet title="Keyboard shortcuts" onClose={() => setHelp(false)}>
           <div className="card">{SHORTCUT_HELP.map(([k, t]) => <div key={k} className="it"><kbd>{k}</kbd><span className="v">{t}</span></div>)}</div>
@@ -97,8 +98,8 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
   const now = useNow();
   const emails = s.accounts.map((a) => a.email);
   // The numbers are what is waiting in Primary (for a mailbox: its Primary). Promotions and receipts show their own numbers in their own tabs.
-  const unreadOf = (email: string | null) => mailCounts({ mail: s.mail, accountFilter: email }, now).byKind.person.unread;
-  const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter }, now);
+  const unreadOf = (email: string | null) => mailCounts({ mail: s.mail, accountFilter: email, settings: s.settings }, now).byKind.person.unread;
+  const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter, settings: s.settings }, now);
   const inbox = route.name === 'inbox' || route.name === 'message' || route.name === 'compose' || route.name === 'accounts';
   const nav = (active: boolean, icon: string, text: string, onClick: () => void, badge?: number) => (
     <button className={`sb-it${active ? ' on' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon n={icon} size={20} />{text}{badge ? <span className="sb-n">{badge > 99 ? '99+' : badge}</span> : null}</button>
@@ -144,7 +145,7 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
 
 function EmptyPane({ s }: { s: State }) {
   const now = useNow();
-  const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter }, now);
+  const counts = mailCounts({ mail: s.mail, accountFilter: s.accountFilter, settings: s.settings }, now);
   const unread = s.view === 'all' ? counts.unread : counts.byKind[s.view].unread;
   return (
     <div className="dsk-empty">

@@ -31,11 +31,13 @@ export interface Settings {
   blockImages: boolean;
   signature: string;
   undoSend: number; // seconds
+  /** Messages that answer each other are one row in the list, and one conversation when opened. */
+  threads: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system', accent: 'ember', pureBlack: false, rowSize: 'comfortable', accountColours: {},
-  swipeRight: 'archive', swipeLeft: 'snooze', blockImages: true, signature: '', undoSend: 10,
+  swipeRight: 'archive', swipeLeft: 'snooze', blockImages: true, signature: '', undoSend: 10, threads: true,
 };
 
 const ONE_OF = <T extends string>(v: unknown, list: readonly T[], d: T): T => (list.includes(v as T) ? (v as T) : d);
@@ -59,6 +61,7 @@ export function loadSettings(raw: unknown): Settings {
     blockImages: o.blockImages !== false,
     signature: typeof o.signature === 'string' ? o.signature.slice(0, 500) : '',
     undoSend: [0, 5, 10, 20, 30].includes(Number(o.undoSend)) ? Number(o.undoSend) : d.undoSend,
+    threads: o.threads !== false,
   };
 }
 

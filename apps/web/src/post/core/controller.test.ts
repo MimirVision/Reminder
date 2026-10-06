@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanUpList, createController, mailCounts, visibleMail, type Deps } from './controller.ts';
-import { memoryStore } from './store.ts';
+import { cleanUpList, cleanUpThreads, createController, mailCounts, replyLaterThreads, snoozedThreads, visibleMail, visibleThreads, type Deps } from './controller.ts';
+import { memoryStore, type Store } from './store.ts';
 
 const SERVER = 'https://s.example/fn';
 const acct = (email: string, label: string) => ({ id: label === 'Work' ? '2' : '1', email, label, mode: 'people', quiet: null, vips: [] as string[], subscription_expires_at: null, last_alert_at: null });
@@ -12,7 +12,8 @@ function world() {
   const inbox = new Map<string, any>();
   let nextDelta = 1;
   const accounts = new Map([['a@outlook.com', acct('a@outlook.com', 'Personal')]]);
-  const flags = { offline: false, tokenFail: new Set<string>(), polled: false, nextEmail: 'w@firma.no' };
+  const flags = { offline: false, tokenFail: new Set<string>(), polled: false, nextEmail: 'w@firma.no', conversationFails: false, noFolder: new Set<string>() };
+  const convo = new Map<string, any[]>(); // conversation id -> every message of it in Outlook, whatever folder it is in
   const headers: Record<string, { name: string; value: string }[]> = {}; // what the hidden headers of each message say
   const sent: string[] = []; // who the person has written to (Sent Items)
   const add = (id: string, o: any = {}) => inbox.set(id, { id, subject: `Subject ${id}`, receivedDateTime: '2026-10-05T08:00:00Z', from: { emailAddress: { name: 'Anna', address: 'anna@x.no' } }, isRead: false, bodyPreview: 'preview', ...o });
@@ -39,7 +40,16 @@ function world() {
     }
     const path = u.replace('https://graph.microsoft.com/v1.0', '');
     if (/messages\/delta/.test(path) || u.includes('graph/delta')) { log.push('graph delta'); return new Response(JSON.stringify({ value: [...inbox.values()], '@odata.deltaLink': `https://graph/delta?d=${nextDelta++}` })); }
-    if (path === '/$batch') return new Response(JSON.stringify({ responses: body.requests.map((r: any) => ({ id: r.id, status: 200, body: { internetMessageHeaders: headers[decodeURIComponent(/messages\/([^?]+)/.exec(r.url)![1])] ?? [] } })) }));
+    if (path === '/$batch') return new Response(JSON.stringify({ responses: body.requests.map((r: any) => {
+      const folder = /mailFolders\/([a-z]+)\?\$select=id/.exec(r.url);
+      if (folder) { log.push(`graph folder ${folder[1]}`); return flags.noFolder.has(folder[1]) ? { id: r.id, status: 429, body: {} } : { id: r.id, status: 200, body: { id: `F-${folder[1]}` } }; }
+      return { id: r.id, status: 200, body: { internetMessageHeaders: headers[decodeURIComponent(/messages\/([^?]+)/.exec(r.url)![1])] ?? [] } };
+    }) }));
+    if (path.startsWith('/me/messages?$filter=conversationId')) {
+      const id = /conversationId eq '(.*)'/.exec(decodeURIComponent(path.split('$filter=')[1].split('&')[0]))![1].replace(/''/g, "'");
+      log.push(`graph conversation ${id}`);
+      return flags.conversationFails ? new Response('{}', { status: 500 }) : new Response(JSON.stringify({ value: convo.get(id) ?? [] }));
+    }
     if (path.startsWith('/me/mailFolders/sentitems/messages')) { log.push('graph sent'); return new Response(JSON.stringify({ value: sent.map((address) => ({ toRecipients: [{ emailAddress: { address } }], ccRecipients: [] })) })); }
     let m: RegExpExecArray | null;
     if ((m = /^\/me\/messages\/([^/]+)\/move$/.exec(path))) { log.push(`graph move ${decodeURIComponent(m[1])} ${body.destinationId}`); inbox.delete(decodeURIComponent(m[1])); return new Response(JSON.stringify({ id: 'new' }), { status: 201 }); }
@@ -50,7 +60,7 @@ function world() {
     if (path.startsWith('/me/messages?$search')) { log.push('graph search'); return new Response(JSON.stringify({ value: [{ id: 'old1', subject: 'Gammel faktura', from: { emailAddress: { address: 'x@y.no' } }, receivedDateTime: '2025-01-01T00:00:00Z' }, ...[...inbox.values()].slice(0, 1)] })); }
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
-  return { f, log, add, inbox, flags, headers, sent, accounts: () => [...accounts.values()] };
+  return { f, log, add, inbox, flags, headers, sent, convo, accounts: () => [...accounts.values()] };
 }
 
 function make(w = world(), extra: Partial<Deps> = {}) {
@@ -954,4 +964,414 @@ test('files: removing a mailbox also removes its waiting messages and their file
   await c.removeAccount('a@outlook.com');
   assert.deepEqual(await store.getMeta('outbox'), []);
   assert.equal(await store.getMeta(`a@outlook.com|outfile|${id}|0`), undefined);
+});
+
+// ---- conversations --------------------------------------------------------------------------------------------------------------------------
+
+const T0 = Date.parse('2026-10-05T10:00:00Z');
+const ME = 'a@outlook.com';
+/** One conversation in the inbox of the fake mailbox: `n` messages, the first from the oldest. */
+function chat(w: ReturnType<typeof world>, conv: string, ids: string[], o: Record<string, unknown> = {}) {
+  ids.forEach((id, i) => w.add(id, { conversationId: conv, subject: 'Ferie', receivedDateTime: `2026-10-05T0${1 + i}:00:00Z`, ...o }));
+}
+/** A message of Outlook that is not in the inbox: it is in the conversation lookup only. */
+const elsewhere = (id: string, o: Record<string, unknown> = {}) => ({ id, conversationId: 'C1', subject: 'Re: Ferie', receivedDateTime: '2026-10-05T05:30:00Z', from: { emailAddress: { name: 'Meg', address: ME } }, isRead: true, bodyPreview: 'svar', parentFolderId: 'F-sentitems', isDraft: false, ...o });
+
+test('conversations: messages that answer each other are one row, in the tab of the newest, counted once', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2', '3'], { isRead: true });
+  w.add('2', { conversationId: 'C1', subject: 'Ferie', receivedDateTime: '2026-10-05T02:00:00Z', isRead: false });
+  w.add('9', { conversationId: 'C9', subject: 'Middag?', receivedDateTime: '2026-10-05T04:00:00Z', isRead: false });
+  const { c } = make(w);
+  await c.init();
+  const s = c.getState();
+  const rows = visibleThreads(s, T0);
+  assert.deepEqual(rows.map((t) => [t.latest.id, t.items.map((m) => m.id), t.unread]), [['9', ['9'], 1], ['3', ['3', '2', '1'], 1]]);
+  const n = mailCounts(s, T0);
+  assert.deepEqual([n.total, n.unread, n.byKind.person.total, n.byKind.person.unread], [2, 2, 2, 2]);
+  assert.deepEqual(visibleThreads({ ...s, unreadOnly: true }, T0).map((t) => t.latest.id), ['9', '3'], 'a conversation with anything unread in it is unread');
+  assert.deepEqual(visibleThreads({ ...s, settings: { ...s.settings, threads: false } }, T0).map((t) => t.latest.id), ['9', '3', '2', '1'], 'conversations off: a row for each message, as before');
+  assert.equal(mailCounts({ ...s, settings: { ...s.settings, threads: false } }, T0).total, 4);
+});
+
+test('conversations: the tab filter, the mailbox filter and the snooze work on the whole conversation', async () => {
+  const w = world();
+  const shop = { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } };
+  chat(w, 'C1', ['1', '2']);
+  chat(w, 'C2', ['s1', 's2'], { from: shop, subject: 'Rabatt' });
+  w.headers['s1'] = w.headers['s2'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const { c } = make(w);
+  await c.init();
+  await c.sortInBackground();
+  const s = c.getState();
+  assert.deepEqual(visibleThreads({ ...s, view: 'promo' }, T0).map((t) => t.items.length), [2]);
+  assert.deepEqual(visibleThreads({ ...s, view: 'person' }, T0).map((t) => t.items.length), [2]);
+  assert.deepEqual(visibleThreads({ ...s, view: 'all', accountFilter: 'nobody@x.no' }, T0), []);
+  // snoozed: the row goes while its newest message is snoozed
+  await c.snooze(c.threadOf(s.mail.find((m) => m.id === '2')!), new Date('2026-10-06T08:00:00Z'), 'tomorrow');
+  assert.equal(c.getState().toast!.text, 'Snoozed until tomorrow');
+  assert.deepEqual(visibleThreads({ ...c.getState(), view: 'person' }, T0), []);
+  assert.deepEqual(snoozedThreads(c.getState(), T0).map((t) => t.items.length), [2], 'one row in Later, not one for each message');
+  assert.equal(visibleThreads({ ...c.getState(), view: 'person' }, Date.parse('2026-10-06T09:00:00Z')).length, 1, 'back at its time');
+  // ... and one Undo brings back the lot
+  c.getState().toast!.undo!();
+  await settle();
+  assert.equal(visibleThreads({ ...c.getState(), view: 'person' }, T0).length, 1);
+  assert.deepEqual(snoozedThreads(c.getState(), T0), []);
+});
+
+test('conversations: a new answer brings a snoozed conversation back', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2']);
+  const { c } = make(w);
+  await c.init();
+  await c.snooze(c.getState().mail, new Date('2026-10-06T08:00:00Z'), 'tomorrow');
+  assert.equal(visibleThreads(c.getState(), T0).length, 0);
+  w.add('3', { conversationId: 'C1', subject: 'Re: Ferie', receivedDateTime: '2026-10-05T09:00:00Z' });
+  await c.sync();
+  const rows = visibleThreads(c.getState(), T0);
+  assert.deepEqual(rows.map((t) => t.items.map((m) => m.id)), [['3', '2', '1']], 'the new message is not snoozed, so the conversation is back with all its messages');
+});
+
+test('conversations: archiving a conversation moves every message of it, with one toast and one Undo', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2', '3']);
+  w.add('9', { conversationId: 'C9', receivedDateTime: '2026-10-05T06:00:00Z' });
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  const rows = visibleThreads(c.getState(), T0);
+  await c.archive(rows[1].items, 1);
+  assert.equal(c.getState().toast!.text, 'Archived', 'one row, so the toast does not say 3');
+  assert.deepEqual(c.getState().mail.map((m) => m.id), ['9']);
+  c.getState().toast!.undo!();
+  await settle();
+  assert.equal(c.getState().mail.length, 4);
+  assert.equal(w.log.some((l) => l.startsWith('graph move')), false);
+  await c.archive(visibleThreads(c.getState(), T0).flatMap((t) => t.items), 2);
+  assert.equal(c.getState().toast!.text, 'Archived 2', 'two rows');
+  advance(7000);
+  await runTimers();
+  assert.deepEqual(w.log.filter((l) => l.startsWith('graph move')).sort(), ['graph move 1 archive', 'graph move 2 archive', 'graph move 3 archive', 'graph move 9 archive']);
+});
+
+test('conversations: read, unread and flag act on the whole conversation, and never bring an archived message back', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2', '3']);
+  const { c } = make(w);
+  await c.init();
+  const all = () => c.getState().mail;
+  assert.ok(all().every((m) => !m.isRead));
+  const stale = [...all()];
+  // 2 is archived (still in `stale`), then the conversation is marked read from the old list
+  await c.archive([all().find((m) => m.id === '2')!]);
+  await c.markRead(stale, { quiet: true });
+  assert.deepEqual(all().map((m) => [m.id, m.isRead]).sort(), [['1', true], ['3', true]], 'the archived one is not brought back');
+  assert.equal(c.getState().toast!.text, 'Archived', 'and a quiet mark says nothing');
+  // all read: toggling makes the newest unread; anything unread: toggling reads the lot
+  const rows = () => visibleThreads(c.getState(), T0)[0].items;
+  await c.toggleRead(rows());
+  assert.deepEqual(rows().map((m) => m.isRead), [false, true]);
+  await c.toggleRead(rows());
+  assert.deepEqual(rows().map((m) => m.isRead), [true, true]);
+  // flag: the newest message is flagged; flagging again takes every flag off
+  await c.toggleFlag(rows());
+  assert.deepEqual(rows().map((m) => m.flagged), [true, false]);
+  assert.deepEqual(replyLaterThreads(c.getState(), T0).map((t) => t.items.length), [2]);
+  await c.toggleFlag(rows());
+  assert.deepEqual(rows().map((m) => m.flagged), [false, false]);
+  assert.deepEqual(replyLaterThreads(c.getState(), T0), []);
+  await settle(20);
+  assert.ok(w.log.some((l) => l.includes('graph patch 3 {"flag":{"flagStatus":"flagged"}}')));
+  assert.ok(w.log.some((l) => l.includes('graph patch 3 {"flag":{"flagStatus":"notFlagged"}}')));
+});
+
+test('conversations: "answer later" flags the newest message and marks the conversation read, and keeps both', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2']);
+  const { c } = make(w);
+  await c.init();
+  await c.replyLater(visibleThreads(c.getState(), T0)[0].items);
+  assert.deepEqual(c.getState().mail.map((m) => [m.id, m.isRead, m.flagged]).sort(), [['1', true, false], ['2', true, true]]);
+});
+
+test('read and flag started at the same moment both stick (neither overwrites the other)', async () => {
+  const w = world(); w.add('1');
+  const { c } = make(w);
+  await c.init();
+  const m = c.getState().mail[0];
+  await Promise.all([c.setFlag(m, true), c.setRead(m, true), c.snooze(m, new Date('2026-10-06T08:00:00Z'), 'tomorrow')]);
+  const x = c.getState().mail[0];
+  assert.deepEqual([x.flagged, x.isRead, !!x.snoozedUntil], [true, true, true]);
+});
+
+test('read and flag leave a message that is not on the phone alone', async () => {
+  const w = world(); w.add('1');
+  const { c, store } = make(w);
+  await c.init();
+  const gone = { ...c.getState().mail[0], key: 'a@outlook.com|elsewhere', id: 'elsewhere' };
+  await c.setRead(gone, true); await c.setFlag(gone, true); await c.snooze(gone, new Date('2026-10-06T08:00:00Z'), 'x');
+  assert.equal(await store.getMail(gone.key), undefined);
+  assert.equal(c.getState().mail.length, 1);
+});
+
+test('conversations: the rest of a conversation comes from Outlook: your replies and archived mail, never drafts, deleted or junk, and nothing already here', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2']);
+  w.convo.set('C1', [
+    ...[...w.inbox.values()].filter((m) => m.conversationId === 'C1').map((m) => ({ ...m, parentFolderId: 'F-inbox' })),
+    elsewhere('sent1'),
+    elsewhere('arch1', { receivedDateTime: '2026-10-05T00:30:00Z', parentFolderId: 'F-archive', from: { emailAddress: { name: 'Anna', address: 'anna@x.no' } } }),
+    elsewhere('draft1', { isDraft: true, parentFolderId: 'F-drafts' }),
+    elsewhere('bin1', { parentFolderId: 'F-deleteditems' }),
+    elsewhere('junk1', { parentFolderId: 'F-junkemail' }),
+  ]);
+  const { c, store } = make(w);
+  await c.init();
+  const here = c.getState().mail.find((m) => m.id === '2')!;
+  const extra = await c.loadConversation(here);
+  assert.deepEqual(extra.map((m) => m.id), ['sent1', 'arch1'], 'newest first');
+  assert.ok(extra.every((m) => m.folder === 'archive' && m.conversationId === 'C1' && m.account === ME));
+  assert.equal(extra[0].fromAddress, ME, 'your own reply says it is from you');
+  // Seen, not kept: the phone's own mail is what it was
+  assert.equal(c.getState().mail.length, 2);
+  assert.equal((await store.allMail()).length, 2);
+  assert.equal(c.remoteMail(ME, 'sent1')?.subject, 'Re: Ferie');
+  assert.equal(c.remoteMail(ME, 'draft1'), undefined);
+  assert.deepEqual(c.threadOf(here).map((m) => m.id), ['2', '1'], 'actions still reach only what is in the inbox on the phone');
+});
+
+test('conversations: asked once and kept for a minute and a half, again when forced, when a message went out, or when Post is opened anew', async () => {
+  const w = world();
+  chat(w, 'C1', ['1']);
+  w.convo.set('C1', [elsewhere('sent1')]);
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  const m = c.getState().mail[0];
+  const asks = () => w.log.filter((l) => l === 'graph conversation C1').length;
+  await c.loadConversation(m); await c.loadConversation(m);
+  assert.equal(asks(), 1);
+  assert.equal(w.log.filter((l) => l.startsWith('graph folder')).length, 3, 'the three folders are asked about in one go, once');
+  advance(60_000); await c.loadConversation(m);
+  assert.equal(asks(), 1);
+  advance(40_000); await c.loadConversation(m);
+  assert.equal(asks(), 2);
+  await c.loadConversation(m, { force: true });
+  assert.equal(asks(), 3);
+  assert.equal(w.log.filter((l) => l.startsWith('graph folder')).length, 3, 'the folders were not asked about again');
+  // a reply that leaves makes what was kept stale
+  await c.send({ account: ME, kind: 'reply', to: ['anna@x.no'], cc: [], subject: 'Re: Ferie', body: 'ok', replyTo: '1' });
+  advance(11_000); await runTimers();
+  assert.ok(w.log.includes('graph reply'));
+  await c.loadConversation(m);
+  assert.equal(asks(), 4);
+});
+
+test('conversations: a message that has no conversation, or a mailbox that is signed out, is told plainly', async () => {
+  const w = world(); w.add('1'); chat(w, 'C1', ['2']);
+  const { c } = make(w);
+  await c.init();
+  assert.deepEqual(await c.loadConversation(c.getState().mail.find((m) => m.id === '1')!), []);
+  assert.equal(w.log.some((l) => l.startsWith('graph conversation')), false, 'nothing asked: there is no conversation to ask about');
+  const m = c.getState().mail.find((m) => m.id === '2')!;
+  w.flags.conversationFails = true;
+  await assert.rejects(() => c.loadConversation(m));
+  w.flags.conversationFails = false;
+  w.convo.set('C1', [elsewhere('sent1')]);
+  assert.deepEqual((await c.loadConversation(m)).map((x) => x.id), ['sent1'], 'a failure is not kept');
+  await assert.rejects(() => c.loadConversation({ ...m, account: 'nobody@x.no' }), /Sign in again/);
+});
+
+test('conversations: what was archived or deleted here a moment ago, and Outlook has not been told yet, does not come back as part of the conversation', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2']);
+  w.convo.set('C1', [...[...w.inbox.values()].map((m) => ({ ...m, parentFolderId: 'F-inbox' }))]);
+  const { c } = make(w);
+  await c.init();
+  const [newest, older] = [c.getState().mail.find((m) => m.id === '2')!, c.getState().mail.find((m) => m.id === '1')!];
+  await c.archive([older]);
+  assert.deepEqual((await c.loadConversation(newest)).map((m) => m.id), [], 'still in Outlook\'s inbox, but it was archived here');
+  c.getState().toast!.undo!();
+  await settle();
+  assert.deepEqual((await c.loadConversation(newest, { force: true })).map((m) => m.id), [], 'and back on the phone, so it is not "the rest" either');
+});
+
+test('conversations: a conversation archived here and moved by Outlook shows all of its messages when opened again, even inside the minute and a half it was kept', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2', '3']);
+  w.convo.set('C1', [...[...w.inbox.values()].map((m) => ({ ...m, parentFolderId: 'F-inbox' }))]);
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  const newest = c.getState().mail.find((m) => m.id === '3')!;
+  assert.deepEqual(await c.loadConversation(newest), [], 'all three are in the inbox on the phone: nothing more to show');
+  await c.archive(c.threadOf(newest), 1);
+  assert.deepEqual(await c.loadConversation(newest), [], 'Outlook has not been told yet');
+  advance(7000); await runTimers();
+  assert.ok(w.log.includes('graph move 3 archive'), 'now it has');
+  assert.deepEqual((await c.loadConversation(newest)).map((m) => m.id), ['3', '2', '1'], 'and the three of them are the conversation now (asked once: what was kept is reused)');
+  assert.equal(w.log.filter((l) => l === 'graph conversation C1').length, 1);
+});
+
+test('conversations: a message deleted here is not part of its conversation afterwards, not even in what was kept a moment ago', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2']);
+  w.convo.set('C1', [...[...w.inbox.values()].map((m) => ({ ...m, parentFolderId: 'F-inbox' })), elsewhere('sent1')]);
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  const [newest, older] = [c.getState().mail.find((m) => m.id === '2')!, c.getState().mail.find((m) => m.id === '1')!];
+  assert.deepEqual((await c.loadConversation(newest)).map((m) => m.id), ['sent1']);
+  await c.trash([older]);
+  advance(7000); await runTimers();
+  assert.ok(w.log.includes('graph move 1 deleteditems'));
+  assert.deepEqual((await c.loadConversation(newest)).map((m) => m.id), ['sent1'], 'the deleted one is in the bin, not in the conversation');
+});
+
+test('conversations: the ids of the hidden folders are kept only when Outlook named all of them', async () => {
+  const w = world();
+  chat(w, 'C1', ['1']);
+  w.convo.set('C1', [elsewhere('sent1'), elsewhere('junk1', { parentFolderId: 'F-junkemail' })]);
+  w.flags.noFolder.add('junkemail'); // a busy moment: Outlook answers "slow down" for one of the three
+  const { c, store } = make(w);
+  await c.init();
+  const m = c.getState().mail[0];
+  assert.deepEqual((await c.loadConversation(m)).map((x) => x.id).sort(), ['junk1', 'sent1'], 'this once, junk is not known to be junk');
+  assert.equal(await store.getMeta(`${ME}|folders`), undefined, 'and that is not kept');
+  w.flags.noFolder.clear();
+  assert.deepEqual((await c.loadConversation(m, { force: true })).map((x) => x.id), ['sent1'], 'asked again, and now it is left out');
+  assert.ok(await store.getMeta(`${ME}|folders`));
+  const asked = w.log.filter((l) => l.startsWith('graph folder')).length;
+  await c.loadConversation(m, { force: true });
+  assert.equal(w.log.filter((l) => l.startsWith('graph folder')).length, asked, 'complete: never asked again');
+});
+
+test('conversations: the text of a message that is only seen in Outlook is kept while Post is open, never on the phone', async () => {
+  const w = world();
+  chat(w, 'C1', ['1']);
+  w.convo.set('C1', [elsewhere('sent1')]);
+  const { c, store } = make(w);
+  await c.init();
+  const [extra] = await c.loadConversation(c.getState().mail[0]);
+  const b = await c.openBody(extra);
+  assert.equal(b.contentType, 'html');
+  await c.openBody(extra);
+  assert.equal(w.log.filter((l) => l === 'graph body').length, 1, 'asked once');
+  assert.equal(await store.getBody(extra.key), undefined, 'not saved');
+  // one that is on the phone is saved, as before
+  await c.openBody(c.getState().mail[0]);
+  assert.ok(await store.getBody(c.getState().mail[0].key));
+});
+
+test('conversations: the text of a message archived while it was being opened is not saved on the phone', async () => {
+  const w = world(); w.add('1');
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const slow: typeof fetch = (async (url: string, init?: RequestInit) => { if (/\$select=body/.test(String(url))) await gate; return w.f(url, init); }) as typeof fetch;
+  const { c, store } = make(w, { fetch: slow });
+  await c.init();
+  const m = c.getState().mail[0];
+  const opening = c.openBody(m);
+  await c.archive([m]);
+  release();
+  await opening;
+  assert.equal(await store.getBody(m.key), undefined, 'it would stay behind for ever, with no message to belong to');
+});
+
+test('search in Outlook: what it finds can be opened, and acted on only as far as makes sense', async () => {
+  const w = world(); w.add('1', { subject: 'Faktura oktober' });
+  const { c } = make(w);
+  await c.init();
+  const [old] = await c.searchRemote('faktura');
+  assert.equal(c.remoteMail(ME, old.id)?.subject, 'Gammel faktura');
+  assert.equal(c.remoteMail(ME, 'nope'), undefined);
+  assert.equal((await c.openBody(old)).contentType, 'html');
+});
+
+test('a conversation archived while its newest message is being flagged does not come back to the phone', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2', '3']);
+  const inner = memoryStore();
+  let seen!: () => void;
+  const taken = new Promise<void>((r) => { seen = r; });
+  // The flag's copy of the message reaches the phone late (or the moment the archive has taken the messages away, if that comes first): the worst case.
+  const store: Store = {
+    ...inner,
+    async deleteMail(keys) { await inner.deleteMail(keys); if (keys.length) seen(); },
+    async putMail(items) { if (items.some((m) => m.flagged)) await Promise.race([taken, settle(40)]); return inner.putMail(items); },
+  };
+  const { c } = make(w, { store });
+  await c.init();
+  const items = c.getState().mail;
+  assert.equal(items.length, 3);
+  await Promise.all([c.toggleFlag(items), c.archive(items, 1)]);
+  await settle(60);
+  assert.deepEqual((await inner.allMail()).map((m) => m.id), [], 'the flag was written first, then everything was taken away: nothing came back');
+  assert.deepEqual(c.getState().mail, []);
+});
+
+test('a message archived here stays out of the list until Outlook has been told, even if something wrote an older copy of it back', async () => {
+  const w = world(); w.add('1'); w.add('2');
+  const { c, store } = make(w);
+  await c.init();
+  const m = c.getState().mail.find((x) => x.id === '1')!;
+  await c.archive([m]);
+  await store.putMail([m]); // the sorting of the mail, finishing late with the copy it had
+  await c.markRead([c.getState().mail[0]], { quiet: true }); // anything that looks at the phone again
+  assert.deepEqual(c.getState().mail.map((x) => x.id), ['2']);
+  c.getState().toast!.undo!();
+  await settle();
+  assert.deepEqual(c.getState().mail.map((x) => x.id).sort(), ['1', '2'], 'Undo still brings it back');
+});
+
+test('Clean up works on the rows of the Promotions tab: a conversation is one, and a promo inside another tab\'s conversation is left alone', async () => {
+  const w = world();
+  const shop = { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } };
+  const at = (id: string, conv: string, when: string, o: Record<string, unknown> = {}) => w.add(id, { conversationId: conv, from: shop, subject: 'Rabatt', receivedDateTime: when, ...o });
+  at('s1', 'S1', '2026-09-10T08:00:00Z'); at('s2', 'S1', '2026-09-12T08:00:00Z'); at('s3', 'S1', '2026-09-14T08:00:00Z');                               // an old newsletter thread of three
+  at('f1', 'S2', '2026-09-10T08:00:00Z'); at('f2', 'S2', '2026-09-11T08:00:00Z', { flag: { flagStatus: 'flagged' } });                                 // one of them flagged: the row stays
+  at('p1', 'S3', '2026-09-02T08:00:00Z', { subject: 'Middag?' });                                                                                     // an old promo ...
+  w.add('p2', { conversationId: 'S3', subject: 'Re: Middag?', receivedDateTime: '2026-10-04T08:00:00Z' });                                              // ... in a conversation whose newest message is a person's
+  at('n1', 'S4', '2026-09-01T08:00:00Z'); at('n2', 'S4', '2026-10-04T09:00:00Z');                                                                      // newest is fresh: the row is not old
+  const { c, advance, runTimers } = make(w);
+  await c.init();
+  const s = c.getState();
+  const t = Date.parse('2026-10-05T10:00:00Z');
+  assert.deepEqual(cleanUpThreads(s, t, 7).map((r) => r.items.map((m) => m.id)), [['s3', 's2', 's1']], 'one row, old enough, nothing flagged');
+  assert.deepEqual(cleanUpThreads(s, t, 0).map((r) => r.items.length).sort(), [2, 3], 'all of them: the thread of three and the fresh pair, never the flagged or the person\'s');
+  assert.equal(cleanUpThreads(s, t, 0).length, visibleThreads({ ...s, view: 'promo' }, t).length - 1, 'the rows of the tab, but for the flagged one');
+  assert.equal(cleanUpList(s, t, 7).length, 3);
+  assert.equal(await c.cleanUp(7, t), 1);
+  assert.equal(c.getState().toast!.text, 'Archived', 'one row, one word');
+  assert.deepEqual(c.getState().mail.map((m) => m.id).sort(), ['f1', 'f2', 'n1', 'n2', 'p1', 'p2']);
+  c.getState().toast!.undo!();
+  await settle();
+  assert.equal(c.getState().mail.length, 9);
+  assert.equal(await c.cleanUp(7, t), 1);
+  advance(7000); await runTimers();
+  assert.deepEqual(w.log.filter((l) => l.startsWith('graph move')).sort(), ['graph move s1 archive', 'graph move s2 archive', 'graph move s3 archive']);
+});
+
+test('mark read: the toast counts rows of the list, not the messages in them', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2', '3']);
+  w.add('9', { conversationId: 'C9', receivedDateTime: '2026-10-05T06:00:00Z' });
+  const { c } = make(w);
+  await c.init();
+  await c.markRead(c.threadOf(c.getState().mail.find((m) => m.id === '3')!));
+  assert.equal(c.getState().toast!.text, 'Marked as read', 'one conversation, three messages');
+  await c.setRead(c.getState().mail.find((m) => m.id === '3')!, false);
+  await c.markRead(c.getState().mail);
+  assert.equal(c.getState().toast!.text, 'Marked 2 as read', 'a conversation and a message');
+});
+
+test('Undo of a snooze puts back what each message was snoozed until before', async () => {
+  const w = world();
+  chat(w, 'C1', ['1', '2']);
+  const { c, store } = make(w);
+  await c.init();
+  const [older, newest] = [c.getState().mail.find((m) => m.id === '1')!, c.getState().mail.find((m) => m.id === '2')!];
+  await c.snooze(older, new Date('2026-10-09T08:00:00Z'), 'Fri');
+  await c.snooze([newest, older], new Date('2026-10-06T08:00:00Z'), 'tomorrow');
+  c.getState().toast!.undo!();
+  await settle();
+  assert.equal((await store.getMail(older.key))!.snoozedUntil, '2026-10-09T08:00:00.000Z', 'back to Friday, not to nothing');
+  assert.equal((await store.getMail(newest.key))!.snoozedUntil ?? null, null);
 });
