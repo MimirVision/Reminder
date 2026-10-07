@@ -298,6 +298,19 @@ export function rulesDigest(overrides: Record<string, Kind> | undefined): string
   return `${lines.length}:${h.toString(16)}`;
 }
 
+/** The shape of a saved choice an alert server can hold: "anna@x.no" for one sender, "@x.no" for a company. */
+export const isRuleKey = (who: string): boolean => who.length <= 120 && /^(@[^\s@]+|[^\s@]+@[^\s@]+)$/.test(who);
+
+/**
+ * The saved choices the phone tells the alert server. A key of any other shape (the internal address an Exchange server gives a colleague, say)
+ * stays on the phone: one such key must not make the server refuse all the others.
+ */
+export function sendableRules(overrides: Record<string, Kind> | undefined): Record<string, Kind> {
+  const out: Record<string, Kind> = {};
+  for (const [who, kind] of Object.entries(overrides ?? {})) { const key = who.trim().toLowerCase(); if (isRuleKey(key)) out[key] = kind; }
+  return out;
+}
+
 const flat = (t: string) => t.toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'a').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 
 /** A company writing under its own name ("Elkjøp Norge" from elkjop.no). "Ola Hansen" from hansen.no is a person: the first word has to be the company. */
@@ -523,8 +536,6 @@ export const ALERT_EXTRA_DEFAULT: AlertExtra = 'codes';
 export const ALERT_SMART = 1;
 const ALERT_KINDS: Kind[] = ['person', 'transaction', 'update', 'promo'];
 const ALERT_RULES_MAX = 1000;
-/** "anna@x.no" for one sender, "@x.no" for a whole company. */
-const RULE_WHO = /^(@[^\s@]+|[^\s@]+@[^\s@]+)$/;
 
 export type AlertTaught = { rules: Record<string, Kind>; extra: AlertExtra };
 export const alertTaughtDefault = (): AlertTaught => ({ rules: {}, extra: ALERT_EXTRA_DEFAULT });
@@ -539,7 +550,7 @@ export function alertCleanRules(input: unknown): Record<string, Kind> {
   const out: Record<string, Kind> = {};
   for (const [who, kind] of entries) {
     const key = who.trim().toLowerCase();
-    if (key.length > 120 || !RULE_WHO.test(key) || !ALERT_KINDS.includes(kind as Kind)) throw new Error('bad rules');
+    if (!isRuleKey(key) || !ALERT_KINDS.includes(kind as Kind)) throw new Error('bad rules'); // "anna@x.no" for one sender, "@x.no" for a whole company
     out[key] = kind as Kind;
   }
   return out;
@@ -552,7 +563,7 @@ export function alertParseTaught(raw: string | null | undefined): AlertTaught {
   try {
     const o = JSON.parse(raw) as { rules?: Record<string, unknown>; extra?: unknown } | null;
     const rules: Record<string, Kind> = {};
-    for (const [who, kind] of Object.entries(o?.rules && typeof o.rules === 'object' ? o.rules : {})) if (RULE_WHO.test(who) && ALERT_KINDS.includes(kind as Kind)) rules[who] = kind as Kind;
+    for (const [who, kind] of Object.entries(o?.rules && typeof o.rules === 'object' ? o.rules : {})) if (isRuleKey(who) && ALERT_KINDS.includes(kind as Kind)) rules[who] = kind as Kind;
     return { rules, extra: ALERT_EXTRAS.includes(o?.extra as AlertExtra) ? (o!.extra as AlertExtra) : base.extra };
   } catch { return base; }
 }
@@ -835,6 +846,8 @@ export type AlertDeps = {
   now: () => Date;
   /** Mailboxes allowed to sign in to this server (`post_setup` / `post_allow`, or POST_ALLOWED_EMAILS). Without this list nobody can, so strangers cannot use your server. */
   allowedEmails?: string[];
+  /** One line per new mail, for the function's Logs: what was decided and why. */
+  log?: (line: string) => void;
 };
 
 /** A fresh access token for an account. If Microsoft rotated the refresh token, the new one is stored (encrypted). */
@@ -885,23 +898,29 @@ export async function alertVerdict(d: Pick<AlertDeps, 'store' | 'fetch' | 'now'>
 /** New-mail notifications from Microsoft: look each message up, decide, alert. Returns what happened, for logs and tests. */
 export async function alertProcess(d: AlertDeps, list: AlertNotification[]): Promise<{ id: string; outcome: string }[]> {
   const results: { id: string; outcome: string }[] = [];
+  // The Logs say why a mail did or did not count, and which company it came from (the domain only: never a subject, a name or an address).
+  const done = (id: string, outcome: string, m?: GraphMessage) => {
+    results.push({ id, outcome });
+    try { d.log?.(m ? `${outcome} · from ${(m.from?.emailAddress?.address ?? '').split('@')[1]?.toLowerCase() || 'an unknown sender'}` : outcome); } catch { /* a log line must never stop an alert */ }
+  };
   const tokens = new Map<string, string>();
   const all = list.length ? await d.store.allAccounts() : [];
   for (const n of list) {
     const a = await d.store.accountBySubscription(n.subscriptionId);
-    if (!a) { results.push({ id: n.messageId, outcome: 'unknown subscription' }); continue; }
-    if (!(await d.store.markSeen(a.id, n.messageId))) { results.push({ id: n.messageId, outcome: 'duplicate' }); continue; }
+    if (!a) { done(n.messageId, 'unknown subscription'); continue; }
+    if (!(await d.store.markSeen(a.id, n.messageId))) { done(n.messageId, 'duplicate'); continue; }
+    let m: GraphMessage | undefined;
     try {
       let token = tokens.get(a.id);
       if (!token) { token = await alertAccessToken(d, a); tokens.set(a.id, token); }
-      const m = await alertGetMessage(d.fetch, token, n.messageId);
+      m = await alertGetMessage(d.fetch, token, n.messageId);
       const verdict = await alertVerdict(d, token, m, a);
-      if (!verdict.send) { results.push({ id: n.messageId, outcome: `skipped: ${verdict.reason}` }); continue; }
-      const sent = await alertPushAll(d, (lang) => alertBuild(m, a, all.length > 1, lang));
+      if (!verdict.send) { done(n.messageId, `skipped: ${verdict.reason}`, m); continue; }
+      const sent = await alertPushAll(d, (lang) => alertBuild(m!, a, all.length > 1, lang));
       if (sent > 0) await d.store.update(a.id, { last_alert_at: d.now().toISOString() });
-      results.push({ id: n.messageId, outcome: sent > 0 ? `alerted (${verdict.reason})` : 'no device to alert' });
+      done(n.messageId, sent > 0 ? `alerted (${verdict.reason})` : 'no device to alert', m);
     } catch (e) {
-      results.push({ id: n.messageId, outcome: `error: ${e instanceof Error ? e.message : String(e)}` });
+      done(n.messageId, `error: ${e instanceof Error ? e.message : String(e)}`, m);
     }
   }
   return results;
@@ -1269,9 +1288,11 @@ Deno.serve(async (req) => {
   const configStore: AlertConfigStore = {
     load: async () => {
       // What the phones taught the server is kept in this table too (one row per mailbox, "taught:<id>"): not settings, so not read here.
-      const { data, error } = await admin.from('post_config').select('key, value').not('key', 'like', 'taught:%');
-      if (error) throw new Error(error.message);
-      return Object.fromEntries(((data ?? []) as { key: string; value: string }[]).filter((r) => !r.key.startsWith('taught:')).map((r) => [r.key, r.value]));
+      // Should the database refuse that filter, everything is read and those rows are left out below: the settings must always load.
+      let read = await admin.from('post_config').select('key, value').not('key', 'like', 'taught:%');
+      if (read.error) read = await admin.from('post_config').select('key, value');
+      if (read.error) throw new Error(read.error.message);
+      return Object.fromEntries(((read.data ?? []) as { key: string; value: string }[]).filter((r) => !r.key.startsWith('taught:')).map((r) => [r.key, r.value]));
     },
     putIfMissing: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v }, { onConflict: 'key', ignoreDuplicates: true }); },
     put: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' }); },
@@ -1319,6 +1340,7 @@ Deno.serve(async (req) => {
     allowedEmails: cfg.allowedEmails,
     notificationUrl: functionUrl,
     send: async (sub, payload) => { if (!vapid) throw new Error('push is not set up'); return await sendPush(sub, payload, vapid); },
+    log: (line) => console.log('post-alerts:', line),
   };
 
   let body: Record<string, any> | null = null;

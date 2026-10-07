@@ -262,6 +262,26 @@ test('the same notification twice alerts once; newsletters and read mail stay qu
   assert.equal(s.pushes.length, 1);
 });
 
+test('every decision is written to the Logs with why, and with the sender\'s domain only (never a subject, a name or an address)', async () => {
+  const lines: string[] = [];
+  const news = msg({ id: 'm2', subject: 'Hemmelig tilbud', from: { emailAddress: { name: 'Ola Nordmann', address: 'Ola.Nordmann@Shop.no' } }, internetMessageHeaders: [{ name: 'List-Unsubscribe', value: '<x>' }] });
+  const s = setup({ accounts: [await withToken({})], msgs: { m1: msg(), m2: news } });
+  s.deps.log = (l) => lines.push(l);
+  await alertProcess(s.deps, [note('m1'), note('m1'), note('m2'), note('m3'), note('m4', 'nope')]);
+  assert.equal(lines.length, 5);
+  assert.equal(lines[0], 'alerted (a person) · from example.no');
+  assert.equal(lines[1], 'duplicate');
+  assert.equal(lines[2], 'skipped: not in Primary (a promotion) · from shop.no');
+  assert.match(lines[3], /^error: /, 'a mail Microsoft no longer has');
+  assert.equal(lines[4], 'unknown subscription');
+  assert.ok(!lines.join('\n').match(/Hemmelig|Ola|Maja|Berg|maja@/i), 'nothing but the domain of the sender');
+  // a log that fails cannot stop an alert
+  const t = setup({ accounts: [await withToken({})], msgs: { m1: msg() } });
+  t.deps.log = () => { throw new Error('log is full'); };
+  assert.deepEqual((await alertProcess(t.deps, [note('m1')])).map((x) => x.outcome), ['alerted (a person)']);
+  assert.equal(t.pushes.length, 1);
+});
+
 test('two accounts: the alert says which one; a work account is quiet after hours', async () => {
   const s = setup({ accounts: [await withToken({ label: 'Personal' }), await withToken({ label: 'Work', quiet: WORK, email: 'andreas@firma.no' })], msgs: { m1: msg() } });
   s.deps.now = () => MON_20;

@@ -33,9 +33,11 @@ Deno.serve(async (req) => {
   const configStore: AlertConfigStore = {
     load: async () => {
       // What the phones taught the server is kept in this table too (one row per mailbox, "taught:<id>"): not settings, so not read here.
-      const { data, error } = await admin.from('post_config').select('key, value').not('key', 'like', 'taught:%');
-      if (error) throw new Error(error.message);
-      return Object.fromEntries(((data ?? []) as { key: string; value: string }[]).filter((r) => !r.key.startsWith('taught:')).map((r) => [r.key, r.value]));
+      // Should the database refuse that filter, everything is read and those rows are left out below: the settings must always load.
+      let read = await admin.from('post_config').select('key, value').not('key', 'like', 'taught:%');
+      if (read.error) read = await admin.from('post_config').select('key, value');
+      if (read.error) throw new Error(read.error.message);
+      return Object.fromEntries(((read.data ?? []) as { key: string; value: string }[]).filter((r) => !r.key.startsWith('taught:')).map((r) => [r.key, r.value]));
     },
     putIfMissing: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v }, { onConflict: 'key', ignoreDuplicates: true }); },
     put: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' }); },
@@ -83,6 +85,7 @@ Deno.serve(async (req) => {
     allowedEmails: cfg.allowedEmails,
     notificationUrl: functionUrl,
     send: async (sub, payload) => { if (!vapid) throw new Error('push is not set up'); return await sendPush(sub, payload, vapid); },
+    log: (line) => console.log('post-alerts:', line),
   };
 
   let body: Record<string, any> | null = null;

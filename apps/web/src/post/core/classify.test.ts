@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, isFreemail, orgDomain, ruleFor, signalsFromHeaders, type ClassifyContext } from './classify.ts';
+import { readFileSync } from 'node:fs';
+import { classify, isFreemail, isRuleKey, isSecurityMail, orgDomain, ruleFor, rulesDigest, sendableRules, signalsFromHeaders, type ClassifyContext } from './classify.ts';
 import { asKind, KINDS, type Kind } from './types.ts';
 
 const hdr = (...a: [string, string][]) => a.map(([name, value]) => ({ name, value }));
@@ -222,4 +223,47 @@ test('older saved names map onto the four kinds', () => {
   assert.equal(asKind('nonsense'), null);
   assert.equal(asKind(7), null);
   for (const k of KINDS) assert.equal(asKind(k), k);
+});
+
+test('a security code or sign-in alert is told apart from other Transactions (the alert server lets only these through)', () => {
+  const v = (from: string, subject: string, preview = '', ctx: ClassifyContext = {}) => classify({ fromAddress: from, subject, preview }, ctx);
+  assert.equal(isSecurityMail(v('noreply@github.com', 'Your verification code is 482913')), true);
+  assert.equal(isSecurityMail(v('no-reply@accounts.google.com', 'Security alert: new sign-in on Pixel 9', 'Your Google Account was just signed in to from a new Pixel 9 device.')), true);
+  assert.equal(isSecurityMail(v('varsel@dnb.no', 'Din engangskode er 394 118')), true);
+  assert.equal(isSecurityMail(v('faktura@telenor.no', 'Faktura for september')), false, 'an invoice is a transaction, not a code');
+  assert.equal(isSecurityMail(v('varsling@posten.no', 'Pakken din er på vei')), false);
+  assert.equal(isSecurityMail(v('anna@x.no', 'Middag på fredag?')), false);
+  assert.equal(isSecurityMail({ kind: 'promo', why: ['Looks like a security code or sign-in alert'] }), false, 'only in Transactions');
+});
+
+test('the fingerprint of the saved choices ignores order and case and changes with every choice (the phone and the alert server compare them)', () => {
+  const rules: Record<string, Kind> = { 'b@x.no': 'promo', '@Shop.no': 'update', 'a@x.no': 'person' };
+  assert.equal(rulesDigest(undefined), '0:811c9dc5');
+  assert.equal(rulesDigest({}), '0:811c9dc5');
+  assert.equal(rulesDigest(rules), rulesDigest({ 'a@x.no': 'person', '@shop.no': 'update', 'b@x.no': 'promo' }));
+  assert.match(rulesDigest(rules), /^3:[0-9a-f]+$/);
+  assert.notEqual(rulesDigest(rules), rulesDigest({ ...rules, 'b@x.no': 'update' }));
+  assert.notEqual(rulesDigest(rules), rulesDigest({ ...rules, 'c@x.no': 'promo' }));
+  assert.notEqual(rulesDigest({ 'a@x.no': 'person' }), rulesDigest({ 'a@x.no': 'promo' }));
+  // names beyond plain letters still count (code points, not bytes)
+  assert.notEqual(rulesDigest({ 'æ@x.no': 'person' }), rulesDigest({ 'ø@x.no': 'person' }));
+});
+
+test('only a choice of the shape an alert server can hold is sent to it (a sender, or a company with an @); the rest stays on the phone', () => {
+  assert.equal(isRuleKey('anna@x.no'), true);
+  assert.equal(isRuleKey('@shop.no'), true);
+  for (const bad of ['', 'shop.no', '@', 'a@', 'a b@x.no', '@x.no ', 'a@@x.no', `${'a'.repeat(120)}@x.no`]) assert.equal(isRuleKey(bad), false, JSON.stringify(bad));
+  const internal = '/o=firma/ou=exchange administrative group (fydibohf23spdlt)/cn=recipients/cn=ola';
+  assert.deepEqual(sendableRules({ [internal]: 'update', 'Anna@X.no': 'person', '@Shop.no': 'promo' }), { 'anna@x.no': 'person', '@shop.no': 'promo' });
+  assert.deepEqual(sendableRules(undefined), {});
+  assert.equal(rulesDigest(sendableRules({ [internal]: 'update' })), rulesDigest({}), 'with nothing to send the phone and a server that holds nothing agree');
+});
+
+test('the alert server sorts with a copy of this very file: change this file, run `npm run build:functions` in supabase/ and commit what it writes', () => {
+  const here = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const source = here('./classify.ts');
+  const copy = here('../../../../../supabase/functions/post-alerts/classify.ts');
+  const kind = /^export type Kind = [^;]+;$/m.exec(here('./types.ts'))![0];
+  assert.ok(copy.endsWith(source.replace("import type { Kind } from './types.ts';", kind)), 'supabase/functions/post-alerts/classify.ts is stale');
+  assert.ok(here('../../../../../supabase/dashboard/post-alerts.ts').includes(copy.trimEnd()), 'supabase/dashboard/post-alerts.ts is stale');
 });

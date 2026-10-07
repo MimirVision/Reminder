@@ -99,3 +99,19 @@ test('no session for an account is "signed out", not a crash', async () => {
   const tok = createTokens({ token: async () => ({ accessToken: 'T', expiresIn: 3600, email: 'x' }) }, sessions({}));
   await assert.rejects(() => tok.source('a')(), (e: ServerError) => e.status === 401);
 });
+
+
+test('"taught" sends the senders moved to another tab and what else counts, only the keys given, with the session', async () => {
+  const seen: { headers: Record<string, string>; body: any }[] = [];
+  const s = createServer('https://s/fn', (async (_u: string, init: RequestInit) => { seen.push({ headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) }); return json(200, { ok: true, extra: 'codes', rules_digest: '1:abc' }); }) as typeof fetch);
+  assert.deepEqual(await s.taught('acct.secret', { rules: { '@shop.no': 'promo' } }), { ok: true, extra: 'codes', rules_digest: '1:abc' });
+  await s.taught('acct.secret', { extra: 'none' });
+  assert.equal(seen[0].headers['x-post-session'], 'acct.secret');
+  assert.deepEqual(seen[0].body, { op: 'taught', rules: { '@shop.no': 'promo' } });
+  assert.deepEqual(seen[1].body, { op: 'taught', extra: 'none' });
+});
+
+test('a server with the older code does not know "taught": that is a plain refusal, not a lost sign-in', async () => {
+  const s = createServer('u', (async () => json(400, { error: 'bad_request' })) as typeof fetch);
+  await assert.rejects(() => s.taught('S', { extra: 'none' }), (e: ServerError) => e.status === 400 && /bad_request/.test(e.message));
+});

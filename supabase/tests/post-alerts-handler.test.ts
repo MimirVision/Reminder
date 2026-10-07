@@ -14,10 +14,12 @@ register('data:text/javascript,' + encodeURIComponent(`
 type Row = Record<string, any>;
 /** Every `.not(...)` the function used on a query: the settings read must leave out the rows the phones taught it. */
 const notCalls: unknown[][] = [];
+/** While true the database refuses `.not(...)`, as one that cannot filter that way would: the read must then still work. */
+let refuseNot = false;
 class Query {
   private filters: ((r: Row) => boolean)[] = [];
   private op: 'select' | 'update' | 'upsert' | 'delete' = 'select';
-  private payload: any; private opts: any; private returning = false;
+  private payload: any; private opts: any; private returning = false; private refused = false;
   private db: Record<string, Row[]>;
   private table: string;
   constructor(db: Record<string, Row[]>, table: string) { this.db = db; this.table = table; }
@@ -26,6 +28,7 @@ class Query {
   lt(k: string, v: any) { this.filters.push((r) => r[k] < v); return this; }
   not(k: string, op: string, v: string) {
     notCalls.push([k, op, v]);
+    if (refuseNot) { this.refused = true; return this; }
     if (op === 'like') { const re = new RegExp(`^${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*')}$`); this.filters.push((r) => !re.test(String(r[k]))); }
     return this;
   }
@@ -36,7 +39,8 @@ class Query {
   maybeSingle() { return this.run().then((r) => ({ data: r.data?.[0] ?? null, error: null })); }
   single() { return this.run().then((r) => ({ data: r.data?.[0] ?? null, error: null })); }
   then(res: (v: any) => unknown, rej?: (e: unknown) => unknown) { return this.run().then(res, rej); }
-  private async run(): Promise<{ data: Row[]; error: null }> {
+  private async run(): Promise<{ data: Row[]; error: null } | { data: null; error: { message: string } }> {
+    if (this.refused) return { data: null, error: { message: 'this filter is not supported' } };
     const rows = (this.db[this.table] ??= []);
     const match = (r: Row) => this.filters.every((f) => f(r));
     if (this.op === 'select') return { data: rows.filter(match).map((r) => ({ ...r })), error: null };
@@ -344,4 +348,21 @@ test('what the phone teaches the server: kept per mailbox, merged key by key, sh
   assert.equal(db.post_config.some((r) => r.key === `taught:${account.id}`), false);
   db.post_config = [];
   db.post_alert_devices = [];
+});
+
+test('the settings still load when the database refuses the filter that leaves the taught rows out', async () => {
+  const clientId = env.MS_CLIENT_ID;
+  delete env.MS_CLIENT_ID; // so the client id can only come from the database
+  db.post_config = [{ key: 'ms_client_id', value: 'FROM-DB' }, { key: 'taught:someone', value: JSON.stringify({ rules: {}, extra: 'none' }) }];
+  refuseNot = true;
+  notCalls.length = 0;
+  try {
+    assert.equal((await (await call({ op: 'config' }, null)).json()).clientId, 'FROM-DB', 'read again without the filter');
+    assert.ok(notCalls.length > 0, 'the filter was tried first');
+    assert.equal((await call({ op: 'status' }, null)).status, 401, 'and the function answers as usual');
+  } finally {
+    refuseNot = false;
+    env.MS_CLIENT_ID = clientId;
+    db.post_config = [];
+  }
 });

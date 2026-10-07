@@ -6,7 +6,12 @@ import { Icon, Seg, Switch } from './ui.tsx';
 import { go, useC } from './ctx.tsx';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const MODE_TEXT: Record<string, string> = { people: 'People', all: 'All mail', vips: 'VIPs', off: 'Off' };
+const MODE_TEXT: Record<string, string> = { people: 'Primary', all: 'All mail', vips: 'VIPs', off: 'Off' };
+const EXTRA_HELP = {
+  none: 'Only mail in your Primary tab. A one-time code from a no-reply address will not count.',
+  codes: 'One-time codes and sign-in alerts count too, because they cannot wait. Receipts and deliveries do not.',
+  transactions: 'Everything in Transactions counts too: receipts, invoices, deliveries, bookings and codes.',
+} as const;
 const quietText = (a: AppAccount) => (a.quiet ? `${a.quiet.days.length === 5 && a.quiet.days.every((d) => d <= 5) ? 'Mon to Fri' : `${a.quiet.days.length} days`}, ${a.quiet.from} to ${a.quiet.to}` : 'any time');
 
 export function Alerts({ s }: { s: State }) {
@@ -46,7 +51,9 @@ export function Alerts({ s }: { s: State }) {
             {check(standalone, 'Post is on your Home Screen', standalone ? 'OK' : 'Add it')}
             {check(perm === 'granted', 'Notifications are allowed', perm === 'granted' ? 'OK' : perm === 'denied' ? 'Blocked' : 'Not yet')}
             {check(ms !== null, 'Your alert server answers', ms !== null ? `${ms} ms` : 'No answer')}
+            {s.serverSmart !== null && check(s.serverSmart, 'Alerts follow your Primary tab', s.serverSmart ? 'OK' : 'Needs update')}
           </div>
+          {s.serverSmart === false && <p className="note" role="status" style={{ margin: '10px 0 0', color: 'var(--ink)' }}>Your alert server still has the older code, so mail from companies can still add to the number. The newer code sorts mail like your Primary tab. It takes one paste into Supabase: see docs/POST.md, “Updating the alert server”.</p>}
         </div>
         <div className="btns">
           {!s.alertsOn ? <button className="p" disabled={busy || !standalone} onClick={() => void turnOn()}>Turn on the icon number</button> : <button className="p" disabled={busy} onClick={() => void test()}>Send a test alert</button>}
@@ -92,7 +99,19 @@ export function Hours({ s, email }: { s: State; email: string }) {
         <div className="panel">
           <div className="acc-h"><span className="dotc" style={{ background: accountColour(a.email, s.accounts.map((x) => x.email), s.settings.accountColours) }}>{a.label[0]}</span><div><b>{a.label}</b><span>{a.email}</span></div></div>
           <div className="lbl" style={{ margin: '14px 2px 6px' }}>Count new mail from</div>
-          <Seg label="Count new mail from" value={a.mode} options={[['people', 'People'], ['all', 'All mail'], ['vips', 'VIPs'], ['off', 'Off']]} onChange={(v) => void save({ mode: v })} />
+          <Seg label="Count new mail from" value={a.mode} options={[['people', 'Primary'], ['all', 'All mail'], ['vips', 'VIPs'], ['off', 'Off']]} onChange={(v) => void save({ mode: v })} />
+          {a.mode === 'people' && (
+            <>
+              <p className="note" style={{ margin: '8px 2px 0' }}>Counts mail that lands in your Primary tab, with the senders you moved there, and never mail you moved to another tab.</p>
+              {s.serverSmart !== false && (
+                <>
+                  <div className="lbl" style={{ margin: '14px 2px 6px' }}>Besides Primary, also count</div>
+                  <Seg label="Besides Primary, also count" value={a.extra ?? 'codes'} options={[['none', 'Nothing'], ['codes', 'Codes'], ['transactions', 'Transactions']]} onChange={(v) => void c.setExtra(a.email, v)} />
+                  <p className="note" style={{ margin: '8px 2px 0' }}>{EXTRA_HELP[a.extra ?? 'codes']}</p>
+                </>
+              )}
+            </>
+          )}
           <div className="any">Any time of day<Switch on={anyTime} label="Any time of day" onChange={(v) => void save({ quiet: v ? null : q })} /></div>
           {!anyTime && (
             <>

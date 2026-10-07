@@ -150,6 +150,19 @@ export function rulesDigest(overrides: Record<string, Kind> | undefined): string
   return `${lines.length}:${h.toString(16)}`;
 }
 
+/** The shape of a saved choice an alert server can hold: "anna@x.no" for one sender, "@x.no" for a company. */
+export const isRuleKey = (who: string): boolean => who.length <= 120 && /^(@[^\s@]+|[^\s@]+@[^\s@]+)$/.test(who);
+
+/**
+ * The saved choices the phone tells the alert server. A key of any other shape (the internal address an Exchange server gives a colleague, say)
+ * stays on the phone: one such key must not make the server refuse all the others.
+ */
+export function sendableRules(overrides: Record<string, Kind> | undefined): Record<string, Kind> {
+  const out: Record<string, Kind> = {};
+  for (const [who, kind] of Object.entries(overrides ?? {})) { const key = who.trim().toLowerCase(); if (isRuleKey(key)) out[key] = kind; }
+  return out;
+}
+
 const flat = (t: string) => t.toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'a').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 
 /** A company writing under its own name ("Elkjøp Norge" from elkjop.no). "Ola Hansen" from hansen.no is a person: the first word has to be the company. */
