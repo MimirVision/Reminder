@@ -184,7 +184,7 @@ export function Sorting({ s }: { s: State }) {
             ))}
           </div>
         ) : <p className="note" style={{ marginTop: 0 }}>No rules yet. When a message is in the wrong tab, open it, tap Why, and move it: one tap fixes that sender from then on.</p>}
-        <p className="note">The icon number follows these tabs too: when Alerts is set to Primary, mail from a sender you moved out of Primary does not count.</p>
+        <p className="note">{s.serverSmart === false ? 'The icon number does not follow these tabs yet: your alert server still has the older code. See Settings, Alerts.' : 'The icon number follows these tabs too: when Alerts is set to Primary, mail from a sender you moved out of Primary does not count (people on your VIP list always do).'}</p>
         <div className="lbl">Help improve the sorting</div>
         <div className="card"><button className="it" onClick={() => void copy()}><span className="ico"><Icon n="copy" /></span>Copy sorting report</button></div>
         <p className="note">A summary of how your inbox was sorted: companies and counts only, never subjects, names or addresses.</p>
