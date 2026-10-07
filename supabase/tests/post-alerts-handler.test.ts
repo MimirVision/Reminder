@@ -12,6 +12,8 @@ register('data:text/javascript,' + encodeURIComponent(`
   }`));
 
 type Row = Record<string, any>;
+/** Every `.not(...)` the function used on a query: the settings read must leave out the rows the phones taught it. */
+const notCalls: unknown[][] = [];
 class Query {
   private filters: ((r: Row) => boolean)[] = [];
   private op: 'select' | 'update' | 'upsert' | 'delete' = 'select';
@@ -22,6 +24,11 @@ class Query {
   select() { this.returning = true; return this; }
   eq(k: string, v: unknown) { this.filters.push((r) => r[k] === v); return this; }
   lt(k: string, v: any) { this.filters.push((r) => r[k] < v); return this; }
+  not(k: string, op: string, v: string) {
+    notCalls.push([k, op, v]);
+    if (op === 'like') { const re = new RegExp(`^${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*')}$`); this.filters.push((r) => !re.test(String(r[k]))); }
+    return this;
+  }
   in(k: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[k])); return this; }
   update(p: Row) { this.op = 'update'; this.payload = p; return this; }
   upsert(p: Row, o: any) { this.op = 'upsert'; this.payload = p; this.opts = o; return this; }
@@ -270,4 +277,71 @@ test('Microsoft refusing the alert subscription does not stop the sign-in: the m
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test('what the phone teaches the server: kept per mailbox, merged key by key, shown in the status, followed by the alerts, and gone with the mailbox', async () => {
+  db.post_alert_devices = [];
+  db.post_config = [];
+  const start = await (await call({ op: 'signin_start', redirectUri: 'https://site.example/post/' }, null)).json();
+  const done = await (await call({ op: 'signin_finish', code: 'CODE', state: new URL(start.url).searchParams.get('state')! }, null)).json();
+  const as = (session: string, body: unknown) => handler(new Request(URL0, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-post-session': session }, body: JSON.stringify(body) }));
+  const account = db.post_alert_accounts[0];
+  const p256dh = bytesToB64u(new Uint8Array(await crypto.subtle.exportKey('raw', ua.publicKey)));
+  assert.equal((await as(done.session, { op: 'pair', endpoint: 'https://push.example/taught', p256dh, auth: bytesToB64u(crypto.getRandomValues(new Uint8Array(16))), lang: 'en' })).status, 200);
+  const hook = async (id: string, subject: string, address: string, headers: { name: string; value: string }[] = []) => {
+    const before = pushed.length;
+    graphMessage = { id, subject, isRead: false, parentFolderId: 'INBOX-ID', from: { emailAddress: { name: 'Sender', address } }, internetMessageHeaders: headers };
+    await call({ value: [{ subscriptionId: account.subscription_id, clientState: account.client_state, changeType: 'created', resourceData: { id } }] }, null);
+    await new Promise((r) => setTimeout(r, 80));
+    return pushed.length - before;
+  };
+
+  // Nothing taught yet: the defaults, and the function says it can follow the Primary tab.
+  const st0 = await (await as(done.session, { op: 'status' })).json();
+  assert.equal(st0.smart, 1);
+  assert.equal(st0.accounts[0].extra, 'codes');
+  assert.match(st0.accounts[0].rules_digest, /^0:/);
+  assert.equal(await hook('T1', 'Nytt fra Kjøkkenhuset', 'bjorn@kjokkenhuset.no'), 1, 'a mail that looks personal counts');
+
+  // Bad requests store nothing.
+  assert.equal((await as(done.session, { op: 'taught', rules: { 'not an address': 'person' } })).status, 400);
+  assert.equal((await as(done.session, { op: 'taught', rules: 'x' })).status, 400);
+  assert.equal((await as(done.session, { op: 'taught', extra: 'everything' })).status, 400);
+  assert.equal(db.post_config.filter((r) => r.key.startsWith('taught:')).length, 0);
+
+  // Rules, then the extra, one at a time: each leaves the other alone.
+  const r1 = await (await as(done.session, { op: 'taught', rules: { '@Kjokkenhuset.no': 'promo' } })).json();
+  assert.equal(r1.ok, true);
+  assert.equal(r1.extra, 'codes');
+  const stored = db.post_config.find((r) => r.key === `taught:${account.id}`)!;
+  assert.deepEqual(JSON.parse(stored.value), { rules: { '@kjokkenhuset.no': 'promo' }, extra: 'codes' });
+  assert.equal(await hook('T2', 'Nytt fra Kjøkkenhuset', 'bjorn@kjokkenhuset.no'), 0, 'a company the person moved to Promotions stays quiet');
+  const r2 = await (await as(done.session, { op: 'taught', extra: 'none' })).json();
+  assert.equal(r2.rules_digest, r1.rules_digest, 'the rules were not touched');
+  assert.deepEqual(JSON.parse(db.post_config.find((r) => r.key === `taught:${account.id}`)!.value), { rules: { '@kjokkenhuset.no': 'promo' }, extra: 'none' });
+  const st1 = await (await as(done.session, { op: 'status' })).json();
+  assert.deepEqual([st1.accounts[0].extra, st1.accounts[0].rules_digest], ['none', r1.rules_digest]);
+
+  // Codes: counted unless the choice is "Primary only".
+  assert.equal(await hook('T3', 'Your verification code is 482913', 'noreply@github.com'), 0, 'Primary only');
+  await as(done.session, { op: 'taught', extra: 'codes' });
+  assert.equal(await hook('T4', 'Your verification code is 482914', 'noreply@github.com'), 1, 'Primary and codes');
+  assert.equal(await hook('T5', 'Ukens utgave', 'nyhetsbrev@morgenbladet.no', [{ name: 'List-Unsubscribe', value: '<mailto:u@x.no>' }]), 0, 'a newsletter');
+
+  // The settings read leaves the taught rows alone, whatever their size: they are not settings.
+  assert.ok(notCalls.some((c) => c[0] === 'key' && c[1] === 'like' && c[2] === 'taught:%'));
+  db.post_config.push({ key: 'taught:other', value: 'x'.repeat(1000) });
+  assert.equal((await (await call({ op: 'config' }, null)).json()).clientId, 'CID');
+
+  // The admin key can do the same for a named mailbox; an unknown one is refused.
+  assert.equal((await call({ op: 'taught', email: 'andreas@outlook.com', extra: 'transactions' })).status, 200);
+  assert.equal(JSON.parse(db.post_config.find((r) => r.key === `taught:${account.id}`)!.value).extra, 'transactions');
+  assert.equal((await call({ op: 'taught', email: 'nobody@x.no', extra: 'none' })).status, 404);
+  assert.equal((await as(done.session + 'x', { op: 'taught', extra: 'none' })).status, 401);
+
+  // Leaving Post takes everything it learned with it.
+  assert.equal((await (await as(done.session, { op: 'unregister' })).json()).removed, true);
+  assert.equal(db.post_config.some((r) => r.key === `taught:${account.id}`), false);
+  db.post_config = [];
+  db.post_alert_devices = [];
 });

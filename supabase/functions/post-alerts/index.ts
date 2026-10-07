@@ -7,7 +7,7 @@
 // Deploy with "Verify JWT" OFF: Microsoft and the schedule cannot send a Supabase login. The webhook is protected by a secret clientState per mailbox.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { sendPush } from '../notify-partner/logic.ts';
-import { alertResolveConfig, alertFindBySession, alertSigninFinish, alertSigninForget, alertSigninPoll, alertSigninStart, alertLifecycle, alertMintToken, alertPublicConfig, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSeen, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertConfigStore, type AlertDeps, type AlertStore, type AlertStored } from './logic.ts';
+import { ALERT_SMART, alertParseTaught, alertResolveConfig, alertRulesDigest, alertStatusRow, alertTaughtPatch, alertFindBySession, alertSigninFinish, alertSigninForget, alertSigninPoll, alertSigninStart, alertLifecycle, alertMintToken, alertPublicConfig, alertParseLifecycle, alertParseNotifications, alertProcess, alertRegister, alertRenewAll, alertSameSecret, alertSeen, alertSettingsPatch, alertTest, alertUnregister, alertValidationToken, type AlertConfigStore, type AlertDeps, type AlertStore, type AlertStored, type AlertTaught } from './logic.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -32,9 +32,10 @@ Deno.serve(async (req) => {
   const functionUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/post-alerts`;
   const configStore: AlertConfigStore = {
     load: async () => {
-      const { data, error } = await admin.from('post_config').select('key, value');
+      // What the phones taught the server is kept in this table too (one row per mailbox, "taught:<id>"): not settings, so not read here.
+      const { data, error } = await admin.from('post_config').select('key, value').not('key', 'like', 'taught:%');
       if (error) throw new Error(error.message);
-      return Object.fromEntries(((data ?? []) as { key: string; value: string }[]).map((r) => [r.key, r.value]));
+      return Object.fromEntries(((data ?? []) as { key: string; value: string }[]).filter((r) => !r.key.startsWith('taught:')).map((r) => [r.key, r.value]));
     },
     putIfMissing: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v }, { onConflict: 'key', ignoreDuplicates: true }); },
     put: async (k, v) => { await admin.from('post_config').upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' }); },
@@ -58,7 +59,14 @@ Deno.serve(async (req) => {
       if (error) throw new Error(error.message);
       return data as AlertStored;
     },
-    deleteAccount: async (id) => { await accounts().delete().eq('id', id); },
+    deleteAccount: async (id) => { await accounts().delete().eq('id', id); await admin.from('post_config').delete().eq('key', `taught:${id}`); },
+    getTaught: async (id): Promise<AlertTaught> => {
+      try { return alertParseTaught(((await admin.from('post_config').select('value').eq('key', `taught:${id}`).maybeSingle()).data as { value: string } | null)?.value); } catch { return alertParseTaught(null); }
+    },
+    setTaught: async (id, taught) => {
+      const { error } = await admin.from('post_config').upsert({ key: `taught:${id}`, value: JSON.stringify(taught), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (error) throw new Error(error.message);
+    },
     devices: async () => ((await admin.from('post_alert_devices').select('id, endpoint, p256dh, auth, lang, badge')).data ?? []) as { id: string; endpoint: string; p256dh: string; auth: string; lang: string; badge: number }[],
     removeDevices: async (ids) => { await admin.from('post_alert_devices').delete().in('id', ids); },
     setBadge: async (id, badge) => { await admin.from('post_alert_devices').update({ badge }).eq('id', id); },
@@ -121,9 +129,18 @@ Deno.serve(async (req) => {
         // Opening Post is also a good moment to renew alerts that are about to lapse (does nothing when none is due).
         if (me) later(alertRenewAll(deps));
         return json({
+          smart: ALERT_SMART, // this copy of the function can follow the Primary tab
           devices: devices.length,
-          accounts: list.map((a) => ({ id: a.id, email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips, subscription_expires_at: a.subscription_expires_at, last_alert_at: (a as { last_alert_at?: string }).last_alert_at ?? null, sub_error: a.sub_error ?? null })),
+          accounts: await Promise.all(list.map(async (a) => alertStatusRow(a, await store.getTaught(a.id)))),
         });
+      }
+      // What only the phone knows (the senders it moved to another tab, and what else counts besides Primary mail), so that alerts follow the Primary tab.
+      case 'taught': {
+        const mine = me ?? (await store.allAccounts()).find((x) => x.email === emailOf());
+        if (!mine) return json({ error: 'not_found' }, 404);
+        const next = alertTaughtPatch(await store.getTaught(mine.id), body);
+        await store.setTaught(mine.id, next);
+        return json({ ok: true, extra: next.extra, rules_digest: alertRulesDigest(next) });
       }
       case 'seen': return json({ ok: await alertSeen(deps, String(body.endpoint ?? '')) });
       case 'test': return json({ sent: await alertTest(deps) });
