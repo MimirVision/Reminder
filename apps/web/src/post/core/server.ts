@@ -2,7 +2,13 @@
 // after Microsoft has confirmed who signed in, the server hands this device a session secret, and that is what proves which mailbox
 // the device belongs to. Jobs: sign in, hand out short-lived Graph tokens, store alert settings, clear the icon number.
 
+import type { Kind } from './types.ts';
+
 export type Fetcher = typeof fetch;
+
+/** What counts for the icon number besides Primary mail: nothing, one-time codes and sign-in alerts, or all of Transactions. */
+export type AlertExtra = 'none' | 'codes' | 'transactions';
+export const ALERT_EXTRAS: readonly AlertExtra[] = ['none', 'codes', 'transactions'];
 
 export class ServerError extends Error {
   status: number;
@@ -11,7 +17,9 @@ export class ServerError extends Error {
 
 export interface AccountStatus { id?: string; email: string; label: string; mode: 'people' | 'all' | 'vips' | 'off'; quiet: { days: number[]; from: string; to: string } | null; vips: string[]; subscription_expires_at: string | null; last_alert_at: string | null;
   /** Why Microsoft would not start new-mail alerts for this mailbox (the mailbox itself works). */
-  sub_error?: string | null }
+  sub_error?: string | null;
+  /** What counts besides Primary mail, and a fingerprint of the moved senders the server holds. Missing: the server is older than smarter alerts. */
+  extra?: AlertExtra; rules_digest?: string }
 export interface SignedIn { id: string; email: string; label: string; session: string; expires: string; alertsError?: string | null }
 export type SigninPoll = { status: 'pending' } | ({ status: 'done' } & SignedIn);
 
@@ -60,8 +68,14 @@ export function createServer(url: string, f: Fetcher = (...a) => fetch(...a), ti
     signinPoll: (handle: string) => call<SigninPoll>({ op: 'signin_poll', handle }),
     signinForget: (handle: string) => call<{ ok: true }>({ op: 'signin_forget', handle }),
     token: (session: string) => call<{ accessToken: string; expiresIn: number; email: string }>({ op: 'token' }, session),
-    status: (session: string) => call<{ devices: number; accounts: AccountStatus[] }>({ op: 'status' }, session),
+    /** `smart`: the server follows the Primary tab (absent on a server that still has the older code). */
+    status: (session: string) => call<{ devices: number; accounts: AccountStatus[]; smart?: number }>({ op: 'status' }, session),
     update: (session: string, patch: { label?: string; mode?: string; vips?: string[]; quiet?: unknown; tz?: string }) => call<{ ok: true }>({ op: 'update', ...patch }, session),
+    /**
+     * What only this device knows, so that alerts follow the Primary tab: the senders and companies moved to another tab (`set` adds or changes
+     * some, `remove` forgets some: only what changed is sent, so another device's moves are never overwritten), and what else counts.
+     */
+    taught: (session: string, p: { set?: Record<string, Kind>; remove?: string[]; extra?: AlertExtra }) => call<{ ok: true; extra: AlertExtra; rules_digest: string }>({ op: 'taught', ...p }, session),
     unregister: (session: string) => call<{ removed: boolean }>({ op: 'unregister' }, session),
     seen: (session: string, endpoint: string) => call<{ ok: boolean }>({ op: 'seen', endpoint }, session),
     pair: (session: string, p: { endpoint: string; p256dh: string; auth: string; lang: string }) => call<{ ok: true }>({ op: 'pair', ...p }, session),

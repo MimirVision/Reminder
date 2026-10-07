@@ -1,10 +1,10 @@
-import { isFreemail, orgDomain, type ClassifyContext } from './classify.ts';
+import { isFreemail, orgDomain, rulesDigest, sendableRules, type ClassifyContext } from './classify.ts';
 import { createDiag, worth } from './diag.ts';
 import { createByteCache, emlName, mimeOf, saveName } from './files.ts';
 import { buildFolders, folderMail, folderOfMail, GRAPH_NAME, recipientsOf } from './folders.ts';
 import { createGraph, GraphError, type AttachmentInfo, type DraftContent, type DraftField, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
 import { UNDO_WINDOW_MS, createQueue, isMove, type OpType } from './queue.ts';
-import { createServer, createTokens, ServerError, type AccountStatus, type DeviceApi, type Server, type SignedIn } from './server.ts';
+import { createServer, createTokens, ServerError, type AccountStatus, type AlertExtra, type DeviceApi, type Server, type SignedIn } from './server.ts';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
 import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, syncAccount } from './sync.ts';
 import { search as searchLocal } from './search.ts';
@@ -76,6 +76,8 @@ export interface State {
   outbox: OutboxItem[];
   toast: Toast | null;
   alertsOn: boolean; // this phone is paired for the icon number
+  /** Whether the alert server follows the Primary tab (its code is new enough): null until it has been asked, false when it still has the older code. */
+  serverSmart: boolean | null;
   /** How many messages have left the outbox since Post was opened (a conversation on screen asks again, to show your answer in it). */
   sent: number;
   /** Where Post's copy of the mail is kept: on the phone, or (when the phone would not let it) only in memory until Post is closed. */
@@ -137,6 +139,19 @@ const MOVED_KEEP = 300;
 /** An error nobody caught is said on screen at most this often. */
 const CRASH_TOAST_EVERY_MS = 5 * 60_000;
 
+/** What this device has sent the alert server, as saved on the phone (per mailbox, sender or company to tab). Whatever is unreadable counts as not sent: it is sent again, which does no harm. */
+function sentOf(raw: unknown): Record<string, Record<string, Kind>> {
+  const out: Record<string, Record<string, Kind>> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [email, rules] of Object.entries(raw as Record<string, unknown>)) {
+    if (!rules || typeof rules !== 'object' || Array.isArray(rules)) continue;
+    const one: Record<string, Kind> = {};
+    for (const [who, v] of Object.entries(rules as Record<string, unknown>)) { const kind = asKind(v); if (kind) one[who] = kind; }
+    out[email] = one;
+  }
+  return out;
+}
+
 export function createController(deps: Deps) {
   const now = deps.now ?? (() => Date.now());
   const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
@@ -172,7 +187,7 @@ export function createController(deps: Deps) {
 
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
-    sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, sent: 0, storage: 'device',
+    sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, serverSmart: null, sent: 0, storage: 'device',
     folders: [], foldersLoading: false, foldersError: null, folder: null,
   };
   const listeners = new Set<() => void>();
@@ -421,6 +436,52 @@ export function createController(deps: Deps) {
     set({ overrides });
     await reclassifyAll(store, sortCtx());
     await reload();
+    void pushTaught(); // the icon number follows the same choices
+  }
+
+  /**
+   * Tells the alert server which senders and companies were moved to another tab, so that the icon number follows the Primary tab. The server
+   * keeps ONE list per mailbox for all of the person's devices, so a device sends only what it changed since it last got something through
+   * (`taughtSent`), never "everything": a computer that has moved nothing must not wipe what the phone moved. One mailbox after the other, and
+   * one run after the other. Never fails anything: what does not get through now is sent the next time the server's status is read.
+   */
+  const NO_RULES = rulesDigest({});
+  let taughtSent: Record<string, Record<string, Kind>> | null = null; // per mailbox: what this device got through to the server. null: not read from the phone, so nothing is sent
+  const taughtRefused = new Map<string, string>(); // per mailbox: the choices the server refused (answered 400); not sent again until they change
+  let taughtRun: Promise<void> = Promise.resolve();
+  const sameRules = (a: Record<string, Kind>, b: Record<string, Kind>) => rulesDigest(a) === rulesDigest(b);
+  async function rememberSent(email: string, rules: Record<string, Kind>) {
+    if (!taughtSent || sameRules(taughtSent[email] ?? {}, rules)) return;
+    taughtSent = { ...taughtSent, [email]: rules };
+    try { await store.setMeta('taughtSent', taughtSent); } catch (e) { note('alerts', e); } // at worst the same change is sent once more
+  }
+  function pushTaught(): Promise<void> {
+    const run = async () => {
+      if (!server || state.serverSmart !== true || !taughtSent) return;
+      for (const x of sessions) {
+        const acct = state.accounts.find((a) => a.email === x.email);
+        if (!acct || acct.needsSignIn) continue;
+        const rules = sendableRules(state.overrides); // a choice of a shape no server can hold stays on the phone
+        // The server says it holds no moved sender at all although this device sent some (the mailbox was removed and added again): they all go again.
+        const base = acct.rules_digest === NO_RULES ? {} : taughtSent[x.email] ?? {};
+        const add = Object.fromEntries(Object.entries(rules).filter(([who, kind]) => base[who] !== kind));
+        const drop = Object.keys(base).filter((who) => !(who in rules));
+        if (!Object.keys(add).length && !drop.length) { await rememberSent(x.email, rules); continue; }
+        const fingerprint = rulesDigest(rules);
+        if (taughtRefused.get(x.email) === fingerprint) continue;
+        try {
+          const r = await server.taught(x.session, { set: add, remove: drop });
+          taughtRefused.delete(x.email);
+          await rememberSent(x.email, rules);
+          set({ accounts: state.accounts.map((a) => (a.email === x.email ? { ...a, extra: r.extra, rules_digest: r.rules_digest } : a)) });
+        } catch (e) {
+          if (e instanceof ServerError && e.status === 400) taughtRefused.set(x.email, fingerprint);
+          note('alerts', e);
+        }
+      }
+    };
+    taughtRun = taughtRun.then(run, run);
+    return taughtRun;
   }
 
   /** Looks at Sent Items now and then, so mail from people you have written to is always Primary. Never fails a sync. */
@@ -454,10 +515,12 @@ export function createController(deps: Deps) {
     const prev = new Map(state.accounts.map((a) => [a.email, a]));
     const out: AppAccount[] = [];
     let offline = false;
+    let smart: boolean | null = null;
     for (const x of sessions) {
       const old = prev.get(x.email);
       try {
         const r = await server.status(x.session);
+        smart = (r.smart ?? 0) >= 1;
         const a = r.accounts.find((y) => y.email === x.email) ?? r.accounts[0];
         out.push({ ...(a as AccountStatus), needsSignIn: old?.needsSignIn && !a ? true : false });
       } catch (e) {
@@ -467,7 +530,8 @@ export function createController(deps: Deps) {
       }
     }
     await store.setMeta('accounts', out);
-    set({ accounts: out, ...(offline ? { online: false } : { online: true }) });
+    set({ accounts: out, serverSmart: smart ?? state.serverSmart, ...(offline ? { online: false } : { online: true }) });
+    void pushTaught(); // a mailbox whose server holds other choices than this phone (just signed in, or a change that did not get through) is brought up to date
   }
 
   /** Any signed-in session, for things that belong to the device rather than to one mailbox (alerts, the icon number). */
@@ -695,11 +759,14 @@ export function createController(deps: Deps) {
         const overrides: Record<string, Kind> = {};
         for (const [who, v] of Object.entries(savedRules)) { const kind = asKind(v); if (kind) overrides[who] = kind; }
         if (JSON.stringify(savedRules) !== JSON.stringify(overrides)) await store.setMeta('overrides', overrides);
+        const savedSent = await store.getMeta<unknown>('taughtSent');
         try { const x = JSON.parse(kv.get('post.sessions') ?? '[]'); sessions = Array.isArray(x) ? x.filter((y: Session) => y && typeof y.email === 'string' && typeof y.session === 'string') : []; } catch { sessions = []; }
         const cachedAccounts = ((await store.getMeta<AppAccount[]>('accounts')) ?? []).filter((a) => sessions.some((x) => x.email === a.email));
         let settings = DEFAULT_SETTINGS;
         try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
         set({ settings, accounts: cachedAccounts, overrides, signingIn: !!readPending() });
+        // Only now, with the saved choices on screen: a start that could not read them sends the alert server nothing (it would look like "all removed").
+        taughtSent = sentOf(savedSent);
         try { sweepEdits(); } catch { /* only tidying */ }
         known = await loadKnown(store, cachedAccounts.map((a) => a.email));
         await reclassifyAll(store, sortCtx()); // every start: a better rule applies to mail already on the phone, and older saved kinds are renamed
@@ -894,6 +961,12 @@ export function createController(deps: Deps) {
       try { await server.unregister(x.session); } catch (e) { if (!(e instanceof ServerError && e.status === 401)) throw e; }
       sessions = sessions.filter((y) => y.email !== email);
       saveSessions();
+      if (taughtSent && email in taughtSent) { // the server forgot this mailbox's moved senders with the mailbox: a new sign-in starts from nothing
+        const { [email]: _gone, ...rest } = taughtSent;
+        taughtSent = rest;
+        try { await store.setMeta('taughtSent', taughtSent); } catch (e) { note('alerts', e); }
+      }
+      taughtRefused.delete(email);
       graphs.delete(email); tokens?.forget(email);
       // Work going on for this mailbox stops at its next step, and what is already under way finishes before anything is cleared:
       // a message saved a moment after the clearing would bring the mailbox back onto the phone.
@@ -925,6 +998,26 @@ export function createController(deps: Deps) {
       }
       if (patch.vips) { await reclassifyAll(store, sortCtx()); await reload(); } // a VIP's mail is always Primary
     },
+
+    /** What counts for the icon number besides Primary mail (this mailbox): nothing, one-time codes and sign-in alerts, or all of Transactions. */
+    async setExtra(email: string, extra: AlertExtra) {
+      if (!server) return;
+      const before = state.accounts;
+      set({ accounts: before.map((a) => (a.email === email ? { ...a, extra } : a)) });
+      const x = sessions.find((y) => y.email === email);
+      try {
+        if (!x) throw new Error('Sign in again first');
+        const r = await server.taught(x.session, { extra });
+        set({ accounts: state.accounts.map((a) => (a.email === email ? { ...a, extra: r.extra, rules_digest: r.rules_digest } : a)) });
+      } catch (e) {
+        set({ accounts: state.accounts.map((a) => (a.email === email ? { ...a, extra: before.find((b) => b.email === email)?.extra } : a)) });
+        // "bad_request" is what a server without the newer code answers to an operation it does not know; any other answer is the server's own words.
+        toast(e instanceof ServerError && e.status === 400 && e.message === 'bad_request' ? 'This needs the newer alert server code. See Settings, Alerts.' : e instanceof Error ? e.message : 'Could not save');
+      }
+    },
+
+    /** Sends the moved senders to the alert server now (it also happens by itself whenever they change or the server's status shows it holds others). */
+    syncTaught() { return pushTaught(); },
 
     // ---- triage -------------------------------------------------------------------------------------------------------------
     /** `rows`: how many rows of the list this was (a conversation is one row, however many messages it holds); the toast counts rows. */
