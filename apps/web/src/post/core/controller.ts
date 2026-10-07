@@ -45,7 +45,8 @@ export const folderKey = (t: FolderTarget) => `${t.kind}|${t.account ?? ''}|${t.
 export interface OutFileRef { name: string; type: string; size: number }
 export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward' | 'draft'; to: string[]; cc: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number;
   /** How far the message got at Outlook (its draft, and whether "send" was asked for): kept so that a try that was cut short is carried on, never repeated. */ draft?: DraftProgress;
-  /** For a draft that lives at Outlook: which parts of it were changed here. The rest is left as Outlook has it. Everything, when it is not said. */ edited?: DraftField[] }
+  /** For a draft that lives at Outlook: which parts of it were changed here. The rest is left as Outlook has it. Everything, when it is not said. */ edited?: DraftField[];
+  /** For a draft that lives at Outlook: when Outlook last changed it as of the time its text was read here. It goes back with the text if Undo is used or Outlook refuses the send. */ modified?: string }
 /** Half-written text. `modified`: for a draft that lives at Outlook, when Outlook last changed it as of the time this text was read, so that a change made over there since is noticed. */
 export interface Draft { account: string; to: string; cc: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind']; modified?: string }
 /** A draft that lives at Outlook. What was changed in it here is kept apart from the message being written (see `saveDraft`). */
@@ -544,7 +545,7 @@ export function createController(deps: Deps) {
 
   /** Where the text of a message that comes back from the outbox is kept: a draft that lives at Outlook has a place of its own, everything else is the message being written. */
   const placeOf = (it: OutboxItem): DraftOf | undefined => (it.kind === 'draft' && it.replyTo ? { account: it.account, id: it.replyTo } : undefined);
-  const textOf = (it: OutboxItem): Draft => ({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind });
+  const textOf = (it: OutboxItem): Draft => ({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind, ...(it.kind === 'draft' && it.modified ? { modified: it.modified } : {}) });
 
   /**
    * The message goes back to the editor, with its files, and the person is told why. Its half-made copy at Outlook is thrown away.
@@ -555,7 +556,7 @@ export function createController(deps: Deps) {
     // Once "send" was asked for the files were not needed from the phone any more, so they were not read: the person gets them back all the same.
     const files = given.length || !it.files?.length ? given : (await loadOutFiles(it)).files;
     const place = vanished ? undefined : placeOf(it);
-    api.saveDraft(vanished ? { ...textOf(it), mode: 'new', replyTo: undefined } : textOf(it), place);
+    api.saveDraft(vanished ? { ...textOf(it), mode: 'new', replyTo: undefined, modified: undefined } : textOf(it), place); // a message of its own has no draft at Outlook to be compared with
     if (files.length) await api.saveDraftFiles(files, place);
     await dropOutFiles(it);
     if (it.kind === 'draft') relistDraft(it, !vanished); // the draft is still at Outlook (unless it vanished): the Drafts list lists it again
@@ -786,6 +787,8 @@ export function createController(deps: Deps) {
 
     forgetEverything() {
       kv.del('post.sessions'); kv.del('post.settings'); kv.del('post.pending');
+      for (const k of Object.keys(readEdits())) { const bar = k.indexOf('|'); if (bar > 0) void store.setMeta(editFilesKey({ account: k.slice(0, bar), id: k.slice(bar + 1) }), undefined).catch(() => {}); } // what was changed in drafts and not saved goes too, files with it
+      kv.del(EDITS);
       sessions = [];
       graphs.clear();
       remote.clear(); remoteBodies.clear(); folderCursors.clear(); foldersAt = 0;
@@ -902,7 +905,7 @@ export function createController(deps: Deps) {
       for (const [k, m] of remote) if (m.account === email) { remote.delete(k); remoteBodies.delete(k); }
       await Promise.allSettled([syncRun, sortingRun, foldersRun]);
       await store.clearAccount(email);
-      try { sweepEdits(email); } catch { /* the kept changes are small; they are let go of at the next start at the latest */ }
+      try { sweepEdits(email); } catch { /* only tidying: what is left of the kept changes is let go of when it is a month old */ }
       await outboxExclusive(async () => {
         const waiting = await readOutbox();
         if (waiting.some((x) => x.account === email)) await store.setMeta('outbox', waiting.filter((x) => x.account !== email)); // their files went with clearAccount
