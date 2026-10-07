@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { replyLaterThreads, visibleThreads, type State } from '../core/controller.ts';
+import { replyLaterThreads, triageThreads, visibleThreads, type State } from '../core/controller.ts';
 import { displayName, initials, shortTime } from '../core/format.ts';
 import { replyTarget, threadWho, type Thread } from '../core/threads.ts';
 import { KIND_TAB } from '../core/types.ts';
 import { isHorizontal, swipeResult } from '../../lib/swipe.ts';
 import { Icon, avatarHue } from './ui.tsx';
-import { SnoozeSheet } from './Inbox.tsx';
+import { Skeleton, SnoozeSheet } from './Inbox.tsx';
 import { back, go, labelOf, useBadge, useC } from './ctx.tsx';
 
 const plain = (b: { contentType: 'html' | 'text'; content: string }) => {
@@ -18,17 +18,20 @@ export function Triage({ s }: { s: State }) {
   const c = useC();
   const badgeOf = useBadge(s);
   const queue = useRef<string[] | null>(null);
-  if (!queue.current) queue.current = visibleThreads({ mail: s.mail, view: s.view, unreadOnly: true, accountFilter: s.accountFilter, settings: s.settings }, Date.now()).filter((t) => !t.items.some((m) => m.flagged)).map((t) => t.key);
+  // Opened before the first read of the mailbox has finished (a link to #/triage on a phone that has no mail yet): wait for it, so the queue is not fixed as empty.
+  const reading = !s.ready || (!s.mail.length && !s.sync.error && (s.sync.running || s.sync.at === null));
+  if (!queue.current && !reading) queue.current = triageThreads(s, Date.now()).map((t) => t.key);
+  const keys = queue.current ?? [];
   const [handled, setHandled] = useState<string[]>([]);
   const [snooze, setSnooze] = useState(false);
   const [dx, setDx] = useState(0);
   const [drag, setDrag] = useState(false);
   const st = useRef<{ x: number; y: number; t: number; id: number; live: boolean } | null>(null);
   const [text, setText] = useState('');
-  const total = queue.current.length;
+  const total = keys.length;
   // The conversations as they are now: one that has been read, flagged or has a new answer is still the same row.
   const byKey = new Map(visibleThreads({ mail: s.mail, view: 'all', unreadOnly: false, accountFilter: null, settings: s.settings }, Date.now()).map((t) => [t.key, t]));
-  const items = queue.current.filter((k) => !handled.includes(k)).map((k) => byKey.get(k)).filter((t): t is Thread => !!t);
+  const items = keys.filter((k) => !handled.includes(k)).map((k) => byKey.get(k)).filter((t): t is Thread => !!t);
   const thread = items[0];
   const cur = thread?.latest;
   const next = items[1]?.latest;
@@ -44,6 +47,14 @@ export function Triage({ s }: { s: State }) {
     return () => { live = false; };
   }, [cur?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (!queue.current) {
+    return (
+      <div className="pg">
+        <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
+        <div className="scroll"><Skeleton /></div>
+      </div>
+    );
+  }
   if (!thread || !cur) {
     return (
       <div className="pg">

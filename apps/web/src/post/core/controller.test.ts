@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanUpList, cleanUpThreads, createController, mailCounts, replyLaterThreads, snoozedThreads, visibleMail, visibleThreads, type Deps } from './controller.ts';
+import { cleanUpList, cleanUpThreads, createController, mailCounts, replyLaterThreads, snoozedThreads, triageThreads, visibleMail, visibleThreads, type Deps } from './controller.ts';
 import { memoryStore, type Store } from './store.ts';
 import { rulesDigest } from './classify.ts';
 
@@ -1438,6 +1438,38 @@ test('Clean up works on the rows of the Promotions tab: a conversation is one, a
   assert.equal(await c.cleanUp(7, t), 1);
   advance(7000); await runTimers();
   assert.deepEqual(w.log.filter((l) => l.startsWith('graph move')).sort(), ['graph move s1 archive', 'graph move s2 archive', 'graph move s3 archive']);
+});
+
+test('Triage goes through the unread rows of the tab you are in, never a flagged one, and the button counts the same rows', async () => {
+  const w = world();
+  const shop = { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } };
+  chat(w, 'C1', ['1', '2']);                                                                                                            // a conversation of two, both unread: one row
+  w.add('3', { conversationId: 'C3', subject: 'Middag?', receivedDateTime: '2026-10-05T04:00:00Z' });                                    // an unread person
+  w.add('4', { conversationId: 'C4', subject: 'Kaffe?', receivedDateTime: '2026-10-05T05:00:00Z', isRead: true });                       // a read one: not in it
+  w.add('5', { conversationId: 'C5', subject: 'Husk meg', receivedDateTime: '2026-10-05T06:00:00Z', flag: { flagStatus: 'flagged' } });  // unread but flagged: it waits in Later
+  w.add('s1', { conversationId: 'C2', from: shop, subject: 'Rabatt', receivedDateTime: '2026-10-05T07:00:00Z' });                        // an unread promotion
+  w.add('s2', { conversationId: 'C6', from: shop, subject: 'Salg', receivedDateTime: '2026-10-05T08:00:00Z', isRead: true });            // a read one
+  w.headers['s1'] = w.headers['s2'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const { c } = make(w);
+  await c.init();
+  await c.sortInBackground();
+  const s = c.getState();
+  const ids = (view: 'person' | 'transaction' | 'update' | 'promo' | 'all', o: Record<string, unknown> = {}) => triageThreads({ ...s, view, ...o }, T0).map((t) => t.latest.id);
+  assert.deepEqual(ids('person'), ['3', '2'], 'the unread rows of Primary, newest first: the conversation is one row, the read and the flagged ones are not in it');
+  assert.deepEqual(ids('promo'), ['s1'], 'every tab has its own');
+  assert.deepEqual(ids('update'), [], 'a tab with nothing unread has nothing to go through');
+  assert.deepEqual(ids('all'), ['s1', '3', '2'], 'All is everything unread, still without the flagged');
+  assert.deepEqual(ids('person', { settings: { ...s.settings, threads: false } }), ['3', '2', '1'], 'conversations off: a card for each unread message');
+  assert.deepEqual(ids('all', { accountFilter: 'nobody@x.no' }), [], 'the mailbox you chose');
+  // the button and the screen use the same rows: every unread, not flagged row of the list, and nothing else
+  const rows = visibleThreads({ ...s, view: 'person', unreadOnly: true }, T0);
+  assert.equal(triageThreads({ ...s, view: 'person' }, T0).length, rows.length - 1, 'the rows of the unread list but for the flagged one');
+  // what is read, snoozed or flagged on the way is gone from it
+  await c.markRead(c.threadOf(s.mail.find((m) => m.id === '3')!), { quiet: true });
+  assert.deepEqual(triageThreads({ ...c.getState(), view: 'person' }, T0).map((t) => t.latest.id), ['2']);
+  await c.snooze(c.threadOf(c.getState().mail.find((m) => m.id === '2')!), new Date('2026-10-06T08:00:00Z'), 'tomorrow');
+  assert.deepEqual(triageThreads({ ...c.getState(), view: 'person' }, T0), []);
+  assert.equal(triageThreads({ ...c.getState(), view: 'person' }, Date.parse('2026-10-06T09:00:00Z')).length, 1, 'back when its time has come');
 });
 
 test('mark read: the toast counts rows of the list, not the messages in them', async () => {

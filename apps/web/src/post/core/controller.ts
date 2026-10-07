@@ -1644,6 +1644,16 @@ export function cleanUpThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settin
 /** The messages of those rows: what archiving them acts on. */
 export const cleanUpList = (s: Pick<State, 'mail' | 'accountFilter' | 'settings'>, nowMs: number, days: number): Mail[] => cleanUpThreads(s, nowMs, days).flatMap((t) => t.items);
 
+/**
+ * What Triage mode goes through, a row at a time: the unread rows of the tab you are looking at (and of the mailbox you chose), newest first,
+ * but for the ones you flagged, which are already waiting in Later. The Triage screen fixes this list when it opens, and the button that opens
+ * it counts the same list, so the number the button speaks of is the number of cards.
+ */
+export function triageThreads(s: Pick<State, 'mail' | 'view' | 'accountFilter' | 'settings'>, nowMs: number): Thread[] {
+  return visibleThreads({ mail: s.mail, view: s.view, unreadOnly: true, accountFilter: s.accountFilter, settings: s.settings }, nowMs)
+    .filter((t) => !t.items.some((m) => m.flagged));
+}
+
 /** What is snoozed, a row at a time, the one that comes back first on top. */
 export const snoozedThreads = (s: Pick<State, 'mail' | 'settings'>, nowMs: number): Thread[] =>
   inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => isSnoozed(t.latest, nowMs)).sort((a, b) => String(a.latest.snoozedUntil).localeCompare(String(b.latest.snoozedUntil)));

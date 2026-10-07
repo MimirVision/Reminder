@@ -47,6 +47,7 @@ const P: Record<string, string> = {
   pulse: 'M3 12h4l2.5-6 4 12 2.5-6H21',
   folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
   ban: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM5.6 5.6l12.8 12.8',
+  cards: 'M8 5h8M6 9h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z', // a card with the next one behind it: Triage mode
 };
 
 /** The icon of each tab, so the sidebar, the sheets and the settings agree. */
