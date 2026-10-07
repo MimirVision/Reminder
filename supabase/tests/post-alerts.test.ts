@@ -717,6 +717,24 @@ test('the plan the owner was shown: 17 made-up mails, today and with each of the
   assert.deepEqual(total, { today: 11, primary: 5, codes: 8, transactions: 13 });
 });
 
+test('a code that arrives as digits (Apple, a bank, Slack) counts with "Codes" and not with "Primary only"; a postal code does not count', async () => {
+  const ask = (m: GraphMessage, extra: AlertExtra) => alertVerdict({ store: taughtOf({}, extra), fetch: nobodyWrittenTo().f, now: () => MON_10 }, 'T', m, acct());
+  const codes: [string, GraphMessage][] = [
+    ['Apple', mail('Apple', 'noreply@email.apple.com', 'Your Apple ID Code is: 482913', 'Your Apple ID Code is: 482913. Don’t share it with anyone.')],
+    ['DNB', mail('DNB', 'varsel@dnb.no', 'Bekreft betalingen med kode 5512', 'Kode: 5512')],
+    ['Slack', mail('Slack', 'notification@slack.com', 'Slack: confirmation code 123-456', 'Your confirmation code is 123-456')],
+    ['Facebook', mail('Facebook', 'security@facebookmail.com', '482913 is your Facebook confirmation code')],
+  ];
+  for (const [who, m] of codes) {
+    const yes = await ask(m, 'codes');
+    assert.equal(yes.send, true, `${who}: ${yes.reason}`);
+    assert.equal(yes.reason, 'a security code or sign-in alert', who);
+    assert.equal((await ask(m, 'none')).send, false, `${who}: "Primary only"`);
+  }
+  assert.equal((await ask(mail('Shop', 'noreply@shop.com', 'Your address', 'Postal code 0150 Oslo'), 'codes')).send, false, 'a postal code is not a one-time code');
+  assert.equal((await ask(mail('Store', 'hello@store.com', 'Use code 2024 for 20% off', 'Free shipping this weekend', UNSUB), 'codes')).send, false, 'a promo code is not a one-time code');
+});
+
 test('counting: a person always; a security code or a sign-in alert unless the choice is "Primary only"; the rest of Transactions only on request; everything else never', () => {
   const s = (kind: Kind, code = false, unsure = false) => ({ kind, why: [], code, unsure });
   assert.deepEqual(alertCounts(s('person'), 'none'), { count: true, reason: 'a person' });
