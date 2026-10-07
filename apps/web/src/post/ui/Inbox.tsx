@@ -262,6 +262,9 @@ function CleanUpSheet({ s, onClose }: { s: State; onClose: () => void }) {
         <button className="it" disabled={!all.length} onClick={() => { onClose(); void c.cleanUp(0); }}><span className="ico"><Icon n="archive" /></span>Archive all promotions<span className="v">{all.length}</span></button>
         <button className="it" disabled={!unread.length} onClick={() => { onClose(); void c.markRead(unread.flatMap((t) => t.items)); }}><span className="ico"><Icon n="eye" /></span>Mark all as read<span className="v">{unread.length}</span></button>
       </div>
+      <div className="card">
+        <button className="it" onClick={() => { onClose(); go({ name: 'settings', page: 'sorting' }); }}><span className="ico"><Icon n="sliders" /></span>Do this by itself<span className="v">{s.settings.autoClean ? `After ${s.settings.autoClean} days` : 'Off'}<Icon n="chev" /></span></button>
+      </div>
       <p className="note">Mail you flagged stays where it is. A sender that should not be here? Open one of its messages, tap Why, and move it.</p>
     </Sheet>
   );

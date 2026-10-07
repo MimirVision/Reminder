@@ -63,7 +63,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const badge = useBadge(s)(email);
   const [found, setFound] = useState<Found | null>(null);
   const [flip, setFlip] = useState<{ key: string; keys: ReadonlySet<string> }>({ key: '', keys: NONE });
-  const [sheet, setSheet] = useState<null | 'more' | 'snooze' | 'why' | 'remind' | 'move'>(null);
+  const [sheet, setSheet] = useState<null | 'more' | 'snooze' | 'why' | 'remind' | 'move' | 'block'>(null);
   const [anchorBody, setAnchorBody] = useState<{ key: string; body: MailBody } | null>(null);
   const [retry, setRetry] = useState(0);
   const forceNext = useRef(false);
@@ -237,6 +237,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
       {sheet === 'move' && movable && <MoveSheet s={s} items={far ? [m] : local} rows={1} inbox={!far} onClose={() => setSheet(null)} onMoved={() => open(next, true)} />}
       {sheet === 'remind' && <RemindSheet m={m} preview={anchorBody?.key === key && anchorBody.body.contentType === 'text' ? anchorBody.body.content : m.preview} onClose={() => setSheet(null)} />}
       {sheet === 'why' && here && <SortSheet s={s} m={here} onClose={() => setSheet(null)} />}
+      {sheet === 'block' && here && <BlockSheet s={s} m={here} onClose={() => setSheet(null)} onBlocked={() => open(next, true)} />}
       {sheet === 'more' && (
         <Sheet title={labelOf(s, email)} onClose={() => setSheet(null)}>
           <div className="card">
@@ -247,6 +248,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             {(canTriage || far) && <button className="it" onClick={() => { void c.toggleFlag(mine); setSheet(null); }}><span className="ico"><Icon n="flag" /></span>{anyFlag ? 'Remove flag' : 'Flag'}</button>}
             {movable && <button className="it" onClick={() => setSheet('move')}><span className="ico"><Icon n="folder" /></span>Move to a folder<span className="v">…</span></button>}
             {here && <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {KIND_TAB[here.kind]}<span className="v">Change</span></button>}
+            {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('block')}><span className="ico"><Icon n="ban" /></span>Block sender<span className="v">…</span></button>}
             {canDelete && <button className="it danger" onClick={() => { setSheet(null); deleteIt(); }}><span className="ico"><Icon n="trash" /></span>Delete{many && !far ? ' conversation' : ''}</button>}
           </div>
         </Sheet>
@@ -384,6 +386,29 @@ function SortSheet({ s, m, onClose }: { s: State; m: Mail; onClose: () => void }
         {canCompany && <div className="it"><span className="rw">Everything from {domain}<small>Not only this sender</small></span><Switch on={company} onChange={setCompany} label={`Everything from ${domain}`} /></div>}
         {KINDS.map((k) => <button key={k} className="it" onClick={() => move(k, company && canCompany ? 'company' : 'sender')}><span className="ico"><Icon n={KIND_ICON[k]} /></span>{KIND_TAB[k]}{m.kind === k && <span className="v"><Icon n="check" /></span>}</button>)}
         {rule && <button className="it" onClick={() => move(null, rule.scope)}>Back to automatic<span className="v">{rule.scope === 'company' ? `rule for ${rule.key.slice(1)}` : 'rule for this sender'}</span></button>}
+      </div>
+    </Sheet>
+  );
+}
+
+/**
+ * Block this sender, or everything from their company. Their mail then goes to Junk, now and whenever Post is open; nothing is deleted, and
+ * Undo (or Settings, Sorting, Blocked senders) lifts it again. The company choice is not offered for a shared mail provider.
+ */
+function BlockSheet({ s, m, onClose, onBlocked }: { s: State; m: Mail; onClose: () => void; onBlocked: () => void }) {
+  const c = useC();
+  const domain = orgDomain(m.fromAddress);
+  const canCompany = !!domain && !isFreemail(domain);
+  const addr = m.fromAddress.trim().toLowerCase();
+  const doBlock = (scope: 'sender' | 'company') => { void c.blockSender(m.fromAddress, scope); onClose(); onBlocked(); };
+  const already = (k: string) => s.blocked.includes(k);
+  return (
+    <Sheet title="Block this sender?" onClose={onClose}>
+      <p className="note">Their mail goes to Junk, now and whenever Post is open. Nothing is deleted, and you can undo it here or in Settings, Sorting.</p>
+      <div className="card">
+        <button className="it" disabled={already(addr)} onClick={() => doBlock('sender')}><span className="ico"><Icon n="ban" /></span><span className="rw">Block {addr}<small>{already(addr) ? 'Already blocked' : 'Only this address'}</small></span></button>
+        {canCompany && <button className="it" disabled={already(`@${domain}`)} onClick={() => doBlock('company')}><span className="ico"><Icon n="ban" /></span><span className="rw">Block everything from {domain}<small>{already(`@${domain}`) ? 'Already blocked' : 'Every address and sub-domain of the company'}</small></span></button>}
+        <button className="it" onClick={onClose}>Cancel</button>
       </div>
     </Sheet>
   );

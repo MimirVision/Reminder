@@ -55,7 +55,7 @@ export function Settings({ s }: { s: State }) {
         </div>
         <div className="lbl">Sorting</div>
         <div className="card">
-          <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{Object.keys(s.overrides).length ? `${Object.keys(s.overrides).length} rule${Object.keys(s.overrides).length > 1 ? 's' : ''}` : 'Automatic'}<Icon n="chev" /></span></button>
+          <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{sortingLine(s)}<Icon n="chev" /></span></button>
         </div>
         <div className="lbl">Conversations</div>
         <div className="card">
@@ -143,12 +143,19 @@ export function Appearance({ s }: { s: State }) {
 }
 
 /** How the inbox is sorted: the four tabs and what is in them, the rules you made by moving a sender, and a report for improving the rules. */
+/** What the Settings row for sorting says: how many rules you made and how many senders are blocked. */
+function sortingLine(s: State): string {
+  const rules = Object.keys(s.overrides).filter((k) => !s.blocked.includes(k)).length;
+  const parts = [rules ? `${rules} rule${rules > 1 ? 's' : ''}` : '', s.blocked.length ? `${s.blocked.length} blocked` : ''].filter(Boolean);
+  return parts.join(', ') || 'Automatic';
+}
+
 export function Sorting({ s }: { s: State }) {
   const c = useC();
   const now = useNow();
   // The sorting is about messages, so this page counts messages even when the list groups them into conversations.
   const counts = mailCounts({ mail: s.mail, accountFilter: null, settings: { ...s.settings, threads: false } }, now);
-  const rules = Object.entries(s.overrides).sort((a, b) => a[0].localeCompare(b[0]));
+  const rules = Object.entries(s.overrides).filter(([key]) => !s.blocked.includes(key)).sort((a, b) => a[0].localeCompare(b[0])); // a blocked sender is listed under Blocked senders
   const [report, setReport] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const copy = async () => {
@@ -184,6 +191,24 @@ export function Sorting({ s }: { s: State }) {
             ))}
           </div>
         ) : <p className="note" style={{ marginTop: 0 }}>No rules yet. When a message is in the wrong tab, open it, tap Why, and move it: one tap fixes that sender from then on.</p>}
+        <div className="lbl">Blocked senders</div>
+        {s.blocked.length ? (
+          <div className="card">
+            {s.blocked.map((key) => (
+              <div key={key} className="it rule">
+                <span className="ico"><Icon n="ban" /></span>
+                <span className="rw">{key.startsWith('@') ? key.slice(1) : key}<small>{key.startsWith('@') ? 'Everything from this company' : 'This sender only'}</small></span>
+                <button className="btn plain" style={{ width: 'auto', height: 40, padding: '0 12px' }} aria-label={`Unblock ${key.startsWith('@') ? key.slice(1) : key}`} onClick={() => void c.unblock(key)}>Unblock</button>
+              </div>
+            ))}
+          </div>
+        ) : <p className="note" style={{ marginTop: 0 }}>Nobody is blocked. Open a message, tap More, then Block sender: their mail goes to Junk from then on.</p>}
+        <p className="note">Blocked mail is moved to Junk, never deleted, whenever Post is open. While Post is closed it waits in your Outlook inbox until the next time you open Post. Mail you bring back from Junk stays where you put it.</p>
+        <div className="lbl">Clean up old promotions</div>
+        <div className="card">
+          <Pick label="Archive by itself" value={String(s.settings.autoClean)} options={[['0', 'Off'], ['3', 'After 3 days'], ['7', 'After 7 days'], ['14', 'After 14 days'], ['30', 'After 30 days']]} onChange={(v) => c.setSettings({ autoClean: Number(v) })} />
+        </div>
+        <p className="note">Promotions older than this are archived while Post is open, with an Undo. Mail you flagged, mail Post has only guessed a tab for, and mail you brought back are left alone. Archived mail is still in Outlook, in Archive.</p>
         <p className="note">{s.serverSmart === false ? 'The icon number does not follow these tabs yet: your alert server still has the older code. See Settings, Alerts.' : 'The icon number follows these tabs too: when Alerts is set to Primary, mail from a sender you moved out of Primary does not count (people on your VIP list always do).'}</p>
         <div className="lbl">Help improve the sorting</div>
         <div className="card"><button className="it" onClick={() => void copy()}><span className="ico"><Icon n="copy" /></span>Copy sorting report</button></div>
