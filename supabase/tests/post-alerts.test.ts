@@ -721,8 +721,9 @@ test('a code that arrives as digits (Apple, a bank, Slack) counts with "Codes" a
   const ask = (m: GraphMessage, extra: AlertExtra) => alertVerdict({ store: taughtOf({}, extra), fetch: nobodyWrittenTo().f, now: () => MON_10 }, 'T', m, acct());
   const codes: [string, GraphMessage][] = [
     ['Apple', mail('Apple', 'noreply@email.apple.com', 'Your Apple ID Code is: 482913', 'Your Apple ID Code is: 482913. Don’t share it with anyone.')],
-    ['DNB', mail('DNB', 'varsel@dnb.no', 'Bekreft betalingen med kode 5512', 'Kode: 5512')],
+    ['DNB', mail('DNB', 'varsel@dnb.no', 'Din engangskode er 394 118')],
     ['Slack', mail('Slack', 'notification@slack.com', 'Slack: confirmation code 123-456', 'Your confirmation code is 123-456')],
+    ['Slack with an unsubscribe link', mail('Slack', 'notification@slack.com', 'Slack: confirmation code 123-456', 'Your confirmation code is 123-456', UNSUB)],
     ['Facebook', mail('Facebook', 'security@facebookmail.com', '482913 is your Facebook confirmation code')],
   ];
   for (const [who, m] of codes) {
@@ -733,6 +734,23 @@ test('a code that arrives as digits (Apple, a bank, Slack) counts with "Codes" a
   }
   assert.equal((await ask(mail('Shop', 'noreply@shop.com', 'Your address', 'Postal code 0150 Oslo'), 'codes')).send, false, 'a postal code is not a one-time code');
   assert.equal((await ask(mail('Store', 'hello@store.com', 'Use code 2024 for 20% off', 'Free shipping this weekend', UNSUB), 'codes')).send, false, 'a promo code is not a one-time code');
+  assert.equal((await ask(mail('Friends', 'hello@app.com', 'Invite friends: your referral code is 123456', 'Share it and both get a month free', UNSUB), 'codes')).send, false, 'a referral code is not one');
+  assert.equal((await ask(mail('Shop', 'hello@shop.no', 'Your code is SAVE20', 'Save on shoes this week', UNSUB), 'codes')).send, false, 'an advertisement that says "your code is" is not one');
+});
+
+test('a newsletter or a mailing list that talks about signing in, passwords or a new device never counts as a code, with "Codes" or not', async () => {
+  const ask = (m: GraphMessage) => alertVerdict({ store: taughtOf({}, 'codes'), fetch: nobodyWrittenTo().f, now: () => MON_10 }, 'T', m, acct());
+  for (const m of [
+    mail('SaaS', 'news@saas.com', 'Product update: passkeys and a new sign-in page', 'Two-factor authentication is now available for everyone', UNSUB),
+    mail('Phones', 'hello@phones.com', 'Got a new device? Accessories for it', 'Cases and chargers', UNSUB),
+    mail('GitHub', 'notifications@github.com', '[org/repo] Fix login bug (#42)', 'Merged. The login page now works.', hdr(['List-Id', '<repo.org.github.com>'])),
+    mail('App', 'hello@app.com', 'Welcome! Confirm your email', 'Confirm your email address to start', UNSUB),
+  ]) {
+    const v = await ask(m);
+    assert.equal(v.send, false, `${m.subject}: ${v.reason}`);
+  }
+  // the same words from a robot that sells nothing: a sign-in alert, which counts
+  assert.equal((await ask(mail('Google', 'no-reply@accounts.google.com', 'Security alert', 'Your Google Account was just signed in to from a new Pixel 9 device.'))).send, true);
 });
 
 test('counting: a person always; a security code or a sign-in alert unless the choice is "Primary only"; the rest of Transactions only on request; everything else never', () => {
@@ -814,6 +832,49 @@ test('Sent Items lookup: a filter on the recipient, a search when the filter is 
   for (const bad of ['', 'not an address', "o'brien@x.no", 'a"b@x.no']) assert.equal(await alertKnownSender(none.f, 'T', bad), false, bad);
   assert.equal(none.calls.length, 0);
   await assert.rejects(alertKnownSender(fakeFetch(() => ({ status: 500, body: { error: { code: 'x' } } })).f, 'T', 'x@y.no'));
+  // a search is a second question for "this filter is not possible here" only: an outage, a refusal of the person's sign-in or a "too many requests" is not asked twice
+  for (const status of [401, 403, 429, 500, 503]) {
+    const down = fakeFetch(() => ({ status, body: { error: { code: 'x' } } }));
+    await assert.rejects(alertKnownSender(down.f, 'T', 'x@y.no'), String(status));
+    assert.equal(down.calls.length, 1, `${status}: asked once`);
+  }
+});
+
+test('Sent Items lookup: a call Microsoft never answers is given up on in time, the request is cut off, and nothing is asked a second time', async () => {
+  const calls: { url: string; signal?: AbortSignal | null }[] = [];
+  const hang = (async (url: string | URL, init: RequestInit = {}) => {
+    calls.push({ url: String(url), signal: init.signal });
+    return await new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+  }) as typeof fetch;
+  const t0 = Date.now();
+  await assert.rejects(alertKnownSender(hang, 'T', 'x@y.no', 30), /did not answer in time/);
+  assert.ok(Date.now() - t0 < 1000);
+  assert.equal(calls.length, 1, 'no search after a timeout');
+  assert.equal(calls[0].signal?.aborted, true, 'the request was cut off');
+  // even a fetch that ignores the signal cannot hold the alert for ever
+  const deaf = (() => new Promise<Response>(() => {})) as typeof fetch;
+  await assert.rejects(alertKnownSender(deaf, 'T', 'x@y.no', 30), /did not answer in time/);
+  // and a verdict on a mail then says the mail counts (nobody can say it does not)
+  const sent = setup({ accounts: [await withToken({})], msgs: { m1: mail('Ola Hansen', 'ola@hansen-bygg.no', 'Faktura 1042 – baderom', 'Her er fakturaen for baderommet.') }, sent: 'error' });
+  const [r] = await alertProcess(sent.deps, [note('m1')]);
+  assert.equal(r.outcome, 'alerted (could not tell, so it counts)');
+});
+
+test('Sent Items is not asked about a no-reply address (nobody writes to one), and asked once for a burst of mail from the same sender', async () => {
+  const run = async (msgs: GraphMessage[], sent: string[]) => {
+    const s = setup({ accounts: [await withToken({})], msgs: Object.fromEntries(msgs.map((m, i) => [`m${i}`, { ...m, id: `m${i}` }])), sent });
+    const r = await alertProcess(s.deps, msgs.map((_, i) => note(`m${i}`)));
+    return { outcomes: r.map((x) => x.outcome), lookups: s.graph.filter((g) => g.includes('/mailFolders/sentitems/messages')).length };
+  };
+  // without the sorting's knowledge of who you wrote to, a plain message from a robot would be an update either way: no question to Microsoft
+  const robot = await run([mail('Service', 'noreply@service.no', 'Hei, en melding til deg'), mail('Service', 'notifications@service.no', 'Du har en melding')], ['noreply@service.no', 'notifications@service.no']);
+  assert.deepEqual(robot, { outcomes: ['skipped: not in Primary (an update)', 'skipped: not in Primary (an update)'], lookups: 0 });
+  // a person you write to who sends three invoices in a row: one question, three answers
+  const invoice = (n: number) => mail('Ola Hansen', 'ola@hansen-bygg.no', `Faktura ${1040 + n} – baderom`, 'Her er fakturaen for baderommet.');
+  const burst = await run([invoice(1), invoice(2), invoice(3)], ['ola@hansen-bygg.no']);
+  assert.deepEqual(burst, { outcomes: ['alerted (a person)', 'alerted (a person)', 'alerted (a person)'], lookups: 1 });
+  const strangers = await run([invoice(1), invoice(2)], []);
+  assert.deepEqual(strangers, { outcomes: ['skipped: not in Primary (a receipt, delivery or booking)', 'skipped: not in Primary (a receipt, delivery or booking)'], lookups: 1 });
 });
 
 test('Primary mode through the whole chain: the choices stored for the mailbox are applied, and only mail that counts adds to the icon number', async () => {
@@ -842,10 +903,22 @@ test('what the phone sends is checked, merged key by key and read back defensive
 
   const base: AlertTaught = { rules: { 'a@x.no': 'promo' }, extra: 'codes' };
   assert.deepEqual(alertTaughtPatch(base, { extra: 'none' }), { rules: { 'a@x.no': 'promo' }, extra: 'none' }, 'only the key that was sent changes');
-  assert.deepEqual(alertTaughtPatch(base, { rules: {} }), { rules: {}, extra: 'codes' }, 'an empty list forgets every rule');
-  assert.deepEqual(alertTaughtPatch(base, {}), base);
+  assert.deepEqual(alertTaughtPatch(base, {}), base, 'nothing sent, nothing changed');
+  assert.deepEqual(alertTaughtPatch(base, { rules: {} }), base, 'a whole list is not something a device can send: only what changed');
+  assert.deepEqual(alertTaughtPatch(base, { set: { 'B@x.no ': 'update' } }), { rules: { 'a@x.no': 'promo', 'b@x.no': 'update' }, extra: 'codes' }, 'adds to the list');
+  assert.deepEqual(alertTaughtPatch(base, { set: { 'a@x.no': 'person' } }), { rules: { 'a@x.no': 'person' }, extra: 'codes' }, 'changes one of the list');
+  assert.deepEqual(alertTaughtPatch(base, { remove: ['A@x.no', 'unknown@x.no'] }), { rules: {}, extra: 'codes' }, 'forgets what it is told to, and only that (an unknown name is no error)');
+  assert.deepEqual(alertTaughtPatch(base, { set: { '@shop.no': 'promo' }, remove: ['a@x.no'], extra: 'transactions' }), { rules: { '@shop.no': 'promo' }, extra: 'transactions' }, 'all three at once');
+  assert.deepEqual(alertTaughtPatch({ rules: {}, extra: 'codes' }, { remove: ['a@x.no'] }), { rules: {}, extra: 'codes' });
+  for (const bad of [{ remove: 'a@x.no' }, { remove: [1] }, { remove: ['not an address'] }, { remove: [null] }, { set: { 'not an address': 'promo' } }, { set: 'x' }]) assert.throws(() => alertTaughtPatch(base, bad), /bad rules/, JSON.stringify(bad));
   assert.throws(() => alertTaughtPatch(base, { extra: 'everything' }), /bad extra/);
   assert.deepEqual(base, { rules: { 'a@x.no': 'promo' }, extra: 'codes' }, 'what was stored is not changed in place');
+  // Many devices add to the same list: more than the server holds is refused, whatever the way there.
+  const full: AlertTaught = { rules: Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`u${i}@x.no`, 'promo' as Kind])), extra: 'codes' };
+  assert.equal(Object.keys(alertTaughtPatch(full, { set: { 'u1@x.no': 'update' } }).rules).length, 1000, 'changing one of a full list is fine');
+  assert.throws(() => alertTaughtPatch(full, { set: { 'new@x.no': 'promo' } }), /too many rules/);
+  assert.equal(Object.keys(alertTaughtPatch(full, { set: { 'new@x.no': 'promo' }, remove: ['u0@x.no'] }).rules).length, 1000, 'room made in the same call');
+  assert.throws(() => alertTaughtPatch(base, { remove: Array.from({ length: 1001 }, (_, i) => `u${i}@x.no`) }), /bad rules/);
 
   assert.deepEqual(alertParseTaught(null), { rules: {}, extra: ALERT_EXTRA_DEFAULT });
   assert.equal(ALERT_EXTRA_DEFAULT, 'codes');

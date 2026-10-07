@@ -236,16 +236,34 @@ const RECEIPT_SURE = [piece('kvittering|faktura|ordrebekreftelse|bestillingsbekr
 const RECEIPT = [...RECEIPT_SURE, piece('ordre ?(nr|nummer)|ordrenr|takk for (din |ditt )?(bestilling|ordre|kjøp|betaling)|betaling (mottatt|gjennomført|mislyktes)|regning|abonnement'), word('your order|order #?\\d+|payment (received|successful|failed|reminder)|thank you for (your )?(order|purchase|payment)|statement|subscription|renewal|renewed|billing')];
 // A parcel, a booking, an appointment, a trip.
 const DELIVERY = [piece('levert|forsendelse|leveranse|utlevering|hentes|henting|sporing|pakken din|din pakke|(bestilling|ordre).{0,40}(sendt|mottatt|klar|bekreftet|levert)|timeavtale|timebestilling|din time|avtalen din|reservasjon|billett|boarding|innsjekking|avreise|avgang'), word('pakke|pakken|sendingen( din)?'), word('delivered|shipped|shipment|out for delivery|parcel|package|tracking|appointment|booking|reservation|check-?in|boarding pass|flight|itinerary|pickup|ready for collection|your trip|your ride')];
-// Codes and sign-in alerts. The last two words are a code that arrives as digits ("Your Apple ID Code is: 482913", "Bekreft betalingen med kode 5512",
-// "482913 is your Instagram code"); a postal, tracking, order or promo code is not one.
-const SECURITY = [piece('bekreftelseskode|engangskode|engangspassord|sikkerhetskode|verifiseringskode|påloggingskode|tilgangskode|aktiveringskode|godkjenningskode|autentiseringskode|signeringskode|pin-?kode|passord|pålogging|innlogging|bekreft (din |ditt )?(e-?post|konto|identitet)'), word('verification( code)?|verify (your|this)|one-?time|security (alert|code|info|notice)|sign-?in|log-?in|login|2fa|two-?step|two-?factor|password|your code|confirm your (email|account|identity)|unusual (activity|sign-?in)|new device|account recovery|(confirmation|login|access|authentication|authori[sz]ation|activation|reset|single-?use|auth) code|otp|passcode'),
-  word('(?<!(?:postal|post|zip|area|country|dial|tracking|product|item|order|booking|reservation|invoice|customer|member|reference|bar|qr|source|dress|voucher|gift|coupon|discount|promo|offer|campaign) )(?:code|koden?)(?:\\W{1,3}(?:is|er|din))*\\W{1,4}(?:\\d{4,8}|\\d{3}[ -]\\d{3})'), word('\\d{4,8} (?:is|er) (?:your|din|ditt) (?:\\p{L}+ ){0,3}(?:code|kode)')];
-// Codes that nobody types to a friend. (The broader SECURITY list also has "password", which a person might well write.)
-const SECURITY_SURE = [piece('engangskode|engangspassord|bekreftelseskode|verifiseringskode|sikkerhetskode|påloggingskode'), word('verification code|security code|one-?time (code|password|passcode)|login code|sign-?in code|your code is|your code:')];
+// Codes and sign-in alerts, in tiers, because the words that mean "security" in one mail turn up in a newsletter or an offer in the next
+// ("log in", "password", "new device"). SECURITY_SURE are words nobody uses for anything else (and nobody types to a friend); SECURITY_CODE is
+// a code that arrives as digits: "Your Apple ID Code is: 482913", "482913 is your Instagram code", "Slack: confirmation code 123-456" (a postal,
+// tracking, order, ticket, invite or promo code is not one). SECURITY_WEAK are the words that also appear in other mail: they make a security
+// alert only where nothing else claims the mail, and never when it was sent in bulk (see verdictFromWords).
+const NUM = '(?:\\d{4,8}|\\d{3}[ -]\\d{3})';
+const NOT_A_LOGIN_CODE = 'postal|post|zip|area|country|dial|tracking|product|item|order|booking|reservation|flight|trip|hotel|travel|stay|rental|appointment|visit|event|invoice|payment|purchase|delivery|parcel|shipment|customer|member|membership|reference|bar|qr|source|dress|voucher|gift|coupon|discount|promo|promotion|offer|campaign|referral|invite|invitation|redeem|ticket|pin|loyalty|reward|bonus|prize';
+/** Up to three words ("Apple ID") between "your" and "code", none of them one of the words above. */
+const BETWEEN = `(?:(?!(?:${NOT_A_LOGIN_CODE})(?![\\p{L}\\p{N}]))[\\p{L}\\p{N}]+\\s+){0,3}`;
+const SECURITY_SURE = [piece('engangskode|engangspassord|bekreftelseskode|verifiseringskode|sikkerhetskode|påloggingskode'), word('verification code|security code|one-?time (code|password|passcode)|login code|sign-?in code')];
+const SECURITY_CODE = [
+  piece('tilgangskode|aktiveringskode|godkjenningskode|autentiseringskode|signeringskode'),
+  word(`your\\s+${BETWEEN}code\\s*(?:is\\s*:?|:)\\s*${NUM}`),
+  word(`(?:din|ditt|min)\\s+${BETWEEN}kode\\s*(?:er\\s*:?|:)\\s*${NUM}`),
+  word(`koden\\s+(?:(?:din|min)\\s+)?er\\s*:?\\s*${NUM}`),
+  word(`${NUM}\\s+(?:is|er)\\s+(?:your|din|ditt|min)\\s+${BETWEEN}(?:code|kode)`),
+  word(`(?<!(?:${NOT_A_LOGIN_CODE})[\\s-]+)(?:authentication|authori[sz]ation|activation|access|single-?use|auth|sms|text|reset)\\s+code\\s*(?:is\\s*:?|:)?\\s*${NUM}`),
+  // "confirmation code" is also what a booking has: with digits it counts after "is" or a colon, or as the 123-456 a Slack or a bank sends
+  word(`(?<!(?:${NOT_A_LOGIN_CODE})[\\s-]+)confirmation\\s+code(?:\\s*(?:is\\s*:?|:)\\s*${NUM}|\\s+\\d{3}[ -]\\d{3})`),
+  word(`(?:otp|passcode)\\s*(?:is\\s*:?|:)\\s*${NUM}`),
+];
+const SECURITY_WEAK = [piece('passord|pålogging|innlogging|pin-?kode|bekreft (din |ditt )?(e-?post|konto|identitet)'), word('verification|verify (your|this)|one-?time|security (alert|info|notice)|sign-?in|log-?in|login|2fa|two-?step|two-?factor|password|your code|confirm your (email|account|identity)|unusual (activity|sign-?in)|new device|account recovery')];
 // Selling things. PROMO_SURE is specific enough to trust even on mail that looks personal; PROMO is the broad list, used only once
 // something else says the mail was sent in bulk or by a robot (a person writing "tilbud" about a car must not land in Promotions).
 const PROMO_SURE = [piece('\\d+\\s?%|%\\s?(off|rabatt|avslag)|black ?friday|cyber ?monday|kupong|gavekort|gratis frakt|fri frakt|(sommer|vinter|høst|vår|jule|lager|nett|påske|helge)salg|utsalg'), word('coupon|voucher|promo code|rabattkode|sale|free shipping|up to \\d+%')];
-const PROMO = [...PROMO_SURE, piece('rabatt|kampanje|tilbud|spar |bonus|poeng|gratis|medlem(s)?(fordel|tilbud|pris|klubb)|din kode|bruk koden|eksklusiv|begrenset|siste (sjanse|dag|frist)|bare i dag|kun i dag|handle nå|ny kolleksjon'), word('deals?|offers?|discounts?|save|limited( time| offer)?|last chance|ends (today|tonight|soon|tomorrow|sunday|midnight)|don.t miss|miss out|exclusive|shop now|new (arrivals?|collection|in)|bestsellers?|rewards?|points|members?-only')];
+const PROMO_OFFER = [...PROMO_SURE, piece('rabatt|kampanje|tilbud|spar |bonus|poeng|gratis|medlem(s)?(fordel|tilbud|pris|klubb)|eksklusiv|begrenset|siste (sjanse|dag|frist)|bare i dag|kun i dag|handle nå|ny kolleksjon'), word('deals?|offers?|discounts?|save|limited( time| offer)?|last chance|ends (today|tonight|soon|tomorrow|sunday|midnight)|don.t miss|miss out|exclusive|shop now|new (arrivals?|collection|in)|bestsellers?|rewards?|points|members?-only')];
+// "din kode" and "bruk koden" introduce a promo code, and a one-time code too: they are not an offer on their own (see verdictFromWords).
+const PROMO = [...PROMO_OFFER, piece('din kode|bruk koden')];
 // Editorial mail and social or work notifications.
 const NEWS = [word('newsletter|digest|weekly|monthly|daily|briefing|round-?up|what.s new|this week|your week|bulletin|edition|issue #?\\d+|podcast|episode'), piece('nyhetsbrev|ukens|månedens|dagens|ukesoppsummering|siste nytt|nytt fra|oppdatering|nyheter|magasin')];
 const SOCIAL = [word('liked|commented|mentioned|invited you|connection request|followed you|new follower|tagged you|sent you a message|friend request|viewed your profile|replied to'), piece('ny melding|nytt innlegg|har kommentert|har invitert deg|følger deg')];
@@ -255,6 +273,12 @@ const PLATFORM = /(^|\.)(facebookmail|facebook|linkedin|github|gitlab|twitter|x|
 const ROBOT_PREFIX = /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|mailer-daemon|postmaster|bounces?)/i;
 const ROBOT = /^(notifications?|notify|newsletters?|nyhetsbrev|marketing|campaigns?|kampanje|offers?|deals?|tilbud|promo(tions?)?|alerts?|varsel|automated|auto|system)([-_.][\w.-]*)?$/i;
 const ROLE = /^(info|post|mail|hello|hei|hi|team|service|kundeservice|kundesenter|support|help|contact|kontakt|sales|salg|orders?|ordre|billing|faktura|invoice|receipts?|kvittering|booking|bestilling|bestillinger|reservasjon|tickets?|billett(er)?|news|updates?|account|accounts|konto|security|sikkerhet|admin|shop|store|butikk|nettbutikk|webshop|medlem|members?|club|klubb|bank)([-_.][\w.-]*)?$/i;
+
+/** A no-reply or notification style address ("noreply@", "notifications@", "newsletter@"): nobody has written to it, and nobody will. */
+export function isRobotAddress(address: string): boolean {
+  const local = (address.trim().toLowerCase().split('@')[0] ?? '').split('+')[0];
+  return ROBOT_PREFIX.test(local) || ROBOT.test(local);
+}
 
 const REPLY = /^\s*(re|sv|svar|aw|vs|vb|fw|fwd)\s*:/i;
 const BOUNCE_SUBJECT = /^\s*(undeliverable|returned mail|mail delivery (failed|subsystem)|delivery (status )?notification|delivery has failed|kunne ikke leveres|ikke levert)/i;
@@ -369,7 +393,7 @@ export function classify(m: ClassifyInput, ctx: ClassifyContext = {}): { kind: K
   const bulk = has('unsub') || has('list') || has('bulk') || has('bcl');
   const auto = has('auto');
   const mailer = has('esp');
-  const robot = ROBOT_PREFIX.test(local) || ROBOT.test(local);
+  const robot = isRobotAddress(addr);
   const role = ROLE.test(local) || isBrandSender(m.fromName, domain);
   const thread = REPLY.test(subject) || has('thread');
   const known = !!addr && !!ctx.known?.has(addr);
@@ -385,13 +409,14 @@ export function classify(m: ClassifyInput, ctx: ClassifyContext = {}): { kind: K
   // 3. Mail that needs the person's attention whatever it looks like: a bounce of something they sent.
   if (/^(mailer-daemon|postmaster)$/i.test(local) || BOUNCE_SUBJECT.test(subject)) return { kind: 'person', why: [R.bounce] };
 
+  const securitySure = any(SECURITY_SURE, text) || any(SECURITY_CODE, text);
   const cues = {
-    receiptSure: any(RECEIPT_SURE, text), receipt: any(RECEIPT, text), promoSure: any(PROMO_SURE, text), promo: any(PROMO, text),
-    security: any(SECURITY, text), delivery: any(DELIVERY, text), news: any(NEWS, text), platform: PLATFORM.test(domain) || any(SOCIAL, text),
+    receiptSure: any(RECEIPT_SURE, text), receipt: any(RECEIPT, text), promoSure: any(PROMO_SURE, text), promo: any(PROMO, text), offer: any(PROMO_OFFER, text),
+    securitySure, security: securitySure || any(SECURITY_WEAK, text), delivery: any(DELIVERY, text), news: any(NEWS, text), platform: PLATFORM.test(domain) || any(SOCIAL, text),
   };
   const anyCue = cues.receipt || cues.promo || cues.security || cues.delivery || cues.news || cues.platform;
-  const byWords = (): { kind: Kind; why: string[] } | null => {
-    const v = verdictFromWords(cues);
+  const byWords = (inBulk = false): { kind: Kind; why: string[] } | null => {
+    const v = verdictFromWords(cues, inBulk);
     return v ? { kind: v.kind, why: [...why, v.reason] } : null;
   };
 
@@ -401,7 +426,7 @@ export function classify(m: ClassifyInput, ctx: ClassifyContext = {}): { kind: K
 
   // 5. Sent in bulk (an unsubscribe link, a mailing list, bulk headers): never a person.
   if (bulk) {
-    const v = byWords();
+    const v = byWords(true);
     if (v) return v;
     // A mailing list without an unsubscribe link is a group or a discussion, not an advertisement.
     if (has('list') && !has('unsub')) return { kind: 'update', why };
@@ -421,15 +446,22 @@ export function classify(m: ClassifyInput, ctx: ClassifyContext = {}): { kind: K
   return { kind: 'person', why: [R.person] };
 }
 
-/** What the words alone say, strongest first: a receipt or a sale is unmistakable; a code beats a mere offer; an offer beats a mention of delivery. */
-function verdictFromWords(c: { receiptSure: boolean; receipt: boolean; promoSure: boolean; promo: boolean; security: boolean; delivery: boolean; news: boolean; platform: boolean }): { kind: Kind; reason: string } | null {
+/**
+ * What the words alone say, strongest first: a receipt or a sale is unmistakable; a code that plainly is one beats a mere offer; an offer beats a
+ * mention of delivery. Words like "log in" or "password" (the weak security words) also fill newsletters and offers, so they make a security alert
+ * only when nothing else claims the mail (not a receipt, a delivery or an offer), and never in mail sent in bulk. Even a plain code is not believed
+ * in bulk mail that is also selling something.
+ */
+function verdictFromWords(c: { receiptSure: boolean; receipt: boolean; promoSure: boolean; promo: boolean; offer: boolean; securitySure: boolean; security: boolean; delivery: boolean; news: boolean; platform: boolean }, inBulk = false): { kind: Kind; reason: string } | null {
   if (c.receiptSure) return { kind: 'transaction', reason: R.receipt };
   if (c.promoSure) return { kind: 'promo', reason: R.promo };
-  if (c.security) return { kind: 'transaction', reason: R.security };
+  if (c.securitySure && !(inBulk && c.offer)) return { kind: 'transaction', reason: R.security };
   if ((c.delivery || c.receipt) && !c.promo) return { kind: 'transaction', reason: c.delivery ? R.delivery : R.receipt };
+  if (c.security && !inBulk && !c.promo) return { kind: 'transaction', reason: R.security };
   if (c.promo) return { kind: 'promo', reason: R.promo };
   if (c.platform) return { kind: 'update', reason: R.platform };
   if (c.news) return { kind: 'update', reason: R.news };
+  if (c.security && inBulk) return { kind: 'update', reason: R.security }; // talks about signing in or a new device, sells nothing: a notification, not a code
   return null;
 }
 
@@ -541,7 +573,7 @@ const ALERT_RULES_MAX = 1000;
 
 export type AlertTaught = { rules: Record<string, Kind>; extra: AlertExtra };
 export const alertTaughtDefault = (): AlertTaught => ({ rules: {}, extra: ALERT_EXTRA_DEFAULT });
-/** The same fingerprint the app computes of its own choices (they match when both hold the same rules). */
+/** A fingerprint of the moved senders the server holds (the same function the app has). A phone that has sent some and finds this is the fingerprint of none sends them again. */
 export const alertRulesDigest = (t: AlertTaught): string => rulesDigest(t.rules);
 
 /** The choices the phone sent, checked. Refuses anything that is not a sender or company mapped to one of the four kinds. */
@@ -570,10 +602,27 @@ export function alertParseTaught(raw: string | null | undefined): AlertTaught {
   } catch { return base; }
 }
 
-/** Applies the keys the phone sent (only those) to what is stored. */
-export function alertTaughtPatch(current: AlertTaught, input: { rules?: unknown; extra?: unknown }): AlertTaught {
-  const next: AlertTaught = { rules: current.rules, extra: current.extra };
-  if ('rules' in input) next.rules = alertCleanRules(input.rules);
+/** The senders or companies a phone asks the server to forget, checked the same way. */
+export function alertCleanKeys(input: unknown): string[] {
+  if (!Array.isArray(input) || input.length > ALERT_RULES_MAX) throw new Error('bad rules');
+  return input.map((who) => {
+    const key = typeof who === 'string' ? who.trim().toLowerCase() : '';
+    if (!isRuleKey(key)) throw new Error('bad rules');
+    return key;
+  });
+}
+
+/**
+ * Applies what a phone sent (only the keys it gave) to what is stored. The server holds ONE list of moved senders per mailbox and every phone
+ * or computer of the person adds to it: `set` adds or changes some, `remove` forgets some. Nobody sends "the whole list", so a computer that
+ * moved nothing can never wipe what the phone moved.
+ */
+export function alertTaughtPatch(current: AlertTaught, input: { set?: unknown; remove?: unknown; extra?: unknown }): AlertTaught {
+  const rules = { ...current.rules };
+  if ('remove' in input) for (const who of alertCleanKeys(input.remove)) delete rules[who];
+  if ('set' in input) Object.assign(rules, alertCleanRules(input.set));
+  if (Object.keys(rules).length > ALERT_RULES_MAX) throw new Error('too many rules');
+  const next: AlertTaught = { rules, extra: current.extra };
   if ('extra' in input) {
     if (!ALERT_EXTRAS.includes(input.extra as AlertExtra)) throw new Error('bad extra');
     next.extra = input.extra as AlertExtra;
@@ -733,16 +782,35 @@ export async function alertGetInboxId(f: typeof fetch, token: string): Promise<s
   return String(b.id);
 }
 
-/** Has this mailbox ever written to that address (Sent Items)? Microsoft's own answer; throws when Microsoft cannot give one. */
-export async function alertKnownSender(f: typeof fetch, token: string, address: string): Promise<boolean> {
+/** How long Microsoft may take to answer the Sent Items question: the alert for a mail waits for it, and so does every mail behind it. */
+export const ALERT_LOOKUP_MS = 5000;
+
+/** Runs one call with a time limit. The signal stops the request, and the race frees whoever waits even if the request ignores the signal. */
+async function alertWithin<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const stop = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => { stop.abort(); reject(new Error('Microsoft did not answer in time')); }, ms); });
+  const work = run(stop.signal);
+  work.catch(() => {}); // when the time ran out first, how the cut-off call ends is of no interest
+  try { return await Promise.race([work, late]); } finally { clearTimeout(timer); }
+}
+
+/**
+ * Has this mailbox ever written to that address (Sent Items, To only)? Microsoft's own answer; throws when Microsoft cannot give one in time.
+ * A filter on the recipient is asked first; a search is asked only when Microsoft refuses that filter for this kind of mailbox, never after a timeout or an outage.
+ */
+export async function alertKnownSender(f: typeof fetch, token: string, address: string, timeoutMs: number = ALERT_LOOKUP_MS): Promise<boolean> {
   const addr = address.trim().toLowerCase();
   if (!/^[^\s@'"]+@[^\s@'"]+$/.test(addr)) return false;
   const base = `${GRAPH}/me/mailFolders/sentitems/messages`;
   const hit = (b: { value?: unknown[] } | null) => Array.isArray(b?.value) && b!.value.length > 0;
+  const ask = (url: string) => alertWithin(timeoutMs, async (signal) => graphJson(await f(url, { headers: authHeaders(token), signal })));
   try {
-    return hit(await graphJson(await f(`${base}?$filter=${encodeURIComponent(`toRecipients/any(r:r/emailAddress/address eq '${addr}')`)}&$top=1&$select=id`, { headers: authHeaders(token) })));
-  } catch { /* not every mailbox takes that filter: search Sent Items for the address instead */ }
-  return hit(await graphJson(await f(`${base}?$search=${encodeURIComponent(`"to:${addr}"`)}&$top=1&$select=id`, { headers: authHeaders(token) })));
+    return hit(await ask(`${base}?$filter=${encodeURIComponent(`toRecipients/any(r:r/emailAddress/address eq '${addr}')`)}&$top=1&$select=id`));
+  } catch (e) {
+    if (!(e instanceof AlertGraphError) || e.status !== 400) throw e; // only "this filter is not possible here" is worth a second question
+  }
+  return hit(await ask(`${base}?$search=${encodeURIComponent(`"to:${addr}"`)}&$top=1&$select=id`));
 }
 
 /** Outlook message subscriptions last under 7 days for work accounts but under 3 days (4 230 minutes) for personal Outlook.com and Hotmail
@@ -877,8 +945,11 @@ async function alertPushAll(d: AlertDeps, payload: (lang: 'en' | 'nb') => Record
   return sent;
 }
 
+/** What Sent Items has already been asked, per mailbox and sender (one question for a burst of mail from the same sender), for as long as the map lives. */
+export type AlertAsked = Map<string, Promise<boolean>>;
+
 /** Whether one new message adds to the icon number: the account's settings, and for a "Primary" account the same sorting the app does. */
-export async function alertVerdict(d: Pick<AlertDeps, 'store' | 'fetch' | 'now'>, token: string, m: GraphMessage, a: AlertAccount): Promise<{ send: boolean; reason: string }> {
+export async function alertVerdict(d: Pick<AlertDeps, 'store' | 'fetch' | 'now'>, token: string, m: GraphMessage, a: AlertAccount, asked: AlertAsked = new Map()): Promise<{ send: boolean; reason: string }> {
   if (a.mode !== 'people') return alertDecide(m, a, d.now());
   const taught = await d.store.getTaught(a.id).catch(() => alertTaughtDefault()); // not being able to read the choices only means they are not applied
   let first: AlertSorted;
@@ -890,8 +961,13 @@ export async function alertVerdict(d: Pick<AlertDeps, 'store' | 'fetch' | 'now'>
   let ifKnown: AlertSorted;
   try { ifKnown = alertSort(m, taught, a.vips, true); } catch { return v; }
   if (ifKnown.kind === first.kind) return v;
+  const from = (m.from?.emailAddress?.address ?? '').trim().toLowerCase();
+  if (isRobotAddress(from)) return v; // nobody writes to a no-reply address: Sent Items has nothing to say about it
+  const key = `${a.id}:${from}`;
+  let known = asked.get(key);
+  if (!known) { known = alertKnownSender(d.fetch, token, from); asked.set(key, known); }
   try {
-    return (await alertKnownSender(d.fetch, token, m.from?.emailAddress?.address ?? '')) ? alertDecide(m, a, d.now(), { sorted: ifKnown, extra: taught.extra }) : v;
+    return (await known) ? alertDecide(m, a, d.now(), { sorted: ifKnown, extra: taught.extra }) : v;
   } catch {
     return { send: true, reason: 'could not tell, so it counts' };
   }
@@ -906,6 +982,7 @@ export async function alertProcess(d: AlertDeps, list: AlertNotification[]): Pro
     try { d.log?.(m ? `${outcome} · from ${(m.from?.emailAddress?.address ?? '').split('@')[1]?.toLowerCase() || 'an unknown sender'}` : outcome); } catch { /* a log line must never stop an alert */ }
   };
   const tokens = new Map<string, string>();
+  const asked: AlertAsked = new Map();
   const all = list.length ? await d.store.allAccounts() : [];
   for (const n of list) {
     const a = await d.store.accountBySubscription(n.subscriptionId);
@@ -916,7 +993,7 @@ export async function alertProcess(d: AlertDeps, list: AlertNotification[]): Pro
       let token = tokens.get(a.id);
       if (!token) { token = await alertAccessToken(d, a); tokens.set(a.id, token); }
       m = await alertGetMessage(d.fetch, token, n.messageId);
-      const verdict = await alertVerdict(d, token, m, a);
+      const verdict = await alertVerdict(d, token, m, a, asked);
       if (!verdict.send) { done(n.messageId, `skipped: ${verdict.reason}`, m); continue; }
       const sent = await alertPushAll(d, (lang) => alertBuild(m!, a, all.length > 1, lang));
       if (sent > 0) await d.store.update(a.id, { last_alert_at: d.now().toISOString() });
@@ -1035,7 +1112,7 @@ export async function alertTest(d: AlertDeps): Promise<number> {
 export type AlertStatusAccount = {
   id: string; email: string; label: string; mode: AlertMode; quiet: AlertQuiet | null; vips: string[];
   subscription_expires_at: string | null; last_alert_at: string | null; sub_error: string | null;
-  /** What counts besides Primary mail, and a fingerprint of the choices the phone taught the server (the phone sends them again when it differs). */
+  /** What counts besides Primary mail, and a fingerprint of the moved senders the server holds. */
   extra: AlertExtra; rules_digest: string;
 };
 

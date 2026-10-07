@@ -236,38 +236,76 @@ test('a security code or sign-in alert is told apart from other Transactions (th
   assert.equal(isSecurityMail({ kind: 'promo', why: ['Looks like a security code or sign-in alert'] }), false, 'only in Transactions');
 });
 
-test('a code that arrives as digits counts as a code, in Norwegian and English (Apple, banks, Slack, Facebook), unless it is a postal, tracking or promo code', () => {
+test('a code that arrives as digits counts as a code, in Norwegian and English (Apple, Slack, Facebook), unless it is a postal, tracking, ticket, invite or promo code', () => {
   const code = (from: string, fromName: string, subject: string, preview = '', signals?: string[]) => {
     const r = classify({ fromAddress: from, fromName, subject, preview, signals });
     return isSecurityMail(r) ? 'code' : r.kind;
   };
   // robots that send codes
   assert.equal(code('noreply@email.apple.com', 'Apple', 'Your Apple ID Code is: 482913', 'Your Apple ID Code is: 482913. Don’t share it with anyone.'), 'code');
-  assert.equal(code('varsel@dnb.no', 'DNB', 'Bekreft betalingen med kode 5512', 'Kode: 5512'), 'code');
   assert.equal(code('notification@slack.com', 'Slack', 'Slack: confirmation code 123-456', 'Your confirmation code is 123-456'), 'code');
+  assert.equal(code('notification@slack.com', 'Slack', 'Slack: confirmation code 123-456'), 'code', 'in the subject alone');
   assert.equal(code('security@facebookmail.com', 'Facebook', '482913 is your Facebook confirmation code'), 'code');
   assert.equal(code('security@mail.instagram.com', 'Instagram', '482913 is your Instagram code'), 'code');
   assert.equal(code('no-reply@vipps.no', 'Vipps', 'Bruk koden 4821 for å bekrefte', 'Vipps: koden din er 4821'), 'code', 'a code is not a coupon, whatever "bruk koden" says elsewhere');
   assert.equal(code('bankid@bankid.no', 'BankID', 'Din kode er 482913'), 'code');
+  assert.equal(code('bankid@bankid.no', 'BankID', 'Koden din er 482913'), 'code');
   assert.equal(code('noreply@service.com', 'Service', 'Code', 'Your code is 123 456'), 'code');
-  assert.equal(code('noreply@steampowered.com', 'Steam', 'Steam Guard access code', 'Your access code: XDF8K'), 'code', 'letters and digits too, when the words say it is an access or login code');
-  assert.equal(code('notification@slack.com', 'Slack', 'Slack: confirmation code 123-456', '', ['unsub']), 'code', 'a code is a code even when the sender adds an unsubscribe link');
-  assert.equal(code('noreply@bank.no', 'Bank', 'Ny PIN-kode', 'Her er din nye PIN-kode'), 'code');
-  assert.equal(code('noreply@bank.com', 'Bank', 'OTP for your transaction', 'Your OTP is 123456'), 'code');
-  // not codes: a promo code, a postal or tracking number, a bar code, and a person writing about a code
+  assert.equal(code('noreply@bank.com', 'Bank', 'Sign in', 'Your OTP is 123456'), 'code');
+  assert.equal(code('noreply@bank.no', 'Bank', 'Ny PIN-kode', 'Her er din nye PIN-kode'), 'code', 'no digits, but a robot says it is a PIN code');
+  assert.equal(code('noreply@steampowered.com', 'Steam', 'Steam: new computer', 'Here is the Steam Guard code you need to login to account bob: 7QK2P'), 'code', 'letters and digits: the word "login" from a robot');
+  // a promo code, a postal or tracking number, a bar code, a ticket or invite code: not codes
   assert.equal(code('info@shop.no', 'Shop', 'Bruk koden SOMMER20 i kassen', 'Rabatt på alt', ['unsub']), 'promo');
   assert.equal(code('hello@store.com', 'Store', 'Use code 2024 for 20% off', '', ['unsub']), 'promo');
-  assert.notEqual(code('noreply@shop.com', 'Shop', 'Your address', 'Postal code 0150 Oslo'), 'code');
-  assert.notEqual(code('noreply@shop.com', 'Shop', 'Delivery area', 'Zip code 90210'), 'code');
-  assert.notEqual(code('noreply@shop.com', 'Shop', 'Pick up', 'Barcode 12345678'), 'code');
-  assert.notEqual(code('noreply@posten.no', 'Posten', 'Sporing', 'Tracking code 12345678'), 'code');
-  assert.notEqual(code('noreply@shop.com', 'Shop', 'Your order', 'Order code 12345678'), 'code');
-  assert.notEqual(code('noreply@event.com', 'Event', 'Party', 'Dress code 2024 black tie'), 'code');
+  assert.equal(code('info@shop.no', 'Shop', 'Handle med kode 4821', 'Sparer du penger', ['unsub']), 'promo', 'a bare "code 4821" is not enough');
+  for (const [name, preview] of [['Postal code', 'Your postal code is 0150'], ['Zip code', 'Your zip code is 90210'], ['Barcode', 'Your bar code is 12345678'], ['Tracking code', 'Your tracking code is 12345678'],
+    ['Order code', 'Your order code is 12345678'], ['Ticket code', 'Your ticket code is 482913'], ['Invite code', 'Your invite code is 482913'], ['Referral code', 'Your referral code: 123456'],
+    ['Redeem code', 'Your redeem code is 482913'], ['PIN code of the area', 'Your PIN code is 400001'], ['Dress code', 'The dress code is 2024 black tie'], ['Gift card code', 'Your gift card code is 12345678'],
+    ['Booking code', 'Your booking confirmation code is 12345678'], ['Flight code', 'Flight confirmation code: 7654321'], ['Hotel code', 'Hotel confirmation code 12345678'], ['Order confirmation', 'Order confirmation code is 123456']]) {
+    assert.notEqual(code('noreply@shop.com', 'Shop', name, preview), 'code', preview);
+  }
   assert.notEqual(code('noreply@shop.com', 'Shop', 'Your number', 'Code 12345678901 is too long to be one'), 'code');
   assert.equal(code('anna@x.no', 'Anna', 'Kode til porten: 4521'), 'person');
   assert.equal(code('kari@firma.no', 'Kari', 'Koden til alarmen er 1234'), 'person');
   assert.equal(code('ola@hansen-bygg.no', 'Ola', 'Møte i morgen', 'Access code: 123456 for videomøtet'), 'person');
+  assert.equal(code('per@firma.no', 'Per', 'Your code is 4821', 'the door code'), 'person', 'a person may write "your code is"');
   assert.equal(code('notifications@github.com', 'GitHub', '[reminder] Pull request #12 merged'), 'update');
+});
+
+test('a newsletter or an offer that says "log in", "password" or "new device" is not a code; mail sent in bulk counts only when it plainly is one', () => {
+  const kind = (from: string, subject: string, preview = '', signals: string[] = []) => {
+    const r = classify({ fromAddress: from, fromName: from.split('@')[0], subject, preview, signals });
+    return isSecurityMail(r) ? 'code' : r.kind;
+  };
+  const bulk = ['unsub'];
+  // bulk mail with the weak security words is never a code: next to an offer it is a promotion, on its own a notification
+  assert.equal(kind('hello@store.com', 'Forgot your password? Log in and see what is new', 'New arrivals this week', bulk), 'promo');
+  assert.equal(kind('news@saas.com', 'Product update: passkeys and a new sign-in page', 'Two-factor authentication is now available for everyone', bulk), 'update');
+  assert.equal(kind('hello@phones.com', 'Got a new device? Accessories for it', 'Cases and chargers', bulk), 'update');
+  assert.equal(kind('hello@quiz.com', 'Your code of the week', 'Tips from our developers', bulk), 'update');
+  assert.equal(kind('hello@app.com', 'Welcome! Confirm your email', 'Confirm your email address to start', bulk), 'update');
+  assert.equal(kind('hello@app.com', 'Invite friends: your referral code is 123456', 'Share it and both get a month free', bulk), 'promo');
+  assert.equal(kind('hello@quiz.com', 'Your code is ready', 'Tips from our developers', bulk), 'update', 'plain words, no digits');
+  assert.equal(kind('hello@quiz.com', 'Your code 2024', 'Tips from our developers', bulk), 'update', 'digits, but nothing says it is a code to type');
+  assert.equal(kind('hello@shop.no', 'Your code is SAVE20', 'Save on shoes this week', bulk), 'promo', 'the plain words next to an offer in bulk mail are an advertisement');
+  assert.equal(kind('hello@shop.no', 'Your code is 482913', 'Exclusive offer for members: save on shoes this week', bulk), 'promo', 'so are the digits');
+  assert.equal(kind('hello@shop.no', 'Your code is 482913', 'Exclusive offer for members: save on shoes this week'), 'code', 'though not in mail that nobody sent in bulk');
+  assert.equal(kind('notifications@github.com', '[org/repo] Fix login bug (#42)', 'Merged. The login page now works.', ['list']), 'update', 'a mailing list mentioning "login" is not a security alert');
+  assert.equal(kind('no-reply@zoom.us', 'Meeting starts soon', 'Join with passcode 123456'), 'update', 'a meeting passcode is not a security code');
+  // the same words from a robot with nothing else going on: a security alert; next to an offer, a receipt or a parcel: not
+  assert.equal(kind('no-reply@accounts.google.com', 'Security alert', 'Your Google Account was just signed in to from a new Pixel 9 device.'), 'code');
+  assert.equal(kind('no-reply@service.com', 'Reset your password', 'Click the link to choose a new password'), 'code');
+  assert.equal(kind('noreply@brand.com', 'Login to see your new offers', 'Exclusive deals for you'), 'promo');
+  assert.equal(kind('noreply@brand.com', 'Your order has shipped', 'Login to track your parcel'), 'transaction');
+  assert.equal(kind('noreply@brand.com', 'Receipt for your payment', 'Login to download'), 'transaction');
+  assert.equal(kind('noreply@brand.com', 'Login to see your account', 'Quiet this week'), 'code', 'the same word with no offer next to it');
+  // a code is a code even when the sender adds an unsubscribe link
+  assert.equal(kind('notification@slack.com', 'Slack: confirmation code 123-456', 'Your confirmation code is 123-456', bulk), 'code');
+  assert.equal(kind('security@facebookmail.com', '482913 is your Facebook confirmation code', '', ['unsub', 'list']), 'code');
+  assert.equal(kind('noreply@github.com', 'Your verification code is 482913', '', bulk), 'code');
+  assert.equal(kind('bankid@bankid.no', 'Din engangskode er 482913', '', bulk), 'code');
+  // the price of that: a sign-in alert (no code in it) that comes with an unsubscribe link sits in Updates and does not count
+  assert.equal(kind('noreply@github.com', 'A new device signed in to your account', 'New sign-in from Chrome on Windows', bulk), 'update');
 });
 
 test('the fingerprint of the saved choices ignores order and case and changes with every choice (the phone and the alert server compare them)', () => {

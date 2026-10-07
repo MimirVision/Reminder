@@ -71,8 +71,11 @@ export function createServer(url: string, f: Fetcher = (...a) => fetch(...a), ti
     /** `smart`: the server follows the Primary tab (absent on a server that still has the older code). */
     status: (session: string) => call<{ devices: number; accounts: AccountStatus[]; smart?: number }>({ op: 'status' }, session),
     update: (session: string, patch: { label?: string; mode?: string; vips?: string[]; quiet?: unknown; tz?: string }) => call<{ ok: true }>({ op: 'update', ...patch }, session),
-    /** What only this device knows, so that alerts follow the Primary tab: the senders and companies moved to another tab, and what else counts. Only the keys given change. */
-    taught: (session: string, p: { rules?: Record<string, Kind>; extra?: AlertExtra }) => call<{ ok: true; extra: AlertExtra; rules_digest: string }>({ op: 'taught', ...p }, session),
+    /**
+     * What only this device knows, so that alerts follow the Primary tab: the senders and companies moved to another tab (`set` adds or changes
+     * some, `remove` forgets some: only what changed is sent, so another device's moves are never overwritten), and what else counts.
+     */
+    taught: (session: string, p: { set?: Record<string, Kind>; remove?: string[]; extra?: AlertExtra }) => call<{ ok: true; extra: AlertExtra; rules_digest: string }>({ op: 'taught', ...p }, session),
     unregister: (session: string) => call<{ removed: boolean }>({ op: 'unregister' }, session),
     seen: (session: string, endpoint: string) => call<{ ok: boolean }>({ op: 'seen', endpoint }, session),
     pair: (session: string, p: { endpoint: string; p256dh: string; auth: string; lang: string }) => call<{ ok: true }>({ op: 'pair', ...p }, session),

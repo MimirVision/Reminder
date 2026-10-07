@@ -308,13 +308,14 @@ test('what the phone teaches the server: kept per mailbox, merged key by key, sh
   assert.equal(await hook('T1', 'Nytt fra Kjøkkenhuset', 'bjorn@kjokkenhuset.no'), 1, 'a mail that looks personal counts');
 
   // Bad requests store nothing.
-  assert.equal((await as(done.session, { op: 'taught', rules: { 'not an address': 'person' } })).status, 400);
-  assert.equal((await as(done.session, { op: 'taught', rules: 'x' })).status, 400);
+  assert.equal((await as(done.session, { op: 'taught', set: { 'not an address': 'person' } })).status, 400);
+  assert.equal((await as(done.session, { op: 'taught', set: 'x' })).status, 400);
+  assert.equal((await as(done.session, { op: 'taught', remove: 'x' })).status, 400);
   assert.equal((await as(done.session, { op: 'taught', extra: 'everything' })).status, 400);
   assert.equal(db.post_config.filter((r) => r.key.startsWith('taught:')).length, 0);
 
-  // Rules, then the extra, one at a time: each leaves the other alone.
-  const r1 = await (await as(done.session, { op: 'taught', rules: { '@Kjokkenhuset.no': 'promo' } })).json();
+  // Moved senders, then the extra, one at a time: each leaves the other alone.
+  const r1 = await (await as(done.session, { op: 'taught', set: { '@Kjokkenhuset.no': 'promo' } })).json();
   assert.equal(r1.ok, true);
   assert.equal(r1.extra, 'codes');
   const stored = db.post_config.find((r) => r.key === `taught:${account.id}`)!;
@@ -325,6 +326,13 @@ test('what the phone teaches the server: kept per mailbox, merged key by key, sh
   assert.deepEqual(JSON.parse(db.post_config.find((r) => r.key === `taught:${account.id}`)!.value), { rules: { '@kjokkenhuset.no': 'promo' }, extra: 'none' });
   const st1 = await (await as(done.session, { op: 'status' })).json();
   assert.deepEqual([st1.accounts[0].extra, st1.accounts[0].rules_digest], ['none', r1.rules_digest]);
+
+  // Another device adds to the same list instead of putting a list of its own in its place, and takes back only what it names.
+  const r3 = await (await as(done.session, { op: 'taught', set: { 'nyhetsbrev@morgenbladet.no': 'person' } })).json();
+  assert.deepEqual(JSON.parse(db.post_config.find((r) => r.key === `taught:${account.id}`)!.value).rules, { '@kjokkenhuset.no': 'promo', 'nyhetsbrev@morgenbladet.no': 'person' });
+  assert.notEqual(r3.rules_digest, r1.rules_digest);
+  await as(done.session, { op: 'taught', remove: ['nyhetsbrev@morgenbladet.no'] });
+  assert.deepEqual(JSON.parse(db.post_config.find((r) => r.key === `taught:${account.id}`)!.value).rules, { '@kjokkenhuset.no': 'promo' });
 
   // Codes: counted unless the choice is "Primary only".
   assert.equal(await hook('T3', 'Your verification code is 482913', 'noreply@github.com'), 0, 'Primary only');

@@ -24,7 +24,10 @@ function world() {
     /** What Outlook answers to a move (201 is one that worked). */ moveStatus: 201,
     /** A later sync (from a saved place) hears only what changed, as the real thing does; otherwise it hears everything every time. */ strictDelta: false,
     /** The alert server has the code that follows the Primary tab (it says so in its status and takes "taught"). */ smart: false,
+    /** The alert server answers "taught" with a refusal (400), as it does for more moved senders than it can hold. */ refuseTaught: false,
   };
+  /** Every "taught" call the alert server took: what the device sent. */
+  const taughtSeen: { email: string; set?: Record<string, string>; remove?: string[]; extra?: string }[] = [];
   /** What the alert server holds that the phone taught it, per mailbox. */
   const held = new Map<string, { rules: Record<string, string>; extra: string }>();
   const heldBy = (email: string) => { if (!held.has(email)) held.set(email, { rules: {}, extra: 'codes' }); return held.get(email)!; };
@@ -58,8 +61,12 @@ function world() {
         : { devices: 1, accounts: [accounts.get(email)] });
       if (body.op === 'taught') {
         if (!flags.smart) return j({ error: 'bad_request' }, 400); // an older copy of the function does not know it
+        if (flags.refuseTaught) return j({ error: 'too many rules' }, 400);
+        taughtSeen.push({ email, set: body.set, remove: body.remove, extra: body.extra });
         const t = heldBy(email);
-        if ('rules' in body) t.rules = body.rules;
+        // The server holds ONE list per mailbox for every device: what a device sends is added to it (`set`) or taken out of it (`remove`).
+        for (const who of body.remove ?? []) delete t.rules[who];
+        Object.assign(t.rules, body.set ?? {});
         if ('extra' in body) t.extra = body.extra;
         return j({ ok: true, extra: t.extra, rules_digest: rulesDigest(t.rules as never) });
       }
@@ -163,7 +170,7 @@ function world() {
     if (path.startsWith('/me/messages?$search')) { log.push('graph search'); return new Response(JSON.stringify({ value: [{ id: 'old1', subject: 'Gammel faktura', from: { emailAddress: { address: 'x@y.no' } }, receivedDateTime: '2025-01-01T00:00:00Z' }, ...[...inbox.values()].slice(0, 1)] })); }
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
-  return { f, log, add, inbox, flags, headers, sent, convo, drafts, sentMails, held: heldBy, accounts: () => [...accounts.values()] };
+  return { f, log, add, inbox, flags, headers, sent, convo, drafts, sentMails, held: heldBy, taughtSeen, accounts: () => [...accounts.values()] };
 }
 
 function make(w = world(), extra: Partial<Deps> = {}) {
@@ -1912,7 +1919,7 @@ test('"read again" asked while a read is going waits for it, so the full read re
 
 const taughtCalls = (w: ReturnType<typeof world>) => w.log.filter((l) => l === 'server taught').length;
 
-test('a sender moved to another tab is sent to the alert server, once, and only when the server holds something else', async () => {
+test('a sender moved to another tab is sent to the alert server once, and only what changed is sent', async () => {
   const w = world(); w.flags.smart = true; w.add('1');
   const { c } = make(w);
   await c.init();
@@ -1922,6 +1929,7 @@ test('a sender moved to another tab is sent to the alert server, once, and only 
   await c.syncTaught();
   assert.equal(taughtCalls(w), 1);
   assert.deepEqual(w.held('a@outlook.com').rules, { 'promo@shop.no': 'promo' });
+  assert.deepEqual([w.taughtSeen[0].set, w.taughtSeen[0].remove], [{ 'promo@shop.no': 'promo' }, []], 'the change, not the whole list');
   assert.equal(c.getState().accounts[0].rules_digest, rulesDigest({ 'promo@shop.no': 'promo' }));
   await c.sync();
   await c.syncTaught();
@@ -1932,6 +1940,7 @@ test('a sender moved to another tab is sent to the alert server, once, and only 
   await c.syncTaught();
   assert.deepEqual(w.held('a@outlook.com').rules, {});
   assert.equal(taughtCalls(w), 2);
+  assert.deepEqual([w.taughtSeen[1].set, w.taughtSeen[1].remove], [{}, ['promo@shop.no']], 'only that one is taken out');
   // A company rule and removing a rule from Settings travel the same way.
   await c.moveSender('x@lister.no', 'update', 'company');
   await c.removeRule('@lister.no');
@@ -2019,4 +2028,115 @@ test('a choice no server can hold (the internal address an Exchange server gives
   await c.sync();
   await c.syncTaught();
   assert.equal(taughtCalls(w), calls, 'the server holds what it can hold, so nothing is sent again and again');
+});
+
+test('two devices of one person add to ONE list at the alert server: a computer that moved nothing never wipes what the phone moved', async () => {
+  const w = world(); w.flags.smart = true; w.add('1');
+  const phone = make(w);
+  await phone.c.init();
+  await phone.c.moveSender('promo@shop.no', 'promo');
+  await phone.c.syncTaught();
+  assert.deepEqual(w.held('a@outlook.com').rules, { 'promo@shop.no': 'promo' });
+  // Another device of the same person, where nothing was moved, is opened (and again, as every open of Post asks the server how it is).
+  const computer = make(w);
+  await computer.c.init();
+  await computer.c.sync();
+  await computer.c.syncTaught();
+  assert.deepEqual(w.held('a@outlook.com').rules, { 'promo@shop.no': 'promo' }, 'a device that moved nothing sends nothing');
+  assert.deepEqual(w.taughtSeen.filter((x) => x.remove?.length), [], 'and never asks the server to forget anything');
+  // The computer moves a sender of its own: it is added to the list, not put in place of it.
+  await computer.c.moveSender('news@lister.no', 'update');
+  await computer.c.syncTaught();
+  assert.deepEqual(w.held('a@outlook.com').rules, { 'promo@shop.no': 'promo', 'news@lister.no': 'update' });
+  await phone.c.sync();
+  await phone.c.syncTaught();
+  assert.deepEqual(w.held('a@outlook.com').rules, { 'promo@shop.no': 'promo', 'news@lister.no': 'update' }, 'nor does the phone wipe the computer’s move');
+  // The phone takes back its own move (Undo, or Settings, Sorting): only that one goes.
+  await phone.c.removeRule('promo@shop.no');
+  await phone.c.syncTaught();
+  assert.deepEqual(w.held('a@outlook.com').rules, { 'news@lister.no': 'update' });
+});
+
+test('a phone that could not read what it had saved sends the alert server nothing (it would look as if every move was taken back)', async () => {
+  const w = world(); w.flags.smart = true; w.add('1');
+  const first = make(w);
+  await first.c.init();
+  await first.c.moveSender('promo@shop.no', 'promo');
+  await first.c.syncTaught();
+  const calls = w.taughtSeen.length;
+  for (const unreadable of ['overrides', 'taughtSent', 'accounts']) {
+    // The same phone started again, with storage that cannot give one of these back (the last one only after the choices were read).
+    const broken: Store = { ...first.store, getMeta: (async (k: string) => { if (k === unreadable) throw new Error('storage broke'); return first.store.getMeta(k); }) as Store['getMeta'] };
+    const again = make(w, { store: broken });
+    await again.c.init();
+    await again.c.syncTaught();
+    assert.equal(again.c.getState().ready, true, `${unreadable}: Post still opens`);
+    assert.equal(w.taughtSeen.length, calls, `${unreadable}: nothing was sent`);
+    assert.deepEqual(w.held('a@outlook.com').rules, { 'promo@shop.no': 'promo' });
+  }
+});
+
+test('when the server holds no moved sender at all although this phone sent some (the mailbox was removed and added again), they all go again', async () => {
+  const w = world(); w.flags.smart = true; w.add('1');
+  const { c } = make(w);
+  await c.init();
+  await c.moveSender('promo@shop.no', 'promo');
+  await c.moveSender('news@lister.no', 'update');
+  await c.syncTaught();
+  assert.equal(Object.keys(w.held('a@outlook.com').rules).length, 2);
+  w.held('a@outlook.com').rules = {}; // the server lost them
+  await c.sync();
+  await c.syncTaught();
+  assert.deepEqual(w.held('a@outlook.com').rules, { 'promo@shop.no': 'promo', 'news@lister.no': 'update' });
+});
+
+test('a change the alert server refuses is not sent again and again, only when the choices change', async () => {
+  const w = world(); w.flags.smart = true; w.add('1');
+  const { c } = make(w);
+  await c.init();
+  w.flags.refuseTaught = true;
+  await c.moveSender('promo@shop.no', 'promo');
+  await c.syncTaught();
+  await c.sync();
+  await c.syncTaught();
+  await c.sync();
+  assert.equal(taughtCalls(w), 1, 'the refusal is remembered: Post does not try at every look');
+  await c.moveSender('news@lister.no', 'update');
+  await c.syncTaught();
+  assert.equal(taughtCalls(w), 2, 'other choices, another try');
+  w.flags.refuseTaught = false;
+  await c.moveSender('shop@lister.no', 'promo');
+  await c.syncTaught();
+  assert.equal(taughtCalls(w), 3);
+  assert.equal(Object.keys(w.held('a@outlook.com').rules).length, 3, 'once the server takes it, everything that had waited goes with it');
+});
+
+test('a mailbox that has to be signed in again is not sent to, and one that was removed starts from nothing when it is added again', async () => {
+  const w = world(); w.flags.smart = true; w.add('1');
+  const { c, store } = make(w);
+  await c.init();
+  await c.moveSender('promo@shop.no', 'promo');
+  await c.syncTaught();
+  assert.deepEqual(Object.keys(((await store.getMeta<Record<string, unknown>>('taughtSent')) ?? {})), ['a@outlook.com'], 'this device remembers what it sent');
+  // The server no longer knows this device's session: the mailbox asks to be signed in again.
+  await w.f(SERVER, { method: 'POST', headers: { 'x-post-session': '1.s-a@outlook.com' }, body: JSON.stringify({ op: 'unregister' }) });
+  await c.sync();
+  assert.equal(c.getState().accounts[0].needsSignIn, true);
+  const calls = taughtCalls(w);
+  await c.moveSender('news@lister.no', 'update');
+  await c.syncTaught();
+  assert.equal(taughtCalls(w), calls, 'no call that can only answer "signed out"');
+  // Removing the mailbox from Post takes what was remembered about it along.
+  await c.removeAccount('a@outlook.com');
+  assert.deepEqual(Object.keys(((await store.getMeta<Record<string, unknown>>('taughtSent')) ?? {})), []);
+});
+
+test('a server that is not the newer one says "bad_request" and is told so; any other refusal is shown in the server\'s own words', async () => {
+  const w = world(); w.flags.smart = true; w.add('1');
+  const { c } = make(w);
+  await c.init();
+  w.flags.refuseTaught = true;
+  await c.setExtra('a@outlook.com', 'none');
+  assert.equal(c.getState().toast?.text, 'too many rules');
+  assert.equal(c.getState().accounts[0].extra, 'codes', 'put back');
 });
