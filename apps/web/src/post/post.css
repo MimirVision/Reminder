@@ -110,11 +110,13 @@ button.find::after { content: ''; position: absolute; inset: -3px 0; } /* the se
 .fab { position: absolute; z-index: 5; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: 60px; height: 60px; border-radius: 20px; border: 0; background: var(--ac); color: var(--on); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 22px color-mix(in srgb, var(--ac) 38%, transparent), 0 2px 6px rgba(0,0,0,.16); }
 .bar { position: absolute; z-index: 5; left: 14px; right: 14px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); height: 64px; border-radius: var(--r-bar); padding: 6px; display: flex; gap: 2px; align-items: center; background: var(--gl); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6); border: 1px solid var(--ge); box-shadow: var(--sh); }
 .bar .ib { width: 58px; height: 52px; border-radius: 18px; border: 0; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex: none; }
+.bar .ib.bad { color: var(--bad); }
+.bar .go-gap { flex: 1; }
 .bar .ib .lb { font-size: 10.5px; font-weight: 600; line-height: 1; color: var(--mu); }
 .bar .go { flex: 1; height: 52px; border-radius: calc(var(--r-bar) - 6px); border: 0; background: var(--ac); color: var(--on); font-size: 15.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .bar .go small { font-weight: 500; opacity: .85; font-size: 14px; }
 @media (max-width: 359px) { .bar .go { min-width: 0; } .bar .go small { display: none; } } /* a very narrow phone: the main button keeps its word, the little "next" gives way */
-.bar.sel .go { background: var(--ink); color: var(--bg); }
+.bar.sel .go { background: var(--ink); color: var(--bg); white-space: nowrap; }
 
 .toast-dock { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 100px); display: flex; justify-content: center; pointer-events: none; z-index: 40; }
 .toast-dock.top { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 76px); }
@@ -538,6 +540,7 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post[data-look="calm"] .fab { width: 52px; height: 52px; border-radius: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 54px + 16px); }
 .post[data-look="calm"] .bar { left: 0; right: 0; bottom: 0; height: calc(58px + env(safe-area-inset-bottom, 0px)); padding: 5px 10px env(safe-area-inset-bottom, 0px); border: 0; border-top: var(--hair) solid var(--ge); box-shadow: none; gap: 4px; }
 .post[data-look="calm"] .bar .ib { flex: 1; width: auto; color: var(--at); }
+.post[data-look="calm"] .bar .ib.bad { color: var(--bad); }
 .post[data-look="calm"] .bar .ib .lb { color: var(--at); }
 .post[data-look="calm"] .bar .go { flex: 2.6; height: 46px; border-radius: 12px; background: var(--tint); color: var(--ti); font-size: 15px; white-space: nowrap; gap: 6px; }
 .post[data-look="calm"] .bar .go small { font-size: 13px; }

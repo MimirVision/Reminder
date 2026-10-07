@@ -359,7 +359,7 @@ export function createGraph(deps: GraphDeps) {
    * wait Outlook asked for. A call that really failed (no such folder) is left as it is: callers tell it from one that was never answered by
    * `slowDown` of its status.
    */
-  async function batchRetrying(calls: { method: string; url: string }[]): Promise<{ status: number; body: any; retryAfter?: number }[]> {
+  async function batchRetrying(calls: { method: string; url: string; body?: unknown }[]): Promise<{ status: number; body: any; retryAfter?: number }[]> {
     const res: { status: number; body: any; retryAfter?: number }[] = new Array(calls.length);
     let todo = calls.map((_, i) => i);
     for (let round = 0; ; round++) {
@@ -531,6 +531,39 @@ export function createGraph(deps: GraphDeps) {
         frontier = next.filter((f) => (f.childFolderCount ?? 0) > 0);
       }
       return { folders: [...byId.values()].slice(0, FOLDERS_MAX), standard, hidden };
+    },
+
+    /**
+     * The ids of the messages in one folder (up to `max`), a page of 200 at a time, for what is done to all of them (emptying it). `more`: the folder
+     * has more than that. Fails as a whole when a page cannot be read: a part of a folder is not "the folder".
+     */
+    async idsIn(folder: WellKnownFolder | string, max = 5000): Promise<{ ids: string[]; more: boolean }> {
+      const ids: string[] = [];
+      let link: string | undefined = `/me/mailFolders/${enc(folder)}/messages?$top=200&$select=id`;
+      while (link && ids.length < max) {
+        const j: any = await request('GET', link);
+        for (const m of (j?.value ?? []) as { id?: string }[]) if (m?.id) ids.push(String(m.id));
+        link = j?.['@odata.nextLink'];
+      }
+      return { ids: ids.slice(0, max), more: !!link || ids.length > max };
+    },
+
+    /**
+     * Deletes messages for good: they do not go to Deleted Items and Outlook cannot bring them back. A message that is not there any more counts
+     * as deleted. Four calls at a time (what Outlook allows), each told to slow down is tried again; `failed` are the ids that are still there.
+     * Where Outlook will not do a permanent delete (the answer says it does not know the call), the message is deleted the ordinary way: from
+     * Deleted Items that is the last place it goes through.
+     */
+    async erase(ids: string[]): Promise<{ gone: string[]; failed: string[] }> {
+      const res = await batchRetrying(ids.map((id) => ({ method: 'POST', url: `/me/messages/${enc(id)}/permanentDelete`, body: {} })));
+      const unknown = ids.map((_, i) => i).filter((i) => [400, 405, 501].includes(res[i].status));
+      if (unknown.length) {
+        const plain = await batchRetrying(unknown.map((i) => ({ method: 'DELETE', url: `/me/messages/${enc(ids[i])}` })));
+        unknown.forEach((i, n) => { res[i] = plain[n]; });
+      }
+      const gone: string[] = [], failed: string[] = [];
+      ids.forEach((id, i) => { const st = res[i].status; if ((st >= 200 && st < 300) || st === 404 || st === 410) gone.push(id); else failed.push(id); });
+      return { gone, failed };
     },
 
     /** Deletes a draft made for a message that will not be sent after all. Best effort: a leftover draft is harmless. */

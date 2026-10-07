@@ -95,6 +95,7 @@ export function StatusBanners({ s }: { s: State }) {
       {!s.online && <Banner icon="wifi">No connection. Showing what is on this phone{s.waiting ? `; ${s.waiting} action${s.waiting > 1 ? 's' : ''} will go through when you are back online.` : '.'}</Banner>}
       {s.online && s.sync.error && !s.sync.running && <Banner tone="bad" icon="warn" action={<button onClick={() => void c.sync()}>Retry</button>}>{s.sync.error}</Banner>}
       {s.online && s.waiting > 0 && !s.sync.error && !s.sync.running && <Banner icon="refresh">{s.waiting} waiting to be sent to Outlook</Banner>}
+      {s.erasing && <Banner icon="trash"><b>{s.erasing.what}… {s.erasing.total === null ? 'counting' : `${s.erasing.done} of ${s.erasing.total}`}</b>Keep Post open until it is done. This cannot be undone.</Banner>}
       {unsorted > 0 && <Banner icon="refresh"><b>Sorting your mail… {unsorted} left</b>It is all here already. This only decides which tab each message goes in.</Banner>}
     </>
   );

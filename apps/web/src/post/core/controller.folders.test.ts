@@ -23,7 +23,7 @@ type Answer = { status: number; body?: unknown };
 function outlook(emails: string[] = [A]) {
   const log: string[] = [];
   const flags = {
-    offline: false, down: new Set<string>(), moveStatus: 201, sendStatus: 202, patchStatus: 200,
+    offline: false, down: new Set<string>(), permanentStatus: 204, moveStatus: 201, sendStatus: 202, patchStatus: 200,
     /** What Outlook calls a move to a folder that is not there (it may say "item not found", as for a message that is gone). */ missingFolder: 'ErrorFolderNotFound',
     /** Calls that Outlook carries out and then loses the answer to (the connection drops on the way back). */ loseAfter: [] as string[],
     /** A folder whose pages are held back until the gate opens. */ hold: null as null | { folder: string; until: Promise<void> },
@@ -152,6 +152,14 @@ function outlook(emails: string[] = [A]) {
       b.msgs.set(`${id}~`, { ...x, id: `${id}~`, folder: 'ID-sentitems', draft: false });
       if (flags.loseAfter.includes('send')) { flags.loseAfter.splice(flags.loseAfter.indexOf('send'), 1); throw new Error('Failed to fetch'); }
       return ok(null, 202);
+    }
+    if (method === 'POST' && (m = /^\/me\/messages\/([^/]+)\/permanentDelete$/.exec(p))) {
+      const id = decodeURIComponent(m[1]);
+      log.push(`permanent ${id}`);
+      if (flags.permanentStatus !== 204) return fail(flags.permanentStatus, 'ErrorAccessDenied', 'Access is denied.');
+      if (!b.msgs.has(id)) return missing();
+      b.msgs.delete(id);
+      return ok(null, 204);
     }
     if (method === 'DELETE' && (m = /^\/me\/messages\/([^/]+)$/.exec(p))) { const id = decodeURIComponent(m[1]); log.push(`delete ${id}`); b.msgs.delete(id); return ok(null, 204); }
     return fail(404, 'NotFound', `Nothing here: ${method} ${path}`);
@@ -993,4 +1001,128 @@ test('signing out of everything also lets go of what was changed in drafts and n
   assert.equal(c.loadDraft(D1), null);
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(await c.loadDraftFiles(D1), [], 'and its files');
+});
+
+
+// ---- deleting for good --------------------------------------------------------------------------------------------------------------------------
+
+const msgs = (w: ReturnType<typeof outlook>, where: string, n: number, email = A) => { for (let i = 0; i < n; i++) w.put(email, where, { id: `${where}-${i}`, received: `2026-10-0${1 + (i % 4)}T1${i % 10}:00:00Z` }); };
+
+test('emptying Deleted reads every message of the folder from Outlook, deletes them for good, and leaves the other folders alone', async () => {
+  const w = outlook();
+  msgs(w, 'deleteditems', 5); msgs(w, 'archive', 2); msgs(w, 'junkemail', 2);
+  const made = make(w); const { c } = made;
+  await c.init(); await c.loadFolders(); await c.openFolder({ kind: 'deleted' });
+  assert.equal(c.getState().folder!.items.length, 5);
+  await c.emptyFolder({ kind: 'deleted' });
+  assert.deepEqual(w.ids(A, 'deleteditems'), []);
+  assert.equal(w.ids(A, 'archive').length, 2); assert.equal(w.ids(A, 'junkemail').length, 2);
+  assert.equal(w.log.filter((l) => l.startsWith('permanent')).length, 5);
+  assert.equal(w.log.some((l) => l.startsWith('move') || l.startsWith('delete ')), false, 'never the ordinary delete or a move');
+  assert.equal(c.getState().toast!.text, 'Deleted 5 messages for good');
+  assert.equal(c.getState().erasing, null);
+  assert.deepEqual(c.getState().folder!.items, []);
+  await until(() => c.getState().folders.find((f) => f.kind === 'deleted')?.total === 0, 'the folders to be counted again');
+});
+
+test('emptying Junk deletes for good too, and a folder that is already empty says so', async () => {
+  const w = outlook(); msgs(w, 'junkemail', 3);
+  const { c } = make(w);
+  await c.init(); await c.openFolder({ kind: 'junk' });
+  await c.emptyFolder({ kind: 'junk' });
+  assert.deepEqual(w.ids(A, 'junkemail'), []);
+  assert.equal(c.getState().toast!.text, 'Deleted 3 messages for good');
+  await c.emptyFolder({ kind: 'junk' });
+  assert.equal(c.getState().toast!.text, 'Junk is already empty');
+});
+
+test('a folder longer than a page is emptied in full, not only what is on the screen', async () => {
+  const w = outlook(); msgs(w, 'deleteditems', 450);
+  const { c } = make(w);
+  await c.init(); await c.openFolder({ kind: 'deleted' });
+  assert.equal(c.getState().folder!.items.length, 40, 'the screen has the first page');
+  await c.emptyFolder({ kind: 'deleted' });
+  assert.deepEqual(w.ids(A, 'deleteditems'), []);
+  assert.equal(c.getState().toast!.text, 'Deleted 450 messages for good');
+});
+
+test('mail that is on its way out of the folder (moved back, still waiting for its Undo time) is not deleted', async () => {
+  const w = outlook(); msgs(w, 'deleteditems', 3);
+  const made = make(w); const { c } = made;
+  await c.init(); await c.openFolder({ kind: 'deleted' });
+  const back = c.getState().folder!.items.find((x) => x.id === 'deleteditems-1')!;
+  await c.moveTo([back], { to: 'inbox', name: 'Inbox' });
+  await c.emptyFolder({ kind: 'deleted' });
+  assert.deepEqual(w.ids(A, 'deleteditems'), ['deleteditems-1'], 'the one that was moved back is still there');
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'inbox'), ['deleteditems-1~'], 'and the move still goes through');
+});
+
+test('with two mailboxes, emptying one folder of one mailbox leaves the other alone, and "all" empties both', async () => {
+  const w = outlook([A, W]); msgs(w, 'junkemail', 2, A); msgs(w, 'junkemail', 3, W);
+  const { c } = make(w, { emails: [A, W] });
+  await c.init();
+  await c.emptyFolder({ kind: 'junk', account: A });
+  assert.deepEqual([w.ids(A, 'junkemail').length, w.ids(W, 'junkemail').length], [0, 3]);
+  await c.emptyFolder({ kind: 'junk' });
+  assert.deepEqual([w.ids(A, 'junkemail').length, w.ids(W, 'junkemail').length], [0, 0]);
+});
+
+test('the messages picked in Deleted are deleted for good and nothing else is; they leave the list at once', async () => {
+  const w = outlook(); msgs(w, 'deleteditems', 5);
+  const { c } = make(w);
+  await c.init(); await c.openFolder({ kind: 'deleted' });
+  const items = c.getState().folder!.items;
+  const pick = items.filter((x) => ['deleteditems-0', 'deleteditems-3'].includes(x.id));
+  await c.eraseMail(pick);
+  assert.deepEqual(w.ids(A, 'deleteditems'), ['deleteditems-1', 'deleteditems-2', 'deleteditems-4']);
+  assert.deepEqual(c.getState().folder!.items.map((x) => x.id).sort(), ['deleteditems-1', 'deleteditems-2', 'deleteditems-4']);
+  assert.equal(c.getState().toast!.text, 'Deleted 2 messages for good');
+});
+
+test('when Outlook does not know the permanent delete, the ordinary delete does the job', async () => {
+  const w = outlook(); msgs(w, 'deleteditems', 3); w.flags.permanentStatus = 400;
+  const { c } = make(w);
+  await c.init();
+  await c.emptyFolder({ kind: 'deleted' });
+  assert.deepEqual(w.ids(A, 'deleteditems'), []);
+  assert.equal(w.log.filter((l) => l.startsWith('delete ')).length, 3);
+  assert.equal(c.getState().toast!.text, 'Deleted 3 messages for good');
+});
+
+test('when Outlook refuses, Post stops after the first try, says how many are gone, and the mail is still listed', async () => {
+  const w = outlook(); msgs(w, 'deleteditems', 100); w.flags.permanentStatus = 403;
+  const { c } = make(w);
+  await c.init(); await c.openFolder({ kind: 'deleted' });
+  await c.emptyFolder({ kind: 'deleted' });
+  assert.equal(w.ids(A, 'deleteditems').length, 100);
+  assert.equal(w.log.filter((l) => l.startsWith('permanent')).length, 40, 'one chunk, then it gives up');
+  assert.equal(c.getState().toast!.text, 'Deleted 0 of 100. The rest could not be deleted just now: try again.');
+  assert.equal(c.getState().erasing, null);
+  assert.equal(c.getState().folder!.items.length, 40);
+});
+
+test('with no connection nothing is deleted and the screen says so', async () => {
+  const w = outlook(); msgs(w, 'junkemail', 3);
+  const { c } = make(w);
+  await c.init();
+  w.flags.offline = true;
+  await c.emptyFolder({ kind: 'junk' });
+  assert.match(c.getState().toast!.text, /^Could not empty Junk: No connection\./);
+  assert.equal(c.getState().erasing, null);
+  w.flags.offline = false;
+  assert.equal(w.ids(A, 'junkemail').length, 3);
+});
+
+test('the screen is told how far it is while mail is deleted, and a second go while one is under way does nothing', async () => {
+  const w = outlook(); msgs(w, 'junkemail', 90);
+  const { c } = make(w);
+  await c.init();
+  const seen: string[] = [];
+  c.subscribe(() => { const e = c.getState().erasing; if (e) seen.push(`${e.what} ${e.done}/${e.total}`); });
+  const first = c.emptyFolder({ kind: 'junk' });
+  const second = c.emptyFolder({ kind: 'junk' });
+  await Promise.all([first, second]);
+  assert.ok(seen.includes('Emptying Junk 0/90') && seen.includes('Emptying Junk 40/90') && seen.includes('Emptying Junk 90/90'), seen.join(' | '));
+  assert.equal(w.log.filter((l) => l.startsWith('permanent')).length, 90, 'each message once');
 });
