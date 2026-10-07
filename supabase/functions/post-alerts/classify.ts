@@ -90,10 +90,11 @@ const RECEIPT = [...RECEIPT_SURE, piece('ordre ?(nr|nummer)|ordrenr|takk for (di
 // A parcel, a booking, an appointment, a trip.
 const DELIVERY = [piece('levert|forsendelse|leveranse|utlevering|hentes|henting|sporing|pakken din|din pakke|(bestilling|ordre).{0,40}(sendt|mottatt|klar|bekreftet|levert)|timeavtale|timebestilling|din time|avtalen din|reservasjon|billett|boarding|innsjekking|avreise|avgang'), word('pakke|pakken|sendingen( din)?'), word('delivered|shipped|shipment|out for delivery|parcel|package|tracking|appointment|booking|reservation|check-?in|boarding pass|flight|itinerary|pickup|ready for collection|your trip|your ride')];
 // Codes and sign-in alerts, in tiers, because the words that mean "security" in one mail turn up in a newsletter or an offer in the next
-// ("log in", "password", "new device"). SECURITY_SURE are words nobody uses for anything else (and nobody types to a friend); SECURITY_CODE is
-// a code that arrives as digits: "Your Apple ID Code is: 482913", "482913 is your Instagram code", "Slack: confirmation code 123-456" (a postal,
-// tracking, order, ticket, invite or promo code is not one). SECURITY_WEAK are the words that also appear in other mail: they make a security
-// alert only where nothing else claims the mail, and never when it was sent in bulk (see verdictFromWords).
+// ("log in", "password", "new device"). SECURITY_SURE are words nobody uses for anything else (and nobody types to a friend), so they also work on the
+// subject of a mail that looks personal. SECURITY_CODE is for mail that already looks like it comes from a robot (it is not tried on the subject of a
+// personal-looking mail): a few Norwegian code words, and a code that arrives as digits, "Your Apple ID Code is: 482913", "482913 is your Instagram
+// code", "Slack: confirmation code 123-456" (a postal, tracking, order, ticket, invite or promo code is not one). SECURITY_WEAK are the words that
+// also appear in other mail: they make a security alert only where nothing else claims the mail, and never when it was sent in bulk (see verdictFromWords).
 const NUM = '(?:\\d{4,8}|\\d{3}[ -]\\d{3})';
 const NOT_A_LOGIN_CODE = 'postal|post|zip|area|country|dial|tracking|product|item|order|booking|reservation|flight|trip|hotel|travel|stay|rental|appointment|visit|event|invoice|payment|purchase|delivery|parcel|shipment|customer|member|membership|reference|bar|qr|source|dress|voucher|gift|coupon|discount|promo|promotion|offer|campaign|referral|invite|invitation|redeem|ticket|pin|loyalty|reward|bonus|prize';
 /** Up to three words ("Apple ID") between "your" and "code", none of them one of the words above. */
