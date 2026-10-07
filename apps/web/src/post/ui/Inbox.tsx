@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { cleanUpThreads, mailCounts, visibleThreads, type Counts, type State } from '../core/controller.ts';
+import { cleanUpThreads, mailCounts, triageThreads, visibleThreads, type Counts, type State } from '../core/controller.ts';
 import { dayGroup, displayName, shortTime } from '../core/format.ts';
 import { isHorizontal, swipeOffset, swipeResult, SWIPE_COMMIT } from '../../lib/swipe.ts';
 import { threadWho, type Thread } from '../core/threads.ts';
@@ -135,6 +135,8 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   }, [shown.length, list.length]);
 
   const promos = s.view === 'promo' ? cleanUpThreads(s, now, 0) : [];
+  // The button that starts Triage mode counts what Triage would go through: the unread rows of this tab, but for the flagged ones.
+  const triage = useMemo(() => (pane ? 0 : triageThreads(s, now).length), [pane, s.mail, s.view, s.accountFilter, s.settings.threads, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const scope = s.accountFilter ? labelOf(s, s.accountFilter) : s.accounts.length > 1 ? 'All accounts' : s.accounts[0]?.label ?? 'Inbox';
   const when = s.sync.running ? 'Updating…' : s.sync.at ? `Updated ${Math.max(0, Math.round((now - s.sync.at) / 60000)) < 1 ? 'just now' : `${Math.round((now - s.sync.at) / 60000)} min ago`}` : '';
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -162,6 +164,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
       <header className={`hd${scrolled ? ' min' : ''}`}>
         <h1 className="h1">{pane ? (s.view === 'all' ? 'All mail' : KIND_TAB[s.view]) : 'Inbox'}</h1>
         <div className="r">
+          {triage > 0 && !selecting && <button className="btn tri" aria-label={`Triage mode, ${triage} to go through`} onClick={() => go({ name: 'triage' })}><Icon n="cards" size={20} />Triage</button>}
           <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>
           {!pane && <button className="btn me" aria-label="Accounts and settings" onClick={() => go({ name: 'accounts' })}>{(s.accounts[0]?.label ?? 'P')[0].toUpperCase()}</button>}
         </div>

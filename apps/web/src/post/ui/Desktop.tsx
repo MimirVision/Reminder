@@ -160,7 +160,7 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
       <nav className="sb-nav sb-gap" aria-label="Main">
         {nav(route.name === 'search', 'search', 'Search', () => go({ name: 'search', q: '' }))}
         {nav(route.name === 'later', 'clock', 'Later', () => go({ name: 'later' }))}
-        {nav(route.name === 'triage', 'check', 'Triage mode', () => go({ name: 'triage' }))}
+        {nav(route.name === 'triage', 'cards', 'Triage mode', () => go({ name: 'triage' }))}
       </nav>
       <div className="sb-h">Accounts</div>
       <nav className="sb-nav" aria-label="Accounts">

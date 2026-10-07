@@ -34,6 +34,7 @@ html, body { margin: 0; height: 100%; background: var(--bg, #F2F3F5); overscroll
 .btn::after { content: ''; position: absolute; inset: -3px; } /* looks 40 px, still a 46 px target for a thumb */
 .btn.me { font: 700 15px var(--font-h); background: var(--ink); color: var(--bg); }
 .btn.plain { background: transparent; }
+.btn.tri { width: auto; padding: 0 14px 0 11px; gap: 6px; background: var(--tint); color: var(--ti); font-size: 14px; font-weight: 700; white-space: nowrap; } /* starts Triage mode: a word, so nobody has to guess what the icon is */
 .back { position: relative; height: 40px; border-radius: 20px; border: 0; background: transparent; color: var(--at); display: flex; align-items: center; gap: 0; padding: 0 12px 0 2px; margin-left: 2px; font-size: 16px; font-weight: 600; }
 .back::after { content: ''; position: absolute; inset: -4px -2px; }
 .pos { font-size: 13px; color: var(--mu); margin: 0 4px; white-space: nowrap; }
@@ -418,6 +419,7 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
   .sb-it.on:hover { background: var(--tint); }
   .pill:hover, .btn:hover, .back:hover { background: color-mix(in srgb, var(--ink) 7%, var(--card)); }
   .pill.on:hover { background: var(--ink); }
+  .btn.tri:hover { background: color-mix(in srgb, var(--ti) 10%, var(--tint)); }
   .cta:hover, .send:hover, .go:hover { filter: brightness(1.06); }
   button { cursor: pointer; }
 }
@@ -506,6 +508,7 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post[data-look="calm"] .btn { background: transparent; color: var(--at); }
 .post[data-look="calm"] .btn.me { background: var(--pill); color: var(--ink); font-weight: 600; }
 .post[data-look="calm"] .btn.plain, .post[data-look="calm"] .rm { color: var(--mu); }
+.post[data-look="calm"] .btn.tri { padding: 0 6px 0 4px; gap: 5px; background: transparent; color: var(--at); font-size: 16px; font-weight: 600; }
 .post[data-look="calm"] .sync { font-size: 12.5px; }
 .post[data-look="calm"] .find { background: var(--pill); box-shadow: none; height: 36px; margin-top: 4px; margin-bottom: 4px; border-radius: 10px; }
 .post[data-look="calm"] button.find::after { inset: -4px 0; }
