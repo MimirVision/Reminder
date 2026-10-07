@@ -198,7 +198,7 @@ export function Sorting({ s }: { s: State }) {
               <div key={key} className="it rule">
                 <span className="ico"><Icon n="ban" /></span>
                 <span className="rw">{key.startsWith('@') ? key.slice(1) : key}<small>{key.startsWith('@') ? 'Everything from this company' : 'This sender only'}</small></span>
-                <button className="btn plain" style={{ width: 'auto', height: 40, padding: '0 12px' }} aria-label={`Unblock ${key.startsWith('@') ? key.slice(1) : key}`} onClick={() => void c.unblock(key)}>Unblock</button>
+                <button className="btn plain" style={{ width: 'auto', height: 44, padding: '0 12px' }} aria-label={`Unblock ${key.startsWith('@') ? key.slice(1) : key}`} onClick={() => void c.unblock(key)}>Unblock</button>
               </div>
             ))}
           </div>
