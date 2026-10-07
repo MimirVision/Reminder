@@ -4,10 +4,10 @@ import { dayGroup } from '../core/format.ts';
 import { FOLDER_ICON, FOLDER_NAME, placeActions, STANDARD_KINDS, type Way } from '../core/folders.ts';
 import type { Route } from '../core/route.ts';
 import { mailKey, type FolderKind, type Mail } from '../core/types.ts';
-import { Banner, Icon } from './ui.tsx';
+import { Banner, Icon, Sheet } from './ui.tsx';
 import { folderTitle, go, labelOf, openMail, resolveAccount, routeOfFolder, useC, useNow, useRoute } from './ctx.tsx';
 import { Row, Skeleton, StatusBanners, SwipeRow } from './Inbox.tsx';
-import { moveWay } from './Move.tsx';
+import { MoveSheet, moveWay } from './Move.tsx';
 import { Tabs } from './Tabs.tsx';
 
 // The Folders tab (what Outlook has besides the inbox), the list of one folder, and the folders in the sidebar of the computer layout.
@@ -121,11 +121,16 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const title = folderTitle(s, target);
   const open = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : route.name === 'compose' && route.mode === 'draft' && route.account && route.id ? mailKey(resolveAccount(s, route.account), route.id) : null;
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [moving, setMoving] = useState(false);
+  const [erase, setErase] = useState<'all' | 'picked' | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const sentSeen = useRef(s.sent);
   const { pull, bind } = usePull(() => void c.refreshFolder());
 
   useEffect(() => { void c.loadFolders(); void c.openFolder(target); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelecting(false); setPicked(new Set()); setErase(null); setMoving(false); }, [key]); // another folder: nothing stays picked
 
   // Coming back to Post, or back online, shows what Outlook has now (a folder read a moment ago is not read again).
   useEffect(() => {
@@ -169,6 +174,21 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
     setTimeout(() => { void moveWay(c, [m], way); setLeaving((p) => { const n = new Set(p); n.delete(m.key); return n; }); }, 200);
   };
 
+  // Picking several: the rows picked are the ones still on the list (a row that went away since is no longer picked).
+  const chosen = items.filter((m) => picked.has(m.key));
+  const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const exit = () => { setSelecting(false); setPicked(new Set()); };
+  const leave = (rows: Mail[], then: () => void) => {
+    setLeaving((p) => new Set([...p, ...rows.map((m) => m.key)]));
+    setTimeout(() => { then(); setLeaving((p) => { const n = new Set(p); rows.forEach((m) => n.delete(m.key)); return n; }); }, 200);
+  };
+  const place = placeActions(target.kind);
+  // Deleted and Junk can be emptied: the number is what Outlook says the folder holds (the list only has the pages read so far).
+  const emptiable = target.kind === 'junk' || target.kind === 'deleted';
+  const infos = s.folders.filter((f) => f.kind === target.kind && (!target.account || f.account === target.account));
+  const holds = infos.length ? infos.reduce((n, f) => n + f.total, 0) : null;
+  const busy = !!s.erasing;
+
   const local = target.kind === 'drafts' ? c.loadDraft() : null;
   const sig = (s.settings.signature ?? '').trim();
   // Edits to a draft that is at Outlook are not a message of their own: they come back when the draft is opened.
@@ -182,13 +202,23 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
       {!pane && <div className="nav"><button className="back" onClick={() => go({ name: 'folders' })} aria-label="Back to folders"><Icon n="back" />Folders</button></div>}
       <header className={`hd${pane ? '' : ' under'}`}>
         <div style={{ minWidth: 0 }}><h1 className="h1" style={{ overflowWrap: 'anywhere' }}>{title}</h1>{sub && <p className="sub" style={{ marginTop: 4 }}>{sub}</p>}</div>
-        <div className="r"><button className="btn" aria-label="Update now" onClick={() => void c.refreshFolder()}><Icon n="refresh" /></button></div>
+        <div className="r">
+          {items.length > 0 && <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>}
+          <button className="btn" aria-label="Update now" onClick={() => void c.refreshFolder()}><Icon n="refresh" /></button>
+        </div>
       </header>
       <StatusBanners s={s} />
       {v && v.error && !failedNow && <Banner tone="bad" icon="warn" action={<button onClick={() => void c.refreshFolder()}>Retry</button>}>{v.error} Showing what was read before.</Banner>}
       {v && v.partial.length > 0 && <Banner icon="warn" action={<button onClick={() => void c.refreshFolder()}>Retry</button>}>Could not read {v.partial.join(' and ')}. The rest is shown.</Banner>}
       <Pull pull={pull} />
       <div className="scroll" {...bind}>
+        {emptiable && items.length > 0 && !selecting && (
+          <div className="cleanbar">
+            <span className="ico"><Icon n="trash" size={20} /></span>
+            <div><b>{holds === null ? title : `${holds > 999 ? '999+' : holds} message${holds === 1 ? '' : 's'}`}</b><span>Delete it all for good</span></div>
+            <button disabled={busy} aria-label={`Empty ${title}`} onClick={() => setErase('all')}>Empty</button>
+          </div>
+        )}
         {unsent && (
           <section>
             <div className="sec">On this phone</div>
@@ -212,8 +242,8 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
               {g.items.map((m) => {
                 const w = placeActions(m.fk ?? target.kind).swipe;
                 return (
-                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
-                    <Row m={m} s={s} tag={false} selecting={false} selected={false} active={m.key === open} onToggle={() => {}} onOpen={() => openMail(m)} />
+                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
+                    <Row m={m} s={s} tag={false} selecting={selecting} selected={picked.has(m.key)} active={m.key === open} onToggle={() => toggle(m.key)} onOpen={() => openMail(m)} />
                   </SwipeRow>
                 );
               })}
@@ -230,9 +260,56 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
           </div>
         )}
       </div>
-      {!pane && <Tabs at="folders" s={s} />}
-      {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
+      {selecting ? (
+        <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
+          <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(items.map((m) => m.key)))}><Icon n="select" /></button>
+          {place.primary
+            ? <button className="go" disabled={!chosen.length || busy} onClick={() => { const rows = chosen; exit(); leave(rows, () => void moveWay(c, rows, place.primary!, rows.length)); }}><Icon n={place.primary.icon} />{place.primary.label} {chosen.length || ''}</button>
+            : <span className="go-gap" />}
+          {target.kind !== 'drafts' && <button className="ib" aria-label="Mark read" disabled={!chosen.length || busy} onClick={() => { const rows = chosen; exit(); void c.markRead(rows); }}><Icon n="eye" /></button>}
+          {target.kind !== 'drafts' && <button className="ib" aria-label="Move to a folder" disabled={!chosen.length || busy} onClick={() => setMoving(true)}><Icon n="folder" /></button>}
+          {place.canDelete
+            ? <button className="ib" aria-label="Delete" disabled={!chosen.length || busy} onClick={() => { const rows = chosen; exit(); leave(rows, () => void c.trash(rows, rows.length)); }}><Icon n="trash" /></button>
+            : <button className="ib bad" aria-label="Delete for good" disabled={!chosen.length || busy} onClick={() => setErase('picked')}><Icon n="trash" /></button>}
+        </div>
+      ) : (
+        <>
+          {!pane && <Tabs at="folders" s={s} />}
+          {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
+        </>
+      )}
+      {moving && chosen.length > 0 && <MoveSheet s={s} items={chosen} rows={chosen.length} onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
+      {erase && (
+        <EraseSheet
+          what={erase === 'all' ? { title, count: holds ?? items.length, exact: holds !== null, scope: target.account ? labelOf(s, target.account) : many ? 'all your mailboxes' : '' } : { title, count: chosen.length, exact: true, scope: '', picked: true }}
+          onClose={() => setErase(null)}
+          onGo={() => { setErase(null); if (erase === 'all') { exit(); void c.emptyFolder({ kind: target.kind as 'junk' | 'deleted', ...(target.account ? { account: target.account } : {}) }); } else { const rows = chosen; exit(); void c.eraseMail(rows); } }}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * The question before mail is deleted for good. It is the only change in Post that has no Undo, so it says what goes, from where, and that it cannot
+ * be brought back; the red button names the number.
+ */
+function EraseSheet({ what, onClose, onGo }: { what: { title: string; count: number; exact: boolean; scope: string; picked?: boolean }; onClose: () => void; onGo: () => void }) {
+  const n = what.count;
+  const words = `${n} message${n === 1 ? '' : 's'}`;
+  return (
+    <Sheet title={what.picked ? 'Delete for good?' : `Empty ${what.title}?`} onClose={onClose}>
+      <p className="note" style={{ margin: '2px 8px 12px' }}>
+        {what.picked
+          ? `${n === 1 ? 'This message is' : `These ${n} messages are`} deleted from Outlook itself, not moved anywhere.`
+          : `Everything in ${what.title}${what.scope ? ` of ${what.scope}` : ''} is deleted from Outlook itself, not moved anywhere${what.exact ? `: ${words} in all, also the ones you have not scrolled to` : ''}.`}
+        {' '}There is no Undo, and Post cannot bring {n === 1 && what.picked ? 'it' : 'them'} back. Keep Post open until it says it is done.
+      </p>
+      <div className="card">
+        <button className="it danger" onClick={onGo}><span className="ico"><Icon n="trash" /></span>{what.picked || !what.exact ? `Delete ${what.picked ? words : 'everything'} for good` : `Delete ${words} for good`}</button>
+        <button className="it" onClick={onClose}><span className="ico"><Icon n="x" /></span>Keep them</button>
+      </div>
+    </Sheet>
   );
 }
 

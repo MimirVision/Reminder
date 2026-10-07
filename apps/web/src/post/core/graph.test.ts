@@ -814,3 +814,46 @@ test('folders with folders in them are read four at a time, and a folder with mo
   assert.equal(t.folders.find((f) => f.id === 'C3b')!.parentFolderId, 'R3', 'a folder from the second page knows its parent too');
   assert.ok(log.includes('/me/mailFolders/R3/childFolders?$skiptoken=2'));
 });
+
+// ---- deleting for good ---------------------------------------------------------------------------------------------------------------------------
+
+const batchOf = (statuses: number[], headers: Record<string, string> = {}) => res(200, { responses: statuses.map((status, i) => ({ id: String(i), status, body: {}, ...(status === 429 ? { headers } : {}) })) });
+
+test('idsIn lists every id of a folder a page at a time, up to the limit', async () => {
+  const { g, calls } = setup([
+    res(200, { value: [{ id: 'a' }, { id: 'b' }], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/next?x=1' }),
+    res(200, { value: [{ id: 'c' }] }),
+  ]);
+  assert.deepEqual(await g.idsIn('deleteditems'), { ids: ['a', 'b', 'c'], more: false });
+  assert.match(calls[0].url, /\/me\/mailFolders\/deleteditems\/messages\?\$top=200&\$select=id$/);
+  assert.match(calls[1].url, /next\?x=1/);
+  const cut = setup([res(200, { value: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/next' })]);
+  assert.deepEqual(await cut.g.idsIn('junkemail', 2), { ids: ['a', 'b'], more: true });
+});
+
+test('a page of a folder that cannot be read fails the whole listing', async () => {
+  const { g } = setup([res(200, { value: [{ id: 'a' }], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/next' }), res(403, { error: { code: 'ErrorAccessDenied', message: 'no' } })]);
+  await assert.rejects(() => g.idsIn('junkemail'), (e: GraphError) => e.status === 403);
+});
+
+test('erase deletes for good, four calls to a batch, and counts a message that is gone already as deleted', async () => {
+  const ids = ['m1', 'm2', 'm3', 'm4', 'm5'];
+  const { g, calls } = setup([batchOf([204, 204, 404, 204]), batchOf([204])]);
+  assert.deepEqual(await g.erase(ids), { gone: ids, failed: [] });
+  const sent = calls.map((c) => JSON.parse(String(c.init.body)).requests as { method: string; url: string }[]);
+  assert.deepEqual(sent.map((r) => r.length), [4, 1], 'four at a time');
+  assert.ok(sent.flat().every((r) => r.method === 'POST' && /^\/me\/messages\/m\d\/permanentDelete$/.test(r.url)));
+});
+
+test('erase: a call told to slow down is tried again after the wait, one that is refused is reported', async () => {
+  const { g, sleeps } = setup([batchOf([204, 429, 403], { 'Retry-After': '2' }), batchOf([204])]);
+  assert.deepEqual(await g.erase(['a', 'b', 'c']), { gone: ['a', 'b'], failed: ['c'] });
+  assert.deepEqual(sleeps, [2000]);
+});
+
+test('erase: where the permanent delete is not known the ordinary delete is used', async () => {
+  const { g, calls } = setup([batchOf([400, 204]), batchOf([204])]);
+  assert.deepEqual(await g.erase(['a', 'b']), { gone: ['a', 'b'], failed: [] });
+  const second = JSON.parse(String(calls[1].init.body)).requests as { method: string; url: string }[];
+  assert.deepEqual(second.map((r) => `${r.method} ${r.url}`), ['DELETE /me/messages/a']);
+});

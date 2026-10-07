@@ -1,7 +1,7 @@
 import { isFreemail, orgDomain, rulesDigest, sendableRules, type ClassifyContext } from './classify.ts';
 import { createDiag, worth } from './diag.ts';
 import { createByteCache, emlName, mimeOf, saveName } from './files.ts';
-import { buildFolders, folderMail, folderOfMail, GRAPH_NAME, recipientsOf } from './folders.ts';
+import { buildFolders, folderMail, folderOfMail, FOLDER_NAME, GRAPH_NAME, recipientsOf } from './folders.ts';
 import { createGraph, GraphError, type AttachmentInfo, type DraftContent, type DraftField, type DraftProgress, type Graph, type Outgoing, type OutFile, type RawMessage } from './graph.ts';
 import { UNDO_WINDOW_MS, createQueue, isMove, type OpType } from './queue.ts';
 import { createServer, createTokens, ServerError, type AccountStatus, type AlertExtra, type DeviceApi, type Server, type SignedIn } from './server.ts';
@@ -40,6 +40,8 @@ export interface FolderView {
   /** When it was last read (0: not yet). */
   at: number;
 }
+/** Mail being deleted for good (nothing to undo, so it is said on screen while it goes): what is being done, and how many of `total` are gone (`total` is null while the messages are still being counted). */
+export interface Erasing { what: string; done: number; total: number | null }
 export const folderKey = (t: FolderTarget) => `${t.kind}|${t.account ?? ''}|${t.id ?? ''}`;
 /** A file waiting to be sent: what the outbox list knows about it. The file itself is kept apart, under the account's own name, so removing the account removes it. */
 export interface OutFileRef { name: string; type: string; size: number }
@@ -89,6 +91,8 @@ export interface State {
   foldersError: string | null;
   /** The folder that is open, or was open last. */
   folder: FolderView | null;
+  /** Set while mail is deleted for good (emptying Junk or Deleted, or deleting the messages picked in Deleted). */
+  erasing: Erasing | null;
 }
 
 export interface Deps {
@@ -188,7 +192,7 @@ export function createController(deps: Deps) {
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
     sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, serverSmart: null, sent: 0, storage: 'device',
-    folders: [], foldersLoading: false, foldersError: null, folder: null,
+    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null,
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -333,6 +337,47 @@ export function createController(deps: Deps) {
     if (copy && again) putBack(copy);
     staleView();
   };
+
+  // ---- deleting for good ---------------------------------------------------------------------------------------------------------------
+  // Unlike every other change this has no Undo and no waiting time: Outlook cannot bring the mail back. It is asked for in a sheet that says so, it
+  // runs at once, and the screen says how far it is. It is not queued: a delete for good that was kept for later could meet mail that was moved back.
+  const ERASE_CHUNK = 40; // ten calls of four: one answer from Outlook is then never far away, and what is done is shown as it goes
+  type EraseJob = { account: string; ids: string[]; keys: string[] };
+
+  /** Deletes what the jobs list, a chunk at a time. Stops when a chunk did not delete anything (no connection, a refusal): the rest would fail the same way, slowly. */
+  async function purge(what: string, jobs: EraseJob[]): Promise<{ done: number; total: number }> {
+    const total = jobs.reduce((n, j) => n + j.ids.length, 0);
+    let done = 0;
+    set({ erasing: { what, done, total } });
+    outer: for (const j of jobs) {
+      const g = graphFor(j.account);
+      if (!g) continue;
+      for (let at = 0; at < j.ids.length; at += ERASE_CHUNK) {
+        const ids = j.ids.slice(at, at + ERASE_CHUNK);
+        let r: { gone: string[]; failed: string[] };
+        try { r = await g.erase(ids); } catch (e) { note('erase', e); break outer; }
+        const gone = new Set(r.gone);
+        const keys = j.keys.slice(at, at + ERASE_CHUNK).filter((_, i) => gone.has(ids[i]));
+        for (const k of keys) { remote.delete(k); remoteBodies.delete(k); }
+        const out = new Set(keys);
+        setView((v) => (v.items.some((m) => out.has(m.key)) ? { ...v, items: v.items.filter((m) => !out.has(m.key)) } : v));
+        done += r.gone.length;
+        set({ erasing: { what, done, total } });
+        if (!r.gone.length) break outer;
+      }
+    }
+    return { done, total };
+  }
+
+  /** What is said when deleting for good has finished, and the lists that changed are read again. */
+  async function erased(word: string, done: number, total: number, more = false) {
+    set({ erasing: null });
+    const gone = `${done} message${done === 1 ? '' : 's'}`;
+    if (done === total) toast(more ? `Deleted ${gone} for good. There is more: tap Empty again.` : total === 0 ? `${word} is already empty` : `Deleted ${gone} for good`, undefined, more ? 6000 : undefined);
+    else toast(`Deleted ${done} of ${total}. The rest could not be deleted just now: try again.`, undefined, 6000);
+    staleView();
+    await Promise.allSettled([api.loadFolders({ force: true }), state.folder ? api.openFolder(state.folder.target, { force: true }) : undefined]);
+  }
 
   /**
    * Takes messages out of the folder they are in and sends them somewhere else once the undo time has passed: archive, delete, or a move to any
@@ -1405,6 +1450,54 @@ export function createController(deps: Deps) {
     refreshFolder(): Promise<void> { return state.folder ? api.openFolder(state.folder.target, { force: true }) : Promise.resolve(); },
     /** Leaves the folder: its list is forgotten (the next opening reads it afresh). */
     closeFolder() { if (state.folder) set({ folder: null }); },
+
+    /**
+     * Deletes for good the messages that are in Deleted (the ones picked there). Nothing is left to undo, so the screen asks first (see the sheet
+     * in Folders.tsx). A message that was moved by Post is found by the id it has now.
+     */
+    async eraseMail(items: Mail[]): Promise<void> {
+      if (state.erasing || !items.length) return;
+      const by = new Map<string, EraseJob>();
+      for (const m of items) {
+        const j = by.get(m.account) ?? { account: m.account, ids: [], keys: [] };
+        by.set(m.account, j);
+        j.ids.push(await currentId(m.account, m.id)); j.keys.push(m.key);
+      }
+      const out = new Set(items.map((m) => m.key));
+      setView((v) => ({ ...v, items: v.items.filter((m) => !out.has(m.key)) })); // gone from the list at once; read again from Outlook if some could not be deleted
+      const { done, total } = await purge(items.length === 1 ? 'Deleting 1 message' : `Deleting ${items.length} messages`, [...by.values()]);
+      await erased('Deleted', done, total);
+    },
+
+    /**
+     * Empties Junk or Deleted, of one mailbox or of every mailbox: every message in it is read from Outlook (not only the ones on screen) and
+     * deleted for good. Mail that is on its way out of the folder (moved back, waiting for its Undo time) stays. At most 5000 messages at a time.
+     */
+    async emptyFolder(t: { kind: 'junk' | 'deleted'; account?: string }): Promise<void> {
+      if (state.erasing) return;
+      const word = FOLDER_NAME[t.kind];
+      set({ erasing: { what: `Emptying ${word}`, done: 0, total: null } });
+      const jobs: EraseJob[] = [];
+      let more = false;
+      try {
+        const leaving = await leavingKeys();
+        for (const a of state.accounts.filter((x) => !x.needsSignIn && (!t.account || x.email === t.account))) {
+          const g = graphFor(a.email);
+          if (!g) throw new Error('Sign in again');
+          const r = await g.idsIn(GRAPH_NAME[t.kind]);
+          more = more || r.more;
+          const ids = r.ids.filter((id) => !leaving.has(mailKey(a.email, id)));
+          jobs.push({ account: a.email, ids, keys: ids.map((id) => mailKey(a.email, id)) });
+        }
+      } catch (e) {
+        note('erase', e);
+        set({ erasing: null });
+        toast(`Could not empty ${word}: ${describe(e, 'Outlook did not answer.')}`, undefined, 6000);
+        return;
+      }
+      const { done, total } = await purge(`Emptying ${word}`, jobs);
+      await erased(word, done, total, more && done === total);
+    },
 
     /**
      * A message by its id, when Post has not seen it this time (the address of a message that was moved since, a link kept from earlier): it is
