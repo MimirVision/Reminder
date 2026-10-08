@@ -10,6 +10,7 @@ import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, s
 import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
+import { blockedMail, keepMore, keptKey } from './tidy.ts';
 import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, type FolderKind, type Kind, type Mail, type MailBody } from './types.ts';
 
 // The brain of the app, with no browser or React in it so it is tested in Node. The screens only read `state` and call these methods.
@@ -93,6 +94,8 @@ export interface State {
   folder: FolderView | null;
   /** Set while mail is deleted for good (emptying Junk or Deleted, or deleting the messages picked in Deleted). */
   erasing: Erasing | null;
+  /** Senders (`anna@x.no`) and companies (`@x.no`) you blocked: their mail goes to Junk, and never counts for the icon number. */
+  blocked: string[];
 }
 
 export interface Deps {
@@ -192,7 +195,7 @@ export function createController(deps: Deps) {
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
     sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, serverSmart: null, sent: 0, storage: 'device',
-    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null,
+    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null, blocked: [],
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -338,6 +341,24 @@ export function createController(deps: Deps) {
     staleView();
   };
 
+  // ---- what Post tidies by itself ---------------------------------------------------------------------------------------------------------
+  // Mail from blocked senders goes to Junk and, when it is turned on, old promotions are archived, each time the mail has been read and sorted. Both
+  // only move mail and say so with an Undo. What you brought back (moved to the inbox from another folder, or undid a tidy-up of) is remembered
+  // as a "kept" mark and never tidied again, or the next sync would undo what you just did.
+  let kept: string[] | null = null;
+  const loadKept = async (): Promise<string[]> => {
+    if (kept) return kept;
+    const saved = await store.getMeta<unknown>('kept').catch(() => null);
+    kept = Array.isArray(saved) ? saved.filter((k): k is string => typeof k === 'string').slice(-400) : [];
+    return kept;
+  };
+  const keep = async (items: Mail[]) => {
+    kept = keepMore(await loadKept(), items.map(keptKey));
+    try { await store.setMeta('kept', kept); } catch (e) { note('storage', e); }
+  };
+  let tidying = false;
+  const saveBlocked = async (blocked: string[]) => { set({ blocked }); try { await store.setMeta('blocked', blocked); } catch (e) { note('storage', e); } };
+
   // ---- deleting for good ---------------------------------------------------------------------------------------------------------------
   // Unlike every other change this has no Undo and no waiting time: Outlook cannot bring the mail back. It is asked for in a sheet that says so, it
   // runs at once, and the screen says how far it is. It is not queued: a delete for good that was kept for later could meet mail that was moved back.
@@ -385,7 +406,7 @@ export function createController(deps: Deps) {
    * It goes in line with the changes that read a message from the phone and write it back (read, flag, snooze): none of them may put back a
    * message that was just taken away. Undo gets the copies as they were at this moment.
    */
-  async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string) {
+  async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string, onUndo?: () => void) {
     if (!items.length) return;
     const moved = await exclusive(async () => {
       const taken: { mail: Mail; inbox: boolean }[] = [];
@@ -408,7 +429,7 @@ export function createController(deps: Deps) {
       return { taken, ops };
     });
     if (!moved) return;
-    toast(label, () => { void api.undo(moved.ops.map((o) => o.id), moved.taken.map((t) => t.mail), moved.taken.map((t) => t.inbox)); });
+    toast(label, () => { onUndo?.(); void api.undo(moved.ops.map((o) => o.id), moved.taken.map((t) => t.mail), moved.taken.map((t) => t.inbox)); });
     setTimer(() => {
       void runQueue()
         .then(() => (op.to === GRAPH_NAME.inbox ? api.sync() : undefined)) // mail moved to the inbox shows up there with its new name
@@ -805,11 +826,13 @@ export function createController(deps: Deps) {
         for (const [who, v] of Object.entries(savedRules)) { const kind = asKind(v); if (kind) overrides[who] = kind; }
         if (JSON.stringify(savedRules) !== JSON.stringify(overrides)) await store.setMeta('overrides', overrides);
         const savedSent = await store.getMeta<unknown>('taughtSent');
+        const savedBlocked = await store.getMeta<unknown>('blocked');
+        const blocked = Array.isArray(savedBlocked) ? savedBlocked.filter((k): k is string => typeof k === 'string' && k.length > 0 && k.length <= 120) : [];
         try { const x = JSON.parse(kv.get('post.sessions') ?? '[]'); sessions = Array.isArray(x) ? x.filter((y: Session) => y && typeof y.email === 'string' && typeof y.session === 'string') : []; } catch { sessions = []; }
         const cachedAccounts = ((await store.getMeta<AppAccount[]>('accounts')) ?? []).filter((a) => sessions.some((x) => x.email === a.email));
         let settings = DEFAULT_SETTINGS;
         try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
-        set({ settings, accounts: cachedAccounts, overrides, signingIn: !!readPending() });
+        set({ settings, accounts: cachedAccounts, overrides, blocked, signingIn: !!readPending() });
         // Only now, with the saved choices on screen: a start that could not read them sends the alert server nothing (it would look like "all removed").
         taughtSent = sentOf(savedSent);
         try { sweepEdits(); } catch { /* only tidying */ }
@@ -952,7 +975,7 @@ export function createController(deps: Deps) {
         if (mine === syncSeq) { set({ sync: { running: false, at: now(), error } }); syncRun = null; }
         done();
       }
-      void api.sortInBackground();
+      void api.sortInBackground().then(() => api.autoTidy()).catch((e) => note('tidy', e));
     },
 
     /**
@@ -1075,6 +1098,7 @@ export function createController(deps: Deps) {
 
     /** Moves messages (from the inbox, or seen in a folder) to another folder, with one Undo. `rows`: how many rows of the list this was, for the toast. */
     async moveTo(items: Mail[], to: { to: string; name: string }, rows: number = items.length) {
+      if (to.to === GRAPH_NAME.inbox) await keep(items); // brought back on purpose: the next tidy-up leaves it alone
       await relocate(items, { type: 'move', to: to.to }, rows <= 1 ? `Moved to ${to.name}` : `Moved ${rows} to ${to.name}`);
     },
 
@@ -1193,6 +1217,58 @@ export function createController(deps: Deps) {
       delete overrides[key];
       await applyOverrides(overrides);
       toast('Rule removed', () => { void applyOverrides(before); });
+    },
+
+    /**
+     * Blocks a sender (or everything from their company): their mail in the inbox goes to Junk at once, and so does whatever they send while Post
+     * is open. It also moves them to Promotions, so the icon number ignores them (the alert server follows that tab). Nothing is deleted, and Undo
+     * (here, or Settings, Sorting, Blocked senders) lifts the block again. A mail you flagged is left where it is.
+     */
+    async blockSender(address: string, scope: 'sender' | 'company' = 'sender') {
+      const addr = address.trim().toLowerCase();
+      const company = scope === 'company' && !isFreemail(addr);
+      const key = company ? `@${orgDomain(addr)}` : addr;
+      if (!addr.includes('@') || state.blocked.includes(key)) return;
+      tidying = true; // the tidy-up that follows a sync must not move this mail first, under its own toast
+      try {
+        const beforeBlocked = state.blocked, beforeRules = state.overrides;
+        await saveBlocked([...beforeBlocked, key]);
+        await applyOverrides({ ...beforeRules, [key]: 'promo' });
+        const lift = () => { void (async () => { await saveBlocked(beforeBlocked); await applyOverrides(beforeRules); })(); };
+        const items = blockedMail(state.mail, [key], new Set(await loadKept()));
+        const who = company ? key.slice(1) : addr;
+        if (items.length) await relocate(items, { type: 'move', to: GRAPH_NAME.junk }, `Blocked ${who}. ${items.length === 1 ? '1 message' : `${items.length} messages`} moved to Junk.`, lift);
+        else toast(`Blocked ${who}. Their mail goes to Junk from now on.`, lift);
+      } finally { tidying = false; }
+    },
+
+    /** Lifts a block (Settings, Sorting). Mail already in Junk stays there; the sender goes back to automatic sorting. */
+    async unblock(key: string) {
+      if (!state.blocked.includes(key)) return;
+      const beforeBlocked = state.blocked, beforeRules = state.overrides;
+      await saveBlocked(beforeBlocked.filter((k) => k !== key));
+      if (beforeRules[key] === 'promo') { const { [key]: _gone, ...rest } = beforeRules; await applyOverrides(rest); }
+      toast(`Unblocked ${key.startsWith('@') ? key.slice(1) : key}`, () => { void (async () => { await saveBlocked(beforeBlocked); await applyOverrides(beforeRules); })(); });
+    },
+
+    /**
+     * What Post does with mail by itself, after the mail has been sorted: blocked senders' mail goes to Junk, and (Settings, Sorting, Clean up
+     * old promotions) promotions older than the chosen days are archived. One tidy-up at a time; each ends in one toast with an Undo, and Undo
+     * also marks the mail as kept, so it is never tidied again.
+     */
+    async autoTidy() {
+      if (tidying || !state.ready || state.toast?.undo) return; // not over the Undo of something you just did: the next sync tries again
+      tidying = true;
+      try {
+        const keptNow = new Set(await loadKept());
+        const bad = blockedMail(state.mail, state.blocked, keptNow);
+        if (bad.length) await relocate(bad, { type: 'move', to: GRAPH_NAME.junk }, bad.length === 1 ? 'Moved 1 message from a blocked sender to Junk' : `Moved ${bad.length} messages from blocked senders to Junk`, () => void keep(bad));
+        const days = state.settings.autoClean;
+        if (days > 0) {
+          const rows = staleThreads(state, now(), days, keptNow);
+          if (rows.length) await relocate(rows.flatMap((t) => t.items), { type: 'archive' }, rows.length === 1 ? 'Archived 1 old promotion' : `Archived ${rows.length} old promotions`, () => void keep(rows.flatMap((t) => t.items)));
+        }
+      } finally { tidying = false; }
     },
 
     /** Marks these as read in one go, with one toast (or none, when `quiet`: opening a conversation marks it read without a word). */
@@ -1641,7 +1717,11 @@ export function createController(deps: Deps) {
     setView(view: View) { set({ view }); },
     setUnreadOnly(unreadOnly: boolean) { set({ unreadOnly }); },
     setAccountFilter(accountFilter: string | null) { set({ accountFilter }); },
-    setSettings(patch: Partial<Settings>) { saveSettings({ ...state.settings, ...patch }); },
+    setSettings(patch: Partial<Settings>) {
+      const before = state.settings.autoClean;
+      saveSettings({ ...state.settings, ...patch });
+      if (state.settings.autoClean > 0 && state.settings.autoClean !== before) void api.autoTidy().catch((e) => note('tidy', e)); // turned on: it starts at once
+    },
     toast,
     device,
     /** Writes a problem down for the Health page and the problem report (an address in the text is replaced). */
@@ -1732,6 +1812,15 @@ export function cleanUpThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settin
   const cutoff = nowMs - days * 86_400_000;
   return visibleThreads({ mail: s.mail, view: 'promo', unreadOnly: false, accountFilter: s.accountFilter, settings: s.settings }, nowMs)
     .filter((t) => !t.items.some((m) => m.flagged) && (days <= 0 || new Date(t.latest.received).getTime() < cutoff));
+}
+
+/**
+ * The promotions Post archives by itself: the rows `cleanUpThreads` lists for every mailbox, but only mail whose sorting is settled (its header
+ * marks have been read: a first guess is never acted on without you), and never a row with a message you brought back.
+ */
+export function staleThreads(s: Pick<State, 'mail' | 'settings'>, nowMs: number, days: number, kept: ReadonlySet<string>): Thread[] {
+  return cleanUpThreads({ mail: s.mail, accountFilter: null, settings: s.settings }, nowMs, days)
+    .filter((t) => t.items.every((m) => m.sig !== undefined && !kept.has(keptKey(m))));
 }
 
 /** The messages of those rows: what archiving them acts on. */
