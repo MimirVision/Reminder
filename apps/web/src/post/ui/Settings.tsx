@@ -7,6 +7,7 @@ import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
 import { go, useC, useNow } from './ctx.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { Health, dotOf, useHealthLine } from './Health.tsx';
+import { Subscriptions, useSubscriptionsLine } from './Subscriptions.tsx';
 
 declare const __BUILD__: string;
 
@@ -33,6 +34,7 @@ export function SettingsPage({ s, page, account }: { s: State; page: string; acc
     case 'hours': return <Hours s={s} email={account ?? ''} />;
     case 'appearance': return <Appearance s={s} />;
     case 'sorting': return <Sorting s={s} />;
+    case 'subscriptions': return <Subscriptions s={s} />;
     case 'health': return <Health s={s} />;
     default: return <Settings s={s} />;
   }
@@ -44,6 +46,7 @@ export function Settings({ s }: { s: State }) {
   const a = ACCENTS.find((x) => x.id === s.settings.accent) ?? ACCENTS[0];
   const alertsLine = s.alertsOn ? 'On' : 'Off';
   const health = useHealthLine(s);
+  const subsLine = useSubscriptionsLine(s);
   return (
     <div className="pg">
       <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
@@ -56,6 +59,7 @@ export function Settings({ s }: { s: State }) {
         <div className="lbl">Sorting</div>
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{sortingLine(s)}<Icon n="chev" /></span></button>
+          <button className="it" onClick={() => go({ name: 'settings', page: 'subscriptions' })}><span className="ico"><Icon n="mail" /></span>Subscriptions<span className="v">{subsLine}<Icon n="chev" /></span></button>
         </div>
         <div className="lbl">Conversations</div>
         <div className="card">

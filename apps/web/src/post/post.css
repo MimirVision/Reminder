@@ -610,3 +610,8 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .dkids > .sw-row:first-child { border-top: var(--hair) solid var(--ln); }
 @media (prefers-reduced-motion: no-preference) { .dkids { animation: dkin .22s var(--ease-out); } @keyframes dkin { from { opacity: 0; transform: translateY(-6px); } } }
 @media (prefers-reduced-motion: reduce) { .row.digest .dchev { transition: none; } }
+
+/* Subscriptions page: the sender's two small lines sit tight under the name. */
+.it.subrow { align-items: flex-start; padding-top: 10px; padding-bottom: 10px; }
+.it.subrow .v { align-self: center; }
+.it.subrow .rw small { overflow-wrap: anywhere; }
