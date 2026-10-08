@@ -17,6 +17,8 @@ export interface Thread {
   unread: number;
   /** The tab it is in: the newest message's. */
   kind: Kind;
+  /** Only on a row that stands for one sender's several conversations (see digest.ts): those conversations, newest first. Then `items` holds all their messages. */
+  members?: Thread[];
 }
 
 /** Which conversation a message belongs to. A message Outlook gave no conversation id is a conversation of its own. */

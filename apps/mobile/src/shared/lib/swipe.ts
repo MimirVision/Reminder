@@ -23,15 +23,14 @@ export function swipeResult(dx: number, dy: number, ms: number, commit = SWIPE_C
 export const isHorizontal = (dx: number, dy: number) => Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.4;
 
 /**
- * Swiping the row of tabs (Primary ... All): which tab you land on. A swipe to the left goes on to the next tab, to the right back; a long, fast
- * flick goes all the way (to the last tab, which is All, or back to the first). A mostly vertical drag, or a short slow one, changes nothing.
+ * A hard, quick flick to the left across the row of tabs (Primary ... All) jumps to the last tab, which is All, like swiping all the way in iOS
+ * Mail. Anything slower, shorter, mostly vertical, or to the right is just the row of tabs scrolling under the finger and changes nothing.
  * Returns the new index, or null when it stays where it is.
  */
+export const FLICK_MIN_PX = 170;
+export const FLICK_MIN_SPEED = 1.1; // px per ms, over the whole touch
 export function tabSwipe(dx: number, dy: number, ms: number, index: number, count: number): number | null {
-  if (count < 2 || Math.abs(dy) > Math.abs(dx) * 0.8) return null;
-  const far = Math.abs(dx) >= 180 && ms < 350;
-  const near = Math.abs(dx) >= 56 || (ms < 250 && Math.abs(dx) >= 36);
-  if (!far && !near) return null;
-  const next = far ? (dx < 0 ? count - 1 : 0) : Math.max(0, Math.min(count - 1, index + (dx < 0 ? 1 : -1)));
-  return next === index ? null : next;
+  if (count < 2 || index >= count - 1 || ms <= 0) return null;
+  if (dx > -FLICK_MIN_PX || Math.abs(dy) > Math.abs(dx) * 0.4 || -dx / ms < FLICK_MIN_SPEED) return null;
+  return count - 1;
 }

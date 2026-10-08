@@ -60,8 +60,9 @@ export function Settings({ s }: { s: State }) {
         <div className="lbl">Conversations</div>
         <div className="card">
           <div className="it"><span className="ico"><Icon n="reply" /></span>Group replies together<Switch on={s.settings.threads} onChange={(v) => set({ threads: v })} label="Group replies together" /></div>
+          <div className="it"><span className="ico"><Icon n="inbox" /></span>One row per sender<Switch on={s.settings.digest} onChange={(v) => set({ digest: v })} label="One row per sender" /></div>
         </div>
-        <p className="note">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. Nothing is hidden: every message is still there.</p>
+        <p className="note">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. In Transactions, Updates and Promotions all of one sender's mail is one row too: tap it to see the conversations, swipe it to archive them all at once. Nothing is hidden: every message is still there.</p>
         <div className="lbl">Swipe</div>
         <div className="card">
           <Pick icon="archive" label="Swipe right" value={s.settings.swipeRight} options={SWIPE} onChange={(v) => set({ swipeRight: v })} />
