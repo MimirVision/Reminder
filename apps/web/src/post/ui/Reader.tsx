@@ -16,6 +16,7 @@ import { back, folderContext, folderTitle, go, labelOf, openMail, routeOfFolder,
 import { copyText } from './clipboard.ts';
 import { FileList } from './Attachments.tsx';
 import { BlockSheet, SweepSheet } from './SenderSheets.tsx';
+import { canMute } from '../core/tidy.ts';
 
 function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
@@ -246,6 +247,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             {(canTriage || far) && <button className="it" onClick={() => { void c.toggleFlag(mine); setSheet(null); }}><span className="ico"><Icon n="flag" /></span>{anyFlag ? 'Remove flag' : 'Flag'}</button>}
             {movable && <button className="it" onClick={() => setSheet('move')}><span className="ico"><Icon n="folder" /></span>Move to a folder<span className="v">…</span></button>}
             {here && <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {KIND_TAB[here.kind]}<span className="v">Change</span></button>}
+            {canTriage && here && canMute(here) && !s.muted.some((x) => x.key === threadKey(here)) && <button className="it" onClick={() => { void c.muteConversation(here); setSheet(null); open(next, true); }}><span className="ico"><Icon n="bellOff" /></span>Mute conversation<span className="v">…</span></button>}
             {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('block')}><span className="ico"><Icon n="ban" /></span>Block sender<span className="v">…</span></button>}
             {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('sweep')}><span className="ico"><Icon n="sparkle" /></span>Sweep this sender<span className="v">…</span></button>}
             {canDelete && <button className="it danger" onClick={() => { setSheet(null); deleteIt(); }}><span className="ico"><Icon n="trash" /></span>Delete{many && !far ? ' conversation' : ''}</button>}

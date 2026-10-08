@@ -1265,3 +1265,73 @@ test('the choices of auto clean-up are 3, 7, 14 and 30 days, and anything else i
   for (const bad of [5, -1, 'x', null, 7.5]) assert.equal(loadSettings({ autoClean: bad }).autoClean, 0);
   assert.equal(loadSettings({}).autoClean, 0, 'off unless you turn it on');
 });
+
+// ---- mute a conversation ---------------------------------------------------------------------------------------------------------------
+const mutedKeys = (c: Made['c']) => c.getState().muted.map((x) => x.key);
+const mailOf = (c: Made['c'], id: string) => c.getState().mail.find((m) => m.id === id)!;
+
+test('muting a conversation archives what is in the inbox of it at once, with an Undo, and keeps it on the phone', async () => {
+  const w = outlook();
+  inbox(w, 'm1', 'anna@x.no', NEW, { conversationId: 'cc', subject: 'Re: Middag' }); inbox(w, 'm2', 'per@x.no', OLD, { conversationId: 'cc', subject: 'Middag' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  assert.deepEqual(inboxIds(c), ['o1'], 'both leave the inbox at once');
+  assert.equal(c.getState().toast!.text, 'Muted “Middag”. 2 messages archived.');
+  assert.equal(c.getState().muted.length, 1);
+  assert.deepEqual((await made.store.getMeta<{ key: string; subject: string }[]>('muted'))?.map((x) => x.subject), ['Middag'], 'kept on the phone');
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'archive'), ['m1~', 'm2~']);
+  assert.deepEqual(w.ids(A, 'inbox'), ['o1']);
+});
+
+test('Undo of a mute brings the mail back and lifts the mute', async () => {
+  const w = outlook(); inbox(w, 'm1', 'anna@x.no', NEW, { conversationId: 'cc' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  c.getState().toast!.undo!();
+  await until(() => inboxIds(c).includes('m1'), 'the mail to come back');
+  assert.deepEqual(mutedKeys(c), []);
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'archive'), [], 'and Outlook never heard of it');
+});
+
+test('a reply that arrives later in a muted conversation is archived when Post is open, flagged mail and what you brought back stay', async () => {
+  const w = outlook(); inbox(w, 'm1', 'anna@x.no', OLD, { conversationId: 'cc' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  await settle(made);
+  inbox(w, 'n1', 'anna@x.no', NEW, { conversationId: 'cc' });
+  await c.sync(); await c.sortInBackground(); await c.autoTidy();
+  await until(() => !inboxIds(c).includes('n1'), 'the reply to be archived');
+  assert.match(c.getState().toast!.text, /^Archived 1 message from a muted conversation$/);
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'archive').sort(), ['m1~', 'n1~']);
+  // flagged: left alone
+  inbox(w, 'f1', 'anna@x.no', NEW, { conversationId: 'cc', flagged: true });
+  await c.sync(); await c.sortInBackground(); await c.autoTidy(); await tick(50);
+  assert.deepEqual(inboxIds(c), ['f1', 'o1']);
+  // brought back on purpose: it stays
+  await c.openFolder({ kind: 'archive' });
+  await c.moveTo(c.getState().folder!.items.filter((m) => m.id.startsWith('n1')), { to: 'inbox', name: 'Inbox' });
+  await settle(made);
+  await c.sync(); await c.sortInBackground(); await c.autoTidy(); await tick(50);
+  assert.equal(inboxIds(c).length, 3, 'it is in the inbox again');
+  await settle(made);
+  assert.equal(w.ids(A, 'archive').filter((id) => id.startsWith('n1')).length, 0, 'and it is not archived again');
+});
+
+test('unmuting forgets the mute with an Undo, and a message without a conversation cannot be muted', async () => {
+  const w = outlook(); inbox(w, 'm1', 'anna@x.no', NEW, { conversationId: 'cc' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  await c.unmute(mutedKeys(c)[0]);
+  assert.deepEqual(mutedKeys(c), []);
+  c.getState().toast!.undo!();
+  await until(() => mutedKeys(c).length === 1, 'the mute to come back');
+  await c.muteConversation({ ...mailOf(c, 'o1'), conversationId: '' });
+  assert.equal(mutedKeys(c).length, 1, 'nothing to mute without a conversation id');
+});

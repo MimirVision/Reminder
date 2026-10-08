@@ -10,7 +10,7 @@ import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, s
 import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
-import { blockedMail, keepMore, keptKey } from './tidy.ts';
+import { blockedMail, canMute, keepMore, keptKey, muteName, MUTED_MAX, mutedMail, type Muted } from './tidy.ts';
 import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, type FolderKind, type Kind, type Mail, type MailBody } from './types.ts';
 
 // The brain of the app, with no browser or React in it so it is tested in Node. The screens only read `state` and call these methods.
@@ -96,6 +96,8 @@ export interface State {
   erasing: Erasing | null;
   /** Senders (`anna@x.no`) and companies (`@x.no`) you blocked: their mail goes to Junk, and never counts for the icon number. */
   blocked: string[];
+  /** Conversations you muted: new replies to them skip the inbox (Post archives them while it is open). */
+  muted: Muted[];
 }
 
 export interface Deps {
@@ -195,7 +197,7 @@ export function createController(deps: Deps) {
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
     sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, serverSmart: null, sent: 0, storage: 'device',
-    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null, blocked: [],
+    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null, blocked: [], muted: [],
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -357,6 +359,7 @@ export function createController(deps: Deps) {
     try { await store.setMeta('kept', kept); } catch (e) { note('storage', e); }
   };
   let tidying = false;
+  const saveMuted = async (muted: Muted[]) => { set({ muted }); try { await store.setMeta('muted', muted); } catch (e) { note('storage', e); } };
   const saveBlocked = async (blocked: string[]) => { set({ blocked }); try { await store.setMeta('blocked', blocked); } catch (e) { note('storage', e); } };
 
   // ---- deleting for good ---------------------------------------------------------------------------------------------------------------
@@ -832,7 +835,9 @@ export function createController(deps: Deps) {
         const cachedAccounts = ((await store.getMeta<AppAccount[]>('accounts')) ?? []).filter((a) => sessions.some((x) => x.email === a.email));
         let settings = DEFAULT_SETTINGS;
         try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
-        set({ settings, accounts: cachedAccounts, overrides, blocked, signingIn: !!readPending() });
+        const savedMuted = await store.getMeta<unknown>('muted');
+        const muted: Muted[] = Array.isArray(savedMuted) ? savedMuted.filter((x): x is Muted => !!x && typeof (x as Muted).key === 'string' && typeof (x as Muted).subject === 'string' && (x as Muted).key.length > 0 && (x as Muted).key.length <= 300).slice(-MUTED_MAX) : [];
+        set({ settings, accounts: cachedAccounts, overrides, blocked, muted, signingIn: !!readPending() });
         // Only now, with the saved choices on screen: a start that could not read them sends the alert server nothing (it would look like "all removed").
         taughtSent = sentOf(savedSent);
         try { sweepEdits(); } catch { /* only tidying */ }
@@ -1227,6 +1232,37 @@ export function createController(deps: Deps) {
     },
 
     /**
+     * Mutes a conversation: what is in the inbox of it goes to Archive at once, and so does every later reply while Post is open, so it stops
+     * filling the inbox. Nothing is deleted, flagged mail stays, and Undo (here, or Settings, Sorting, Muted conversations) lifts the mute.
+     * Post cannot silence the alert for a reply that arrives while it is closed: that one is archived the next time Post is open.
+     */
+    async muteConversation(m: Mail) {
+      if (!canMute(m)) return;
+      const key = threadKey(m);
+      if (state.muted.some((x) => x.key === key)) return;
+      tidying = true; // the tidy-up that follows a sync must not move this mail first, under its own toast
+      try {
+        const before = state.muted;
+        const entry: Muted = { key, subject: muteName(m.subject) };
+        await saveMuted([...before, entry].slice(-MUTED_MAX));
+        const lift = () => { void saveMuted(before); };
+        const items = mutedMail(state.mail, [entry], new Set(await loadKept()));
+        const what = `Muted “${entry.subject.length > 28 ? `${entry.subject.slice(0, 27)}…` : entry.subject}”`;
+        if (items.length) await relocate(items, { type: 'archive' }, `${what}. ${items.length === 1 ? '1 message' : `${items.length} messages`} archived.`, lift);
+        else toast(`${what}. New replies skip the inbox.`, lift);
+      } finally { tidying = false; }
+    },
+
+    /** Lifts a mute (Settings, Sorting). What was archived stays in Archive; new replies stay in the inbox again. */
+    async unmute(key: string) {
+      const before = state.muted;
+      const gone = before.find((x) => x.key === key);
+      if (!gone) return;
+      await saveMuted(before.filter((x) => x.key !== key));
+      toast(`Unmuted “${gone.subject.length > 28 ? `${gone.subject.slice(0, 27)}…` : gone.subject}”`, () => { void saveMuted(before); });
+    },
+
+    /**
      * What Post does with mail by itself, after the mail has been sorted: blocked senders' mail goes to Junk, and (Settings, Sorting, Clean up
      * old promotions) promotions older than the chosen days are archived. One tidy-up at a time; each ends in one toast with an Undo, and Undo
      * also marks the mail as kept, so it is never tidied again.
@@ -1238,6 +1274,8 @@ export function createController(deps: Deps) {
         const keptNow = new Set(await loadKept());
         const bad = blockedMail(state.mail, state.blocked, keptNow);
         if (bad.length) await relocate(bad, { type: 'move', to: GRAPH_NAME.junk }, bad.length === 1 ? 'Moved 1 message from a blocked sender to Junk' : `Moved ${bad.length} messages from blocked senders to Junk`, () => void keep(bad));
+        const quiet = mutedMail(state.mail, state.muted, keptNow);
+        if (quiet.length) await relocate(quiet, { type: 'archive' }, quiet.length === 1 ? 'Archived 1 message from a muted conversation' : `Archived ${quiet.length} messages from muted conversations`, () => void keep(quiet));
         const days = state.settings.autoClean;
         if (days > 0) {
           const rows = staleThreads(state, now(), days, keptNow);

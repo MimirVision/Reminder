@@ -38,3 +38,24 @@ test('kept marks are not repeated, the newest come last, and only the last ones 
   assert.equal(out.at(-1), `k${KEPT_MAX + 4}`);
   assert.equal(out[0], 'k5');
 });
+
+import { canMute, mutedMail, muteName } from './tidy.ts';
+import { threadKey } from './threads.ts';
+
+test('muting needs a conversation, and the name drops Re: and Fwd: in front', () => {
+  assert.equal(canMute(mail({ id: '1', conversationId: 'c1' })), true);
+  assert.equal(canMute(mail({ id: '1', conversationId: '' })), false);
+  assert.equal(muteName('Re: SV: Fwd: Møte på fredag'), 'Møte på fredag');
+  assert.equal(muteName('   '), 'No subject');
+  assert.equal(muteName('x'.repeat(200)).length, 80);
+});
+
+test('muted mail is the inbox mail of that conversation only: not flagged, not kept, not another conversation, not another mailbox', () => {
+  const a = mail({ id: '1', conversationId: 'c1' });
+  const list = [a, mail({ id: '2', conversationId: 'c1', flagged: true }), mail({ id: '3', conversationId: 'c1', folder: 'archive' as Mail['folder'] }), mail({ id: '4', conversationId: 'c1', received: '2026-10-05T10:00:00Z' }),
+    mail({ id: '5', conversationId: 'c2' }), mail({ id: '6', conversationId: 'c1', account: 'b@o.no' }), mail({ id: '7', conversationId: '' })];
+  const muted = [{ key: threadKey(a), subject: 'x' }];
+  const kept = new Set([keptKey(list[3])]);
+  assert.deepEqual(mutedMail(list, muted, kept).map((m) => m.id), ['1']);
+  assert.deepEqual(mutedMail(list, [], kept), []);
+});
