@@ -87,6 +87,11 @@
   .proj .meta span { color: var(--muted); font-size: 12.5px; }
   .proj.cur { background: var(--accent-soft); margin: 0 -10px; padding: 8px 10px; border-radius: 8px; }
   #saveState.ok { color: #2b8a3e; } #saveState.err { color: var(--danger); font-weight: 600; } #fileState.dirty { color: #b25e00; }
+  #dlg, #textio { position: absolute; inset: 0; background: rgba(30,25,20,.45); display: none; align-items: center; justify-content: center; z-index: 9; }
+  #dlg .card, #textio .card { background: var(--panel); border-radius: 14px; padding: 20px 24px; width: min(520px, 94%); }
+  #textio .card { width: min(720px, 94%); }
+  #dlg h3, #textio h3 { margin: 0 0 8px; }
+  #textio textarea { width: 100%; height: 38vh; font: 11px/1.3 ui-monospace, monospace; border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
   #zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
   #zoom button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
   #legend { position: absolute; left: 12px; top: 10px; background: rgba(251,250,247,.92); border: 1px solid var(--line);
@@ -114,6 +119,7 @@
       <button id="saveFile" class="primary" title="Ctrl+S">💾 Lagre til fil</button>
       <button id="projBtn">Prosjekter…</button>
     </div>
+    <div id="warn" class="hint" style="display:none;margin-top:8px;padding:8px 10px;border:1px solid #e0b4b0;background:#fdf0ee;border-radius:8px;color:#8a2b22"></div>
     <div id="saveState" class="hint" style="margin-top:6px"></div>
     <div id="fileState" class="hint"></div>
     <div class="sep"></div>
@@ -165,6 +171,7 @@
     <h2>Fil</h2>
     <div class="row">
       <button id="save">Lagre som…</button>
+      <button id="asText">Som tekst (kopier / lim inn)</button>
       <label class="btn" style="text-align:center">Åpne fil<input id="load" type="file" accept=".json,application/json" hidden></label>
       <button id="png">Eksporter PNG</button>
     </div>
@@ -190,6 +197,20 @@
       </div></div>
       <div id="zoom"><button id="zin" title="Zoom inn">+</button><button id="zout" title="Zoom ut">−</button><button id="zfit" title="Tilpass" style="font-size:13px">⤢</button></div>
       <div id="toast"></div>
+      <div id="dlg"><div class="card">
+        <h3 id="dlgTitle"></h3><p id="dlgText" class="hint" style="margin:0 0 10px"></p>
+        <input id="dlgInput" type="text" style="margin-bottom:12px">
+        <div class="row" style="justify-content:flex-end"><button id="dlgNo" style="flex:0 0 auto">Avbryt</button><button id="dlgOk" class="primary" style="flex:0 0 auto">OK</button></div>
+      </div></div>
+      <div id="textio"><div class="card">
+        <h3>Prosjektet som tekst</h3>
+        <p class="hint">Kopier teksten og lagre den i en tekstfil (f.eks. «mitthus.planlosning.json»). Lim den inn igjen under for å åpne den senere.</p>
+        <textarea id="tioText" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button id="tioCopy" class="primary">Kopier</button><button id="tioDl">Last ned fil</button>
+          <button id="tioOpen">Åpne teksten over som prosjekt</button><button id="tioClose">Lukk</button>
+        </div>
+      </div></div>
       <div id="projects"><div class="card">
         <h3>Prosjekter</h3>
         <p class="hint">Alt du gjør lagres automatisk i denne nettleseren. Bruk «Lagre til fil» for en sikkerhetskopi du kan ta med deg.</p>
@@ -270,6 +291,22 @@ let saveTimer = 0, pendingSave = false, dirtyFile = false, fileHandle = null, la
 let P = { id: newId(), name: 'Mitt hus', floors: [{ name: '1. etasje' }], cur: 0, next: 1 };   // project: floors hold snapshots
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+function ask(o) {            // in-page replacement for prompt()/confirm(), which sandboxed previews block
+  return new Promise(res => {
+    const d = $('#dlg'), inp = $('#dlgInput'), ok = $('#dlgOk'), no = $('#dlgNo'), hasIn = o.input !== undefined;
+    $('#dlgTitle').textContent = o.title || ''; $('#dlgText').textContent = o.text || '';
+    inp.style.display = hasIn ? '' : 'none'; inp.value = hasIn ? o.input : '';
+    ok.textContent = o.ok || 'OK'; ok.className = o.danger ? 'danger' : 'primary'; d.style.display = 'flex';
+    const done = v => { d.style.display = 'none'; ok.onclick = no.onclick = inp.onkeydown = null; res(v); };
+    ok.onclick = () => done(hasIn ? inp.value : true); no.onclick = () => done(hasIn ? null : false);
+    inp.onkeydown = e => { if (e.key === 'Enter') ok.onclick(); else if (e.key === 'Escape') no.onclick(); };
+    setTimeout(() => (hasIn ? (inp.focus(), inp.select()) : ok.focus()), 0);
+  });
+}
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+function warn(msg) { const w = $('#warn'); w.style.display = msg ? '' : 'none'; w.textContent = msg || ''; }
 function touch() {
   extCache = null; roomsCache = null; redraw(); updateStatus();
   dirtyFile = true; pendingSave = true; setSaveState('pending'); updateFileState();
@@ -360,13 +397,16 @@ function setSaveState(st, extra) {
 const isEmptyProject = () => P.floors.length === 1 && !S.walls.length && !S.items.length && !bg.img && V.names.length === 1;
 async function autosave() {
   clearTimeout(saveTimer);
-  if (!P.saved && isEmptyProject()) { pendingSave = false; return; }      // don't litter the list with empty projects
+  if (!P.saved && isEmptyProject()) { pendingSave = false; saveStateNow = ''; $('#saveState').className = 'hint'; $('#saveState').textContent = 'Lagres automatisk så snart du har lagt inn noe.'; return; }      // don't litter the list with empty projects
   try {
     const json = projectJSON();
-    await dbSave(P.id, P.name, P.floors.length, json);
-    try { localStorage.setItem('planlosning-last', P.id); } catch {}
+    await withTimeout(dbSave(P.id, P.name, P.floors.length, json), 4000);
+    lsSet('planlosning-last', P.id); warn('');
     P.saved = true; pendingSave = false; saveStateNow = ''; setSaveState('ok');
-  } catch (e) { saveStateNow = ''; setSaveState('err'); }
+  } catch (e) {
+    saveStateNow = ''; setSaveState('err');
+    warn(window.top !== window.self ? 'Du ser siden i en forhåndsvisning som blokkerer lagring i nettleseren. Åpne index.html direkte i nettleseren (last ned filen og dobbeltklikk), eller bruk «Lagre til fil» / «Som tekst» for å ta vare på planen.' : 'Nettleseren tillater ikke lagring her (privat modus?). Bruk «Lagre til fil» eller «Som tekst» for å ikke miste planen.');
+  }
 }
 function updateFileState() {
   const el = $('#fileState');
@@ -1161,11 +1201,11 @@ function cutWall(w, t0, t1) {
 }
 
 // ---------- scale ----------
-function finishCalibration() {
+async function finishCalibration() {
   const [a, b] = calibPts, px = Math.hypot(a.x - b.x, a.y - b.y);
-  const ans = window.prompt('Hvor lang er denne avstanden i virkeligheten? (meter, f.eks. 0.9 for en dør)', '0.9');
+  const ans = await ask({ title: 'Mål skala', text: 'Hvor lang er denne avstanden i virkeligheten? (meter, f.eks. 0.9 for en dør)', input: '0.9' });
   calibPts = [];
-  const m = parseFloat((ans || '').replace(',', '.'));
+  const m = parseFloat(String(ans || '').replace(',', '.'));
   if (m > 0 && px > 1) {
     checkpoint(); S.ppm = px / m; S.calibrated = true;
     toast(`Skala satt: 1 m = ${S.ppm.toFixed(1)} px`); touch(); renderProps();
@@ -1406,7 +1446,7 @@ function renderFloors() {
       else if (e.target.dataset.m) moveFloor(i, +e.target.dataset.m);
       else if (i !== P.cur) switchFloor(i);
     };
-    d.ondblclick = e => { if (e.target.classList.contains('x') || e.target.dataset.m) return; const nn = prompt('Navn på etasjen:', f.name); if (nn) { P.floors[i].name = nn; renderFloors(); touch(); } };
+    d.ondblclick = async e => { if (e.target.classList.contains('x') || e.target.dataset.m) return; const nn = await ask({ title: 'Navn på etasjen', input: f.name }); if (nn) { P.floors[i].name = nn; renderFloors(); touch(); } };
     t.appendChild(d);
   });
   const add = document.createElement('button'); add.className = 'sm'; add.textContent = '+ Ny etasje'; add.onclick = addFloor; t.appendChild(add);
@@ -1417,7 +1457,7 @@ async function switchFloor(i) {
   await enterFloor(P.floors[i]); touch();
 }
 async function addFloor() {
-  const nm = prompt('Navn på den nye etasjen:', `${P.floors.length + 1}. etasje`); if (!nm) return;
+  const nm = await ask({ title: 'Ny etasje', text: 'Hva skal etasjen hete?', input: `${P.floors.length + 1}. etasje`, ok: 'Legg til' }); if (!nm) return;
   P.floors[P.cur] = snapFloor(); P.next = S.next;
   P.floors.push(blankFloor(nm)); P.cur = P.floors.length - 1;
   await enterFloor(P.floors[P.cur]); touch(); toast('Ny etasje – importer et bilde av planløsningen, eller tegn selv');
@@ -1428,7 +1468,7 @@ async function dupFloor() {
   await enterFloor(snap); touch();
 }
 async function delFloor(i) {
-  if (P.floors.length < 2 || !confirm(`Slette «${P.floors[i].name}» med alle vegger og møbler?`)) return;
+  if (P.floors.length < 2 || !await ask({ title: 'Slette etasjen?', text: `«${P.floors[i].name}» med alle vegger, møbler og alternativer slettes.`, ok: 'Slett', danger: true })) return;
   P.floors[P.cur] = snapFloor(); P.next = S.next;
   P.floors.splice(i, 1); P.cur = Math.min(i, P.floors.length - 1);
   await enterFloor(P.floors[P.cur]); touch();
@@ -1441,7 +1481,7 @@ function moveFloor(i, d) {
 // ---------- projects dialog ----------
 async function showProjects() {
   await autosave();
-  const list = (await dbList().catch(() => [])) || [];
+  const list = (await withTimeout(dbList(), 4000).catch(() => [])) || [];
   list.sort((a, b) => b.updated - a.updated);
   const box = $('#projList'); box.innerHTML = '';
   if (!list.length) box.innerHTML = '<p class="hint">Ingen lagrede prosjekter i nettleseren.</p>';
@@ -1451,11 +1491,11 @@ async function showProjects() {
     if (m.id !== P.id) {
       const o = document.createElement('button'); o.textContent = 'Åpne'; o.onclick = async () => {
         const rec = await dbLoad(m.id); if (!rec) return; fileHandle = null; lastFileSave = null;
-        await openProject(JSON.parse(rec.data)); P.saved = true; try { localStorage.setItem('planlosning-last', P.id); } catch {}
+        await openProject(JSON.parse(rec.data)); P.saved = true; lsSet('planlosning-last', P.id);
         $('#projects').style.display = 'none';
       };
       const x = document.createElement('button'); x.className = 'danger'; x.textContent = 'Slett'; x.onclick = async () => {
-        if (confirm(`Slette prosjektet «${m.name}» for godt? Har du ikke en fil-kopi, kan det ikke angres.`)) { await dbDelete(m.id); showProjects(); }
+        if (await ask({ title: 'Slette prosjektet?', text: `«${m.name}» slettes for godt. Har du ikke en fil-kopi, kan det ikke angres.`, ok: 'Slett', danger: true })) { await dbDelete(m.id); showProjects(); }
       };
       d.append(o, x);
     }
@@ -1466,7 +1506,7 @@ async function showProjects() {
 $('#projBtn').onclick = showProjects;
 $('#projClose').onclick = () => $('#projects').style.display = 'none';
 $('#projNew').onclick = async () => {
-  const nm = prompt('Navn på det nye prosjektet:', 'Nytt hus'); if (!nm) return;
+  const nm = await ask({ title: 'Nytt prosjekt', text: 'Hva heter prosjektet (huset)?', input: 'Nytt hus', ok: 'Opprett' }); if (!nm) return;
   await newProject(nm); $('#projects').style.display = 'none';
 };
 
@@ -1477,7 +1517,7 @@ function renderTabs() {
     const d = document.createElement('div'); d.className = 'tab' + (i === V.cur ? ' on' : '');
     d.innerHTML = `<span>${esc(n)}</span>` + (V.names.length > 1 ? '<span class="x" title="Slett alternativ">×</span>' : '');
     d.onclick = e => { if (e.target.classList.contains('x')) delVariant(i); else if (i !== V.cur) switchVariant(i); };
-    d.ondblclick = e => { if (e.target.classList.contains('x')) return; const nn = prompt('Navn på alternativet:', n); if (nn) { V.names[i] = nn; renderTabs(); touch(); } };
+    d.ondblclick = async e => { if (e.target.classList.contains('x')) return; const nn = await ask({ title: 'Navn på alternativet', input: n }); if (nn) { V.names[i] = nn; renderTabs(); touch(); } };
     t.appendChild(d);
   });
   const add = document.createElement('button'); add.className = 'sm'; add.textContent = '+ Kopi av dette'; add.title = 'Lag en kopi å eksperimentere med'; add.onclick = dupVariant;
@@ -1504,8 +1544,8 @@ function dupVariant() {
   V.names.push('Alternativ ' + (V.names.length < 26 ? letter : V.names.length + 1)); V.data.push(clone(V.data[V.cur]));
   switchVariant(V.names.length - 1); toast('Kopi laget – endringer her påvirker ikke de andre alternativene');
 }
-function delVariant(i) {
-  if (!confirm(`Slette «${V.names[i]}»?`)) return;
+async function delVariant(i) {
+  if (!await ask({ title: 'Slette alternativet?', text: `«${V.names[i]}» slettes.`, ok: 'Slett', danger: true })) return;
   V.data[V.cur] = { walls: S.walls, items: S.items };
   V.names.splice(i, 1); V.data.splice(i, 1);
   const nc = Math.min(i <= V.cur ? Math.max(0, V.cur - (i < V.cur ? 1 : 0)) : V.cur, V.names.length - 1);
@@ -1676,9 +1716,27 @@ async function saveFile(saveAs) {
       lastFileSave = new Date(); dirtyFile = false; updateFileState(); toast('Lagret til ' + fileHandle.name); return;
     } catch (e) { if (e && e.name === 'AbortError') return; fileHandle = null; }
   }
-  download(safeName() + '.planlosning.json', new Blob([json], { type: 'application/json' }));
+  try { download(safeName() + '.planlosning.json', new Blob([json], { type: 'application/json' })); } catch {}
   lastFileSave = new Date(); dirtyFile = false; updateFileState(); toast('Filen er lastet ned – legg den et trygt sted');
+  if (window.top !== window.self) showTextIO(json);      // previews often block downloads, so also offer the text
 }
+function showTextIO(json) {
+  $('#tioText').value = json == null ? '' : json; $('#textio').style.display = 'flex';
+  if (json != null) { $('#tioText').focus(); $('#tioText').select(); }
+}
+$('#asText').onclick = () => showTextIO(projectJSON());
+$('#tioClose').onclick = () => $('#textio').style.display = 'none';
+$('#tioCopy').onclick = async () => {
+  const t = $('#tioText'); t.focus(); t.select();
+  try { await navigator.clipboard.writeText(t.value); toast('Kopiert til utklippstavlen'); } catch { try { document.execCommand('copy'); toast('Kopiert'); } catch { toast('Trykk Ctrl+C for å kopiere'); } }
+};
+$('#tioDl').onclick = () => { try { download(safeName() + '.planlosning.json', new Blob([$('#tioText').value], { type: 'application/json' })); } catch { toast('Nedlasting er blokkert her – kopier teksten i stedet'); } };
+$('#tioOpen').onclick = async () => {
+  try {
+    const d = normalize(JSON.parse($('#tioText').value)); await autosave(); delete d.id; fileHandle = null; lastFileSave = null;
+    await openProject(d); await autosave(); $('#textio').style.display = 'none'; toast(`«${P.name}» åpnet`);
+  } catch { toast('Teksten er ikke et gyldig prosjekt'); }
+};
 $('#saveFile').onclick = () => saveFile(false);
 $('#save').onclick = () => saveFile(true);
 $('#load').onchange = async e => {
@@ -1690,8 +1748,8 @@ $('#load').onchange = async e => {
   } catch { toast('Kunne ikke åpne filen'); }
 };
 $('#pname').addEventListener('input', () => { P.name = $('#pname').value; touch(); });
-$('#clear').onclick = () => {
-  if (!confirm('Fjerne alle vegger og møbler (i dette alternativet) og bildet?')) return;
+$('#clear').onclick = async () => {
+  if (!await ask({ title: 'Tømme etasjen?', text: 'Alle vegger og møbler i dette alternativet, og bildet, fjernes.', ok: 'Tøm', danger: true })) return;
   checkpoint(); S.walls = []; S.items = []; bg = { img: null, url: null, w: 0, h: 0 }; sel = new Set(); touch(); renderProps();
 };
 ['thr', 'minlen', 'minthick', 'gap'].forEach(id => {
@@ -1720,6 +1778,7 @@ window.addEventListener('paste', e => {
 window.addEventListener('copy', e => { if (!typingNow() && copySel()) { e.preventDefault(); toast('Kopiert'); } });
 
 window.addEventListener('keydown', e => {
+  if ($('#dlg').style.display === 'flex') { if (e.key === 'Escape') $('#dlgNo').click(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveFile(false); return; }
   const typing = typingNow();
   if (e.code === 'Space' && !typing) { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); return; }
@@ -1758,15 +1817,15 @@ function toast(msg) {
 buildCatalog();
 (async function boot() {
   resize(); setTool('select');
-  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+  try { const pr = navigator.storage && navigator.storage.persist && navigator.storage.persist(); pr && pr.catch && pr.catch(() => {}); } catch {}
   let opened = false;
   try {
-    const id = localStorage.getItem('planlosning-last'), rec = id && await dbLoad(id);
+    const id = lsGet('planlosning-last'), rec = id && await withTimeout(dbLoad(id), 4000);
     if (rec) { await openProject(JSON.parse(rec.data)); P.saved = true; opened = true; }
   } catch {}
   if (!opened) {
     try {                                           // migrate the old browser-only save
-      const old = JSON.parse(localStorage.getItem('planlosning2') || 'null');
+      const old = JSON.parse(lsGet('planlosning2') || 'null');
       if (old && old.v === 2) { await openProject(old); opened = true; toast('Forrige plan er flyttet inn i et prosjekt'); }
     } catch {}
   }
