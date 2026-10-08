@@ -330,7 +330,6 @@ textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: ve
 /* ---- polish 2: one easing for everything that enters, springier sheets, direction when you change tab, calmer press feedback ---- */
 .post { --ease-out: cubic-bezier(.22, 1, .36, 1); }
 .scroll { overflow-x: hidden; }
-.pills[aria-label="Mail categories"] { touch-action: pan-y; }
 @media (prefers-reduced-motion: no-preference) {
   .pg { animation-duration: .3s; animation-timing-function: var(--ease-out); }
   .scrim { animation: fade .24s ease; }
@@ -603,3 +602,11 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post[data-look="calm"] .it.fr .cnt { color: var(--mu); font-weight: 400; }
 .post[data-look="calm"] .tg.dr { border-color: transparent; background: var(--tint); color: var(--ti); }
 .post.wide[data-look="calm"] .sb-h.sub { text-transform: none; }
+
+/* One sender's row in Transactions, Updates and Promotions: a tap opens it up to show their conversations, a little indented under it. */
+.row.digest .dchev { margin-left: auto; flex: none; color: var(--mu); display: inline-flex; transition: transform .2s ease; }
+.row.digest .dchev.on { transform: rotate(90deg); }
+.dkids { background: color-mix(in srgb, var(--bg) 55%, var(--card)); box-shadow: inset 3px 0 0 var(--ln); }
+.dkids > .sw-row:first-child { border-top: var(--hair) solid var(--ln); }
+@media (prefers-reduced-motion: no-preference) { .dkids { animation: dkin .22s var(--ease-out); } @keyframes dkin { from { opacity: 0; transform: translateY(-6px); } } }
+@media (prefers-reduced-motion: reduce) { .row.digest .dchev { transition: none; } }

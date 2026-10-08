@@ -8,8 +8,9 @@ import { BLANK_PICTURE, frameDocument, hasRemoteImages, inlineCids, textToHtml }
 import { parseUnsubscribe, type Unsub } from '../core/unsubscribe.ts';
 import { isFreemail, orgDomain, ruleFor } from '../core/classify.ts';
 import { isMine, looksLikeReply, replyTarget, threadKey, threadOf } from '../core/threads.ts';
+import { SWEEP_OLDER_DAYS, sweepCompany, sweepPlan, type SweepScope, type SweepWay } from '../core/sweep.ts';
 import { KIND_ONE, KIND_TAB, KINDS, mailKey, type FolderKind, type Mail, type MailBody } from '../core/types.ts';
-import { Avatar, Icon, KIND_ICON, Sheet, Switch } from './ui.tsx';
+import { Avatar, Icon, KIND_ICON, Seg, Sheet, Switch } from './ui.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
 import { RemindSheet } from './Remind.tsx';
 import { back, folderContext, folderTitle, go, labelOf, openMail, routeOfFolder, useBadge, useC, useDark, useNow, useRoomyPane } from './ctx.tsx';
@@ -62,7 +63,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const badge = useBadge(s)(email);
   const [found, setFound] = useState<Found | null>(null);
   const [flip, setFlip] = useState<{ key: string; keys: ReadonlySet<string> }>({ key: '', keys: NONE });
-  const [sheet, setSheet] = useState<null | 'more' | 'why' | 'remind' | 'move' | 'block'>(null);
+  const [sheet, setSheet] = useState<null | 'more' | 'why' | 'remind' | 'move' | 'block' | 'sweep'>(null);
   const [anchorBody, setAnchorBody] = useState<{ key: string; body: MailBody } | null>(null);
   const [retry, setRetry] = useState(0);
   const forceNext = useRef(false);
@@ -234,6 +235,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
       {sheet === 'remind' && <RemindSheet m={m} preview={anchorBody?.key === key && anchorBody.body.contentType === 'text' ? anchorBody.body.content : m.preview} onClose={() => setSheet(null)} />}
       {sheet === 'why' && here && <SortSheet s={s} m={here} onClose={() => setSheet(null)} />}
       {sheet === 'block' && here && <BlockSheet s={s} m={here} onClose={() => setSheet(null)} onBlocked={() => open(next, true)} />}
+      {sheet === 'sweep' && here && <SweepSheet s={s} m={here} onClose={() => setSheet(null)} onSwept={(gone) => { if (gone) open(next, true); }} />}
       {sheet === 'more' && (
         <Sheet title={labelOf(s, email)} onClose={() => setSheet(null)}>
           <div className="card">
@@ -245,6 +247,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             {movable && <button className="it" onClick={() => setSheet('move')}><span className="ico"><Icon n="folder" /></span>Move to a folder<span className="v">…</span></button>}
             {here && <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {KIND_TAB[here.kind]}<span className="v">Change</span></button>}
             {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('block')}><span className="ico"><Icon n="ban" /></span>Block sender<span className="v">…</span></button>}
+            {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('sweep')}><span className="ico"><Icon n="sparkle" /></span>Sweep this sender<span className="v">…</span></button>}
             {canDelete && <button className="it danger" onClick={() => { setSheet(null); deleteIt(); }}><span className="ico"><Icon n="trash" /></span>Delete{many && !far ? ' conversation' : ''}</button>}
           </div>
         </Sheet>
@@ -404,6 +407,42 @@ function BlockSheet({ s, m, onClose, onBlocked }: { s: State; m: Mail; onClose: 
       <div className="card">
         <button className="it" disabled={already(addr)} onClick={() => doBlock('sender')}><span className="ico"><Icon n="ban" /></span><span className="rw">Block {addr}<small>{already(addr) ? 'Already blocked' : 'Only this address'}</small></span></button>
         {canCompany && <button className="it" disabled={already(`@${domain}`)} onClick={() => doBlock('company')}><span className="ico"><Icon n="ban" /></span><span className="rw">Block everything from {domain}<small>{already(`@${domain}`) ? 'Already blocked' : 'Every address and sub-domain of the company'}</small></span></button>}
+        <button className="it" onClick={onClose}>Cancel</button>
+      </div>
+    </Sheet>
+  );
+}
+
+/** Clear what a sender (or a company) has piled up in the inbox, with one Undo: archive it all, delete it all, keep only the newest, or only the old ones. */
+function SweepSheet({ s, m, onClose, onSwept }: { s: State; m: Mail; onClose: () => void; onSwept: (openedGone: boolean) => void }) {
+  const c = useC();
+  const now = useNow();
+  const company = sweepCompany(m.fromAddress);
+  const addr = m.fromAddress.trim().toLowerCase();
+  const [scope, setScope] = useState<SweepScope>('sender');
+  const plan = (way: SweepWay) => sweepPlan(s.mail, addr, scope, way, now, s.settings.threads);
+  const WAYS: [SweepWay, string, string, string][] = [
+    ['archive', 'archive', 'Archive everything', 'All of it goes to Archive'],
+    ['keepNewest', 'inbox', 'Keep the newest, archive the rest', 'The latest one stays in the inbox'],
+    ['older', 'archive', `Archive what is older than ${SWEEP_OLDER_DAYS} days`, 'Newer mail stays'],
+    ['delete', 'trash', 'Delete everything', 'All of it goes to Deleted'],
+  ];
+  const run = (way: SweepWay) => {
+    const p = plan(way);
+    if (!p.items.length) return;
+    const gone = p.items.some((x) => x.key === m.key);
+    if (way === 'delete') void c.trash(p.items, p.rows); else void c.archive(p.items, p.rows);
+    onClose();
+    onSwept(gone);
+  };
+  return (
+    <Sheet title="Sweep this sender" onClose={onClose}>
+      <p className="note">Clears what is in your inbox from them, in one move with Undo. Mail you flagged stays, and nothing is deleted for good.</p>
+      {company && <Seg label="Who to sweep" value={scope} options={[['sender', addr], ['company', `All of ${company}`]]} onChange={setScope} />}
+      <div className="card">
+        {WAYS.map(([way, icon, title, sub]) => { const n = plan(way); return (
+          <button key={way} className={`it${way === 'delete' ? ' danger' : ''}`} disabled={!n.items.length} onClick={() => run(way)}><span className="ico"><Icon n={icon} /></span><span className="rw">{title}<small>{n.items.length ? sub : 'Nothing to sweep'}</small></span><span className="v">{n.rows || ''}</span></button>
+        ); })}
         <button className="it" onClick={onClose}>Cancel</button>
       </div>
     </Sheet>

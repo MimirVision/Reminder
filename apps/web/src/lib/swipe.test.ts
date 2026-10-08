@@ -24,17 +24,15 @@ test('horizontal detection', () => {
   assert.equal(isHorizontal(20, 20), false);
 });
 
-test('swiping the tabs: one step, or all the way with a long flick; a scroll or a small drag changes nothing', () => {
-  assert.equal(tabSwipe(-80, 4, 500, 0, 5), 1, 'left goes on');
-  assert.equal(tabSwipe(80, 4, 500, 2, 5), 1, 'right goes back');
-  assert.equal(tabSwipe(-80, 4, 500, 4, 5), null, 'already on the last one');
-  assert.equal(tabSwipe(80, 4, 500, 0, 5), null, 'already on the first one');
-  assert.equal(tabSwipe(-220, 10, 200, 0, 5), 4, 'a long flick to the left lands on the last tab (All)');
-  assert.equal(tabSwipe(220, 10, 200, 3, 5), 0, 'and to the right on the first');
-  assert.equal(tabSwipe(-220, 10, 800, 0, 5), 1, 'long but slow is still one step');
-  assert.equal(tabSwipe(-40, 0, 500, 0, 5), null, 'short and slow');
-  assert.equal(tabSwipe(-40, 0, 150, 0, 5), 1, 'short but a flick');
-  assert.equal(tabSwipe(-20, 0, 100, 0, 5), null, 'too small even for a flick');
-  assert.equal(tabSwipe(-100, 90, 300, 0, 5), null, 'mostly vertical is a scroll');
-  assert.equal(tabSwipe(-100, 0, 300, 0, 1), null, 'one tab has nowhere to go');
+test('the tabs: only a hard, quick flick to the left jumps to the last one (All); everything else is the row scrolling', () => {
+  assert.equal(tabSwipe(-260, 10, 150, 0, 5), 4, 'a hard flick to the left lands on the last tab');
+  assert.equal(tabSwipe(-260, 10, 150, 3, 5), 4, 'from any tab');
+  assert.equal(tabSwipe(-260, 10, 150, 4, 5), null, 'already on the last one');
+  assert.equal(tabSwipe(260, 10, 150, 2, 5), null, 'to the right is only scrolling back');
+  assert.equal(tabSwipe(-260, 10, 450, 0, 5), null, 'long but slow is scrolling');
+  assert.equal(tabSwipe(-120, 0, 60, 0, 5), null, 'quick but short is scrolling');
+  assert.equal(tabSwipe(-80, 0, 300, 0, 5), null, 'a drag to see the other tabs');
+  assert.equal(tabSwipe(-260, 140, 150, 0, 5), null, 'mostly vertical is a scroll');
+  assert.equal(tabSwipe(-260, 0, 150, 0, 1), null, 'one tab has nowhere to go');
+  assert.equal(tabSwipe(-260, 0, 0, 0, 5), null, 'no time at all is not a flick');
 });

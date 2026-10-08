@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { cleanUpThreads, mailCounts, triageThreads, visibleThreads, type Counts, type State } from '../core/controller.ts';
 import { dayGroup, displayName, shortTime } from '../core/format.ts';
 import { isHorizontal, swipeOffset, swipeResult, tabSwipe, SWIPE_COMMIT } from '../../lib/swipe.ts';
+import { digestThreads } from '../core/digest.ts';
 import { threadWho, type Thread } from '../core/threads.ts';
 import { KIND_TAB, mailKey, type Kind, type Mail } from '../core/types.ts';
 import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
@@ -43,7 +44,7 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
 }
 
 /** One row. With `thread` it is a conversation: it shows the newest message, who is in it, how many messages it holds, and anything unread, flagged or attached in it. */
-export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, active, tag = true, place }: { m: Mail; thread?: Thread; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean; tag?: boolean; place?: string }) {
+export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, active, tag = true, place, expanded }: { m: Mail; thread?: Thread; s: State; selecting: boolean; selected: boolean; onOpen: () => void; onToggle: () => void; active?: boolean; tag?: boolean; place?: string; expanded?: boolean }) {
   const badge = useBadge(s)(m.account);
   const count = thread?.items.length ?? 1;
   const unread = thread ? thread.unread > 0 : !m.isRead;
@@ -52,8 +53,11 @@ export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, activ
   const who = thread ? threadWho(thread) : wrote ? (m.to ? `To: ${m.to}` : m.draft ? 'No recipient yet' : 'To: nobody') : displayName(m.fromName, m.fromAddress);
   const flagged = thread ? thread.items.some((x) => x.flagged) : m.flagged;
   const files = thread ? thread.items.some((x) => x.hasAttachments) : m.hasAttachments;
+  // One sender's several conversations in one row (see core/digest.ts): the third line lists the other subjects, and a tap opens or folds the row.
+  const members = thread?.members;
+  const others = members ? members.slice(1, 4).map((x) => x.latest.subject || '(no subject)').join(' · ') + (members.length > 4 ? ` · +${members.length - 4}` : '') : '';
   return (
-    <button type="button" className={`row ${s.settings.rowSize}${active ? ' active' : ''}`} aria-current={active ? 'true' : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${who}, ${m.subject}${count > 1 ? `, ${count} messages` : ''}${unread ? ', unread' : ''}`}>
+    <button type="button" className={`row ${s.settings.rowSize}${active ? ' active' : ''}${members ? ' digest' : ''}`} aria-current={active ? 'true' : undefined} aria-expanded={members && !selecting ? !!expanded : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${who}, ${m.subject}${members ? `, ${members.length} conversations, ${count} messages` : count > 1 ? `, ${count} messages` : ''}${unread ? ', unread' : ''}`}>
       {unread && !selecting && <span className="dot" />}
       {selecting && <span className={`chk${selected ? ' on' : ''}`} aria-hidden="true">{selected && <Icon n="check" size={14} />}</span>}
       {/* A message to several people shows the first one's initials: "Anna, Per +1" would otherwise make "A+". */}
@@ -61,7 +65,7 @@ export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, activ
       <span className="rb">
         <span className="r1"><span className={`who${unread ? ' u' : ''}${wrote && !m.to ? ' nobody' : ''}`}>{who}</span>{count > 1 && <span className={`cc${unread ? ' u' : ''}`} aria-hidden="true">{count}</span>}{m.draft && <span className="tg dr">Draft</span>}{place && <span className="tg">{place}</span>}{tag && !wrote && TAG[m.kind] && <span className="tg">{TAG[m.kind]}</span>}<span className={`tm${unread ? ' n' : ''}`}>{shortTime(m.received)}</span></span>
         <span className={`sj${unread ? ' u' : ''}`}>{m.subject || '(no subject)'}</span>
-        <span className="r1"><span className="pv">{m.preview}</span>{files && <span className="pa"><Icon n="paperclip" size={15} /></span>}{flagged && <span className="pa" style={{ color: 'var(--at)' }}><Icon n="flag" size={15} /></span>}</span>
+        <span className="r1"><span className="pv">{members ? `Also: ${others}` : m.preview}</span>{members && !selecting && <span className={`dchev${expanded ? ' on' : ''}`} aria-hidden="true"><Icon n="chev" size={16} /></span>}{files && <span className="pa"><Icon n="paperclip" size={15} /></span>}{flagged && <span className="pa" style={{ color: 'var(--at)' }}><Icon n="flag" size={15} /></span>}</span>
       </span>
     </button>
   );
@@ -102,10 +106,13 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const [pull, setPull] = useState(0);
   const [cleaning, setCleaning] = useState(false);
   const [moving, setMoving] = useState(false);
+  // The rows of senders that are opened up to show their conversations.
+  const [opened, setOpened] = useState<Set<string>>(new Set());
+  const fold = (k: string) => setOpened((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const pullStart = useRef<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
 
-  const list = useMemo(() => visibleThreads(s, now), [s.mail, s.view, s.unreadOnly, s.accountFilter, s.settings.threads, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => (s.settings.digest ? digestThreads(visibleThreads(s, now), s.view) : visibleThreads(s, now)), [s.mail, s.view, s.unreadOnly, s.accountFilter, s.settings.threads, s.settings.digest, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const counts = useMemo(() => mailCounts(s, now), [s.mail, s.accountFilter, s.settings.threads, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const viewUnread = s.view === 'all' ? counts.unread : counts.byKind[s.view].unread;
   const shown = list.slice(0, limit);
@@ -129,6 +136,8 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const chosen = list.filter((t) => picked.has(t.key));
   const chosenMail = chosen.flatMap((t) => t.items);
+  // How many rows of the list a choice is, for the toast: a sender's row stands for each of its conversations.
+  const rowsOf = (ts: Thread[]) => ts.reduce((n, t) => n + (t.members?.length ?? 1), 0);
   const exit = () => { setSelecting(false); setPicked(new Set()); };
   // A row leaving the list shrinks away first, then the action runs, so the list closes up smoothly instead of jumping.
   const leave = (rows: Thread[], then: () => void) => {
@@ -137,7 +146,8 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   };
   // Every action reaches the whole conversation (all its messages in the inbox), and the toast and the Undo count it once.
   const act = (t: Thread, a: 'archive' | 'read' | 'flag' | 'delete') => {
-    if (a === 'archive') leave([t], () => void c.archive(t.items, 1)); else if (a === 'delete') leave([t], () => void c.trash(t.items, 1)); else if (a === 'read') void c.toggleRead(t.items); else void c.toggleFlag(t.items);
+    const n = t.members?.length ?? 1;
+    if (a === 'archive') leave([t], () => void c.archive(t.items, n)); else if (a === 'delete') leave([t], () => void c.trash(t.items, n)); else if (a === 'read') void c.toggleRead(t.items); else void c.toggleFlag(t.items);
   };
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const t = e.currentTarget.scrollTop; setScrolled((x) => (x ? t > 8 : t > 48)); };
   const touchStart = (e: React.TouchEvent<HTMLDivElement>) => { pullStart.current = e.currentTarget.scrollTop <= 0 ? e.touches[0].clientY : null; };
@@ -178,9 +188,20 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
             <div className="sec">{g.name}</div>
             <div className="card">
               {g.items.map((t) => (
-                <SwipeRow key={t.key} leaving={leaving.has(t.key)} disabled={selecting} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
-                  <Row m={t.latest} thread={t} s={s} tag={s.view === 'all'} active={!!activeKey && t.items.some((x) => x.key === activeKey)} selecting={selecting} selected={picked.has(t.key)} onToggle={() => toggle(t.key)} onOpen={() => go({ name: 'message', account: t.latest.account, id: t.latest.id })} />
-                </SwipeRow>
+                <Fragment key={t.key}>
+                  <SwipeRow leaving={leaving.has(t.key)} disabled={selecting} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
+                    <Row m={t.latest} thread={t} s={s} tag={s.view === 'all'} active={!!activeKey && t.items.some((x) => x.key === activeKey)} selecting={selecting} selected={picked.has(t.key)} expanded={opened.has(t.key)} onToggle={() => toggle(t.key)} onOpen={() => (t.members ? fold(t.key) : go({ name: 'message', account: t.latest.account, id: t.latest.id }))} />
+                  </SwipeRow>
+                  {t.members && opened.has(t.key) && !selecting && (
+                    <div className="dkids">
+                      {t.members.map((x) => (
+                        <SwipeRow key={x.key} leaving={leaving.has(x.key)} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(x, s.settings.swipeRight)} onLeft={() => act(x, s.settings.swipeLeft)}>
+                          <Row m={x.latest} thread={x} s={s} tag={false} active={!!activeKey && x.items.some((y) => y.key === activeKey)} selecting={false} selected={false} onToggle={() => {}} onOpen={() => go({ name: 'message', account: x.latest.account, id: x.latest.id })} />
+                        </SwipeRow>
+                      ))}
+                    </div>
+                  )}
+                </Fragment>
               ))}
             </div>
           </section>
@@ -192,10 +213,10 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
       {selecting ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
           <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(list.map(keyOf)))}><Icon n="select" /></button>
-          <button className="go" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.archive(items, rows.length)); }}><Icon n="archive" />Archive {chosen.length || ''}</button>
+          <button className="go" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.archive(items, rowsOf(rows))); }}><Icon n="archive" />Archive {chosen.length || ''}</button>
           <button className="ib" aria-label="Mark read" disabled={!chosen.length} onClick={() => { const items = chosenMail; exit(); void c.markRead(items); }}><Icon n="eye" /></button>
           <button className="ib" aria-label="Move to a folder" disabled={!chosen.length} onClick={() => setMoving(true)}><Icon n="folder" /></button>
-          <button className="ib" aria-label="Delete" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.trash(items, rows.length)); }}><Icon n="trash" /></button>
+          <button className="ib" aria-label="Delete" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.trash(items, rowsOf(rows))); }}><Icon n="trash" /></button>
         </div>
       ) : (
         <>
@@ -204,7 +225,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
         </>
       )}
       {cleaning && <CleanUpSheet s={s} onClose={() => setCleaning(false)} />}
-      {moving && chosen.length > 0 && <MoveSheet s={s} items={chosenMail} rows={chosen.length} inbox onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
+      {moving && chosen.length > 0 && <MoveSheet s={s} items={chosenMail} rows={rowsOf(chosen)} inbox onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
     </div>
   );
 }
@@ -217,24 +238,19 @@ export function CategoryTabs({ s, counts }: { s: State; counts: Counts }) {
   const ref = useRef<HTMLDivElement>(null);
   const tabs: [State['view'], string, number][] = [['person', KIND_TAB.person, counts.byKind.person.unread], ['transaction', KIND_TAB.transaction, counts.byKind.transaction.unread], ['update', KIND_TAB.update, counts.byKind.update.unread], ['promo', KIND_TAB.promo, counts.byKind.promo.unread], ['all', 'All', 0]];
   useEffect(() => { (ref.current?.querySelector('[aria-selected="true"]') as HTMLElement | null)?.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }, [s.view]);
-  // Swipe the row of tabs: one tab at a time, or a long flick to the left all the way to All (like the categories in iOS Mail).
-  const st = useRef<{ x: number; y: number; t: number; id: number; live: boolean } | null>(null);
-  const swiped = useRef(false);
+  // The row scrolls under the finger as usual. Only a hard, quick flick to the left jumps to All (like swiping all the way in iOS Mail).
+  const st = useRef<{ x: number; y: number; t: number } | null>(null);
   const at = tabs.findIndex(([v]) => v === s.view);
-  const down = (e: React.PointerEvent) => { swiped.current = false; if (e.pointerType === 'mouse') return; st.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, live: false }; };
-  const move = (e: React.PointerEvent) => {
-    const g = st.current; if (!g || g.live) return;
-    if (isHorizontal(e.clientX - g.x, e.clientY - g.y)) { g.live = true; (e.currentTarget as HTMLElement).setPointerCapture(g.id); }
-  };
-  const end = (e: React.PointerEvent) => {
+  const down = (e: React.TouchEvent) => { const p = e.touches[0]; st.current = p ? { x: p.clientX, y: p.clientY, t: e.timeStamp } : null; };
+  const end = (e: React.TouchEvent) => {
     const g = st.current; st.current = null;
-    if (!g?.live) return;
-    swiped.current = true;
-    const to = tabSwipe(e.clientX - g.x, e.clientY - g.y, e.timeStamp - g.t, at, tabs.length);
+    const p = e.changedTouches[0];
+    if (!g || !p) return;
+    const to = tabSwipe(p.clientX - g.x, p.clientY - g.y, e.timeStamp - g.t, at, tabs.length);
     if (to !== null) c.setView(tabs[to][0]);
   };
   return (
-    <div className="pills" role="tablist" aria-label="Mail categories" ref={ref} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onClickCapture={(e) => { if (swiped.current) { swiped.current = false; e.stopPropagation(); e.preventDefault(); } }}>
+    <div className="pills" role="tablist" aria-label="Mail categories" ref={ref} onTouchStart={down} onTouchEnd={end} onTouchCancel={() => { st.current = null; }}>
       {tabs.map(([v, text, n]) => (
         <button key={v} role="tab" aria-selected={s.view === v} className={`pill${s.view === v ? ' on' : ''}`} onClick={() => c.setView(v)}>
           {text}{n > 0 && <span className="n" aria-label={`${n} unread`}>{n > 99 ? '99+' : n}</span>}
