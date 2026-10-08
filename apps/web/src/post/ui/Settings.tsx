@@ -151,7 +151,7 @@ export function Appearance({ s }: { s: State }) {
 /** What the Settings row for sorting says: how many rules you made and how many senders are blocked. */
 function sortingLine(s: State): string {
   const rules = Object.keys(s.overrides).filter((k) => !s.blocked.includes(k)).length;
-  const parts = [rules ? `${rules} rule${rules > 1 ? 's' : ''}` : '', s.blocked.length ? `${s.blocked.length} blocked` : ''].filter(Boolean);
+  const parts = [rules ? `${rules} rule${rules > 1 ? 's' : ''}` : '', s.blocked.length ? `${s.blocked.length} blocked` : '', s.muted.length ? `${s.muted.length} muted` : ''].filter(Boolean);
   return parts.join(', ') || 'Automatic';
 }
 
@@ -209,6 +209,19 @@ export function Sorting({ s }: { s: State }) {
           </div>
         ) : <p className="note" style={{ marginTop: 0 }}>Nobody is blocked. Open a message, tap More, then Block sender: their mail goes to Junk from then on.</p>}
         <p className="note">Blocked mail is moved to Junk, never deleted, whenever Post is open. While Post is closed it waits in your Outlook inbox until the next time you open Post. Mail you bring back from Junk stays where you put it.</p>
+        <div className="lbl">Muted conversations</div>
+        {s.muted.length ? (
+          <div className="card">
+            {s.muted.map((x) => (
+              <div key={x.key} className="it rule">
+                <span className="ico"><Icon n="bellOff" /></span>
+                <span className="rw">{x.subject}<small>New replies are archived</small></span>
+                <button className="btn plain" style={{ width: 'auto', height: 44, padding: '0 12px' }} aria-label={`Unmute ${x.subject}`} onClick={() => void c.unmute(x.key)}>Unmute</button>
+              </div>
+            ))}
+          </div>
+        ) : <p className="note" style={{ marginTop: 0 }}>No muted conversations. Open a message, tap More, then Mute conversation: it and its later replies go to Archive.</p>}
+        <p className="note">Mute works while Post is open. A reply that arrives while Post is closed may still give an alert and a number on the icon once; the next time you open Post it is archived. Muted mail is in Archive, never deleted. Mail you flag or bring back to the inbox stays.</p>
         <div className="lbl">Clean up old promotions</div>
         <div className="card">
           <Pick label="Archive by itself" value={String(s.settings.autoClean)} options={[['0', 'Off'], ['3', 'After 3 days'], ['7', 'After 7 days'], ['14', 'After 14 days'], ['30', 'After 30 days']]} onChange={(v) => c.setSettings({ autoClean: Number(v) })} />
