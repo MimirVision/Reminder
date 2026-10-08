@@ -132,8 +132,9 @@ export default function Add() {
     try {
       if (editId) {
         const placeId = await resolveWhere(household.id, where, places, findExistingPlace);
+        const det: Details = { ...details, place_trigger: placeId ? details.place_trigger : 'arrive' };
         if (due.due_on) void ensureNotifyPermission();
-        const extra = { ...(members.length > 1 && forId !== (memory?.assignee_id ?? null) ? { assignee_id: forId } : {}), ...(pinned !== !!memory?.pinned ? { pinned } : {}), ...changedFields(details, detailsOf(memory), !!due.due_on) };
+        const extra = { ...(members.length > 1 && forId !== (memory?.assignee_id ?? null) ? { assignee_id: forId } : {}), ...(pinned !== !!memory?.pinned ? { pinned } : {}), ...changedFields(det, detailsOf(memory), !!due.due_on) };
         await updateMemoryFields(editId, { body: body.trim(), place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule, ...extra });
         toast({ text: t('toast.saved') });
         router.back();
@@ -163,7 +164,7 @@ export default function Add() {
             due_on: dated ? task.due_on : due.due_on, due_time: dated ? task.due_time : due.due_time, repeat_rule: dated ? task.repeat_rule : due.repeat_rule,
             ...(assignee ? { assignee_id: assignee } : {}), ...(pinned ? { pinned } : {}),
             // Notes and a checklist belong to one to-do; priority and the reminder go to each.
-            ...newFields({ ...(kept.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, remind_before: task.remind_before ?? details.remind_before, duration_min: task.duration_min ?? details.duration_min, tags: [...new Set([...details.tags, ...task.tags])] }, dated || !!due.due_on),
+            ...newFields({ ...(kept.length === 1 ? details : { ...details, notes: '', checklist: [] }), priority: task.priority || details.priority, remind_before: task.remind_before ?? details.remind_before, duration_min: task.duration_min ?? details.duration_min, tags: [...new Set([...details.tags, ...task.tags])], place_trigger: !placeId ? 'arrive' : task.leaving ? 'leave' : task.placeId || task.category ? 'arrive' : details.place_trigger }, dated || !!due.due_on),
             capture_lat: lat, capture_lon: lon, photoUris: i === 0 ? uris : [],
           });
         }
@@ -176,11 +177,12 @@ export default function Add() {
       if (due.due_on) void ensureNotifyPermission();
       // One to-do per line, so a pasted list becomes several.
       const bodies = lines.length > 0 ? lines : [''];
+      const det: Details = { ...details, place_trigger: placeId ? details.place_trigger : 'arrive' };
       for (const [i, b] of bodies.entries()) {
         await capture({
           id: uuid(), household_id: household.id, body: b, place_id: placeId, due_on: due.due_on, due_time: due.due_time, repeat_rule: due.repeat_rule,
           ...(forId ? { assignee_id: forId } : {}), ...(pinned ? { pinned } : {}),
-          ...newFields(bodies.length === 1 ? details : { ...details, notes: '', checklist: [] }, !!due.due_on),
+          ...newFields(bodies.length === 1 ? det : { ...det, notes: '', checklist: [] }, !!due.due_on),
           capture_lat: lat, capture_lon: lon, photoUris: i === 0 ? uris : [],
         });
       }
@@ -235,7 +237,6 @@ export default function Add() {
               </Pressable>
             </View>
           ))}
-          {plan.some((x, i) => x.leaving && !dropped.includes(i)) && <Muted>{t('smart.leaveNote')}</Muted>}
           {aiNote ? <Muted>{aiNote}</Muted> : null}
           <Pressable accessibilityRole="button" onPress={() => setSmart(false)}><Text style={{ color: th.accentText, fontFamily: font.semi, fontSize: 14 }}>{t('smart.plain')}</Text></Pressable>
         </Card>
@@ -246,7 +247,7 @@ export default function Add() {
       <WherePicker places={places} value={where} onChange={setWhere} />
       <SectionLabel>{t('sheet.when')}</SectionLabel>
       <WhenPicker value={due} onChange={setDue} />
-      <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} />
+      <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} placeFixed={where.kind === 'hit' || (where.kind === 'place' && places.find((p) => p.id === where.placeId)?.kind === 'fixed')} />
       {!editId && (
         <View style={styles.row}>
           <Btn small label={t('photo.take')} onPress={() => pick(true)} />

@@ -5,11 +5,22 @@ import { Icon } from './icons';
 
 // The reminders for a to-do, in plain sight once it has a date: when to ring before it starts, "tell me when to leave" (drive time to the
 // place), and how long it takes. Replaces burying "remind me" under More.
-export function TodoAlerts({ value, onChange, hasDate, hasTime, hasPlace }: { value: Details; onChange: (d: Details) => void; hasDate: boolean; hasTime: boolean; hasPlace: boolean }) {
+export function TodoAlerts({ value, onChange, hasDate, hasTime, hasPlace, placeFixed }: { value: Details; onChange: (d: Details) => void; hasDate: boolean; hasTime: boolean; hasPlace: boolean; placeFixed: boolean }) {
   const { t } = useI18n();
   const canTravel = hasDate && hasTime && hasPlace;
   return (
     <div className="alerts">
+      {placeFixed && (
+        <div className="alert-travel">
+          <span className="alert-label"><Icon name="pin" size={15} /> {t('alerts.at')}</span>
+          <div className="chips" role="group" aria-label={t('alerts.at')}>
+            {(['arrive', 'leave'] as const).map((k) => (
+              <button key={k} type="button" className={`chipbtn${value.place_trigger === k ? ' on' : ''}`} aria-pressed={value.place_trigger === k} onClick={() => onChange({ ...value, place_trigger: k })}>{t(`alerts.${k}` as 'alerts.arrive')}</button>
+            ))}
+          </div>
+          {value.place_trigger === 'leave' && <span className="muted hint">{t('alerts.leaveHint')}</span>}
+        </div>
+      )}
       {hasDate && (
         <label className="alert-row">
           <span><Icon name="clock" size={15} /> {t('remind.label')}</span>

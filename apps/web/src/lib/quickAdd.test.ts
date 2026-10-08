@@ -185,3 +185,13 @@ test('remind-me-before and how long it takes are read', async () => {
   const c = parseTasks('pay the bill 2 days before', { places: [], now });
   assert.equal(c[0].remind_before, 2880);
 });
+
+test('"when I leave home" is a real leave trigger at that place', async () => {
+  const { parseTasks } = await import('./quickAdd.ts');
+  const places = [{ id: 'home', name: 'Home', kind: 'fixed' as const, category: null }];
+  const a = parseTasks('remember to buy diapers when I leave home', { places, now: new Date(2026, 9, 8, 9, 0) });
+  assert.equal(a.length, 1);
+  assert.equal(a[0].placeId, 'home');
+  assert.equal(a[0].leaving, true);
+  assert.equal(a[0].title, 'Buy diapers');
+});

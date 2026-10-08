@@ -74,7 +74,7 @@ const PART_BARE: [RegExp, string][] = [[W('morning|morgenen'), '09:00'], [W('aft
 // Words that stand for a kind of place; a saved place whose name has one of them matches when you say the word.
 const ALIAS: string[][] = [
   ['work', 'office', 'jobb', 'jobben', 'kontoret', 'kontor', 'workplace'],
-  ['home', 'house', 'hjem', 'hjemme', 'huset', 'bolig'],
+  ['home', 'house', 'hjem', 'hjemme', 'hjemmefra', 'huset', 'bolig'],
 ];
 const CAT_WORDS: Record<string, string> = {
   pharmacy: 'pharmacy|chemist|apotek|apoteket', hardware: 'hardware store|hardware|byggevarehus|byggevare|jernvare|jernvarehandel',
@@ -82,10 +82,10 @@ const CAT_WORDS: Record<string, string> = {
   garden: 'garden centre|garden center|hagesenter|plantesenter',
 };
 const PREP = '(?:(?:at|in|from|to|on|the|a|any|på|hos|ved|fra|til|i|det|den|en|et|noen)\\s+)*';
-const ARRIVE_TRIG = '(?:when|once|as soon as|after|n\u00e5r|etter at)\\s+(?:(?:i|we|jeg|vi)\\s+)?(?:leave|leaving|left|forlater|drar fra|g\u00e5r fra|kommer fra|get to|arrive at|arrive in|arrive|reach|get|kommer til|kommer|er p\u00e5|er hos|er)\\s+';
-const LEAVE_TRIG = '(?:etter (?:at )?jeg (?:er )?ferdig p\u00e5|p\u00e5 vei fra|on my way from|after i finish at|after i am done at|after i\u2019m done at|after i\'m done at)\\s+';
+const ARRIVE_TRIG = '(?:when|once|as soon as|after|before|as|n\u00e5r|etter at|f\u00f8r|idet)\\s+(?:(?:i|we|jeg|vi)\\s+)?(?:leave|leaving|left|forlater|drar fra|g\u00e5r fra|(?:drar|g\u00e5r|reiser)(?=\\s+hjemmefra)|kommer fra|get to|arrive at|arrive in|arrive|reach|get|kommer til|kommer|er p\u00e5|er hos|er)\\s+';
+const LEAVE_TRIG = '(?:etter (?:at )?jeg (?:er )?ferdig p\u00e5|p\u00e5 vei fra|p\u00e5 vei ut (?:fra|av)|on my way out of|on my way out from|on my way from|after i finish at|after i am done at|after i\u2019m done at|after i\'m done at)\\s+';
 const TRIGGER = `(?:(?:${ARRIVE_TRIG})|(?:${LEAVE_TRIG}))`;
-const LEAVE_WORDS = /(?:leave|leaving|left|forlater|drar fra|g\u00e5r fra|kommer fra|ferdig p\u00e5|p\u00e5 vei fra|on my way from|finish at|done at)/i;
+const LEAVE_WORDS = /(?:leave|leaving|left|forlater|drar fra|g\u00e5r fra|hjemmefra|out of|out from|ut fra|ut av|kommer fra|ferdig p\u00e5|p\u00e5 vei fra|on my way from|finish at|done at)/i;
 
 function matchAt(s: string, re: RegExp): { m: RegExpMatchArray; rest: string } | null {
   const m = s.match(re);
@@ -172,7 +172,7 @@ function findPlace(s: string, places: Pl[]): { place: Pl | null; category: strin
   return null;
 }
 
-const FILLER = /^(?:(?:please|also|and|so|then|later|remember to|remember|don't forget to|dont forget to|i need to|i have to|i must|i should|i want to|i got to|we need to|we have to|need to|have to|must|gotta|husk å|husk|ikke glem å|må jeg|skal jeg|vil jeg|burde jeg|trenger jeg å|jeg må|jeg skal|jeg trenger å|jeg burde|jeg vil|vi må|vi skal|må|skal|og|så|også|senere)\s+)+/i;
+const FILLER = /^(?:(?:please|also|and|so|then|later|remind me to|remind me|påminn meg om å|påminn meg om|husk meg på å|remember to|remember|don't forget to|dont forget to|i need to|i have to|i must|i should|i want to|i got to|we need to|we have to|need to|have to|must|gotta|husk å|husk|ikke glem å|må jeg|skal jeg|vil jeg|burde jeg|trenger jeg å|jeg må|jeg skal|jeg trenger å|jeg burde|jeg vil|vi må|vi skal|må|skal|og|så|også|senere)\s+)+/i;
 const PRONOUN = /^(?:(?:do|get|finish|complete|make|have|gjøre|få|fullføre|ha)\s+)?(?:that|it|this|det|den|dette)(?:\s+(?:done|ferdig))?$/i;
 
 function cleanTitle(raw: string): string {

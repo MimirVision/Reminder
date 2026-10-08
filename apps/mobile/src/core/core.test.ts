@@ -146,3 +146,21 @@ test('facts: grouping puts emergency first and surfacing matches shop categories
   assert.deepEqual(factsForCategory(facts, null), []);
   assert.deepEqual(factsForCategory(facts, 'pharmacy'), []);
 });
+
+test('"when I leave": rings on exit only, never on arrival, with its own cooldown', () => {
+  const memories = [mem('d', 'home', { place_trigger: 'leave', body: 'buy diapers' }), mem('k', 'home', { body: 'water the plants' })];
+  const base = { placeId: 'home', label: 'Home', places: [home], memories };
+  const t0 = Date.parse('2026-10-08T08:00:00Z');
+  let r = onRegionEvent({ ...base, type: 'enter', state: {}, now: t0 });
+  assert.deepEqual(r.notice?.memoryIds, ['k'], 'arriving home rings the arrive ones only');
+  r = onRegionEvent({ ...base, type: 'exit', state: r.state, now: t0 + 3600_000 });
+  assert.deepEqual(r.notice?.memoryIds, ['d']);
+  assert.equal(r.notice?.title, 'Leaving Home');
+  assert.equal(r.notice?.body, 'buy diapers');
+  const again = onRegionEvent({ ...base, type: 'exit', state: r.state, now: t0 + 3600_000 + 60_000 });
+  assert.equal(again.notice, null, 'one departure, one notification');
+  const next = onRegionEvent({ ...base, type: 'exit', state: r.state, now: t0 + 3600_000 + PLACE_COOLDOWN_MS + 1 });
+  assert.deepEqual(next.notice?.memoryIds, ['d'], 'the next departure rings again');
+  const none = onRegionEvent({ ...base, memories: [mem('k', 'home')], type: 'exit', state: {}, now: t0 });
+  assert.equal(none.notice, null, 'leaving with only arrive-to-dos is silent');
+});

@@ -135,7 +135,7 @@
   "sheet.where": "Hvor?",
   "sheet.when": "Når?",
   "sheet.delete": "Slett oppgave",
-  "sheet.hint": "Med et sted får du en påminnelse når du er i nærheten. Med en dato dukker den opp under I dag.",
+  "sheet.hint": "Med et sted får du en påminnelse når du kommer dit, eller når du drar hvis du velger det. Med en dato dukker den opp under I dag.",
   "sheet.needText": "Skriv noe først.",
   "where.placeholder": "Kiwi Myren, apotek, Storgata 5…",
   "where.label": "Søk etter butikk, type butikk eller adresse",
@@ -739,5 +739,11 @@
   "bulk.all": "Velg alle",
   "set.todoList": "Oppgaveliste",
   "set.recap": "Vis ukesoppsummering",
-  "set.recapBody": "Et lite kort øverst i listen med det dere fikk gjort denne uken."
+  "set.recapBody": "Et lite kort øverst i listen med det dere fikk gjort denne uken.",
+  "alerts.at": "Ved stedet",
+  "alerts.arrive": "Når jeg kommer",
+  "alerts.leave": "Når jeg drar",
+  "alerts.leaveHint": "Varsler når du går ut av stedets område (på telefonen, med «Alltid»-posisjon).",
+  "row.leaving": "Når jeg drar fra {place}",
+  "notif.leaving": "Du forlater {label}"
 }

@@ -17,6 +17,7 @@ export type QueuedTodo = {
   tags?: string[];
   duration_min?: number | null;
   remind_travel?: boolean;
+  place_trigger?: 'arrive' | 'leave';
   remind_before?: number | null;
   author_id: string;
   created_at: string;

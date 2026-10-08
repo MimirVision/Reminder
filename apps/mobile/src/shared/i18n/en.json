@@ -135,7 +135,7 @@
   "sheet.where": "Where?",
   "sheet.when": "When?",
   "sheet.delete": "Delete to-do",
-  "sheet.hint": "With a place, you are reminded when you are near it. With a date, it appears under Today.",
+  "sheet.hint": "With a place, you are reminded when you arrive, or when you leave if you choose that. With a date, it appears under Today.",
   "sheet.needText": "Write something first.",
   "where.placeholder": "Kiwi Myren, apotek, Storgata 5…",
   "where.label": "Search for a shop, a kind of shop or an address",
@@ -739,5 +739,11 @@
   "bulk.all": "Select all",
   "set.todoList": "To-do list",
   "set.recap": "Show the weekly recap",
-  "set.recapBody": "A small card at the top of the list with what you finished this week."
+  "set.recapBody": "A small card at the top of the list with what you finished this week.",
+  "alerts.at": "At the place",
+  "alerts.arrive": "When I arrive",
+  "alerts.leave": "When I leave",
+  "alerts.leaveHint": "Rings when you walk out of the place's area (on the phone, with Always location).",
+  "row.leaving": "When leaving {place}",
+  "notif.leaving": "Leaving {label}"
 }

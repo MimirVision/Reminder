@@ -67,7 +67,7 @@ export async function updatePlaceCategory(id: string, category: string | null) {
 // A to-do with a place or a date is "active" (it has a reason to surface); one with neither waits in the inbox.
 export const statusFor = (m: { place_id?: string | null; due_on?: string | null }): Memory['status'] => (m.place_id || m.due_on ? 'active' : 'inbox');
 
-type Patch = Partial<Pick<Memory, 'status' | 'place_id' | 'done_at' | 'body' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned' | 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags' | 'sort_order' | 'duration_min' | 'remind_travel'>>;
+type Patch = Partial<Pick<Memory, 'status' | 'place_id' | 'done_at' | 'body' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned' | 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags' | 'sort_order' | 'duration_min' | 'remind_travel' | 'place_trigger'>>;
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
@@ -145,16 +145,17 @@ export type NewMemory = {
   tags?: string[];
   duration_min?: number | null;
   remind_travel?: boolean;
+  place_trigger?: 'arrive' | 'leave';
   capture_lat: number | null;
   capture_lon: number | null;
 };
 
 export async function insertMemory(m: NewMemory) {
   // Details are only sent when used, so it works before the database upgrades (0011, 0013) are run.
-  const { assignee_id, pinned, notes, checklist, priority, remind_before, tags, duration_min, remind_travel, ...base } = m;
+  const { assignee_id, pinned, notes, checklist, priority, remind_before, tags, duration_min, remind_travel, place_trigger, ...base } = m;
   const row = {
     ...base, ...(assignee_id ? { assignee_id } : {}), ...(pinned ? { pinned } : {}),
-    ...(notes ? { notes } : {}), ...(checklist?.length ? { checklist } : {}), ...(priority ? { priority } : {}), ...(tags?.length ? { tags } : {}), ...(duration_min != null ? { duration_min } : {}), ...(remind_travel ? { remind_travel: true } : {}), ...(remind_before != null && m.due_on ? { remind_before } : {}), due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m),
+    ...(notes ? { notes } : {}), ...(checklist?.length ? { checklist } : {}), ...(priority ? { priority } : {}), ...(tags?.length ? { tags } : {}), ...(duration_min != null ? { duration_min } : {}), ...(remind_travel ? { remind_travel: true } : {}), ...(place_trigger === 'leave' ? { place_trigger: 'leave' as const } : {}), ...(remind_before != null && m.due_on ? { remind_before } : {}), due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m),
   };
   const res = await supabase.from('memories').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
   if (res.error) throw new Error(res.error.message);

@@ -232,7 +232,7 @@ export default function Todo() {
     const due = dueLabel(m, t, locale);
     return (
       <TodoRow key={m.id} m={m} photos={photos[m.id]} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
-        place={o.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === uid ? t('row.forYou') : t('row.for', { name: nameOf(m.assignee_id) ?? t('common.partner') })) : undefined} byline={o.meta === false ? undefined : byline(m)}
+        place={o.place || m.place_trigger === 'leave' ? (m.place_trigger === 'leave' ? t('row.leaving', { place: placeName(m.place_id) ?? t('todo.somewhere') }) : placeName(m.place_id)) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === uid ? t('row.forYou') : t('row.for', { name: nameOf(m.assignee_id) ?? t('common.partner') })) : undefined} byline={o.meta === false ? undefined : byline(m)}
         author={members.length > 1 ? { id: m.author_id, name: nameOf(m.author_id) } : null}
         onToggle={() => void complete(m)} onEdit={() => router.push({ pathname: '/add', params: { id: m.id } })} onDelete={() => void remove(m)}
         onReschedule={m.pending ? undefined : () => reschedule(m)} onChecklist={(items) => void tickStep(m, items)} reorder={o.group ? reorderFor(o.group, m) : undefined}

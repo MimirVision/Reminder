@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_place_trigger.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -487,6 +487,17 @@ await as(A, async () => { await rejects(() => db.query(`select * from due_pushes
     assert.equal((await db.query(`select remind_travel from memories where body = 'buy paracetamol'`)).rows[0].remind_travel, false, 'off by default');
     await rejects(() => db.query(`insert into memories (household_id, body, duration_min) values ($1, 'x', 0)`, [hid]), /memories_duration_valid|check constraint/);
     await rejects(() => db.query(`insert into memories (household_id, body, duration_min) values ($1, 'x', 2000)`, [hid]), /memories_duration_valid|check constraint/);
+  });
+}
+
+// 0016: "when I leave".
+{
+  await as(A, async () => {
+    const id = (await db.query(`insert into memories (household_id, body, due_on, repeat_rule, place_trigger) values ($1, 'diapers', '2026-01-02', 'weekly', 'leave') returning id`, [hid])).rows[0].id;
+    const next = (await db.query(`select public.complete_memory($1) as n`, [id])).rows[0].n;
+    assert.equal((await db.query(`select place_trigger from memories where id = $1`, [next])).rows[0].place_trigger, 'leave', 'the trigger carries over');
+    assert.equal((await db.query(`select place_trigger from memories where body = 'buy paracetamol'`)).rows[0].place_trigger, 'arrive', 'arrive by default');
+    await rejects(() => db.query(`insert into memories (household_id, body, place_trigger) values ($1, 'x', 'sideways')`, [hid]), /memories_place_trigger_valid|check constraint/);
   });
 }
 

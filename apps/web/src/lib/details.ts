@@ -3,14 +3,14 @@
 import { cleanChecklist } from './checklist.ts';
 import type { ChecklistItem, Memory, Priority } from './types';
 
-export type Details = { notes: string; checklist: ChecklistItem[]; priority: Priority; remind_before: number | null; tags: string[]; duration_min: number | null; remind_travel: boolean };
-export const emptyDetails = (): Details => ({ notes: '', checklist: [], priority: 0, remind_before: null, tags: [], duration_min: null, remind_travel: false });
+export type Details = { notes: string; checklist: ChecklistItem[]; priority: Priority; remind_before: number | null; tags: string[]; duration_min: number | null; remind_travel: boolean; place_trigger: 'arrive' | 'leave' };
+export const emptyDetails = (): Details => ({ notes: '', checklist: [], priority: 0, remind_before: null, tags: [], duration_min: null, remind_travel: false, place_trigger: 'arrive' });
 
-export const detailsOf = (m?: Pick<Memory, 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags' | 'duration_min' | 'remind_travel'> | null): Details => ({
-  notes: m?.notes ?? '', checklist: cleanChecklist(m?.checklist), priority: m?.priority ?? 0, remind_before: m?.remind_before ?? null, tags: m?.tags ?? [], duration_min: m?.duration_min ?? null, remind_travel: !!m?.remind_travel,
+export const detailsOf = (m?: Pick<Memory, 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags' | 'duration_min' | 'remind_travel' | 'place_trigger'> | null): Details => ({
+  notes: m?.notes ?? '', checklist: cleanChecklist(m?.checklist), priority: m?.priority ?? 0, remind_before: m?.remind_before ?? null, tags: m?.tags ?? [], duration_min: m?.duration_min ?? null, remind_travel: !!m?.remind_travel, place_trigger: m?.place_trigger === 'leave' ? 'leave' : 'arrive',
 });
 
-export type DetailFields = { notes?: string | null; checklist?: ChecklistItem[]; priority?: Priority; remind_before?: number | null; tags?: string[]; duration_min?: number | null; remind_travel?: boolean };
+export type DetailFields = { notes?: string | null; checklist?: ChecklistItem[]; priority?: Priority; remind_before?: number | null; tags?: string[]; duration_min?: number | null; remind_travel?: boolean; place_trigger?: 'arrive' | 'leave' };
 
 /** For a new to-do: only the details that are set. A reminder needs a date. */
 export function newFields(d: Details, hasDate: boolean): DetailFields {
@@ -22,6 +22,7 @@ export function newFields(d: Details, hasDate: boolean): DetailFields {
     ...(d.tags.length ? { tags: d.tags } : {}),
     ...(d.duration_min != null ? { duration_min: d.duration_min } : {}),
     ...(hasDate && d.remind_travel ? { remind_travel: true } : {}),
+    ...(d.place_trigger === 'leave' ? { place_trigger: 'leave' as const } : {}),
   };
 }
 
@@ -33,6 +34,7 @@ export function changedFields(d: Details, was: Details, hasDate: boolean): Detai
   if (JSON.stringify(d.checklist) !== JSON.stringify(was.checklist)) out.checklist = d.checklist;
   if (d.priority !== was.priority) out.priority = d.priority;
   if (JSON.stringify(d.tags) !== JSON.stringify(was.tags)) out.tags = d.tags;
+  if (d.place_trigger !== was.place_trigger) out.place_trigger = d.place_trigger;
   if (d.duration_min !== was.duration_min) out.duration_min = d.duration_min;
   const travel = hasDate && d.remind_travel;
   if (travel !== was.remind_travel) out.remind_travel = travel;

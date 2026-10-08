@@ -353,7 +353,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     const due = dueLabel(m, t, locale);
     return (
       <TodoRow key={m.id} m={m} photos={photos.get(m.id)} done={showDone} due={due || undefined} dueLate={!!m.due_on && m.due_on < todayISO()}
-        place={opts.place ? placeName(m.place_id) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === userId ? t('row.forYou') : t('row.for', { name: members.find((x) => x.user_id === m.assignee_id)?.display_name || t('common.partner') })) : undefined} byline={opts.meta === false ? undefined : byline(m)}
+        place={opts.place || m.place_trigger === 'leave' ? (m.place_trigger === 'leave' ? t('row.leaving', { place: placeName(m.place_id) ?? t('todo.somewhere') }) : placeName(m.place_id)) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === userId ? t('row.forYou') : t('row.for', { name: members.find((x) => x.user_id === m.assignee_id)?.display_name || t('common.partner') })) : undefined} byline={opts.meta === false ? undefined : byline(m)}
         author={members.length > 1 && m.author_id !== userId ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
         onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}
         select={picking && !m.pending ? { on: picked.has(m.id), toggle: () => setPicked((s) => { const n = new Set(s); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); return n; }) } : undefined}

@@ -85,6 +85,7 @@ export type NewMemory = {
   tags?: string[];
   duration_min?: number | null;
   remind_travel?: boolean;
+  place_trigger?: 'arrive' | 'leave';
   remind_before?: number | null;
   capture_lat?: number | null;
   capture_lon?: number | null;
@@ -104,7 +105,7 @@ export function queuedToMemory(q: QueuedTodo): Memory {
   return {
     id: q.id, household_id: q.household_id, author_id: q.author_id, body: q.body, status: q.due_on || q.place_id ? 'active' : 'inbox',
     place_id: q.place_id, place_category: null, created_at: q.created_at, done_at: null, suggestion: null, suggested_at: new Date().toISOString(),
-    due_on: q.due_on, due_time: q.due_on ? q.due_time : null, repeat_rule: (q.repeat_rule as RepeatRule | null) ?? null, assignee_id: q.assignee_id ?? null, pinned: !!q.pinned, notes: q.notes ?? null, checklist: (q.checklist as Memory['checklist']) ?? [], priority: (q.priority as Memory['priority']) ?? 0, remind_before: q.remind_before ?? null, tags: q.tags ?? [], duration_min: q.duration_min ?? null, remind_travel: !!q.remind_travel, pending: true,
+    due_on: q.due_on, due_time: q.due_on ? q.due_time : null, repeat_rule: (q.repeat_rule as RepeatRule | null) ?? null, assignee_id: q.assignee_id ?? null, pinned: !!q.pinned, notes: q.notes ?? null, checklist: (q.checklist as Memory['checklist']) ?? [], priority: (q.priority as Memory['priority']) ?? 0, remind_before: q.remind_before ?? null, tags: q.tags ?? [], duration_min: q.duration_min ?? null, remind_travel: !!q.remind_travel, place_trigger: q.place_trigger === 'leave' ? 'leave' : 'arrive', pending: true,
   };
 }
 
@@ -118,7 +119,7 @@ export async function addMemory(m: NewMemory): Promise<Memory> {
     const { data } = await supabase.auth.getSession();
     const q: QueuedTodo = {
       id: row.id, household_id: m.household_id, body: m.body, place_id: m.place_id ?? null, due_on: row.due_on ?? null, due_time: row.due_time,
-      repeat_rule: row.repeat_rule, assignee_id: m.assignee_id ?? null, pinned: !!m.pinned, ...(m.notes ? { notes: m.notes } : {}), ...(m.checklist?.length ? { checklist: m.checklist } : {}), ...(m.priority ? { priority: m.priority } : {}), ...(m.remind_before != null ? { remind_before: m.remind_before } : {}), ...(m.tags?.length ? { tags: m.tags } : {}), ...(m.duration_min != null ? { duration_min: m.duration_min } : {}), ...(m.remind_travel ? { remind_travel: true } : {}), author_id: data.session?.user.id ?? '', created_at: new Date().toISOString(),
+      repeat_rule: row.repeat_rule, assignee_id: m.assignee_id ?? null, pinned: !!m.pinned, ...(m.notes ? { notes: m.notes } : {}), ...(m.checklist?.length ? { checklist: m.checklist } : {}), ...(m.priority ? { priority: m.priority } : {}), ...(m.remind_before != null ? { remind_before: m.remind_before } : {}), ...(m.tags?.length ? { tags: m.tags } : {}), ...(m.duration_min != null ? { duration_min: m.duration_min } : {}), ...(m.remind_travel ? { remind_travel: true } : {}), ...(m.place_trigger === 'leave' ? { place_trigger: 'leave' as const } : {}), author_id: data.session?.user.id ?? '', created_at: new Date().toISOString(),
     };
     enqueue(safeKV, q);
     return queuedToMemory(q);
@@ -133,14 +134,14 @@ export async function flushOutbox(): Promise<string[]> {
     const { error } = await supabase.from('memories').insert(toRow({
       id: q.id, household_id: q.household_id, body: q.body, place_id: q.place_id, due_on: q.due_on, due_time: q.due_time, repeat_rule: q.repeat_rule as RepeatRule | null,
       ...(q.assignee_id ? { assignee_id: q.assignee_id } : {}), ...(q.pinned ? { pinned: true } : {}),
-      ...(q.notes ? { notes: q.notes } : {}), ...(q.checklist?.length ? { checklist: q.checklist } : {}), ...(q.priority ? { priority: q.priority as Memory["priority"] } : {}), ...(q.remind_before != null ? { remind_before: q.remind_before } : {}), ...(q.tags?.length ? { tags: q.tags } : {}), ...(q.duration_min != null ? { duration_min: q.duration_min } : {}), ...(q.remind_travel ? { remind_travel: true } : {}), // only sent when used, so it works before the 0011 upgrade is run
+      ...(q.notes ? { notes: q.notes } : {}), ...(q.checklist?.length ? { checklist: q.checklist } : {}), ...(q.priority ? { priority: q.priority as Memory["priority"] } : {}), ...(q.remind_before != null ? { remind_before: q.remind_before } : {}), ...(q.tags?.length ? { tags: q.tags } : {}), ...(q.duration_min != null ? { duration_min: q.duration_min } : {}), ...(q.remind_travel ? { remind_travel: true } : {}), ...(q.place_trigger === 'leave' ? { place_trigger: 'leave' as const } : {}), // only sent when used, so it works before the 0011 upgrade is run
     }));
     if (error && !/duplicate key|23505/.test(error.message + (error as { code?: string }).code)) throw new Error(error.message);
   }, navigator.onLine);
   return r.sent;
 }
 
-type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned' | 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags' | 'sort_order' | 'duration_min' | 'remind_travel'>>;
+type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_category' | 'done_at' | 'due_on' | 'due_time' | 'repeat_rule' | 'done_by' | 'assignee_id' | 'pinned' | 'notes' | 'checklist' | 'priority' | 'remind_before' | 'tags' | 'sort_order' | 'duration_min' | 'remind_travel' | 'place_trigger'>>;
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));

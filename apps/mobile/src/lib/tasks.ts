@@ -40,7 +40,7 @@ TaskManager.defineTask<{ eventType: Location.LocationGeofencingEventType; region
       memories,
       state: readJson<SurfaceState>(storeKeys.surface, {}),
       now: Date.now(),
-      words: { near: (l) => tNow('notif.near', { label: l }), more: (n) => tNow('notif.more', { n }), photo: tNow('notif.photo') },
+      words: { near: (l) => tNow('notif.near', { label: l }), leaving: (l) => tNow('notif.leaving', { label: l }), more: (n) => tNow('notif.more', { n }), photo: tNow('notif.photo') },
     });
     writeJson(storeKeys.surface, result.state);
 

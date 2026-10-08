@@ -423,3 +423,5 @@ input.switch:checked { background: var(--accent); }
 input.switch:checked::after { transform: translateX(20px); }
 
 .btn.icon.glass.on { background: var(--accent); color: #fff; }
+
+.alert-label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 15px; }

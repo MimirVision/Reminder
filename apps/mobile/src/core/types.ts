@@ -16,6 +16,7 @@ export type MemoryRow = {
   status: 'inbox' | 'active' | 'done' | 'dismissed';
   place_id: string | null;
   snoozed_until: string | null;
+  place_trigger?: 'arrive' | 'leave'; // ring when you arrive at the place (default) or when you leave it
 };
 
 // A concrete shop found for a category place ("any pharmacy").
