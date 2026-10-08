@@ -179,7 +179,7 @@ function make(w = world(), extra: Partial<Deps> = {}) {
   const timers: { fn: () => void; ms: number }[] = [];
   let t = Date.parse('2026-10-05T10:00:00Z');
   const c = createController({
-    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, presortMs: 150, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     kv: { get: (k) => kv.get(k) ?? null, set: (k, v) => void kv.set(k, v), del: (k) => void kv.delete(k) }, ...extra,
   });
   const runTimers = async () => { while (timers.length) { const x = timers.shift()!; x.fn(); await new Promise((r) => setTimeout(r, 5)); } };
@@ -2134,4 +2134,28 @@ test('a server that is not the newer one says "bad_request" and is told so; any 
   await c.setExtra('a@outlook.com', 'none');
   assert.equal(c.getState().toast?.text, 'too many rules');
   assert.equal(c.getState().accounts[0].extra, 'codes', 'put back');
+});
+
+test('new mail from a mailing list is sorted before it is first shown, so it never shows in Primary and moves away', async () => {
+  const w = world();
+  w.add('1', { subject: 'Hei fra Anna' });
+  const { c } = make(w);
+  await c.init(); await c.sync();
+  w.add('9', { subject: 'Ukens nyheter' }); w.headers['9'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const seen: string[] = [];
+  c.subscribe(() => { const m = c.getState().mail.find((x) => x.id === '9'); if (m) seen.push(m.kind); });
+  await c.sync();
+  assert.ok(seen.length > 0 && seen.every((k) => k !== 'person'), `first shown as ${seen.join(',')}`);
+  assert.deepEqual(c.getState().left, [], 'and nothing is written down as having moved');
+});
+
+test('a message that changes tab after its headers are read is written down as such', async () => {
+  const w = world();
+  w.add('1', { subject: 'Hei fra Anna' }); w.add('2', { subject: 'Ukens nyheter' }); w.headers['2'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const { c } = make(w);
+  await c.init(); await c.sync(); // first sync: nothing is written down
+  assert.deepEqual(c.getState().left, []);
+  await c.sortInBackground();
+  const l = c.getState().left;
+  assert.ok(l.length <= 1 && l.every((e) => e.why === 'tab' || e.why === 'tabYou'));
 });

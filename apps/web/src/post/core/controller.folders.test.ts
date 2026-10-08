@@ -196,7 +196,7 @@ function make(w = outlook(), opts: { emails?: string[]; store?: Store; kv?: Map<
   const timers: { fn: () => void; ms: number }[] = [];
   let t = opts.at ?? Date.parse('2026-10-05T10:00:00Z');
   const c = createController({
-    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, presortMs: 150, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     kv: { get: (k) => kv.get(k) ?? null, set: (k, v) => void kv.set(k, v), del: (k) => void kv.delete(k) },
   });
   const runTimers = async () => { while (timers.length) { const x = timers.shift()!; x.fn(); await new Promise((r) => setTimeout(r, 5)); } };
@@ -1334,4 +1334,50 @@ test('unmuting forgets the mute with an Undo, and a message without a conversati
   await until(() => mutedKeys(c).length === 1, 'the mute to come back');
   await c.muteConversation({ ...mailOf(c, 'o1'), conversationId: '' });
   assert.equal(mutedKeys(c).length, 1, 'nothing to mute without a conversation id');
+});
+
+// ---- where did my mail go? ------------------------------------------------------------------------------------------------------------------
+const leftOf = (c: Made['c']) => c.getState().left;
+
+test('the record says why mail left the inbox: archive, blocked sender, muted conversation, each in its own words', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' }); inbox(w, 'b1', 'spam@x.no', NEW, { subject: 'Tilbud b1' }); inbox(w, 'm1', 'per@x.no', NEW, { conversationId: 'cc', subject: 'Middag' }); inbox(w, 'o1', 'ola@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  assert.deepEqual(leftOf(c), [], 'nothing before anything has happened');
+  await c.archive([mailOf(c, 'a1')]);
+  await c.blockSender('spam@x.no');
+  await c.muteConversation(mailOf(c, 'm1'));
+  const why = Object.fromEntries(leftOf(c).map((e) => [e.subject, e.why]));
+  assert.deepEqual(why, { Hei: 'archive', 'Tilbud b1': 'blocked', Middag: 'muted' });
+  assert.deepEqual((await made.store.getMeta<unknown[]>('leftlog'))?.length, 3, 'kept on the phone');
+});
+
+test('mail that Outlook took away is told as Outlook\'s doing', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' }); inbox(w, 'o1', 'ola@y.no', NEW, { subject: 'Ola' });
+  const f = w.f;
+  let removeNext = false;
+  w.f = (async (url: string, init?: RequestInit) => {
+    if (removeNext && /delta/.test(String(url))) { removeNext = false; return new Response(JSON.stringify({ value: [{ id: 'o1', '@removed': { reason: 'deleted' } }], '@odata.deltaLink': 'https://graph/delta?d=99' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+    return f(url, init);
+  }) as typeof w.f;
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  assert.deepEqual(inboxIds(c), ['a1', 'o1']);
+  removeNext = true;
+  await c.sync();
+  assert.deepEqual(inboxIds(c), ['a1']);
+  assert.deepEqual(leftOf(c).map((e) => [e.subject, e.why]), [['Ola', 'outlook']]);
+});
+
+test('signing an account out does not fill the record with its mail', async () => {
+  const w = outlook([A, W]);
+  w.put(W, 'inbox', { id: 'w1', from: 'x@w.no', subject: 'Jobb', received: NEW });
+  const made = make(w, { emails: [A, W] }); const { c } = made;
+  await c.init(); await c.sync();
+  assert.ok(inboxIds(c).includes('w1'));
+  await c.removeAccount(W);
+  assert.equal(inboxIds(c).includes('w1'), false);
+  assert.deepEqual(leftOf(c), []);
 });

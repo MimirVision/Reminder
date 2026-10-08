@@ -7,6 +7,7 @@ import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
 import { go, useC, useNow } from './ctx.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { Health, dotOf, useHealthLine } from './Health.tsx';
+import { Gone } from './Gone.tsx';
 import { Subscriptions, useSubscriptionsLine } from './Subscriptions.tsx';
 
 declare const __BUILD__: string;
@@ -35,6 +36,7 @@ export function SettingsPage({ s, page, account }: { s: State; page: string; acc
     case 'appearance': return <Appearance s={s} />;
     case 'sorting': return <Sorting s={s} />;
     case 'subscriptions': return <Subscriptions s={s} />;
+    case 'gone': return <Gone s={s} />;
     case 'health': return <Health s={s} />;
     default: return <Settings s={s} />;
   }
@@ -94,6 +96,7 @@ export function Settings({ s }: { s: State }) {
         </div>
         <div className="lbl">This device</div>
         <div className="card">
+          <button className="it" onClick={() => go({ name: 'settings', page: 'gone' })}><span className="ico"><Icon n="search" /></span>Where did my mail go?<span className="v">{s.left.length ? `${s.left.length} noted` : 'Nothing yet'}<Icon n="chev" /></span></button>
           <button className="it" onClick={() => go({ name: 'settings', page: 'health' })}><span className="ico"><Icon n="pulse" /></span>Health<span className="v"><i className={dotOf(health.level)} />{health.text}<Icon n="chev" /></span></button>
           <ForgetRow />
         </div>
