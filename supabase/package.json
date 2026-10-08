@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/rls.test.mjs && node tests/upgrade-old.test.mjs && node tests/dashboard.test.mjs && node --test --experimental-strip-types tests/suggest.test.ts tests/import-report.test.ts tests/notify-partner.test.ts tests/read-label.test.ts tests/parse-tasks.test.ts",
+    "test": "node tests/rls.test.mjs && node tests/upgrade-old.test.mjs && node tests/post-sql.test.mjs && node tests/dashboard.test.mjs && node --test --experimental-strip-types tests/suggest.test.ts tests/import-report.test.ts tests/notify-partner.test.ts tests/read-label.test.ts tests/parse-tasks.test.ts tests/post-alerts.test.ts tests/post-alerts-handler.test.ts",
     "build:setup": "node build-setup.mjs",
     "build:functions": "node build-functions.mjs"
   },

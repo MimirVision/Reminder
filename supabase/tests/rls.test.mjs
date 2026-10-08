@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import remind from '../../apps/web/netlify/functions/remind.mjs';
-import { buildSetup, UPGRADE_AFTER } from '../build-setup.mjs';
+import { buildPost, buildSetup, UPGRADE_AFTER } from '../build-setup.mjs';
 
 const db = new PGlite();
 
@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_place_trigger.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -440,6 +440,30 @@ await as(A, async () => {
 
 // 0012: the table that remembers announced reminders is for the server only.
 await as(A, async () => { await rejects(() => db.query(`select * from due_pushes`), /permission denied/); });
+for (const t of ['post_alert_accounts', 'post_alert_seen', 'post_alert_devices', 'post_signins', 'post_config']) await as(A, async () => { await rejects(() => db.query(`select * from ${t}`), /permission denied/); });
+
+// 0018: Post's setup lives in the database. A signed-in app user cannot call the helpers; the owner (the SQL editor) can.
+{
+  await as(A, async () => {
+    await rejects(() => db.query(`select public.post_setup('11111111-2222-3333-4444-555555555555', 'a@outlook.com')`), /permission denied/);
+    await rejects(() => db.query(`select public.post_allow('a@outlook.com')`), /permission denied/);
+    await rejects(() => db.query(`select public.post_cron_renew()`), /permission denied/);
+  });
+  await rejects(() => db.query(`select public.post_setup('not-a-client-id')`), /does not look like an Application \(client\) ID/);
+  await rejects(() => db.query(`select public.post_allow('nobody')`), /does not look like an email/);
+  const said = (await db.query(`select public.post_setup('  11111111-2222-3333-4444-55555555ABCD  ', ' Andreas@Outlook.com ') as m`)).rows[0].m;
+  assert.match(said, /client ID 11111111-2222-3333-4444-55555555abcd/);
+  await db.query(`select public.post_allow('andreas@firma.no')`);
+  await db.query(`select public.post_allow('ANDREAS@outlook.com')`); // again: not added twice
+  const cfg = Object.fromEntries((await db.query(`select key, value from public.post_config`)).rows.map((r) => [r.key, r.value]));
+  assert.equal(cfg.ms_client_id, '11111111-2222-3333-4444-55555555abcd');
+  assert.equal(cfg.allowed_emails, 'andreas@outlook.com,andreas@firma.no');
+  await db.query(`select public.post_setup('99999999-2222-3333-4444-555555555555')`); // changing the id keeps the allowed mailboxes
+  assert.equal((await db.query(`select value from public.post_config where key = 'allowed_emails'`)).rows[0].value, 'andreas@outlook.com,andreas@firma.no');
+  assert.equal((await db.query(`select public.post_cron_renew()`)).rows.length, 1, 'nothing to do before the function has written its address');
+  // upgrading again must not fail even where pg_cron and pg_net do not exist (here): the schedule is optional
+  await db.exec(readFileSync(new URL('../migrations/0018_post_setup.sql', import.meta.url), 'utf8'));
+}
 
 // 0013: notes, checklist, priority, reminder lead time, and the new repeat rules.
 {
@@ -503,5 +527,6 @@ await as(A, async () => { await rejects(() => db.query(`select * from due_pushes
 
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
 assert.equal(readFileSync(new URL('../upgrade.sql', import.meta.url), 'utf8'), buildSetup(UPGRADE_AFTER), 'upgrade.sql is stale: run npm run build:setup');
+assert.equal(readFileSync(new URL('../post.sql', import.meta.url), 'utf8'), buildPost(), 'post.sql is stale: run npm run build:setup');
 
 console.log('RLS checks passed');
