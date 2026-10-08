@@ -13,7 +13,7 @@
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
     font: 14px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color-scheme: light; }
   #app { display: flex; height: 100%; }
-  #side { width: 290px; flex: none; background: var(--panel); border-right: 1px solid var(--line);
+  #side { width: 300px; flex: none; background: var(--panel); border-right: 1px solid var(--line);
     overflow-y: auto; padding: 12px 14px 24px; }
   #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   #wrap { position: relative; flex: 1; min-height: 0; overflow: hidden; }
@@ -21,24 +21,27 @@
   #status { padding: 6px 12px; border-top: 1px solid var(--line); background: var(--panel); color: var(--muted);
     font-size: 12.5px; display: flex; gap: 14px; justify-content: space-between; }
   #status b { color: var(--ink); font-weight: 600; }
-  h1 { font-size: 17px; margin: 2px 0 10px; }
+  h1 { font-size: 17px; margin: 2px 0 10px; display: flex; justify-content: space-between; align-items: center; }
+  h1 button { padding: 2px 9px; font-size: 13px; }
   h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 18px 0 8px; }
   button, .btn { font: inherit; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
     cursor: pointer; color: var(--ink); }
   button:hover, .btn:hover { border-color: #b9b3a6; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--danger); }
   button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  button.sm { padding: 3px 8px; font-size: 12.5px; }
   .row { display: flex; gap: 6px; flex-wrap: wrap; }
   .row > * { flex: 1 1 auto; }
   .tools button { flex: 1 1 30%; text-align: center; padding: 8px 4px; }
   .tools kbd { display: block; font: 10px system-ui; color: var(--muted); }
   .tools button.on kbd { color: var(--accent); }
   label.f { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
-  label.f span { flex: 0 0 92px; color: var(--muted); }
+  label.f span { flex: 0 0 96px; color: var(--muted); }
   label.f input[type=range] { flex: 1; min-width: 0; }
   label.f output { flex: 0 0 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
-  input[type=number], input[type=text] { width: 100%; font: inherit; padding: 5px 7px; border: 1px solid var(--line);
+  label.chk { display: flex; align-items: center; gap: 8px; margin: 5px 0; cursor: pointer; }
+  input[type=number], input[type=text], input[type=search] { width: 100%; font: inherit; padding: 5px 7px; border: 1px solid var(--line);
     border-radius: 6px; background: #fff; min-width: 0; }
   input[type=color] { width: 44px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
   .cat { margin-bottom: 6px; }
@@ -46,6 +49,7 @@
   .cat button { font-size: 12.5px; padding: 5px 8px; flex: 0 1 auto; }
   .cat .name { font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
   .hint { color: var(--muted); font-size: 12.5px; }
+  .sep { height: 1px; background: var(--line); margin: 10px 0; }
   #drop { position: absolute; inset: 14px; border: 2px dashed var(--accent); border-radius: 16px; background: rgba(47,111,237,.07);
     display: none; align-items: center; justify-content: center; font-size: 20px; color: var(--accent); pointer-events: none; }
   #empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); text-align: center; max-width: 380px;
@@ -54,18 +58,40 @@
     padding: 22px 24px; box-shadow: 0 6px 30px rgba(0,0,0,.07); }
   #empty p { margin: 0 0 14px; color: var(--muted); }
   #toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); background: #26231f; color: #fff;
-    padding: 8px 14px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    padding: 8px 14px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
+    max-width: 90%; text-align: center; }
   #toast.show { opacity: .95; }
+  #tabs { display: flex; gap: 4px; align-items: center; padding: 6px 10px 0; border-bottom: 1px solid var(--line);
+    background: var(--panel); overflow-x: auto; flex: none; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line); border-bottom: 0;
+    border-radius: 8px 8px 0 0; background: #efede7; cursor: pointer; white-space: nowrap; user-select: none; }
+  .tab.on { background: var(--bg); font-weight: 600; border-color: #c9c4b8; }
+  .tab .x { color: var(--muted); padding: 0 2px; }
+  .tab .x:hover { color: var(--danger); }
+  #tabs .grow { flex: 1; }
+  #tabs select { font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  #tabs .lbl { color: var(--muted); font-size: 12.5px; }
+  #zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+  #zoom button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+  #legend { position: absolute; left: 12px; top: 10px; background: rgba(251,250,247,.92); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--muted); display: none; }
+  #legend i { display: inline-block; width: 18px; height: 6px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  #help { position: absolute; inset: 0; background: rgba(30,25,20,.45); display: none; align-items: center; justify-content: center; z-index: 5; }
+  #help .card { background: var(--panel); border-radius: 14px; padding: 20px 24px; max-width: 560px; max-height: 86%; overflow: auto; }
+  #help h3 { margin: 0 0 10px; }
+  #help table { border-collapse: collapse; width: 100%; }
+  #help td { padding: 3px 8px 3px 0; vertical-align: top; }
+  #help td:first-child { white-space: nowrap; color: var(--muted); font-family: ui-monospace, monospace; font-size: 12.5px; }
   @media (max-width: 760px) {
     #app { flex-direction: column-reverse; }
-    #side { width: 100%; max-height: 42vh; border-right: 0; border-top: 1px solid var(--line); }
+    #side { width: 100%; max-height: 44vh; border-right: 0; border-top: 1px solid var(--line); }
   }
 </style>
 </head>
 <body>
 <div id="app">
   <aside id="side">
-    <h1>Planløsning</h1>
+    <h1>Planløsning <button id="helpBtn" title="Hjelp og hurtigtaster (?)">?</button></h1>
 
     <div class="row">
       <label class="btn primary" style="text-align:center">Importer bilde<input id="file" type="file" accept="image/*" hidden></label>
@@ -79,6 +105,7 @@
       <button data-tool="wall">Tegn vegg<kbd>W</kbd></button>
       <button data-tool="erase">Viskelær<kbd>E</kbd></button>
       <button data-tool="cut">Klipp vegg<kbd>C</kbd></button>
+      <button data-tool="measure">Målebånd<kbd>M</kbd></button>
       <button data-tool="calib">Mål skala<kbd>K</kbd></button>
       <button data-tool="hand">Flytt vy<kbd>H</kbd></button>
     </div>
@@ -88,16 +115,27 @@
 
     <h2>Bilde → vegger</h2>
     <button id="detect" class="primary" style="width:100%">Konverter bilde til vegger</button>
-    <label class="f"><span>Mørkhet</span><input id="thr" type="range" min="40" max="220" value="120"><output></output></label>
-    <label class="f"><span>Min. lengde</span><input id="minlen" type="range" min="8" max="200" value="40"><output></output></label>
-    <label class="f"><span>Min. tykkelse</span><input id="minthick" type="range" min="1" max="30" value="4"><output></output></label>
+    <label class="f"><span>Mørkhet</span><input id="thr" type="range" min="40" max="220" value="120"><output></output><button class="sm" id="autothr" title="Velg automatisk">Auto</button></label>
+    <label class="f"><span>Min. lengde</span><input id="minlen" type="range" min="6" max="250" value="40"><output></output></label>
+    <label class="f"><span>Min. tykkelse</span><input id="minthick" type="range" min="1" max="40" value="4"><output></output></label>
+    <label class="f"><span>Lukk dobbeltlinjer</span><input id="gap" type="range" min="0" max="30" value="0"><output></output></label>
+    <label class="f"><span>Rett opp bilde</span><input id="imgrot" type="range" min="-20" max="20" step="0.1" value="0"><output></output></label>
     <label class="f"><span>Vis bilde</span><input id="showimg" type="checkbox" checked><input id="imgop" type="range" min="5" max="100" value="45"></label>
-    <p class="hint">Dra i glidebryterne til veggene ser riktige ut. Tynne streker (tekst, mål) filtreres bort. Tegner planen vegger som doble linjer, bruk «Tegn vegg» og trekk over bildet.</p>
+    <label class="chk"><input id="tidy" type="checkbox" checked> Rydd opp og koble sammen vegger automatisk</label>
+    <div class="row"><button id="tidyBtn">Rydd opp vegger nå</button><button id="rmauto" class="danger">Fjern konverterte vegger</button></div>
+    <p class="hint">Dra i glidebryterne til veggene ser riktige ut. Tynne streker (tekst, mål) filtreres bort. Har planen doble linjer for vegger, øk «Lukk dobbeltlinjer». Ellers: «Tegn vegg» over bildet.</p>
+
+    <h2>Visning</h2>
+    <label class="chk"><input id="optRooms" type="checkbox"> Vis romareal (m²) – lukkede rom</label>
+    <label class="chk"><input id="optDims" type="checkbox"> Vis mål på vegger og møbler</label>
+    <label class="chk"><input id="optGrid" type="checkbox" checked> Vis rutenett (1 m)</label>
+    <div id="roomSum" class="hint"></div>
 
     <h2>Valgt</h2>
     <div id="props" class="hint">Ingenting valgt.</div>
 
     <h2>Legg til</h2>
+    <input id="search" type="search" placeholder="Søk: seng, sofa, dør …" style="margin-bottom:6px">
     <div id="catalog"></div>
 
     <h2>Fil</h2>
@@ -107,13 +145,16 @@
       <button id="png">Eksporter PNG</button>
     </div>
     <div class="row" style="margin-top:6px"><button id="clear" class="danger">Tøm alt</button></div>
-    <label class="f" style="margin-top:10px"><span>Fang til rutenett</span><input id="snap" type="checkbox" checked></label>
+    <h2>Innstillinger</h2>
+    <label class="chk"><input id="snap" type="checkbox" checked> Fang til rutenett (5 cm)</label>
     <label class="f"><span>Veggtykkelse</span><input id="wallcm" type="number" value="15" min="3" max="60" step="1"><span style="flex:0 0 auto">cm</span></label>
   </aside>
 
   <div id="main">
+    <div id="tabs"></div>
     <div id="wrap">
       <canvas id="cv"></canvas>
+      <div id="legend"><i style="background:#2a2723"></i>vegg &nbsp; <i style="background:#9b2f2f"></i>bærende &nbsp; <i style="background:#e8590c;opacity:.5"></i>skygge</div>
       <div id="drop">Slipp bildet her</div>
       <div id="empty"><div class="card">
         <p><b style="color:var(--ink)">Importer et bilde av planløsningen</b><br>Så gjøres det om til vegger du kan fjerne, flytte og tegne på. Eller start med et tomt lerret.</p>
@@ -122,7 +163,32 @@
           <button id="emptySample">Prøv eksempel</button>
         </div>
       </div></div>
+      <div id="zoom"><button id="zin" title="Zoom inn">+</button><button id="zout" title="Zoom ut">−</button><button id="zfit" title="Tilpass" style="font-size:13px">⤢</button></div>
       <div id="toast"></div>
+      <div id="help"><div class="card">
+        <h3>Hurtigtaster</h3>
+        <table>
+          <tr><td>V / W / E / C / M / K / H</td><td>Velg · Tegn vegg · Viskelær · Klipp · Målebånd · Mål skala · Flytt vy</td></tr>
+          <tr><td>Del / Backspace</td><td>Slett valgte</td></tr>
+          <tr><td>Ctrl+Z / Ctrl+Y</td><td>Angre / Gjør om</td></tr>
+          <tr><td>Ctrl+C / Ctrl+V / Ctrl+D</td><td>Kopier, lim inn, dupliser</td></tr>
+          <tr><td>Ctrl+A</td><td>Marker alt</td></tr>
+          <tr><td>R</td><td>Roter valgte møbler 90°</td></tr>
+          <tr><td>Piltaster</td><td>Flytt valgte 5 cm (Shift = 50 cm)</td></tr>
+          <tr><td>Mellomrom + dra</td><td>Flytt vyen (eller midtre/høyre museknapp)</td></tr>
+          <tr><td>Scroll / knip</td><td>Zoom</td></tr>
+          <tr><td>Alt</td><td>Hold nede for å slå av festing mens du drar/tegner</td></tr>
+          <tr><td>Shift + klikk</td><td>Legg til / fjern fra utvalg</td></tr>
+          <tr><td>Dobbeltklikk / Esc</td><td>Avslutt vegg-kjede</td></tr>
+        </table>
+        <h3 style="margin-top:16px">Tips</h3>
+        <p class="hint">• <b>Tegn vegg</b>: klikk, klikk, klikk for å tegne en kjede av vegger. Dobbeltklikk avslutter.<br>
+        • Dører og vinduer fester seg til nærmeste vegg og lager en åpning.<br>
+        • Marker en vegg som <b>bærende</b> (rød) så du husker hvilke som ikke bør fjernes.<br>
+        • Bruk <b>alternativer</b> (fanene øverst) for å sammenligne planløsninger, og «Skygge» for å legge ett alternativ over et annet.<br>
+        • Romareal regnes ut for rom som er helt lukket av vegger, dører og vinduer.</p>
+        <button id="helpClose" class="primary">Lukk</button>
+      </div></div>
     </div>
     <div id="status"><span id="hint"></span><span id="scaleInfo"></span></div>
   </div>
@@ -136,47 +202,58 @@ const PAPER = '#f6f4ef';
 const ACCENT = '#2f6fed';
 
 // ---------- state ----------
-let S = { ppm: 50, calibrated: false, walls: [], items: [], next: 1 };   // ppm = world px per meter
+let S = { ppm: 50, calibrated: false, imgRot: 0, walls: [], items: [], next: 1 };   // ppm = world px per meter
+let V = { names: ['Alternativ A'], data: [null], cur: 0 };                           // plan alternatives
+let opt = { ghost: -1 };
 let view = { x: 0, y: 0, z: 1 };
 let bg = { img: null, url: null, w: 0, h: 0 };
 let sel = new Set();
 let tool = 'select';
 let placeKind = null;
 let drag = null;
+let chain = null;      // wall tool: start point of the next segment while chaining
+let measureLast = null;
+let clip = null;
 let hover = null;      // world position of cursor
 let calibPts = [];
 let spaceDown = false;
 let dpr = 1;
-let extCache = null;
+let extCache = null, roomsCache = null;
 const hist = { u: [], r: [] };
 
 const uid = () => S.next++;
 const ser = () => JSON.stringify(S);
+const clone = o => JSON.parse(JSON.stringify(o));
 function checkpoint() { hist.u.push(ser()); if (hist.u.length > 150) hist.u.shift(); hist.r = []; }
-function undo() {
-  if (!hist.u.length) return;
-  hist.r.push(ser()); S = JSON.parse(hist.u.pop()); afterRestore();
-}
-function redo() {
-  if (!hist.r.length) return;
-  hist.u.push(ser()); S = JSON.parse(hist.r.pop()); afterRestore();
-}
+function undo() { if (!hist.u.length) return; hist.r.push(ser()); S = JSON.parse(hist.u.pop()); afterRestore(); }
+function redo() { if (!hist.r.length) return; hist.u.push(ser()); S = JSON.parse(hist.r.pop()); afterRestore(); }
 function afterRestore() {
   const ids = new Set([...S.walls, ...S.items].map(e => e.id));
   sel = new Set([...sel].filter(i => ids.has(i)));
+  $('#imgrot').value = S.imgRot || 0; syncOutputs();
   touch(); renderProps();
 }
 
 let saveTimer = 0;
 function touch() {
-  extCache = null; redraw(); updateStatus();
+  extCache = null; roomsCache = null; redraw(); updateStatus();
   clearTimeout(saveTimer); saveTimer = setTimeout(autosave, 600);
 }
+function pack(withImg) {
+  V.data[V.cur] = { walls: S.walls, items: S.items };
+  return JSON.stringify({ v: 2, S: { ...S, walls: [], items: [] }, V, img: withImg && bg.url && bg.url.startsWith('data:') ? bg.url : null });
+}
 function autosave() {
-  try {
-    try { localStorage.setItem('planlosning', JSON.stringify({ S, img: bg.url && bg.url.startsWith('data:') ? bg.url : null })); }
-    catch { localStorage.setItem('planlosning', JSON.stringify({ S, img: null })); }
-  } catch {}
+  try { try { localStorage.setItem('planlosning2', pack(true)); } catch { localStorage.setItem('planlosning2', pack(false)); } } catch {}
+}
+function unpack(d) {
+  if (d.v === 2) {
+    S = d.S; V = d.V; S.walls = V.data[V.cur].walls; S.items = V.data[V.cur].items;
+  } else {                      // version 1 files
+    S = { imgRot: 0, ...d.S }; V = { names: ['Alternativ A'], data: [null], cur: 0 };
+  }
+  if (S.imgRot == null) S.imgRot = 0;
+  sel = new Set(); hist.u = []; hist.r = []; opt.ghost = -1; chain = null;
 }
 
 // ---------- catalog ----------
@@ -187,35 +264,61 @@ const CAT = [
     { k: 'stove', n: 'Komfyr', w: 0.6, h: 0.62, c: '#d3d3d3' },
     { k: 'fridge', n: 'Kjøleskap', w: 0.6, h: 0.65, c: '#dde5ea' },
     { k: 'sink', n: 'Oppvask', w: 0.8, h: 0.55, c: '#dbe7ef' },
+    { k: 'dishwasher', n: 'Oppvaskmaskin', w: 0.6, h: 0.6, c: '#dcdcdc' },
+    { k: 'tallcab', n: 'Høyskap', w: 0.6, h: 0.6, c: '#e4d8c0' },
+    { k: 'barstool', n: 'Barstol', w: 0.4, h: 0.4, c: '#cdb48c', s: 'ellipse' },
   ]],
   ['Stue og spisestue', [
     { k: 'sofa', n: 'Sofa', w: 2.2, h: 0.95, c: '#b7c4d6' },
+    { k: 'corner', n: 'Hjørnesofa', w: 2.8, h: 2.2, c: '#b7c4d6', s: 'lshape' },
     { k: 'armchair', n: 'Lenestol', w: 0.85, h: 0.85, c: '#c8d3b8' },
+    { k: 'pouf', n: 'Puff', w: 0.5, h: 0.5, c: '#d9c3c3', s: 'ellipse' },
+    { k: 'coffee', n: 'Salongbord', w: 1.1, h: 0.6, c: '#d9bf98' },
     { k: 'table', n: 'Spisebord', w: 1.8, h: 0.9, c: '#d9bf98' },
     { k: 'round', n: 'Rundt bord', w: 1.1, h: 1.1, c: '#d9bf98', s: 'ellipse' },
     { k: 'chair', n: 'Stol', w: 0.45, h: 0.45, c: '#cdb48c' },
     { k: 'tvbench', n: 'TV-benk', w: 1.6, h: 0.4, c: '#bba98f' },
-    { k: 'desk', n: 'Skrivebord', w: 1.4, h: 0.7, c: '#d9bf98' },
     { k: 'shelf', n: 'Reol', w: 1.0, h: 0.35, c: '#bba98f' },
+    { k: 'fireplace', n: 'Peis', w: 1.0, h: 0.45, c: '#a8a39a' },
+    { k: 'piano', n: 'Piano', w: 1.5, h: 0.6, c: '#8a8580' },
+    { k: 'rug', n: 'Teppe', w: 2.4, h: 1.6, c: '#c9a9a0', s: 'rug' },
   ]],
-  ['Soverom', [
+  ['Soverom og kontor', [
     { k: 'bed', n: 'Dobbeltseng', w: 1.6, h: 2.0, c: '#d6c9de' },
     { k: 'bed1', n: 'Enkeltseng', w: 0.9, h: 2.0, c: '#d6c9de' },
+    { k: 'crib', n: 'Barneseng', w: 0.7, h: 1.3, c: '#e0d6ea' },
     { k: 'wardrobe', n: 'Garderobe', w: 1.2, h: 0.6, c: '#bba98f' },
+    { k: 'dresser', n: 'Kommode', w: 1.0, h: 0.5, c: '#bba98f' },
     { k: 'nightstand', n: 'Nattbord', w: 0.45, h: 0.4, c: '#bba98f' },
+    { k: 'desk', n: 'Skrivebord', w: 1.4, h: 0.7, c: '#d9bf98' },
+    { k: 'ochair', n: 'Kontorstol', w: 0.55, h: 0.55, c: '#9aa3ad', s: 'ellipse' },
   ]],
-  ['Bad', [
+  ['Bad og vaskerom', [
     { k: 'toilet', n: 'Toalett', w: 0.4, h: 0.7, c: '#eef2f4' },
     { k: 'shower', n: 'Dusj', w: 0.9, h: 0.9, c: '#d3e6f0' },
     { k: 'bath', n: 'Badekar', w: 1.7, h: 0.75, c: '#e6eef2' },
     { k: 'basin', n: 'Servant', w: 0.6, h: 0.45, c: '#eef2f4' },
+    { k: 'basin2', n: 'Dobbel servant', w: 1.2, h: 0.5, c: '#eef2f4' },
     { k: 'washer', n: 'Vaskemaskin', w: 0.6, h: 0.6, c: '#dcdcdc' },
+    { k: 'boiler', n: 'Bereder', w: 0.6, h: 0.6, c: '#d6d6d6', s: 'ellipse' },
   ]],
   ['Bygg', [
     { k: 'door', n: 'Dør', w: 0.9, h: 0.9, s: 'door' },
     { k: 'door2', n: 'Dobbel dør', w: 1.6, h: 0.8, s: 'door' },
+    { k: 'sliding', n: 'Skyvedør', w: 1.2, h: 0.2, s: 'sliding' },
     { k: 'window', n: 'Vindu', w: 1.2, h: 0.22, s: 'window' },
+    { k: 'bigwindow', n: 'Glassparti', w: 2.4, h: 0.22, s: 'window' },
     { k: 'stairs', n: 'Trapp', w: 1.0, h: 2.8, c: '#e7e1d6', s: 'stairs' },
+    { k: 'spiral', n: 'Spiraltrapp', w: 1.6, h: 1.6, c: '#e7e1d6', s: 'ellipse' },
+    { k: 'pillar', n: 'Søyle', w: 0.3, h: 0.3, c: '#55504a' },
+    { k: 'chimney', n: 'Skorstein', w: 0.5, h: 0.5, c: '#8f8a82' },
+  ]],
+  ['Sone, ute og annet', [
+    { k: 'zone', n: 'Rom / sone', w: 3.0, h: 3.0, c: '#bcd4e6', s: 'zone' },
+    { k: 'terrace', n: 'Terrasse', w: 4.0, h: 3.0, c: '#d9c9a8', s: 'zone' },
+    { k: 'plant', n: 'Plante', w: 0.5, h: 0.5, c: '#a9c9a0', s: 'ellipse' },
+    { k: 'car', n: 'Bil', w: 4.5, h: 1.9, c: '#c3c9d1' },
+    { k: 'box', n: 'Boks', w: 1.0, h: 1.0, c: '#e0dcd2' },
     { k: 'text', n: 'Tekst', w: 2.0, h: 0.4, s: 'text' },
   ]],
 ];
@@ -223,12 +326,12 @@ const KINDS = {};
 CAT.forEach(([, list]) => list.forEach(d => KINDS[d.k] = d));
 
 function buildCatalog() {
-  const root = $('#catalog');
+  const root = $('#catalog'); root.innerHTML = '';
   CAT.forEach(([name, list]) => {
     const d = document.createElement('div'); d.className = 'cat';
     d.innerHTML = `<div class="name">${name}</div><div></div>`;
     list.forEach(def => {
-      const b = document.createElement('button'); b.textContent = def.n;
+      const b = document.createElement('button'); b.textContent = def.n; b.dataset.n = def.n.toLowerCase();
       b.title = `${def.w} × ${def.h} m`;
       b.onclick = () => startPlace(def.k);
       d.lastChild.appendChild(b);
@@ -236,13 +339,23 @@ function buildCatalog() {
     root.appendChild(d);
   });
 }
+$('#search').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#catalog .cat').forEach(c => {
+    let any = false;
+    c.querySelectorAll('button').forEach(b => { const ok = !q || b.dataset.n.includes(q); b.style.display = ok ? '' : 'none'; any = any || ok; });
+    c.style.display = any ? '' : 'none';
+  });
+});
+const isOpening = it => it.shape === 'door' || it.shape === 'window' || it.shape === 'sliding';
+const isUnder = it => it.shape === 'zone' || it.shape === 'rug';
 function makeItem(kind, x, y) {
   const d = KINDS[kind];
-  return { id: uid(), kind, shape: d.s || 'rect', x, y, w: d.w, h: d.h, rot: 0, flip: false, label: d.s === 'door' || d.s === 'window' ? '' : d.n, color: d.c || '#ddd' };
+  const sh = d.s || 'rect';
+  return { id: uid(), kind, shape: sh, x, y, w: d.w, h: d.h, rot: 0, flip: false,
+    label: (sh === 'door' || sh === 'window' || sh === 'sliding') ? '' : d.n, color: d.c || '#ddd' };
 }
-function startPlace(kind) {
-  placeKind = kind; setTool('place');
-}
+function startPlace(kind) { placeKind = kind; setTool('place'); }
 
 // ---------- geometry ----------
 const wLen = w => Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
@@ -269,13 +382,15 @@ function getEl(id) { return S.items.find(i => i.id === id) || S.walls.find(w => 
 function isWall(el) { return 'x1' in el; }
 function hitTest(p) {
   const tol = 4 / view.z;
-  for (let i = S.items.length - 1; i >= 0; i--) if (hitItem(S.items[i], p, tol)) return S.items[i];
+  for (let i = S.items.length - 1; i >= 0; i--) if (!isUnder(S.items[i]) && hitItem(S.items[i], p, tol)) return S.items[i];
   let best = null, bd = 1e9;
   for (const w of S.walls) if (hitWall(w, p, tol)) {
     const d = segDist(p.x, p.y, w.x1, w.y1, w.x2, w.y2).d;
     if (d < bd) { bd = d; best = w; }
   }
-  return best;
+  if (best) return best;
+  for (let i = S.items.length - 1; i >= 0; i--) if (isUnder(S.items[i]) && hitItem(S.items[i], p, tol)) return S.items[i];
+  return null;
 }
 function handlesFor(el) {
   if (isWall(el)) return [{ type: 'w1', x: el.x1, y: el.y1 }, { type: 'w2', x: el.x2, y: el.y2 }];
@@ -298,7 +413,7 @@ function snapPoint(p, exclude, from, alt) {
       if (d < bd) { bd = d; best = q; }
     }
   }
-  if (best) return { x: best[0], y: best[1], snapped: true };
+  if (best && !alt) return { x: best[0], y: best[1], snapped: true };
   if (from && !alt) {
     const dx = x - from.x, dy = y - from.y, ang = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
     if (ang < 6 || ang > 174) y = from.y;
@@ -310,6 +425,27 @@ function snapPoint(p, exclude, from, alt) {
     if (!from || (y !== from.y)) y = Math.round(y / g) * g;
   }
   return { x, y, snapped: false };
+}
+
+// Doors and windows jump onto the nearest wall, aligned with it, swinging towards the cursor.
+function snapOpening(it, p) {
+  if (!isOpening(it)) return false;
+  let best = null, bd = 0.5 * S.ppm;
+  for (const w of S.walls) {
+    const s = segDist(p.x, p.y, w.x1, w.y1, w.x2, w.y2), d = s.d - w.t / 2;
+    if (d < bd) { bd = d; best = { w, s }; }
+  }
+  if (!best) return false;
+  const w = best.w, L = wLen(w) || 1, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+  const px = w.x1 + (w.x2 - w.x1) * best.s.t, py = w.y1 + (w.y2 - w.y1) * best.s.t;
+  const ang = Math.atan2(uy, ux) * 180 / Math.PI;
+  const side = (p.x - px) * (-uy) + (p.y - py) * ux;
+  const r = it.shape === 'door' && side > 0 ? ang + 180 : ang, rr = r * Math.PI / 180;
+  const off = it.shape === 'door' ? it.h * S.ppm / 2 : 0;
+  it.x = px + Math.sin(rr) * off; it.y = py - Math.cos(rr) * off;
+  it.rot = ((Math.round(r * 10) / 10 % 360) + 360) % 360;
+  it.wt = w.t / S.ppm + 0.02;
+  return true;
 }
 
 // Walls that meet at a corner get their ends extended so the corner is filled.
@@ -324,7 +460,6 @@ function extensions() {
       const ea = [[a.x1, a.y1], [a.x2, a.y2]], eb = [[b.x1, b.y1], [b.x2, b.y2]];
       for (let p = 0; p < 2; p++) for (let q = 0; q < 2; q++) {
         if (Math.hypot(ea[p][0] - eb[q][0], ea[p][1] - eb[q][1]) <= tol) {
-          // only perpendicular-ish corners need it
           const ua = [a.x2 - a.x1, a.y2 - a.y1], ub = [b.x2 - b.x1, b.y2 - b.y1];
           const cosv = Math.abs((ua[0] * ub[0] + ua[1] * ub[1]) / (Math.hypot(...ua) * Math.hypot(...ub) || 1));
           if (cosv < 0.9) { m.set(a.id + ':' + (p + 1), a.t / 2); m.set(b.id + ':' + (q + 1), b.t / 2); }
@@ -335,39 +470,97 @@ function extensions() {
   return extCache = m;
 }
 
+// ---------- rooms (area from enclosed regions) ----------
+function computeRooms() {
+  if (roomsCache) return roomsCache;
+  const out = { list: [], total: 0 };
+  if (S.walls.length < 3) return roomsCache = out;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const w of S.walls) { x0 = Math.min(x0, w.x1, w.x2) - w.t; y0 = Math.min(y0, w.y1, w.y2) - w.t; x1 = Math.max(x1, w.x1, w.x2) + w.t; y1 = Math.max(y1, w.y1, w.y2) + w.t; }
+  const cell = Math.max(S.ppm * 0.05, Math.sqrt((x1 - x0) * (y1 - y0) / 400000));
+  const W = Math.ceil((x1 - x0) / cell) + 4, H = Math.ceil((y1 - y0) / cell) + 4, ox = x0 - 2 * cell, oy = y0 - 2 * cell;
+  const oc = document.createElement('canvas'); oc.width = W; oc.height = H;
+  const g = oc.getContext('2d', { willReadFrequently: true });
+  g.scale(1 / cell, 1 / cell); g.translate(-ox, -oy);
+  g.strokeStyle = '#000'; g.lineCap = 'square';
+  for (const w of S.walls) { g.beginPath(); g.moveTo(w.x1, w.y1); g.lineTo(w.x2, w.y2); g.lineWidth = w.t + cell * 0.8; g.stroke(); }
+  g.fillStyle = '#000';
+  for (const it of S.items) if (isOpening(it)) {
+    const w = it.w * S.ppm, strip = (it.wt || 0.24) * S.ppm;
+    g.save(); g.translate(it.x, it.y); g.rotate(it.rot * Math.PI / 180);
+    const cy = it.shape === 'door' ? it.h * S.ppm / 2 : 0;
+    g.fillRect(-w / 2 - cell * 0.5, cy - strip / 2 - cell * 0.4, w + cell, strip + cell * 0.8); g.restore();
+  }
+  const a = g.getImageData(0, 0, W, H).data, lab = new Int32Array(W * H), q = new Int32Array(W * H);
+  for (let i = 0; i < lab.length; i++) if (a[i * 4 + 3] > 40) lab[i] = -1;
+  for (let s = 0; s < lab.length; s++) {
+    if (lab[s] !== 0) continue;
+    let head = 0, tail = 0, border = false, sx = 0, sy = 0;
+    q[tail++] = s; lab[s] = 1;
+    while (head < tail) {
+      const i = q[head++], x = i % W, y = (i - x) / W; sx += x; sy += y;
+      if (x === 0 || y === 0 || x === W - 1 || y === H - 1) border = true;
+      if (x > 0 && lab[i - 1] === 0) { lab[i - 1] = 1; q[tail++] = i - 1; }
+      if (x < W - 1 && lab[i + 1] === 0) { lab[i + 1] = 1; q[tail++] = i + 1; }
+      if (y > 0 && lab[i - W] === 0) { lab[i - W] = 1; q[tail++] = i - W; }
+      if (y < H - 1 && lab[i + W] === 0) { lab[i + W] = 1; q[tail++] = i + W; }
+    }
+    const area = tail * cell * cell / (S.ppm * S.ppm);
+    if (border || area < 0.8) continue;
+    const cx = sx / tail, cy = sy / tail; let bi = 0, bd = 1e18;
+    for (let k = 0; k < tail; k++) { const i = q[k], x = i % W, y = (i - x) / W, d = (x - cx) ** 2 + (y - cy) ** 2; if (d < bd) { bd = d; bi = i; } }
+    const bx = bi % W, by = (bi - bx) / W;
+    out.list.push({ x: ox + (bx + 0.5) * cell, y: oy + (by + 0.5) * cell, area }); out.total += area;
+  }
+  return roomsCache = out;
+}
+const fmt = n => n.toFixed(1).replace('.', ',');
+
 // ---------- drawing ----------
-function drawWall(c, w, color) {
-  const ext = extensions(), L = wLen(w) || 1, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
-  const e1 = ext.get(w.id + ':1') || 0, e2 = ext.get(w.id + ':2') || 0;
+function drawWall(c, w, color, noExt) {
+  const ext = noExt ? null : extensions(), L = wLen(w) || 1, ux = (w.x2 - w.x1) / L, uy = (w.y2 - w.y1) / L;
+  const e1 = ext ? ext.get(w.id + ':1') || 0 : 0, e2 = ext ? ext.get(w.id + ':2') || 0 : 0;
   c.beginPath();
   c.moveTo(w.x1 - ux * e1, w.y1 - uy * e1);
   c.lineTo(w.x2 + ux * e2, w.y2 + uy * e2);
   c.lineWidth = w.t; c.lineCap = 'butt'; c.strokeStyle = color; c.stroke();
 }
 
-function drawItem(c, it, paper) {
+function drawItem(c, it, paper, forceLabels) {
   const ppm = S.ppm, w = it.w * ppm, h = it.h * ppm, col = it.color || '#ddd';
   const lw = Math.max(0.8, 0.02 * ppm);
   c.save();
   c.translate(it.x, it.y); c.rotate(it.rot * Math.PI / 180);
   if (it.flip) c.scale(-1, 1);
   c.lineJoin = 'round';
+  const strip = Math.max(0.24, it.wt || 0) * ppm;
   if (it.shape === 'door') {
-    const strip = 0.24 * ppm;
     c.fillStyle = paper; c.fillRect(-w / 2 - 1, h / 2 - strip / 2, w + 2, strip);
     c.strokeStyle = '#444'; c.lineWidth = lw * 1.4;
     c.beginPath(); c.moveTo(-w / 2, h / 2); c.lineTo(-w / 2, -h / 2); c.stroke();
     c.lineWidth = lw; c.setLineDash([lw * 3, lw * 3]);
     c.beginPath(); c.ellipse(-w / 2, h / 2, w, h, 0, -Math.PI / 2, 0); c.stroke(); c.setLineDash([]);
     c.lineWidth = lw * 1.4; c.beginPath(); c.moveTo(-w / 2, h / 2); c.lineTo(w / 2, h / 2); c.stroke();
-  } else if (it.shape === 'window') {
-    const strip = Math.max(h, 0.22 * ppm);
+  } else if (it.shape === 'sliding') {
     c.fillStyle = paper; c.fillRect(-w / 2, -strip / 2, w, strip);
+    c.fillStyle = '#e9eef2'; c.strokeStyle = '#444'; c.lineWidth = lw;
+    c.fillRect(-w / 2, -lw * 2.2, w * 0.58, lw * 2); c.strokeRect(-w / 2, -lw * 2.2, w * 0.58, lw * 2);
+    c.fillRect(w / 2 - w * 0.58, lw * 0.2, w * 0.58, lw * 2); c.strokeRect(w / 2 - w * 0.58, lw * 0.2, w * 0.58, lw * 2);
+  } else if (it.shape === 'window') {
+    const sp = Math.max(h, strip);
+    c.fillStyle = paper; c.fillRect(-w / 2, -sp / 2, w, sp);
     c.fillStyle = '#cfe6f5'; c.strokeStyle = '#4a6b82'; c.lineWidth = lw;
     c.fillRect(-w / 2, -h * 0.28, w, h * 0.56); c.strokeRect(-w / 2, -h * 0.28, w, h * 0.56);
     c.beginPath(); c.moveTo(-w / 2, 0); c.lineTo(w / 2, 0); c.stroke();
   } else if (it.shape === 'text') {
-    // drawn below
+    // label only
+  } else if (it.shape === 'zone') {
+    c.globalAlpha = 0.45; c.fillStyle = col; c.fillRect(-w / 2, -h / 2, w, h); c.globalAlpha = 1;
+    c.strokeStyle = 'rgba(60,60,60,.35)'; c.lineWidth = lw; c.setLineDash([lw * 5, lw * 4]); c.strokeRect(-w / 2, -h / 2, w, h); c.setLineDash([]);
+  } else if (it.shape === 'rug') {
+    c.fillStyle = col; c.strokeStyle = 'rgba(80,50,40,.5)'; c.lineWidth = lw;
+    c.beginPath(); c.roundRect(-w / 2, -h / 2, w, h, Math.min(w, h) * .08); c.fill(); c.stroke();
+    c.beginPath(); c.roundRect(-w / 2 + w * .05, -h / 2 + h * .06, w * .9, h * .88, Math.min(w, h) * .05); c.stroke();
   } else if (it.shape === 'stairs') {
     c.fillStyle = col; c.strokeStyle = '#666'; c.lineWidth = lw;
     c.fillRect(-w / 2, -h / 2, w, h); c.strokeRect(-w / 2, -h / 2, w, h);
@@ -381,6 +574,10 @@ function drawItem(c, it, paper) {
     c.fillStyle = col; c.strokeStyle = '#6b6254'; c.lineWidth = lw;
     if (it.shape === 'ellipse') {
       c.beginPath(); c.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+    } else if (it.shape === 'lshape') {
+      const a = Math.min(w, h) * 0.42;
+      c.beginPath(); c.moveTo(-w / 2, -h / 2); c.lineTo(w / 2, -h / 2); c.lineTo(w / 2, -h / 2 + a); c.lineTo(-w / 2 + a, -h / 2 + a);
+      c.lineTo(-w / 2 + a, h / 2); c.lineTo(-w / 2, h / 2); c.closePath(); c.fill(); c.stroke();
     } else {
       c.fillRect(-w / 2, -h / 2, w, h); c.strokeRect(-w / 2, -h / 2, w, h);
     }
@@ -392,11 +589,16 @@ function drawItem(c, it, paper) {
         } break;
       case 'sink':
         c.strokeRect(-w * .4, -h * .32, w * .8, h * .64); break;
+      case 'dishwasher':
+        c.beginPath(); c.moveTo(-w / 2, -h * .3); c.lineTo(w / 2, -h * .3); c.stroke();
+        c.beginPath(); c.arc(0, -h * .4, Math.min(w, h) * .04, 0, 7); c.stroke(); break;
       case 'toilet':
         c.beginPath(); c.ellipse(0, h * .12, w * .38, h * .3, 0, 0, Math.PI * 2); c.stroke();
         c.strokeRect(-w * .4, -h * .46, w * .8, h * .22); break;
       case 'basin':
         c.beginPath(); c.ellipse(0, 0, w * .36, h * .32, 0, 0, Math.PI * 2); c.stroke(); break;
+      case 'basin2':
+        for (const sx of [-1, 1]) { c.beginPath(); c.ellipse(sx * w * .25, 0, w * .19, h * .3, 0, 0, Math.PI * 2); c.stroke(); } break;
       case 'bath':
         c.beginPath(); c.roundRect(-w * .46, -h * .38, w * .92, h * .76, Math.min(w, h) * .3); c.stroke(); break;
       case 'shower':
@@ -406,35 +608,66 @@ function drawItem(c, it, paper) {
         for (let i = 0; i < n; i++) c.strokeRect(-w / 2 + i * pw + pw * .1, -h / 2 + h * .04, pw * .8, h * .16);
         c.beginPath(); c.moveTo(-w / 2, -h / 2 + h * .32); c.lineTo(w / 2, -h / 2 + h * .32); c.stroke(); break;
       }
+      case 'crib':
+        c.strokeRect(-w * .42, -h * .42, w * .84, h * .84); break;
       case 'sofa': case 'armchair':
         c.strokeRect(-w / 2, -h / 2, w, h * .28); break;
-      case 'washer':
+      case 'washer': case 'boiler':
         c.beginPath(); c.arc(0, 0, Math.min(w, h) * .3, 0, Math.PI * 2); c.stroke(); break;
       case 'fridge':
         c.beginPath(); c.moveTo(-w / 2, -h * .1); c.lineTo(w / 2, -h * .1); c.stroke(); break;
+      case 'fireplace':
+        c.strokeRect(-w * .35, -h * .3, w * .7, h * .6); break;
+      case 'piano':
+        c.beginPath(); c.moveTo(-w / 2, h * .25); c.lineTo(w / 2, h * .25); c.stroke(); break;
+      case 'ochair':
+        c.beginPath(); c.arc(0, 0, Math.min(w, h) * .3, 0, Math.PI * 2); c.stroke(); break;
+      case 'plant':
+        for (let i = 0; i < 5; i++) { const a = i * 1.2566; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(a) * w * .45, Math.sin(a) * h * .45); c.stroke(); } break;
+      case 'spiral':
+        for (let i = 0; i < 10; i++) { const a = i * 0.6283; c.beginPath(); c.moveTo(Math.cos(a) * w * .08, Math.sin(a) * h * .08); c.lineTo(Math.cos(a) * w * .5, Math.sin(a) * h * .5); c.stroke(); } break;
+      case 'car':
+        c.strokeRect(-w * .3, -h * .38, w * .45, h * .76); c.strokeRect(w * .18, -h * .32, w * .22, h * .64); break;
+      case 'tallcab': case 'pillar': case 'chimney':
+        c.beginPath(); c.moveTo(-w / 2, -h / 2); c.lineTo(w / 2, h / 2); c.moveTo(w / 2, -h / 2); c.lineTo(-w / 2, h / 2); c.stroke(); break;
     }
   }
   c.restore();
   // label, kept upright
-  if (it.label && it.shape !== 'door' && it.shape !== 'window') {
+  if (it.label && !isOpening(it)) {
     let rot = ((it.rot % 360) + 360) % 360;
     if (rot > 90 && rot < 270) rot += 180;
-    const fs = it.shape === 'text' ? it.h * ppm * 0.8 : Math.min(h * 0.4, 0.2 * ppm);
+    const zone = it.shape === 'zone';
+    const fs = it.shape === 'text' ? it.h * ppm * 0.8 : zone ? Math.min(0.32 * ppm, h * 0.3) : Math.min(h * 0.4, 0.2 * ppm);
     c.save(); c.translate(it.x, it.y); c.rotate(rot * Math.PI / 180);
-    c.font = `${fs}px system-ui, sans-serif`;
+    c.font = `${zone ? '600 ' : ''}${fs}px system-ui, sans-serif`;
     c.textAlign = 'center'; c.textBaseline = 'middle';
     c.fillStyle = it.shape === 'text' ? '#4a463f' : 'rgba(40,35,30,.85)';
-    if (it.shape === 'text' || fs * view.z >= 5) c.fillText(it.label, 0, 0, it.shape === 'text' ? 1e5 : w * 0.95);
+    if (it.shape === 'text' || forceLabels || fs * view.z >= 5) c.fillText(it.label, 0, zone ? -h * 0.32 : 0, it.shape === 'text' ? 1e5 : w * 0.95);
     c.restore();
   }
 }
 
+function pill(c, txt, x, y, color) {
+  c.save(); c.translate(x, y); c.scale(1 / view.z, 1 / view.z);
+  c.font = '12px system-ui'; const tw = c.measureText(txt).width;
+  c.fillStyle = color || '#26231f'; c.beginPath(); c.roundRect(-tw / 2 - 6, -26, tw + 12, 20, 6); c.fill();
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, 0, -16); c.restore();
+}
+function tag(c, txt, x, y) {
+  c.save(); c.translate(x, y); c.scale(1 / view.z, 1 / view.z);
+  c.font = '11px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(txt).width;
+  c.fillStyle = 'rgba(255,255,255,.85)'; c.fillRect(-tw / 2 - 3, -8, tw + 6, 16);
+  c.fillStyle = '#4a463f'; c.fillText(txt, 0, 0); c.restore();
+}
+const wallColor = w => w.load ? '#9b2f2f' : '#2a2723';
+
 function drawWorld(c, o) {
   const paper = o.paper;
   if (o.ui) {
-    // 1 m grid
     const step = S.ppm;
-    if (step * view.z >= 14) {
+    if ($('#optGrid').checked && step * view.z >= 14) {
       const x0 = -view.x / view.z, y0 = -view.y / view.z, x1 = x0 + cv.width / dpr / view.z, y1 = y0 + cv.height / dpr / view.z;
       c.beginPath();
       for (let x = Math.floor(x0 / step) * step; x <= x1; x += step) { c.moveTo(x, y0); c.lineTo(x, y1); }
@@ -442,13 +675,48 @@ function drawWorld(c, o) {
       c.lineWidth = 1 / view.z; c.strokeStyle = 'rgba(0,0,0,.06)'; c.stroke();
     }
     if (bg.img && $('#showimg').checked) {
-      c.globalAlpha = $('#imgop').value / 100; c.drawImage(bg.img, 0, 0, bg.w, bg.h); c.globalAlpha = 1;
+      c.save(); c.globalAlpha = $('#imgop').value / 100;
+      c.translate(bg.w / 2, bg.h / 2); c.rotate((S.imgRot || 0) * Math.PI / 180);
+      c.drawImage(bg.img, -bg.w / 2, -bg.h / 2, bg.w, bg.h); c.restore();
+    }
+    // shadow of another alternative
+    if (opt.ghost >= 0 && opt.ghost !== V.cur && V.data[opt.ghost]) {
+      const gd = V.data[opt.ghost];
+      for (const w of gd.walls) drawWall(c, w, 'rgba(232,89,12,.4)', true);
+      c.globalAlpha = 0.3; for (const it of gd.items) drawItem(c, it, 'rgba(0,0,0,0)'); c.globalAlpha = 1;
     }
   }
+  for (const it of S.items) if (isUnder(it)) drawItem(c, it, paper, o.labels);
   if (o.ui) for (const w of S.walls) if (sel.has(w.id)) drawWall(c, { ...w, t: w.t + 6 / view.z }, 'rgba(47,111,237,.35)');
-  for (const w of S.walls) drawWall(c, w, '#2a2723');
-  for (const it of S.items) drawItem(c, it, paper);
+  for (const w of S.walls) drawWall(c, w, wallColor(w));
+  for (const it of S.items) if (!isUnder(it)) drawItem(c, it, paper, o.labels);
+
+  if ($('#optRooms').checked) {
+    const r = computeRooms();
+    for (const rm of r.list) {
+      const fs = Math.min(0.3 * S.ppm, Math.sqrt(rm.area) * S.ppm * 0.09);
+      c.save(); c.font = `600 ${Math.max(fs, 4)}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const txt = fmt(rm.area) + ' m²', tw = c.measureText(txt).width;
+      c.fillStyle = 'rgba(255,255,255,.8)'; c.beginPath(); c.roundRect(rm.x - tw / 2 - fs * .4, rm.y - fs * .75, tw + fs * .8, fs * 1.5, fs * .4); c.fill();
+      c.fillStyle = '#1f5f3a'; c.fillText(txt, rm.x, rm.y); c.restore();
+    }
+  }
   if (!o.ui) return;
+
+  // dimensions
+  const dimsOn = $('#optDims').checked;
+  if (dimsOn) {
+    for (const w of S.walls) if (wLen(w) > S.ppm * 0.4) tag(c, fmt(wLen(w) / S.ppm) + ' m', (w.x1 + w.x2) / 2, (w.y1 + w.y2) / 2);
+    for (const it of S.items) if (!isOpening(it) && it.shape !== 'text') {
+      const p = toWorldFrom(it, 0, it.h * S.ppm / 2 + 10 / view.z); tag(c, `${it.w.toFixed(2)}×${it.h.toFixed(2)}`, p.x, p.y);
+    }
+  } else if (sel.size === 1) {
+    const el = getEl([...sel][0]);
+    if (el) {
+      if (isWall(el)) tag(c, fmt(wLen(el) / S.ppm) + ' m', (el.x1 + el.x2) / 2, (el.y1 + el.y2) / 2);
+      else { const p = toWorldFrom(el, 0, el.h * S.ppm / 2 + 12 / view.z); tag(c, `${el.w.toFixed(2)} × ${el.h.toFixed(2)} m`, p.x, p.y); }
+    }
+  }
 
   // selection
   for (const id of sel) {
@@ -468,21 +736,31 @@ function drawWorld(c, o) {
       }
       for (const h of handlesFor(el)) {
         c.beginPath(); c.arc(h.x, h.y, 6 / view.z, 0, Math.PI * 2);
-        c.fillStyle = h.type === 'rot' ? '#fff' : '#fff'; c.fill(); c.lineWidth = 2 / view.z; c.strokeStyle = ACCENT; c.stroke();
+        c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2 / view.z; c.strokeStyle = ACCENT; c.stroke();
       }
     }
   }
 
   // tool overlays
-  const lbl = (txt, x, y) => {
-    c.save(); c.translate(x, y); c.scale(1 / view.z, 1 / view.z);
-    c.font = '12px system-ui'; const tw = c.measureText(txt).width;
-    c.fillStyle = '#26231f'; c.beginPath(); c.roundRect(-tw / 2 - 6, -26, tw + 12, 20, 6); c.fill();
-    c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, 0, -16); c.restore();
-  };
   if (drag && drag.type === 'draw') {
-    drawWall(c, { id: -1, x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y, t: wallThickness() }, 'rgba(47,111,237,.7)');
-    lbl((Math.hypot(drag.b.x - drag.a.x, drag.b.y - drag.a.y) / S.ppm).toFixed(2) + ' m', (drag.a.x + drag.b.x) / 2, (drag.a.y + drag.b.y) / 2);
+    drawWall(c, { id: -1, x1: drag.a.x, y1: drag.a.y, x2: drag.b.x, y2: drag.b.y, t: wallThickness() }, 'rgba(47,111,237,.7)', true);
+    pill(c, fmt(Math.hypot(drag.b.x - drag.a.x, drag.b.y - drag.a.y) / S.ppm) + ' m', (drag.a.x + drag.b.x) / 2, (drag.a.y + drag.b.y) / 2);
+  }
+  if (tool === 'wall' && !drag && chain && hover) {
+    const s = snapPoint(hover, null, chain.a, false);
+    drawWall(c, { id: -1, x1: chain.a.x, y1: chain.a.y, x2: s.x, y2: s.y, t: wallThickness() }, 'rgba(47,111,237,.5)', true);
+    pill(c, fmt(Math.hypot(s.x - chain.a.x, s.y - chain.a.y) / S.ppm) + ' m', (chain.a.x + s.x) / 2, (chain.a.y + s.y) / 2);
+  }
+  if (tool === 'wall' && !drag && hover) {
+    const s = snapPoint(hover, null, chain ? chain.a : null, false);
+    c.beginPath(); c.arc(s.x, s.y, 4 / view.z, 0, Math.PI * 2); c.fillStyle = s.snapped ? '#2b8a3e' : ACCENT; c.fill();
+  }
+  const meas = drag && drag.type === 'measure' ? drag : (tool === 'measure' ? measureLast : null);
+  if (meas) {
+    c.beginPath(); c.moveTo(meas.a.x, meas.a.y); c.lineTo(meas.b.x, meas.b.y);
+    c.strokeStyle = '#e8590c'; c.lineWidth = 2 / view.z; c.stroke();
+    for (const p of [meas.a, meas.b]) { c.beginPath(); c.arc(p.x, p.y, 4 / view.z, 0, 7); c.fillStyle = '#e8590c'; c.fill(); }
+    pill(c, fmt(Math.hypot(meas.b.x - meas.a.x, meas.b.y - meas.a.y) / S.ppm) + ' m', (meas.a.x + meas.b.x) / 2, (meas.a.y + meas.b.y) / 2, '#e8590c');
   }
   if (drag && drag.type === 'marquee') {
     const r = rectOf(drag.start, drag.cur);
@@ -494,7 +772,7 @@ function drawWorld(c, o) {
     c.beginPath(); c.moveTo(w.x1 + (w.x2 - w.x1) * a, w.y1 + (w.y2 - w.y1) * a);
     c.lineTo(w.x1 + (w.x2 - w.x1) * b, w.y1 + (w.y2 - w.y1) * b);
     c.lineWidth = w.t + 4 / view.z; c.strokeStyle = 'rgba(200,55,45,.6)'; c.stroke();
-    lbl(((b - a) * wLen(w) / S.ppm).toFixed(2) + ' m åpning', w.x1 + (w.x2 - w.x1) * (a + b) / 2, w.y1 + (w.y2 - w.y1) * (a + b) / 2);
+    pill(c, fmt((b - a) * wLen(w) / S.ppm) + ' m åpning', w.x1 + (w.x2 - w.x1) * (a + b) / 2, w.y1 + (w.y2 - w.y1) * (a + b) / 2);
   }
   if (tool === 'cut' && !drag && hover) {
     const h = S.walls.find(w => hitWall(w, hover, 4 / view.z));
@@ -507,10 +785,8 @@ function drawWorld(c, o) {
   }
   if (tool === 'place' && placeKind && hover) {
     const g = makeItem(placeKind, hover.x, hover.y); S.next--;
+    snapOpening(g, hover);
     c.globalAlpha = .6; drawItem(c, g, paper); c.globalAlpha = 1;
-  }
-  if (tool === 'wall' && !drag && hover) {
-    c.beginPath(); c.arc(hover.x, hover.y, 4 / view.z, 0, Math.PI * 2); c.fillStyle = ACCENT; c.fill();
   }
 }
 
@@ -525,6 +801,12 @@ function draw() {
   ctx.save(); ctx.translate(view.x, view.y); ctx.scale(view.z, view.z);
   drawWorld(ctx, { ui: true, paper: PAPER });
   ctx.restore();
+  const rs = $('#roomSum');
+  if ($('#optRooms').checked) {
+    const r = computeRooms();
+    rs.textContent = r.list.length ? `${r.list.length} lukkede rom · sammenlagt ${fmt(r.total)} m²` : 'Ingen lukkede rom funnet – er det hull i veggene? Dører og vinduer lukker åpninger.';
+  } else rs.textContent = '';
+  $('#legend').style.display = (S.walls.some(w => w.load) || (opt.ghost >= 0 && opt.ghost !== V.cur)) ? 'block' : 'none';
 }
 function resize() {
   const r = wrap.getBoundingClientRect(); dpr = window.devicePixelRatio || 1;
@@ -557,17 +839,19 @@ function fit() {
 // ---------- tools ----------
 const HINTS = {
   select: 'Klikk for å velge, dra for å flytte. Dra i rammen for å markere flere. Del fjerner. Shift legger til i utvalget.',
-  wall: 'Dra for å tegne en vegg. Den fester seg til andre vegger og rette vinkler (hold Alt for å slå av).',
+  wall: 'Dra, eller klikk-klikk-klikk for en kjede av vegger (dobbeltklikk avslutter). Fester til andre vegger og rette vinkler – Alt slår av.',
   erase: 'Klikk eller dra over vegger og møbler for å fjerne dem.',
   cut: 'Klikk på en vegg for å dele den, eller dra langs veggen for å fjerne et stykke (åpning).',
+  measure: 'Dra for å måle en avstand. Skalaen må være satt riktig først.',
   calib: 'Klikk to punkter på bildet der du kjenner avstanden (f.eks. en dør på 90 cm).',
   hand: 'Dra for å flytte vyen. Du kan også holde mellomrom, eller bruke høyre/midtre museknapp. Scroll for å zoome.',
   place: 'Klikk for å plassere. Shift+klikk for å plassere flere. Esc avbryter.',
 };
+const CURSORS = { select: 'default', wall: 'crosshair', erase: 'cell', cut: 'crosshair', measure: 'crosshair', calib: 'crosshair', hand: 'grab', place: 'copy' };
 function setTool(t) {
-  tool = t; drag = null; calibPts = [];
+  tool = t; drag = null; calibPts = []; chain = null; if (t !== 'measure') measureLast = null;
   document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  cv.style.cursor = { select: 'default', wall: 'crosshair', erase: 'cell', cut: 'crosshair', calib: 'crosshair', hand: 'grab', place: 'copy' }[t];
+  cv.style.cursor = CURSORS[t];
   updateStatus(); redraw();
 }
 function updateStatus() {
@@ -605,15 +889,17 @@ cv.addEventListener('pointerdown', e => {
     if (hit) {
       if (e.shiftKey) { sel.has(hit.id) ? sel.delete(hit.id) : sel.add(hit.id); }
       else if (!sel.has(hit.id)) sel = new Set([hit.id]);
-      drag = { type: 'move', start: p, cp: false, orig: [...sel].map(id => { const el = getEl(id); return { el, ...JSON.parse(JSON.stringify(el)) }; }) };
+      drag = { type: 'move', start: p, cp: false, orig: [...sel].map(id => { const el = getEl(id); return { el, ...clone(el) }; }) };
     } else {
       if (!e.shiftKey) sel.clear();
       drag = { type: 'marquee', start: p, cur: p, base: new Set(sel) };
     }
     renderProps(); redraw();
   } else if (tool === 'wall') {
-    const s = snapPoint(p, null, null, alt);
-    drag = { type: 'draw', a: s, b: s };
+    const s = snapPoint(p, null, chain ? chain.a : null, alt);
+    drag = { type: 'draw', a: chain ? chain.a : s, b: s, fromChain: !!chain };
+  } else if (tool === 'measure') {
+    const s = snapPoint(p, null, null, alt); drag = { type: 'measure', a: s, b: s };
   } else if (tool === 'erase') {
     checkpoint(); drag = { type: 'erase' }; eraseAt(p);
   } else if (tool === 'cut') {
@@ -625,7 +911,9 @@ cv.addEventListener('pointerdown', e => {
     redraw();
   } else if (tool === 'place') {
     checkpoint();
-    const g = S.ppm * 0.05, it = makeItem(placeKind, $('#snap').checked ? Math.round(p.x / g) * g : p.x, $('#snap').checked ? Math.round(p.y / g) * g : p.y);
+    const g = S.ppm * 0.05, sn = $('#snap').checked && !alt;
+    const it = makeItem(placeKind, sn ? Math.round(p.x / g) * g : p.x, sn ? Math.round(p.y / g) * g : p.y);
+    if (!alt) snapOpening(it, p);
     S.items.push(it); sel = new Set([it.id]);
     if (!e.shiftKey) setTool('select');
     touch(); renderProps();
@@ -646,6 +934,7 @@ cv.addEventListener('pointermove', e => {
   switch (drag.type) {
     case 'pan': view.x = drag.vx + e.clientX - drag.sx; view.y = drag.vy + e.clientY - drag.sy; break;
     case 'draw': drag.b = snapPoint(p, null, drag.a, alt); break;
+    case 'measure': drag.b = snapPoint(p, null, drag.a, alt); break;
     case 'erase': eraseAt(p); break;
     case 'cut': drag.t1 = segDist(p.x, p.y, drag.wall.x1, drag.wall.y1, drag.wall.x2, drag.wall.y2).t; break;
     case 'marquee': drag.cur = p; marqueeSelect(); break;
@@ -657,6 +946,7 @@ cv.addEventListener('pointermove', e => {
         if (isWall(o.el)) { o.el.x1 = o.x1 + dx; o.el.y1 = o.y1 + dy; o.el.x2 = o.x2 + dx; o.el.y2 = o.y2 + dy; }
         else { o.el.x = o.x + dx; o.el.y = o.y + dy; }
       }
+      if (!alt && drag.orig.length === 1 && !isWall(drag.orig[0].el)) snapOpening(drag.orig[0].el, p);
       touch(); break;
     }
     case 'w1': case 'w2': {
@@ -685,18 +975,20 @@ function endPointer(e) {
   if (ptrs.size < 2) pinch = null;
   if (!drag) return;
   const d = drag; drag = null;
-  cv.style.cursor = { select: 'default', wall: 'crosshair', erase: 'cell', cut: 'crosshair', calib: 'crosshair', hand: 'grab', place: 'copy' }[tool];
+  cv.style.cursor = CURSORS[tool];
   if (d.type === 'draw') {
     if (Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y) * view.z > 6) {
       checkpoint();
-      const w = { id: uid(), x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y, t: wallThickness() };
-      S.walls.push(w); touch();
+      S.walls.push({ id: uid(), x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y, t: wallThickness() });
+      chain = (d.fromChain || d.wasClick) ? { a: d.b } : null; touch();
+    } else {
+      chain = d.fromChain ? null : { a: d.a };    // a click starts a chain, a click on the last point ends it
     }
+  } else if (d.type === 'measure') {
+    measureLast = Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y) * view.z > 4 ? { a: d.a, b: d.b } : null;
   } else if (d.type === 'cut') {
     cutWall(d.wall, d.t0, d.t1);
-  } else if (d.type === 'marquee') {
-    renderProps();
-  } else if (d.type === 'move' || d.type === 'erase') {
+  } else if (d.type === 'marquee' || d.type === 'move' || d.type === 'erase') {
     renderProps();
   }
   redraw();
@@ -704,6 +996,7 @@ function endPointer(e) {
 cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', endPointer);
 cv.addEventListener('pointerleave', () => { hover = null; if (tool === 'place' || tool === 'cut' || tool === 'wall') redraw(); });
+cv.addEventListener('dblclick', () => { chain = null; redraw(); });
 
 cv.addEventListener('wheel', e => {
   e.preventDefault();
@@ -714,9 +1007,13 @@ cv.addEventListener('wheel', e => {
 function eraseAt(p) {
   const tol = 4 / view.z;
   let hit = null;
-  for (let i = S.items.length - 1; i >= 0; i--) if (hitItem(S.items[i], p, tol)) { hit = S.items[i]; break; }
+  for (let i = S.items.length - 1; i >= 0; i--) if (!isUnder(S.items[i]) && hitItem(S.items[i], p, tol)) { hit = S.items[i]; break; }
   if (hit) S.items = S.items.filter(i => i !== hit);
-  else S.walls = S.walls.filter(w => !hitWall(w, p, tol));
+  else if (S.walls.some(w => hitWall(w, p, tol))) S.walls = S.walls.filter(w => !hitWall(w, p, tol));
+  else {
+    for (let i = S.items.length - 1; i >= 0; i--) if (hitItem(S.items[i], p, tol)) { hit = S.items[i]; break; }
+    if (hit) S.items = S.items.filter(i => i !== hit);
+  }
   sel = new Set([...sel].filter(id => getEl(id)));
   touch();
 }
@@ -756,12 +1053,44 @@ function finishCalibration() {
 }
 
 // ---------- image import + detection ----------
+function syncOutputs() { ['thr', 'minlen', 'minthick', 'gap', 'imgrot'].forEach(id => { const el = $('#' + id); el.parentElement.querySelector('output').textContent = el.value; }); }
+function grayOf(img, maxD) {
+  const sc = Math.min(1, maxD / Math.max(img.naturalWidth, img.naturalHeight));
+  const W = Math.max(1, Math.round(img.naturalWidth * sc)), H = Math.max(1, Math.round(img.naturalHeight * sc));
+  const oc = document.createElement('canvas'); oc.width = W; oc.height = H;
+  const o = oc.getContext('2d', { willReadFrequently: true });
+  o.fillStyle = '#fff'; o.fillRect(0, 0, W, H); o.drawImage(img, 0, 0, W, H);
+  return o.getImageData(0, 0, W, H).data;
+}
+function otsu(d) {
+  const hist = new Array(256).fill(0); let n = 0;
+  for (let i = 0; i < d.length; i += 4) { hist[Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2])]++; n++; }
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sb = 0, wb = 0, best = 0, bt = 120;
+  for (let t = 0; t < 256; t++) {
+    wb += hist[t]; if (!wb) continue; const wf = n - wb; if (!wf) break;
+    sb += t * hist[t]; const mb = sb / wb, mf = (sum - sb) / wf, v = wb * wf * (mb - mf) ** 2;
+    if (v > best) { best = v; bt = t; }
+  }
+  return bt;
+}
+function autoThreshold() {
+  if (!bg.img) return;
+  $('#thr').value = Math.max(70, Math.min(160, otsu(grayOf(bg.img, 800)))); syncOutputs();
+  if (S.walls.some(w => w.auto)) detectWalls(true);
+}
 function loadImageFromUrl(url, opts = {}) {
   return new Promise(res => {
     const img = new Image();
     img.onload = () => {
       bg = { img, url, w: img.naturalWidth, h: img.naturalHeight };
       if (!opts.keepScale && !S.calibrated) S.ppm = img.naturalWidth / 12;   // guess: plan is ~12 m wide
+      if (!opts.keepSettings) {
+        const m = Math.max(bg.w, bg.h);
+        $('#minlen').value = Math.max(8, Math.min(250, Math.round(m * 0.03)));
+        $('#minthick').value = Math.max(2, Math.min(40, Math.round(m * 0.004)));
+        $('#thr').value = Math.max(70, Math.min(160, otsu(grayOf(img, 800)))); syncOutputs();
+      }
       if (!opts.noFit) fit();
       touch(); res(true);
     };
@@ -775,6 +1104,7 @@ function readFileAsDataURL(f) {
 async function importFile(f) {
   if (!f || !f.type.startsWith('image/')) { toast('Dette er ikke et bilde'); return; }
   const url = await readFileAsDataURL(f);
+  S.imgRot = 0; $('#imgrot').value = 0;
   if (await loadImageFromUrl(url)) toast('Bilde importert – trykk «Konverter bilde til vegger»');
 }
 
@@ -791,6 +1121,20 @@ function keepRuns(mask, W, H, horiz, minRun) {
         if (i - start >= minRun) for (let k = start; k < i; k++) out[horiz ? o * W + k : k * W + o] = 1;
         start = -1;
       }
+    }
+  }
+  return out;
+}
+function fillGaps(mask, W, H, horiz, g) {      // bridge short white gaps between dark pixels (merges double lines)
+  const out = new Uint8Array(mask);
+  const outer = horiz ? H : W, inner = horiz ? W : H;
+  for (let o = 0; o < outer; o++) {
+    let last = -1;
+    for (let i = 0; i < inner; i++) {
+      const idx = horiz ? o * W + i : i * W + o;
+      if (!mask[idx]) continue;
+      if (last >= 0 && i - last > 1 && i - last - 1 <= g) for (let k = last + 1; k < i; k++) out[horiz ? o * W + k : k * W + o] = 1;
+      last = i;
     }
   }
   return out;
@@ -813,20 +1157,60 @@ function components(mask, W, H) {
   }
   return res;
 }
+
+// Align parallel walls, and extend wall ends to the centre line of the wall they meet.
+function tidyWalls(ws) {
+  const H = ws.filter(w => Math.abs(w.y1 - w.y2) < 1e-6), V = ws.filter(w => Math.abs(w.x1 - w.x2) < 1e-6);
+  const cluster = (arr, get, set) => {
+    arr.sort((a, b) => get(a) - get(b));
+    let g = [];
+    const flush = () => { if (!g.length) return; let sw = 0, s = 0; g.forEach(w => { const l = wLen(w) || 1; sw += l; s += get(w) * l; }); const m = s / sw; g.forEach(w => set(w, m)); g = []; };
+    for (const w of arr) {
+      if (g.length) { const m = g.reduce((a, x) => a + get(x), 0) / g.length; if (Math.abs(get(w) - m) > 0.5 * Math.min(w.t, ...g.map(x => x.t))) flush(); }
+      g.push(w);
+    }
+    flush();
+  };
+  cluster(H, w => w.y1, (w, v) => { w.y1 = w.y2 = v; });
+  cluster(V, w => w.x1, (w, v) => { w.x1 = w.x2 = v; });
+  for (const h of H) for (const e of [1, 2]) {
+    const x = h['x' + e], y = h.y1; let best = null;
+    for (const v of V) {
+      const tol = Math.max(h.t, v.t) * 0.6, lo = Math.min(v.y1, v.y2) - tol, hi = Math.max(v.y1, v.y2) + tol;
+      if (y < lo || y > hi) continue;
+      const d = Math.abs(x - v.x1); if (d <= Math.max(h.t, v.t) * 1.2 && (!best || d < best.d)) best = { d, x: v.x1 };
+    }
+    if (best) h['x' + e] = best.x;
+  }
+  for (const v of V) for (const e of [1, 2]) {
+    const y = v['y' + e], x = v.x1; let best = null;
+    for (const h of H) {
+      const tol = Math.max(h.t, v.t) * 0.6, lo = Math.min(h.x1, h.x2) - tol, hi = Math.max(h.x1, h.x2) + tol;
+      if (x < lo || x > hi) continue;
+      const d = Math.abs(y - h.y1); if (d <= Math.max(h.t, v.t) * 1.2 && (!best || d < best.d)) best = { d, y: h.y1 };
+    }
+    if (best) v['y' + e] = best.y;
+  }
+  return ws.filter(w => wLen(w) > 2);
+}
+
 function detectWalls(silent) {
   if (!bg.img) { toast('Importer et bilde først'); return; }
   const sc = Math.min(1, 1600 / Math.max(bg.w, bg.h));
   const W = Math.round(bg.w * sc), H = Math.round(bg.h * sc);
   const oc = document.createElement('canvas'); oc.width = W; oc.height = H;
   const o = oc.getContext('2d', { willReadFrequently: true });
-  o.fillStyle = '#fff'; o.fillRect(0, 0, W, H); o.drawImage(bg.img, 0, 0, W, H);
+  o.fillStyle = '#fff'; o.fillRect(0, 0, W, H);
+  o.translate(W / 2, H / 2); o.rotate((S.imgRot || 0) * Math.PI / 180); o.drawImage(bg.img, -W / 2, -H / 2, W, H);
   const d = o.getImageData(0, 0, W, H).data, thr = +$('#thr').value, dark = new Uint8Array(W * H);
   for (let i = 0; i < dark.length; i++) dark[i] = (0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) < thr && d[i * 4 + 3] > 40 ? 1 : 0;
   const minLen = Math.max(2, Math.round(+$('#minlen').value * sc)), minT = Math.max(1, Math.round(+$('#minthick').value * sc));
-  const hm = keepRuns(keepRuns(dark, W, H, true, minLen), W, H, false, minT);
-  const vm = keepRuns(keepRuns(dark, W, H, false, minLen), W, H, true, minT);
-  const out = [];
-  const push = (c, pxW) => {
+  const gap = Math.round(+$('#gap').value * sc);
+  const dv = gap ? fillGaps(dark, W, H, false, gap) : dark, dh = gap ? fillGaps(dark, W, H, true, gap) : dark;
+  const hm = keepRuns(keepRuns(dv, W, H, true, minLen), W, H, false, minT);
+  const vm = keepRuns(keepRuns(dh, W, H, false, minLen), W, H, true, minT);
+  let out = [];
+  const push = c => {
     const bw = c.x1 - c.x0 + 1, bh = c.y1 - c.y0 + 1;
     if (c.n < 0.55 * bw * bh || Math.max(bw, bh) < minLen) return;
     let w;
@@ -836,6 +1220,7 @@ function detectWalls(silent) {
     out.push(w);
   };
   components(hm, W, H).forEach(push); components(vm, W, H).forEach(push);
+  if ($('#tidy').checked) out = tidyWalls(out);
   if (!silent) checkpoint();
   S.walls = S.walls.filter(w => !w.auto).concat(out.map(w => ({ id: uid(), auto: true, ...w })));
   sel = new Set([...sel].filter(id => getEl(id)));
@@ -859,57 +1244,130 @@ function makeSample() {
   return c.toDataURL('image/png');
 }
 async function loadSample() {
-  S = { ppm: 50, calibrated: false, walls: [], items: [], next: 1 }; hist.u = []; hist.r = []; sel = new Set();
+  S = { ppm: 50, calibrated: false, imgRot: 0, walls: [], items: [], next: 1 };
+  V = { names: ['Alternativ A'], data: [null], cur: 0 }; hist.u = []; hist.r = []; sel = new Set(); opt.ghost = -1; chain = null;
+  $('#imgrot').value = 0;
   await loadImageFromUrl(makeSample());
   S.ppm = 920 / 11; S.calibrated = true;
-  detectWalls(true); fit();
-  toast('Eksempel lastet – prøv å slette en vegg eller legge til en kjøkkenøy');
+  detectWalls(true);
+  // windows and doors sit in the gaps, which also closes the rooms
+  const add = (kind, x, y, wpx, rot) => {
+    const it = makeItem(kind, x, y); it.w = wpx / S.ppm; if (kind === 'door') it.h = it.w; it.rot = rot; it.wt = 10 / S.ppm + 0.02;
+    if (kind === 'door') { const r = rot * Math.PI / 180; it.x = x + Math.sin(r) * wpx / 2; it.y = y - Math.cos(r) * wpx / 2; }
+    S.items.push(it);
+  };
+  add('window', 200, 45, 100, 0); add('window', 630, 45, 100, 0);
+  add('door', 405, 350, 80, 90); add('door', 685, 335, 90, 0); add('door', 270, 485, 80, 0);
+  renderTabs(); fit(); touch();
+  toast('Eksempel lastet – prøv å slette en vegg, legg til en kjøkkenøy, eller slå på «Vis romareal»');
+}
+
+// ---------- alternatives (tabs) ----------
+function renderTabs() {
+  const t = $('#tabs'); t.innerHTML = '';
+  V.names.forEach((n, i) => {
+    const d = document.createElement('div'); d.className = 'tab' + (i === V.cur ? ' on' : '');
+    d.innerHTML = `<span>${esc(n)}</span>` + (V.names.length > 1 ? '<span class="x" title="Slett alternativ">×</span>' : '');
+    d.onclick = e => { if (e.target.classList.contains('x')) delVariant(i); else if (i !== V.cur) switchVariant(i); };
+    d.ondblclick = e => { if (e.target.classList.contains('x')) return; const nn = prompt('Navn på alternativet:', n); if (nn) { V.names[i] = nn; renderTabs(); touch(); } };
+    t.appendChild(d);
+  });
+  const add = document.createElement('button'); add.className = 'sm'; add.textContent = '+ Kopi av dette'; add.title = 'Lag en kopi å eksperimentere med'; add.onclick = dupVariant;
+  t.appendChild(add);
+  const g = document.createElement('div'); g.className = 'grow'; t.appendChild(g);
+  if (V.names.length > 1) {
+    const l = document.createElement('span'); l.className = 'lbl'; l.textContent = 'Skygge:'; t.appendChild(l);
+    const sl = document.createElement('select');
+    sl.innerHTML = '<option value="-1">Av</option>' + V.names.map((n, i) => i === V.cur ? '' : `<option value="${i}" ${opt.ghost === i ? 'selected' : ''}>${esc(n)}</option>`).join('');
+    sl.onchange = () => { opt.ghost = +sl.value; redraw(); };
+    t.appendChild(sl);
+  }
+}
+function switchVariant(i) {
+  V.data[V.cur] = { walls: S.walls, items: S.items };
+  V.cur = i; S.walls = V.data[i].walls; S.items = V.data[i].items;
+  sel = new Set(); hist.u = []; hist.r = []; chain = null;
+  if (opt.ghost === i) opt.ghost = -1;
+  renderTabs(); touch(); renderProps();
+}
+function dupVariant() {
+  V.data[V.cur] = { walls: S.walls, items: S.items };
+  const letter = String.fromCharCode(65 + V.names.length);
+  V.names.push('Alternativ ' + (V.names.length < 26 ? letter : V.names.length + 1)); V.data.push(clone(V.data[V.cur]));
+  switchVariant(V.names.length - 1); toast('Kopi laget – endringer her påvirker ikke de andre alternativene');
+}
+function delVariant(i) {
+  if (!confirm(`Slette «${V.names[i]}»?`)) return;
+  V.data[V.cur] = { walls: S.walls, items: S.items };
+  V.names.splice(i, 1); V.data.splice(i, 1);
+  const nc = Math.min(i <= V.cur ? Math.max(0, V.cur - (i < V.cur ? 1 : 0)) : V.cur, V.names.length - 1);
+  V.cur = nc; S.walls = V.data[nc].walls; S.items = V.data[nc].items; opt.ghost = -1;
+  sel = new Set(); hist.u = []; hist.r = []; renderTabs(); touch(); renderProps();
 }
 
 // ---------- properties ----------
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function renderProps(light) {
   const box = $('#props');
   if (light && box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
   if (!sel.size) { box.className = 'hint'; box.textContent = 'Ingenting valgt.'; return; }
   box.className = '';
-  const actions = `<div class="row" style="margin-top:8px">
-      <button data-a="dup">Dupliser</button><button data-a="del" class="danger">Slett</button></div>`;
-  if (sel.size > 1) {
-    box.innerHTML = `<div class="hint">${sel.size} elementer valgt</div>${actions}`;
+  const actions = `<div class="row" style="margin-top:8px"><button data-a="dup">Dupliser</button><button data-a="del" class="danger">Slett</button></div>`;
+  const els = [...sel].map(getEl).filter(Boolean), walls = els.filter(isWall), items = els.filter(x => !isWall(x));
+  if (els.length > 1) {
+    let h = `<div class="hint">${walls.length} vegger, ${items.length} objekter valgt</div>`;
+    if (walls.length) h += `<label class="f"><span>Tykkelse (cm)</span><input type="number" min="1" step="1" data-f="mt" placeholder="sett for alle"></label>
+      <div class="row"><button data-a="loadOn">Bærende</button><button data-a="loadOff">Ikke bærende</button></div>`;
+    if (items.length > 1) h += `<div class="hint" style="margin-top:8px">Juster</div><div class="row">
+      <button class="sm" data-al="l">⇤ Venstre</button><button class="sm" data-al="cx">↔ Midt</button><button class="sm" data-al="r">⇥ Høyre</button>
+      <button class="sm" data-al="t">⤒ Topp</button><button class="sm" data-al="cy">↕ Midt</button><button class="sm" data-al="b">⤓ Bunn</button>
+      <button class="sm" data-al="dh">Fordel ↔</button><button class="sm" data-al="dv">Fordel ↕</button></div>`;
+    box.innerHTML = h + actions;
   } else {
-    const el = getEl([...sel][0]);
+    const el = els[0];
     if (isWall(el)) {
       box.innerHTML = `<label class="f"><span>Lengde (m)</span><input type="number" step="0.05" min="0.05" data-f="len" value="${(wLen(el) / S.ppm).toFixed(2)}"></label>
-        <label class="f"><span>Tykkelse (cm)</span><input type="number" step="1" min="1" data-f="t" value="${(el.t / S.ppm * 100).toFixed(1)}"></label>${actions}`;
+        <label class="f"><span>Tykkelse (cm)</span><input type="number" step="1" min="1" data-f="t" value="${(el.t / S.ppm * 100).toFixed(1)}"></label>
+        <label class="chk"><input type="checkbox" data-f="load" ${el.load ? 'checked' : ''}> Bærende vegg (markeres rød)</label>${actions}`;
     } else {
+      const op = isOpening(el);
       box.innerHTML = `<label class="f"><span>Navn</span><input type="text" data-f="label" value="${esc(el.label || '')}"></label>
         <label class="f"><span>Bredde (m)</span><input type="number" step="0.05" min="0.05" data-f="w" value="${el.w.toFixed(2)}"></label>
         <label class="f"><span>Dybde (m)</span><input type="number" step="0.05" min="0.05" data-f="h" value="${el.h.toFixed(2)}"></label>
         <label class="f"><span>Rotasjon (°)</span><input type="number" step="15" data-f="rot" value="${el.rot}"></label>
-        <label class="f"><span>Farge</span><input type="color" data-f="color" value="${/^#[0-9a-f]{6}$/i.test(el.color) ? el.color : '#dddddd'}"></label>
-        <div class="row"><button data-a="rot">Roter 90°</button><button data-a="flip">Speil</button></div>${actions}`;
+        ${op ? '' : `<label class="f"><span>Farge</span><input type="color" data-f="color" value="${/^#[0-9a-f]{6}$/i.test(el.color) ? el.color : '#dddddd'}"></label>`}
+        <div class="row"><button data-a="rot">Roter 90°</button><button data-a="flip">Speil</button></div>
+        <div class="row" style="margin-top:6px"><button data-a="front">Fremst</button><button data-a="back">Bakerst</button></div>${actions}`;
     }
   }
 }
-const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 $('#props').addEventListener('change', e => {
-  const f = e.target.dataset.f; if (!f || sel.size !== 1) return;
+  const f = e.target.dataset.f; if (!f) return;
+  if (f === 'mt') {
+    const v = +e.target.value; if (!(v > 0)) return; checkpoint();
+    S.walls.forEach(w => { if (sel.has(w.id)) w.t = v / 100 * S.ppm; }); touch(); renderProps(); return;
+  }
+  if (sel.size !== 1) return;
   const el = getEl([...sel][0]); checkpoint();
   const v = e.target.value;
   if (f === 'len') { const L = wLen(el) || 1, nl = Math.max(0.05, +v) * S.ppm; el.x2 = el.x1 + (el.x2 - el.x1) / L * nl; el.y2 = el.y1 + (el.y2 - el.y1) / L * nl; }
   else if (f === 't') el.t = Math.max(1, +v) / 100 * S.ppm;
+  else if (f === 'load') el.load = e.target.checked;
   else if (f === 'label' || f === 'color') el[f] = v;
   else if (f === 'rot') el.rot = ((+v % 360) + 360) % 360;
   else el[f] = Math.max(0.05, +v);
   touch(); renderProps();
 });
 $('#props').addEventListener('click', e => {
+  const al = e.target.dataset.al; if (al) { alignSel(al); return; }
   const a = e.target.dataset.a; if (!a) return;
   if (a === 'del') deleteSel();
   else if (a === 'dup') duplicateSel();
-  else if (a === 'rot' || a === 'flip') {
-    const el = getEl([...sel][0]); checkpoint();
-    if (a === 'rot') el.rot = (el.rot + 90) % 360; else el.flip = !el.flip;
+  else if (a === 'loadOn' || a === 'loadOff') { checkpoint(); S.walls.forEach(w => { if (sel.has(w.id)) w.load = a === 'loadOn'; }); touch(); }
+  else {
+    const el = getEl([...sel][0]); if (!el) return; checkpoint();
+    if (a === 'rot') el.rot = (el.rot + 90) % 360; else if (a === 'flip') el.flip = !el.flip;
+    else if (a === 'front' || a === 'back') { S.items = S.items.filter(i => i !== el); a === 'front' ? S.items.push(el) : S.items.unshift(el); }
     touch(); renderProps();
   }
 });
@@ -922,16 +1380,48 @@ function duplicateSel() {
   if (!sel.size) return; checkpoint();
   const off = S.ppm * 0.4, ns = new Set();
   for (const id of sel) {
-    const el = JSON.parse(JSON.stringify(getEl(id))); el.id = uid(); delete el.auto;
+    const el = clone(getEl(id)); el.id = uid(); delete el.auto;
     if (isWall(el)) { el.x1 += off; el.y1 += off; el.x2 += off; el.y2 += off; S.walls.push(el); }
     else { el.x += off; el.y += off; S.items.push(el); }
     ns.add(el.id);
   }
   sel = ns; touch(); renderProps();
 }
+function copySel() {
+  if (!sel.size) return false;
+  clip = [...sel].map(id => clone(getEl(id))); return true;
+}
+function pasteClip() {
+  if (!clip || !clip.length) return false; checkpoint();
+  const off = S.ppm * 0.5, ns = new Set();
+  clip.forEach(c0 => {
+    const el = clone(c0); el.id = uid(); delete el.auto;
+    if (isWall(el)) { el.x1 += off; el.y1 += off; el.x2 += off; el.y2 += off; S.walls.push(el); }
+    else { el.x += off; el.y += off; S.items.push(el); }
+    ns.add(el.id);
+  });
+  clip = clip.map(c0 => { const n = clone(c0); if (isWall(n)) { n.x1 += off; n.y1 += off; n.x2 += off; n.y2 += off; } else { n.x += off; n.y += off; } return n; });
+  sel = ns; touch(); renderProps(); return true;
+}
 function nudge(dx, dy) {
   if (!sel.size) return; checkpoint();
   for (const id of sel) { const el = getEl(id); if (isWall(el)) { el.x1 += dx; el.x2 += dx; el.y1 += dy; el.y2 += dy; } else { el.x += dx; el.y += dy; } }
+  touch();
+}
+function alignSel(mode) {
+  const its = [...sel].map(getEl).filter(x => x && !isWall(x)); if (its.length < 2) return; checkpoint();
+  const ex = it => { const a = it.rot * Math.PI / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a)); return { hw: (c * it.w + s * it.h) * S.ppm / 2, hh: (s * it.w + c * it.h) * S.ppm / 2 }; };
+  const L = Math.min(...its.map(i => i.x - ex(i).hw)), R = Math.max(...its.map(i => i.x + ex(i).hw));
+  const T = Math.min(...its.map(i => i.y - ex(i).hh)), B = Math.max(...its.map(i => i.y + ex(i).hh));
+  its.forEach(i => {
+    const e = ex(i);
+    if (mode === 'l') i.x = L + e.hw; else if (mode === 'r') i.x = R - e.hw; else if (mode === 'cx') i.x = (L + R) / 2;
+    else if (mode === 't') i.y = T + e.hh; else if (mode === 'b') i.y = B - e.hh; else if (mode === 'cy') i.y = (T + B) / 2;
+  });
+  if (mode === 'dh' || mode === 'dv') {
+    const k = mode === 'dh' ? 'x' : 'y', s = [...its].sort((a, b) => a[k] - b[k]), n = s.length;
+    s.forEach((i, idx) => { i[k] = s[0][k] + (s[n - 1][k] - s[0][k]) * idx / (n - 1); });
+  }
   touch();
 }
 
@@ -942,11 +1432,12 @@ function download(name, blob) {
 }
 function exportPng() {
   const b = bounds(); if (!b) { toast('Ingenting å eksportere'); return; }
+  if (!S.walls.length && !S.items.length) { b.x0 = 0; }
   const m = 30, sc = Math.min(2, 4000 / Math.max(b.x1 - b.x0, b.y1 - b.y0));
   const c = document.createElement('canvas'); c.width = Math.ceil((b.x1 - b.x0 + m * 2) * sc); c.height = Math.ceil((b.y1 - b.y0 + m * 2) * sc);
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
   g.scale(sc, sc); g.translate(m - b.x0, m - b.y0);
-  const sv = view.z; view.z = 1e3; drawWorld(g, { ui: false, paper: '#fff' }); view.z = sv;
+  const sv = view.z; view.z = 1e3; drawWorld(g, { ui: false, paper: '#fff', labels: true }); view.z = sv;
   c.toBlob(bl => download('planlosning.png', bl));
 }
 
@@ -956,41 +1447,60 @@ $('#file').onchange = e => { importFile(e.target.files[0]); e.target.value = '';
 $('#emptyImport').onclick = () => $('#file').click();
 $('#sample').onclick = $('#emptySample').onclick = loadSample;
 $('#undo').onclick = undo; $('#redo').onclick = redo; $('#fit').onclick = () => { fit(); updateStatus(); };
+$('#zfit').onclick = $('#fit').onclick;
+$('#zin').onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.3); updateStatus(); };
+$('#zout').onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.3); updateStatus(); };
 $('#detect').onclick = () => detectWalls(false);
+$('#autothr').onclick = autoThreshold;
+$('#tidyBtn').onclick = () => {
+  if (!S.walls.length) return; checkpoint();
+  const n = S.walls.length; S.walls = tidyWalls(S.walls); touch(); toast(`Ryddet opp (${n} → ${S.walls.length} vegger)`);
+};
+$('#rmauto').onclick = () => { if (!S.walls.some(w => w.auto)) return; checkpoint(); S.walls = S.walls.filter(w => !w.auto); sel = new Set([...sel].filter(id => getEl(id))); touch(); renderProps(); };
 $('#png').onclick = exportPng;
-$('#save').onclick = () => download('planlosning.json', new Blob([JSON.stringify({ S, img: bg.url && bg.url.startsWith('data:') ? bg.url : null })], { type: 'application/json' }));
+$('#save').onclick = () => download('planlosning.json', new Blob([pack(true)], { type: 'application/json' }));
 $('#load').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   try {
-    const d = JSON.parse(await f.text()); if (!d.S || !Array.isArray(d.S.walls)) throw 0;
-    checkpoint(); S = d.S; sel = new Set();
-    if (d.img) await loadImageFromUrl(d.img, { keepScale: true, noFit: true }); else bg = { img: null, url: null, w: 0, h: 0 };
-    fit(); touch(); renderProps(); toast('Plan åpnet');
+    const d = JSON.parse(await f.text());
+    if (d.v === 2 ? !(d.S && d.V) : !(d.S && Array.isArray(d.S.walls))) throw 0;
+    unpack(d);
+    if (d.img) await loadImageFromUrl(d.img, { keepScale: true, noFit: true, keepSettings: true }); else bg = { img: null, url: null, w: 0, h: 0 };
+    $('#imgrot').value = S.imgRot || 0; syncOutputs();
+    renderTabs(); fit(); touch(); renderProps(); toast('Plan åpnet');
   } catch { toast('Kunne ikke åpne filen'); }
 };
 $('#clear').onclick = () => {
-  if (!confirm('Fjerne alle vegger og møbler og bildet?')) return;
+  if (!confirm('Fjerne alle vegger og møbler (i dette alternativet) og bildet?')) return;
   checkpoint(); S.walls = []; S.items = []; bg = { img: null, url: null, w: 0, h: 0 }; sel = new Set(); touch(); renderProps();
 };
-['thr', 'minlen', 'minthick'].forEach(id => {
-  const el = $('#' + id), out = el.parentElement.querySelector('output');
-  const upd = () => out.textContent = el.value; upd();
-  let cp = false;
-  el.addEventListener('pointerdown', () => { if (S.walls.some(w => w.auto)) { checkpoint(); cp = true; } });
-  el.addEventListener('input', () => { upd(); if (bg.img && S.walls.some(w => w.auto)) detectWalls(true); });
+['thr', 'minlen', 'minthick', 'gap'].forEach(id => {
+  const el = $('#' + id);
+  el.addEventListener('pointerdown', () => { if (S.walls.some(w => w.auto)) checkpoint(); });
+  el.addEventListener('input', () => { syncOutputs(); if (bg.img && S.walls.some(w => w.auto)) detectWalls(true); });
 });
-$('#showimg').onchange = $('#imgop').oninput = redraw;
+$('#imgrot').addEventListener('pointerdown', () => checkpoint());
+$('#imgrot').addEventListener('input', () => { S.imgRot = +$('#imgrot').value; syncOutputs(); if (bg.img && S.walls.some(w => w.auto)) detectWalls(true); touch(); });
+$('#showimg').onchange = $('#imgop').oninput = $('#optGrid').onchange = $('#optDims').onchange = redraw;
+$('#optRooms').onchange = redraw;
 $('#wallcm').onchange = redraw;
+$('#helpBtn').onclick = () => $('#help').style.display = 'flex';
+$('#helpClose').onclick = () => $('#help').style.display = 'none';
 
 window.addEventListener('dragover', e => { e.preventDefault(); $('#drop').style.display = 'flex'; });
 window.addEventListener('dragleave', e => { if (!e.relatedTarget) $('#drop').style.display = 'none'; });
 window.addEventListener('drop', e => { e.preventDefault(); $('#drop').style.display = 'none'; importFile(e.dataTransfer.files[0]); });
+const typingNow = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && !['range', 'checkbox'].includes(document.activeElement.type);
 window.addEventListener('paste', e => {
-  const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/')); if (f) importFile(f);
+  if (typingNow()) return;
+  const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (f) { importFile(f); return; }
+  if (pasteClip()) e.preventDefault();
 });
+window.addEventListener('copy', e => { if (!typingNow() && copySel()) { e.preventDefault(); toast('Kopiert'); } });
 
 window.addEventListener('keydown', e => {
-  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && document.activeElement.type !== 'range' && document.activeElement.type !== 'checkbox';
+  const typing = typingNow();
   if (e.code === 'Space' && !typing) { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); return; }
   if (typing) return;
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
@@ -1000,33 +1510,39 @@ window.addEventListener('keydown', e => {
   else if (mod && k === 'a') { e.preventDefault(); sel = new Set([...S.walls, ...S.items].map(x => x.id)); renderProps(); redraw(); }
   else if (mod) return;
   else if (k === 'delete' || k === 'backspace') { e.preventDefault(); deleteSel(); }
-  else if (k === 'escape') { sel = new Set(); placeKind = null; setTool('select'); renderProps(); }
+  else if (k === 'escape') {
+    if ($('#help').style.display === 'flex') { $('#help').style.display = 'none'; return; }
+    if (chain) { chain = null; redraw(); return; }
+    sel = new Set(); placeKind = null; setTool('select'); renderProps();
+  }
+  else if (k === '?') $('#help').style.display = 'flex';
   else if (k === 'v') setTool('select'); else if (k === 'w') setTool('wall'); else if (k === 'e') setTool('erase');
-  else if (k === 'c') setTool('cut'); else if (k === 'k') setTool('calib'); else if (k === 'h') setTool('hand');
+  else if (k === 'c') setTool('cut'); else if (k === 'k') setTool('calib'); else if (k === 'h') setTool('hand'); else if (k === 'm') setTool('measure');
   else if (k === 'r') { const its = [...sel].map(getEl).filter(x => x && !isWall(x)); if (its.length) { checkpoint(); its.forEach(i => i.rot = (i.rot + 90) % 360); touch(); renderProps(); } }
   else if (k.startsWith('arrow')) {
     e.preventDefault(); const s = (e.shiftKey ? 0.5 : 0.05) * S.ppm;
     nudge(k === 'arrowleft' ? -s : k === 'arrowright' ? s : 0, k === 'arrowup' ? -s : k === 'arrowdown' ? s : 0);
   }
 });
-window.addEventListener('keyup', e => { if (e.code === 'Space') { spaceDown = false; setTool(tool); } });
+window.addEventListener('keyup', e => { if (e.code === 'Space') { spaceDown = false; cv.style.cursor = CURSORS[tool]; } });
 
 let toastT = 0;
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3800);
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 4200);
 }
 
 // ---------- boot ----------
 buildCatalog();
 (async function boot() {
   try {
-    const d = JSON.parse(localStorage.getItem('planlosning') || 'null');
-    if (d && d.S) { S = d.S; if (d.img) await loadImageFromUrl(d.img, { keepScale: true, noFit: true }); }
+    const d = JSON.parse(localStorage.getItem('planlosning2') || 'null');
+    if (d && d.v === 2) { unpack(d); if (d.img) await loadImageFromUrl(d.img, { keepScale: true, noFit: true, keepSettings: true }); }
   } catch {}
-  resize(); fit(); setTool('select'); renderProps();
+  $('#imgrot').value = S.imgRot || 0; syncOutputs();
+  renderTabs(); resize(); fit(); setTool('select'); renderProps();
 })();
-window.__plan = { get S() { return S; }, detectWalls, loadSample };   // handy for debugging
+window.__plan = { get S() { return S; }, get V() { return V; }, detectWalls, loadSample, computeRooms, tidyWalls };   // handy for debugging
 </script>
 </body>
 </html>
