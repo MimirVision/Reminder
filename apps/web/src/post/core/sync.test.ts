@@ -83,15 +83,6 @@ test('a message with a pending local action is not overwritten or resurrected by
   assert.deepEqual((await store.allMail()).map((m) => m.id), ['2']);
 });
 
-test('snooze survives an update from the server', async () => {
-  const store = memoryStore();
-  await syncAccount({ graph: fakeGraph([{ value: [raw('1')], delta: 'D1' }]).g, store, account: 'a' });
-  const m = (await store.getMail('a|1'))!;
-  await store.putMail([{ ...m, snoozedUntil: '2026-10-06T08:00:00Z' }]);
-  await syncAccount({ graph: fakeGraph([{ value: [raw('1', { isRead: true })], delta: 'D2' }]).g, store, account: 'a' });
-  assert.equal((await store.getMail('a|1'))!.snoozedUntil, '2026-10-06T08:00:00Z');
-});
-
 test('the first sort uses the sender and the words; the header marks sharpen it afterwards, once', async () => {
   const store = memoryStore();
   await syncAccount({ graph: fakeGraph([{ value: [shop('1', { subject: 'Nyheter fra oss' }), raw('2')], delta: 'D1' }]).g, store, account: 'a' });
@@ -182,17 +173,17 @@ test('a choice made while headers are being read is used for the next group', as
   assert.equal((await store.getMail('a|m0'))!.kind, 'person', 'the second group saw the new choice');
 });
 
-test('reading headers never overwrites what you did meanwhile (read, snooze)', async () => {
+test('reading headers never overwrites what you did meanwhile (read, flag)', async () => {
   const store = memoryStore();
   await syncAccount({ graph: fakeGraph([{ value: [raw('1')], delta: 'D1' }]).g, store, account: 'a' });
   const { g } = fakeGraph([], {}, { batch: async (calls) => {
     const m = (await store.getMail('a|1'))!;
-    await store.putMail([{ ...m, isRead: true, snoozedUntil: '2026-10-06T08:00:00Z' }]); // the person acts while the answer is on its way
+    await store.putMail([{ ...m, isRead: true, flagged: true }]); // the person acts while the answer is on its way
     return calls.map(() => ({ status: 200, body: { internetMessageHeaders: UNSUB } }));
   } });
   await enrichHeaders({ graph: g, store, account: 'a', ctx: () => ({}) });
   const m = (await store.getMail('a|1'))!;
-  assert.deepEqual([m.isRead, m.snoozedUntil, m.sig], [true, '2026-10-06T08:00:00Z', ['unsub']]);
+  assert.deepEqual([m.isRead, m.flagged, m.sig], [true, true, ['unsub']]);
 });
 
 test('it can be stopped, and it never asks more than it was told to', async () => {

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { State } from '../core/controller.ts';
-import { replyLaterThreads, snoozedThreads } from '../core/controller.ts';
-import { shortTime } from '../core/format.ts';
+import { replyLaterThreads } from '../core/controller.ts';
 import { FOLDER_NAME } from '../core/folders.ts';
 import type { Mail } from '../core/types.ts';
 import { Icon } from './ui.tsx';
@@ -60,20 +59,13 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
 }
 
 export function Later({ s, pane = false }: { s: State; pane?: boolean }) {
-  const c = useC();
   const now = useNow();
-  const snoozed = snoozedThreads(s, now);
   const later = replyLaterThreads(s, now);
   const open = (m: Mail) => go({ name: 'message', account: m.account, id: m.id });
   return (
     <div className="pg">
       <header className="hd"><h1 className="h1">Later</h1></header>
       <div className="scroll">
-        <div className="sec">Snoozed</div>
-        {snoozed.length ? <div className="card">{snoozed.map((t) => (
-          <div key={t.key} className="sw-row"><Row m={t.latest} thread={t} s={s} selecting={false} selected={false} onOpen={() => open(t.latest)} onToggle={() => {}} />
-            <div style={{ position: 'absolute', right: 12, top: 8 }}><button className="chip" onClick={() => void c.unsnooze(t.items)} aria-label="Bring back now"><Icon n="clock" size={14} />{shortTime(t.latest.snoozedUntil!)} · now</button></div></div>
-        ))}</div> : <p className="note">Nothing snoozed. Swipe a message left to snooze it.</p>}
         <div className="sec">Reply later</div>
         {later.length ? <div className="card">{later.map((t) => <div key={t.key} className="sw-row"><Row m={t.latest} thread={t} s={s} selecting={false} selected={false} onOpen={() => open(t.latest)} onToggle={() => {}} /></div>)}</div> : <p className="note">Flagged messages show up here, so “I will answer that later” does not get lost.</p>}
       </div>

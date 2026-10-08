@@ -36,7 +36,7 @@ export const folderContext = (s: State, key: string | null): FolderView | null =
 export const folderTitle = (s: State, t: FolderTarget): string =>
   t.kind === 'other' ? s.folders.find((f) => f.account === t.account && f.id === t.id)?.name ?? 'Folder' : FOLDER_NAME[t.kind];
 
-/** Re-renders now and then so a snoozed message comes back on time without a reload. */
+/** Re-renders now and then, so times shown on screen (Today, Yesterday, ages) stay right without a reload. */
 export function useNow(ms = 30_000): number {
   const [n, setN] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setN(Date.now()), ms); return () => clearInterval(t); }, [ms]);

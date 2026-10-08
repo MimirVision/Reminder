@@ -10,7 +10,6 @@ import { isFreemail, orgDomain, ruleFor } from '../core/classify.ts';
 import { isMine, looksLikeReply, replyTarget, threadKey, threadOf } from '../core/threads.ts';
 import { KIND_ONE, KIND_TAB, KINDS, mailKey, type FolderKind, type Mail, type MailBody } from '../core/types.ts';
 import { Avatar, Icon, KIND_ICON, Sheet, Switch } from './ui.tsx';
-import { SnoozeSheet } from './Inbox.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
 import { RemindSheet } from './Remind.tsx';
 import { back, folderContext, folderTitle, go, labelOf, openMail, routeOfFolder, useBadge, useC, useDark, useNow, useRoomyPane } from './ctx.tsx';
@@ -41,7 +40,7 @@ type Asked = { key: string; state: 'looking' | 'done' | 'failed'; mail: Mail | n
 
 /**
  * A message, and the conversation it is part of. The newest message is open and the older ones are folded up under it, each one a tap
- * away; your own replies are in it too. Archiving, snoozing and the rest reach every message of the conversation that is in the inbox.
+ * away; your own replies are in it too. Archiving and the rest reach every message of the conversation that is in the inbox.
  * A message that is not in the inbox (opened from a folder, a search or a link) is one message here: what you do reaches it alone, and the
  * buttons are the ones that fit where it is (Archive for a sent message, Inbox for an archived one, Not junk, Restore).
  */
@@ -63,7 +62,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const badge = useBadge(s)(email);
   const [found, setFound] = useState<Found | null>(null);
   const [flip, setFlip] = useState<{ key: string; keys: ReadonlySet<string> }>({ key: '', keys: NONE });
-  const [sheet, setSheet] = useState<null | 'more' | 'snooze' | 'why' | 'remind' | 'move' | 'block'>(null);
+  const [sheet, setSheet] = useState<null | 'more' | 'why' | 'remind' | 'move' | 'block'>(null);
   const [anchorBody, setAnchorBody] = useState<{ key: string; body: MailBody } | null>(null);
   const [retry, setRetry] = useState(0);
   const forceNext = useRef(false);
@@ -138,7 +137,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
   const prev: Mail | null = idx <= 0 ? null : rows ? rows[idx - 1] : list[idx - 1].latest;
   const home = far && view ? routeOfFolder(view.target) : { name: 'inbox' as const };
   const homeName = far ? (view ? folderTitle(s, view.target) : 'Back') : 'Inbox';
-  // Moving on after archiving, deleting or snoozing replaces the screen, so Back goes to the list and not to a message that is gone.
+  // Moving on after archiving or deleting replaces the screen, so Back goes to the list and not to a message that is gone.
   const open = (n: Mail | null, replace = false) => (n ? openMail(n, { replace }) : go(home, { replace }));
 
   if (!m || !target) {
@@ -199,7 +198,6 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             {/* the rest show their words only when the window is wide enough; their name is always there for a screen reader and a hover */}
             <button type="button" className="tool opt" title="Forward" aria-label="Forward" onClick={() => reply('forward')}><Icon n="forward" size={18} /><span className="tl">Forward</span></button>
             {movable && <button type="button" className="tool opt" title="Move to a folder" aria-label="Move to a folder" onClick={() => setSheet('move')}><Icon n="folder" size={18} /><span className="tl">Move</span></button>}
-            {canTriage && <button type="button" className="tool opt" title="Snooze (z)" aria-label="Snooze" onClick={() => setSheet('snooze')}><Icon n="clock" size={18} /><span className="tl">Snooze</span></button>}
             {canDelete && <button type="button" className="tool opt" title="Delete (#)" aria-label="Delete" onClick={deleteIt}><Icon n="trash" size={18} /><span className="tl">Delete</span></button>}
             <button type="button" className="tool icon" aria-label="More" title="More" onClick={() => setSheet('more')}><Icon n="more" size={18} /></button>
           </div>
@@ -228,12 +226,10 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
           <button className="ib" aria-label={many && !isMine(target) ? `Reply to ${displayName(target.fromName, target.fromAddress)}` : 'Reply'} onClick={() => reply('reply')}><Icon n="reply" /><span className="lb">Reply</span></button>
           {canTriage && <button className="go" onClick={archiveNext}><Icon n="archive" />Archive{next ? <small>· next</small> : null}</button>}
           {primary && <button className="go" onClick={() => wayNext(primary)}><Icon n={primary.icon} />{primary.label}{next ? <small>· next</small> : null}</button>}
-          {canTriage && <button className="ib" aria-label="Snooze" onClick={() => setSheet('snooze')}><Icon n="clock" /><span className="lb">Snooze</span></button>}
           {far && <button className="ib" aria-label="Move to a folder" onClick={() => setSheet('move')}><Icon n="folder" /><span className="lb">Move</span></button>}
           <button className="ib" aria-label="More" onClick={() => setSheet('more')}><Icon n="more" /><span className="lb">More</span></button>
         </div>
       )}
-      {sheet === 'snooze' && <SnoozeSheet onClose={() => setSheet(null)} onPick={(at, label) => { void c.snooze(local, at, label); setSheet(null); open(next, true); }} />}
       {sheet === 'move' && movable && <MoveSheet s={s} items={far ? [m] : local} rows={1} inbox={!far} onClose={() => setSheet(null)} onMoved={() => open(next, true)} />}
       {sheet === 'remind' && <RemindSheet m={m} preview={anchorBody?.key === key && anchorBody.body.contentType === 'text' ? anchorBody.body.content : m.preview} onClose={() => setSheet(null)} />}
       {sheet === 'why' && here && <SortSheet s={s} m={here} onClose={() => setSheet(null)} />}

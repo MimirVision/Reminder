@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanUpList, cleanUpThreads, createController, mailCounts, replyLaterThreads, snoozedThreads, triageThreads, visibleMail, visibleThreads, type Deps } from './controller.ts';
+import { cleanUpList, cleanUpThreads, createController, mailCounts, replyLaterThreads, triageThreads, visibleMail, visibleThreads, type Deps } from './controller.ts';
 import { memoryStore, type Store } from './store.ts';
 import { rulesDigest } from './classify.ts';
 
@@ -252,16 +252,6 @@ test('mark read is optimistic and goes to Outlook straight away', async () => {
   assert.equal(c.getState().mail[0].isRead, true);
   await new Promise((r) => setTimeout(r, 10));
   assert.ok(w.log.some((l) => l.includes('graph patch 1') && l.includes('"isRead":true')));
-});
-
-test('snooze hides the message from the inbox list until its time, and keeps it in Later', async () => {
-  const w = world(); w.add('1');
-  const { c } = make(w);
-  await c.init();
-  await c.snooze(c.getState().mail[0], new Date('2026-10-06T08:00:00Z'), 'tomorrow 08:00');
-  const now = Date.parse('2026-10-05T10:00:00Z');
-  assert.equal(visibleMail(c.getState(), now).length, 0);
-  assert.equal(visibleMail(c.getState(), Date.parse('2026-10-06T09:00:00Z')).length, 1);
 });
 
 test('offline: the app opens with the stored mail and says so honestly', async () => {
@@ -1084,7 +1074,7 @@ test('conversations: messages that answer each other are one row, in the tab of 
   assert.equal(mailCounts({ ...s, settings: { ...s.settings, threads: false } }, T0).total, 4);
 });
 
-test('conversations: the tab filter, the mailbox filter and the snooze work on the whole conversation', async () => {
+test('conversations: the tab filter and the mailbox filter work on the whole conversation', async () => {
   const w = world();
   const shop = { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } };
   chat(w, 'C1', ['1', '2']);
@@ -1097,30 +1087,6 @@ test('conversations: the tab filter, the mailbox filter and the snooze work on t
   assert.deepEqual(visibleThreads({ ...s, view: 'promo' }, T0).map((t) => t.items.length), [2]);
   assert.deepEqual(visibleThreads({ ...s, view: 'person' }, T0).map((t) => t.items.length), [2]);
   assert.deepEqual(visibleThreads({ ...s, view: 'all', accountFilter: 'nobody@x.no' }, T0), []);
-  // snoozed: the row goes while its newest message is snoozed
-  await c.snooze(c.threadOf(s.mail.find((m) => m.id === '2')!), new Date('2026-10-06T08:00:00Z'), 'tomorrow');
-  assert.equal(c.getState().toast!.text, 'Snoozed until tomorrow');
-  assert.deepEqual(visibleThreads({ ...c.getState(), view: 'person' }, T0), []);
-  assert.deepEqual(snoozedThreads(c.getState(), T0).map((t) => t.items.length), [2], 'one row in Later, not one for each message');
-  assert.equal(visibleThreads({ ...c.getState(), view: 'person' }, Date.parse('2026-10-06T09:00:00Z')).length, 1, 'back at its time');
-  // ... and one Undo brings back the lot
-  c.getState().toast!.undo!();
-  await settle();
-  assert.equal(visibleThreads({ ...c.getState(), view: 'person' }, T0).length, 1);
-  assert.deepEqual(snoozedThreads(c.getState(), T0), []);
-});
-
-test('conversations: a new answer brings a snoozed conversation back', async () => {
-  const w = world();
-  chat(w, 'C1', ['1', '2']);
-  const { c } = make(w);
-  await c.init();
-  await c.snooze(c.getState().mail, new Date('2026-10-06T08:00:00Z'), 'tomorrow');
-  assert.equal(visibleThreads(c.getState(), T0).length, 0);
-  w.add('3', { conversationId: 'C1', subject: 'Re: Ferie', receivedDateTime: '2026-10-05T09:00:00Z' });
-  await c.sync();
-  const rows = visibleThreads(c.getState(), T0);
-  assert.deepEqual(rows.map((t) => t.items.map((m) => m.id)), [['3', '2', '1']], 'the new message is not snoozed, so the conversation is back with all its messages');
 });
 
 test('conversations: archiving a conversation moves every message of it, with one toast and one Undo', async () => {
@@ -1190,9 +1156,9 @@ test('read and flag started at the same moment both stick (neither overwrites th
   const { c } = make(w);
   await c.init();
   const m = c.getState().mail[0];
-  await Promise.all([c.setFlag(m, true), c.setRead(m, true), c.snooze(m, new Date('2026-10-06T08:00:00Z'), 'tomorrow')]);
+  await Promise.all([c.setFlag(m, true), c.setRead(m, true)]);
   const x = c.getState().mail[0];
-  assert.deepEqual([x.flagged, x.isRead, !!x.snoozedUntil], [true, true, true]);
+  assert.deepEqual([x.flagged, x.isRead], [true, true]);
 });
 
 test('read and flag leave a message that is not on the phone alone', async () => {
@@ -1200,7 +1166,7 @@ test('read and flag leave a message that is not on the phone alone', async () =>
   const { c, store } = make(w);
   await c.init();
   const gone = { ...c.getState().mail[0], key: 'a@outlook.com|elsewhere', id: 'elsewhere' };
-  await c.setRead(gone, true); await c.setFlag(gone, true); await c.snooze(gone, new Date('2026-10-06T08:00:00Z'), 'x');
+  await c.setRead(gone, true); await c.setFlag(gone, true);
   assert.equal(await store.getMail(gone.key), undefined);
   assert.equal(c.getState().mail.length, 1);
 });
@@ -1464,12 +1430,11 @@ test('Triage goes through the unread rows of the tab you are in, never a flagged
   // the button and the screen use the same rows: every unread, not flagged row of the list, and nothing else
   const rows = visibleThreads({ ...s, view: 'person', unreadOnly: true }, T0);
   assert.equal(triageThreads({ ...s, view: 'person' }, T0).length, rows.length - 1, 'the rows of the unread list but for the flagged one');
-  // what is read, snoozed or flagged on the way is gone from it
+  // what is read or flagged on the way is gone from it
   await c.markRead(c.threadOf(s.mail.find((m) => m.id === '3')!), { quiet: true });
   assert.deepEqual(triageThreads({ ...c.getState(), view: 'person' }, T0).map((t) => t.latest.id), ['2']);
-  await c.snooze(c.threadOf(c.getState().mail.find((m) => m.id === '2')!), new Date('2026-10-06T08:00:00Z'), 'tomorrow');
+  await c.markRead(c.threadOf(c.getState().mail.find((m) => m.id === '2')!), { quiet: true });
   assert.deepEqual(triageThreads({ ...c.getState(), view: 'person' }, T0), []);
-  assert.equal(triageThreads({ ...c.getState(), view: 'person' }, Date.parse('2026-10-06T09:00:00Z')).length, 1, 'back when its time has come');
 });
 
 test('mark read: the toast counts rows of the list, not the messages in them', async () => {
@@ -1485,20 +1450,18 @@ test('mark read: the toast counts rows of the list, not the messages in them', a
   assert.equal(c.getState().toast!.text, 'Marked 2 as read', 'a conversation and a message');
 });
 
-test('Undo of a snooze puts back what each message was snoozed until before', async () => {
-  const w = world();
-  chat(w, 'C1', ['1', '2']);
+test('mail that an older version of Post snoozed is simply in the inbox again, and a saved "snooze" swipe becomes Flag', async () => {
+  const w = world(); w.add('1');
   const { c, store } = make(w);
   await c.init();
-  const [older, newest] = [c.getState().mail.find((m) => m.id === '1')!, c.getState().mail.find((m) => m.id === '2')!];
-  await c.snooze(older, new Date('2026-10-09T08:00:00Z'), 'Fri');
-  await c.snooze([newest, older], new Date('2026-10-06T08:00:00Z'), 'tomorrow');
-  c.getState().toast!.undo!();
-  await settle();
-  assert.equal((await store.getMail(older.key))!.snoozedUntil, '2026-10-09T08:00:00.000Z', 'back to Friday, not to nothing');
-  assert.equal((await store.getMail(newest.key))!.snoozedUntil ?? null, null);
+  const m = c.getState().mail[0];
+  await store.putMail([{ ...m, snoozedUntil: '2099-01-01T00:00:00Z' } as typeof m]);
+  const stored = await store.getMail(m.key);
+  assert.equal(visibleThreads({ ...c.getState(), mail: [stored!], view: 'all' }, T0).length, 1, 'no longer hidden until a time');
+  const { loadSettings } = await import('./settings.ts');
+  assert.equal(loadSettings({ swipeLeft: 'snooze' }).swipeLeft, 'flag');
+  assert.equal(loadSettings({}).swipeLeft, 'flag');
 });
-
 
 // ---- reliability: what goes wrong on a phone, and what Post does about it ----------------------------------------------------------------------
 

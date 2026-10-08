@@ -3,11 +3,11 @@ import { folderKey, mailCounts, visibleThreads, type State, type View } from '..
 import { DELETE_WAY, placeActions } from '../core/folders.ts';
 import { accountColour } from '../core/settings.ts';
 import { SHORTCUT_HELP, shortcutFor } from '../core/shortcuts.ts';
-import { replyTarget, type Thread } from '../core/threads.ts';
+import { replyTarget } from '../core/threads.ts';
 import { KIND_TAB, mailKey, type Mail } from '../core/types.ts';
 import { Compose } from './Compose.tsx';
 import { FolderList, SidebarFolders } from './Folders.tsx';
-import { Inbox, SnoozeSheet } from './Inbox.tsx';
+import { Inbox } from './Inbox.tsx';
 import { moveWay } from './Move.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
@@ -23,7 +23,6 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
   const route = useRoute();
   const now = useNow();
   const [help, setHelp] = useState(false);
-  const [snoozing, setSnoozing] = useState<Thread | null>(null);
 
   // What the list shows, and what the keys move through: a folder (when it is open, or holds the message that is), or the inbox (a row per conversation).
   const open = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : null;
@@ -82,7 +81,6 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
           break;
         case 'unread': if (inFolder) { if (!currentMail) return; void c.toggleRead([currentMail]); } else { if (!current) return; void c.toggleRead(current.items); } break;
         case 'flag': if (inFolder) { if (!currentMail) return; void c.toggleFlag([currentMail]); } else { if (!current) return; void c.toggleFlag(current.items); } break;
-        case 'snooze': if (!current) return; setSnoozing(current); break;
         case 'undo': { const u = s.toast?.undo; if (!u) return; u(); break; }
         case 'refresh': void c.sync(); if (inFolder) void c.refreshFolder(); break;
         case 'help': setHelp(true); break;
@@ -117,7 +115,6 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
         </>
       )}
       {route.name === 'accounts' && <AccountsSheet s={s} onAdd={onAdd} onClose={() => go({ name: 'inbox' })} />}
-      {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing.items, at, label); setSnoozing(null); }} />}
       {help && (
         <Sheet title="Keyboard shortcuts" onClose={() => setHelp(false)}>
           <div className="card">{SHORTCUT_HELP.map(([k, t]) => <div key={k} className="it"><kbd>{k}</kbd><span className="v">{t}</span></div>)}</div>

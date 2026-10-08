@@ -102,7 +102,7 @@ export function folderMail(account: string, r: RawMessage, kind: FolderKind | nu
   const fk: FolderKind | null = draft ? 'drafts' : kind;
   const wrote = fk === 'sent' || fk === 'drafts';
   return {
-    ...base, folder: 'archive', snoozedUntil: null,
+    ...base, folder: 'archive',
     ...(fk ? { fk } : {}),
     ...(r.parentFolderId ? { fid: r.parentFolderId } : {}),
     ...(draft ? { draft: true } : {}),

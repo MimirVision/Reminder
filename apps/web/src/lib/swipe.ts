@@ -20,3 +20,17 @@ export function swipeResult(dx: number, dy: number, ms: number, commit = SWIPE_C
 
 /** Whether a drag has turned into a horizontal swipe yet (so the page can stop scrolling under it). */
 export const isHorizontal = (dx: number, dy: number) => Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.4;
+
+/**
+ * Swiping the row of tabs (Primary ... All): which tab you land on. A swipe to the left goes on to the next tab, to the right back; a long, fast
+ * flick goes all the way (to the last tab, which is All, or back to the first). A mostly vertical drag, or a short slow one, changes nothing.
+ * Returns the new index, or null when it stays where it is.
+ */
+export function tabSwipe(dx: number, dy: number, ms: number, index: number, count: number): number | null {
+  if (count < 2 || Math.abs(dy) > Math.abs(dx) * 0.8) return null;
+  const far = Math.abs(dx) >= 180 && ms < 350;
+  const near = Math.abs(dx) >= 56 || (ms < 250 && Math.abs(dx) >= 36);
+  if (!far && !near) return null;
+  const next = far ? (dx < 0 ? count - 1 : 0) : Math.max(0, Math.min(count - 1, index + (dx < 0 ? 1 : -1)));
+  return next === index ? null : next;
+}
