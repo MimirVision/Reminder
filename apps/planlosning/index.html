@@ -1674,9 +1674,17 @@ function alignSel(mode) {
 }
 
 // ---------- file ----------
-function download(name, blob) {
+let dlCap;
+async function getDl() {          // viewer-hosted "downloads" capability (published artifact); null elsewhere
+  if (dlCap === undefined) { try { dlCap = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch { dlCap = null; } }
+  return dlCap;
+}
+async function download(name, blob) {   // -> 'saved' | 'declined' | 'anchor'
+  const d = await getDl();
+  if (d) { try { await d.save({ filename: name, data: blob }); return 'saved'; } catch (e) { if (e && e.code === 'declined') return 'declined'; } }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return 'anchor';
 }
 function exportPng() {
   const b = bounds(); if (!b) { toast('Ingenting å eksportere'); return; }
@@ -1686,7 +1694,7 @@ function exportPng() {
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
   g.scale(sc, sc); g.translate(m - b.x0, m - b.y0);
   const sv = view.z; view.z = 1e3; drawWorld(g, { ui: false, paper: '#fff', labels: true }); view.z = sv;
-  c.toBlob(bl => download('planlosning.png', bl));
+  c.toBlob(async bl => { if (await download(safeName() + '.png', bl) === 'saved') toast('Bildet er lagret'); });
 }
 
 // ---------- wiring ----------
@@ -1716,9 +1724,11 @@ async function saveFile(saveAs) {
       lastFileSave = new Date(); dirtyFile = false; updateFileState(); toast('Lagret til ' + fileHandle.name); return;
     } catch (e) { if (e && e.name === 'AbortError') return; fileHandle = null; }
   }
-  try { download(safeName() + '.planlosning.json', new Blob([json], { type: 'application/json' })); } catch {}
-  lastFileSave = new Date(); dirtyFile = false; updateFileState(); toast('Filen er lastet ned – legg den et trygt sted');
-  if (window.top !== window.self) showTextIO(json);      // previews often block downloads, so also offer the text
+  let r = 'anchor';
+  try { r = await download(safeName() + '.planlosning.json', new Blob([json], { type: 'application/json' })); } catch {}
+  if (r === 'declined') return;
+  lastFileSave = new Date(); dirtyFile = false; updateFileState(); toast(r === 'saved' ? 'Lagret til fil' : 'Filen er lastet ned – legg den et trygt sted');
+  if (r === 'anchor' && window.top !== window.self) showTextIO(json);      // previews often block downloads, so also offer the text
 }
 function showTextIO(json) {
   $('#tioText').value = json == null ? '' : json; $('#textio').style.display = 'flex';
@@ -1730,7 +1740,7 @@ $('#tioCopy').onclick = async () => {
   const t = $('#tioText'); t.focus(); t.select();
   try { await navigator.clipboard.writeText(t.value); toast('Kopiert til utklippstavlen'); } catch { try { document.execCommand('copy'); toast('Kopiert'); } catch { toast('Trykk Ctrl+C for å kopiere'); } }
 };
-$('#tioDl').onclick = () => { try { download(safeName() + '.planlosning.json', new Blob([$('#tioText').value], { type: 'application/json' })); } catch { toast('Nedlasting er blokkert her – kopier teksten i stedet'); } };
+$('#tioDl').onclick = async () => { try { await download(safeName() + '.planlosning.json', new Blob([$('#tioText').value], { type: 'application/json' })); } catch { toast('Nedlasting er blokkert her – kopier teksten i stedet'); } };
 $('#tioOpen').onclick = async () => {
   try {
     const d = normalize(JSON.parse($('#tioText').value)); await autosave(); delete d.id; fileHandle = null; lastFileSave = null;
