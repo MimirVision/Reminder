@@ -71,6 +71,22 @@
   #tabs .grow { flex: 1; }
   #tabs select { font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
   #tabs .lbl { color: var(--muted); font-size: 12.5px; }
+  #floors { display: flex; gap: 6px; align-items: center; padding: 8px 10px; background: #ece9e1; border-bottom: 1px solid var(--line); overflow-x: auto; flex: none; }
+  #floors .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-right: 4px; }
+  .ftab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff;
+    cursor: pointer; white-space: nowrap; user-select: none; }
+  .ftab.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .ftab .x, .ftab .mv { opacity: .6; padding: 0 2px; }
+  .ftab .x:hover, .ftab .mv:hover { opacity: 1; }
+  #projects { position: absolute; inset: 0; background: rgba(30,25,20,.45); display: none; align-items: center; justify-content: center; z-index: 6; }
+  #projects .card { background: var(--panel); border-radius: 14px; padding: 20px 24px; width: min(560px, 94%); max-height: 86%; overflow: auto; }
+  #projects h3 { margin: 0 0 6px; }
+  .proj { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .proj .meta { flex: 1; min-width: 0; }
+  .proj .meta b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .proj .meta span { color: var(--muted); font-size: 12.5px; }
+  .proj.cur { background: var(--accent-soft); margin: 0 -10px; padding: 8px 10px; border-radius: 8px; }
+  #saveState.ok { color: #2b8a3e; } #saveState.err { color: var(--danger); font-weight: 600; } #fileState.dirty { color: #b25e00; }
   #zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
   #zoom button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
   #legend { position: absolute; left: 12px; top: 10px; background: rgba(251,250,247,.92); border: 1px solid var(--line);
@@ -93,11 +109,19 @@
   <aside id="side">
     <h1>Planløsning <button id="helpBtn" title="Hjelp og hurtigtaster (?)">?</button></h1>
 
+    <input id="pname" type="text" placeholder="Prosjektnavn" title="Navn på prosjektet (huset)" style="font-weight:600">
+    <div class="row" style="margin-top:6px">
+      <button id="saveFile" class="primary" title="Ctrl+S">💾 Lagre til fil</button>
+      <button id="projBtn">Prosjekter…</button>
+    </div>
+    <div id="saveState" class="hint" style="margin-top:6px"></div>
+    <div id="fileState" class="hint"></div>
+    <div class="sep"></div>
     <div class="row">
       <label class="btn primary" style="text-align:center">Importer bilde<input id="file" type="file" accept="image/*" hidden></label>
       <button id="sample">Eksempel</button>
     </div>
-    <p class="hint" style="margin:8px 0 0">Du kan også dra og slippe et bilde på lerretet, eller lime inn (Ctrl+V).</p>
+    <p class="hint" style="margin:8px 0 0">Bildet legges inn i etasjen du står i. Du kan også dra og slippe et bilde på lerretet, eller lime inn (Ctrl+V).</p>
 
     <h2>Verktøy</h2>
     <div class="row tools" id="tools">
@@ -140,17 +164,18 @@
 
     <h2>Fil</h2>
     <div class="row">
-      <button id="save">Lagre (.json)</button>
-      <label class="btn" style="text-align:center">Åpne<input id="load" type="file" accept=".json,application/json" hidden></label>
+      <button id="save">Lagre som…</button>
+      <label class="btn" style="text-align:center">Åpne fil<input id="load" type="file" accept=".json,application/json" hidden></label>
       <button id="png">Eksporter PNG</button>
     </div>
-    <div class="row" style="margin-top:6px"><button id="clear" class="danger">Tøm alt</button></div>
+    <div class="row" style="margin-top:6px"><button id="clear" class="danger">Tøm denne etasjen</button></div>
     <h2>Innstillinger</h2>
     <label class="chk"><input id="snap" type="checkbox" checked> Fang til rutenett (5 cm)</label>
     <label class="f"><span>Veggtykkelse</span><input id="wallcm" type="number" value="15" min="3" max="60" step="1"><span style="flex:0 0 auto">cm</span></label>
   </aside>
 
   <div id="main">
+    <div id="floors"></div>
     <div id="tabs"></div>
     <div id="wrap">
       <canvas id="cv"></canvas>
@@ -165,11 +190,18 @@
       </div></div>
       <div id="zoom"><button id="zin" title="Zoom inn">+</button><button id="zout" title="Zoom ut">−</button><button id="zfit" title="Tilpass" style="font-size:13px">⤢</button></div>
       <div id="toast"></div>
+      <div id="projects"><div class="card">
+        <h3>Prosjekter</h3>
+        <p class="hint">Alt du gjør lagres automatisk i denne nettleseren. Bruk «Lagre til fil» for en sikkerhetskopi du kan ta med deg.</p>
+        <div id="projList"></div>
+        <div class="row" style="margin-top:12px"><button id="projNew" class="primary">+ Nytt prosjekt</button><button id="projClose">Lukk</button></div>
+      </div></div>
       <div id="help"><div class="card">
         <h3>Hurtigtaster</h3>
         <table>
           <tr><td>V / W / E / C / M / K / H</td><td>Velg · Tegn vegg · Viskelær · Klipp · Målebånd · Mål skala · Flytt vy</td></tr>
           <tr><td>Del / Backspace</td><td>Slett valgte</td></tr>
+          <tr><td>Ctrl+S</td><td>Lagre til fil</td></tr>
           <tr><td>Ctrl+Z / Ctrl+Y</td><td>Angre / Gjør om</td></tr>
           <tr><td>Ctrl+C / Ctrl+V / Ctrl+D</td><td>Kopier, lim inn, dupliser</td></tr>
           <tr><td>Ctrl+A</td><td>Marker alt</td></tr>
@@ -234,27 +266,116 @@ function afterRestore() {
   touch(); renderProps();
 }
 
-let saveTimer = 0;
+let saveTimer = 0, pendingSave = false, dirtyFile = false, fileHandle = null, lastFileSave = null, saveStateNow = '';
+let P = { id: newId(), name: 'Mitt hus', floors: [{ name: '1. etasje' }], cur: 0, next: 1 };   // project: floors hold snapshots
+function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
 function touch() {
   extCache = null; roomsCache = null; redraw(); updateStatus();
-  clearTimeout(saveTimer); saveTimer = setTimeout(autosave, 600);
+  dirtyFile = true; pendingSave = true; setSaveState('pending'); updateFileState();
+  clearTimeout(saveTimer); saveTimer = setTimeout(autosave, 1200);
 }
-function pack(withImg) {
+
+// ----- project (de)serialisation: a project is a list of floors, each with its own image, scale and alternatives -----
+function blankFloor(name) {
+  return { name, ppm: 50, calibrated: false, imgRot: 0, img: null, set: null, V: { names: ['Alternativ A'], data: [{ walls: [], items: [] }], cur: 0 } };
+}
+function snapFloor() {
   V.data[V.cur] = { walls: S.walls, items: S.items };
-  return JSON.stringify({ v: 2, S: { ...S, walls: [], items: [] }, V, img: withImg && bg.url && bg.url.startsWith('data:') ? bg.url : null });
+  return { name: P.floors[P.cur].name, ppm: S.ppm, calibrated: S.calibrated, imgRot: S.imgRot || 0, V,
+    img: bg.url && bg.url.startsWith('data:') ? bg.url : null,
+    set: { thr: +$('#thr').value, minlen: +$('#minlen').value, minthick: +$('#minthick').value, gap: +$('#gap').value } };
 }
-function autosave() {
-  try { try { localStorage.setItem('planlosning2', pack(true)); } catch { localStorage.setItem('planlosning2', pack(false)); } } catch {}
+function projectJSON() {
+  P.floors[P.cur] = snapFloor(); P.next = S.next;
+  return JSON.stringify({ v: 3, id: P.id, name: P.name, next: P.next, cur: P.cur, floors: P.floors });
 }
-function unpack(d) {
-  if (d.v === 2) {
-    S = d.S; V = d.V; S.walls = V.data[V.cur].walls; S.items = V.data[V.cur].items;
-  } else {                      // version 1 files
-    S = { imgRot: 0, ...d.S }; V = { names: ['Alternativ A'], data: [null], cur: 0 };
-  }
-  if (S.imgRot == null) S.imgRot = 0;
-  sel = new Set(); hist.u = []; hist.r = []; opt.ghost = -1; chain = null;
+function normalize(d) {          // accepts v3 projects and the older single-plan files (v1, v2)
+  if (d && d.v === 3 && Array.isArray(d.floors) && d.floors.length) return d;
+  if (d && d.v === 2 && d.S && d.V) return { v: 3, name: 'Importert plan', next: d.S.next || 1, cur: 0,
+    floors: [{ name: '1. etasje', ppm: d.S.ppm, calibrated: !!d.S.calibrated, imgRot: d.S.imgRot || 0, img: d.img || null, set: null, V: d.V }] };
+  if (d && d.S && Array.isArray(d.S.walls)) return { v: 3, name: 'Importert plan', next: d.S.next || 1, cur: 0,
+    floors: [{ name: '1. etasje', ppm: d.S.ppm, calibrated: !!d.S.calibrated, imgRot: 0, img: d.img || null, set: null,
+      V: { names: ['Alternativ A'], data: [{ walls: d.S.walls, items: d.S.items || [] }], cur: 0 } }] };
+  throw new Error('bad file');
 }
+async function enterFloor(snap) {
+  S = { ppm: snap.ppm, calibrated: !!snap.calibrated, imgRot: snap.imgRot || 0, walls: [], items: [], next: P.next };
+  V = snap.V; S.walls = V.data[V.cur].walls; S.items = V.data[V.cur].items;
+  bg = { img: null, url: null, w: 0, h: 0 };
+  sel = new Set(); hist.u = []; hist.r = []; opt.ghost = -1; chain = null; measureLast = null; roomsCache = extCache = null;
+  $('#imgrot').value = S.imgRot;
+  if (snap.set) { for (const k of ['thr', 'minlen', 'minthick', 'gap']) $('#' + k).value = snap.set[k]; }
+  syncOutputs();
+  if (snap.img) await loadImageFromUrl(snap.img, { keepScale: true, noFit: true, keepSettings: !!snap.set });
+  renderTabs(); renderFloors(); renderProps(); fit(); redraw(); updateStatus();
+}
+async function openProject(d) {
+  d = normalize(d);
+  P = { id: d.id || newId(), name: d.name || 'Mitt hus', floors: d.floors, cur: Math.min(d.cur || 0, d.floors.length - 1), next: d.next || 1 };
+  $('#pname').value = P.name;
+  await enterFloor(P.floors[P.cur]);
+  dirtyFile = false; updateFileState();
+}
+async function newProject(name) {
+  await autosave();
+  P = { id: newId(), name: name || 'Nytt prosjekt', floors: [blankFloor('1. etasje')], cur: 0, next: 1 };
+  fileHandle = null; lastFileSave = null; $('#pname').value = P.name;
+  await enterFloor(P.floors[0]);
+  dirtyFile = false; updateFileState(); autosave();
+}
+
+// ----- browser storage (IndexedDB: handles big images) -----
+let _db = null;
+function openDB() {
+  return _db || (_db = new Promise((res, rej) => {
+    const r = indexedDB.open('planlosning', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('projects', { keyPath: 'id' }); r.result.createObjectStore('meta', { keyPath: 'id' }); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+}
+async function idbTx(stores, mode, fn) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const t = db.transaction(stores, mode); let out;
+    t.oncomplete = () => res(out && out.result); t.onerror = t.onabort = () => rej(t.error);
+    out = fn(t);
+  });
+}
+const dbSave = (id, name, nFloors, json) => idbTx(['projects', 'meta'], 'readwrite', t => {
+  t.objectStore('projects').put({ id, data: json }); return t.objectStore('meta').put({ id, name, floors: nFloors, updated: Date.now() });
+});
+const dbLoad = id => idbTx(['projects'], 'readonly', t => t.objectStore('projects').get(id));
+const dbList = () => idbTx(['meta'], 'readonly', t => t.objectStore('meta').getAll());
+const dbDelete = id => idbTx(['projects', 'meta'], 'readwrite', t => { t.objectStore('projects').delete(id); return t.objectStore('meta').delete(id); });
+
+function setSaveState(st, extra) {
+  const key = st + (extra || ''); if (key === saveStateNow) return; saveStateNow = key;
+  const el = $('#saveState');
+  const hhmm = new Date().toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' });
+  el.className = 'hint ' + (st === 'ok' ? 'ok' : st === 'err' ? 'err' : '');
+  el.textContent = st === 'ok' ? `✔ Lagret automatisk i nettleseren kl. ${hhmm}` : st === 'pending' ? 'Lagrer …'
+    : '⚠ Klarte ikke å lagre i nettleseren (privat modus?). Bruk «Lagre til fil»!';
+}
+const isEmptyProject = () => P.floors.length === 1 && !S.walls.length && !S.items.length && !bg.img && V.names.length === 1;
+async function autosave() {
+  clearTimeout(saveTimer);
+  if (!P.saved && isEmptyProject()) { pendingSave = false; return; }      // don't litter the list with empty projects
+  try {
+    const json = projectJSON();
+    await dbSave(P.id, P.name, P.floors.length, json);
+    try { localStorage.setItem('planlosning-last', P.id); } catch {}
+    P.saved = true; pendingSave = false; saveStateNow = ''; setSaveState('ok');
+  } catch (e) { saveStateNow = ''; setSaveState('err'); }
+}
+function updateFileState() {
+  const el = $('#fileState');
+  const hhmm = lastFileSave ? lastFileSave.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' }) : '';
+  el.className = 'hint' + (dirtyFile ? ' dirty' : '');
+  el.textContent = lastFileSave ? (dirtyFile ? `Endringer siden filen ble lagret kl. ${hhmm}` : `Lagret til fil kl. ${hhmm}`) : (dirtyFile ? 'Ikke lagret til fil ennå (sikkerhetskopi)' : '');
+}
+window.addEventListener('beforeunload', e => { if (pendingSave) { autosave(); e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && pendingSave) autosave(); });
 
 // ---------- catalog ----------
 const CAT = [
@@ -1101,9 +1222,22 @@ function loadImageFromUrl(url, opts = {}) {
 function readFileAsDataURL(f) {
   return new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
 }
+function shrinkDataURL(url, maxD = 2600) {      // keeps saved projects small: big photos are scaled down
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const m = Math.max(img.naturalWidth, img.naturalHeight);
+      if (m <= maxD) return res(url);
+      const k = maxD / m, c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = () => res(url); img.src = url;
+  });
+}
 async function importFile(f) {
   if (!f || !f.type.startsWith('image/')) { toast('Dette er ikke et bilde'); return; }
-  const url = await readFileAsDataURL(f);
+  const url = await shrinkDataURL(await readFileAsDataURL(f));
   S.imgRot = 0; $('#imgrot').value = 0;
   if (await loadImageFromUrl(url)) toast('Bilde importert – trykk «Konverter bilde til vegger»');
 }
@@ -1244,9 +1378,7 @@ function makeSample() {
   return c.toDataURL('image/png');
 }
 async function loadSample() {
-  S = { ppm: 50, calibrated: false, imgRot: 0, walls: [], items: [], next: 1 };
-  V = { names: ['Alternativ A'], data: [null], cur: 0 }; hist.u = []; hist.r = []; sel = new Set(); opt.ghost = -1; chain = null;
-  $('#imgrot').value = 0;
+  await newProject('Eksempel');
   await loadImageFromUrl(makeSample());
   S.ppm = 920 / 11; S.calibrated = true;
   detectWalls(true);
@@ -1261,6 +1393,82 @@ async function loadSample() {
   renderTabs(); fit(); touch();
   toast('Eksempel lastet – prøv å slette en vegg, legg til en kjøkkenøy, eller slå på «Vis romareal»');
 }
+
+// ---------- floors ----------
+function renderFloors() {
+  const t = $('#floors'); t.innerHTML = '<span class="lbl">Etasjer</span>';
+  P.floors.forEach((f, i) => {
+    const d = document.createElement('div'); d.className = 'ftab' + (i === P.cur ? ' on' : '');
+    d.innerHTML = (i === P.cur && P.floors.length > 1 ? '<span class="mv" data-m="-1" title="Flytt til venstre">‹</span>' : '') + `<span>${esc(f.name)}</span>` +
+      (i === P.cur && P.floors.length > 1 ? '<span class="mv" data-m="1" title="Flytt til høyre">›</span><span class="x" title="Slett etasje">×</span>' : '');
+    d.onclick = e => {
+      if (e.target.classList.contains('x')) delFloor(i);
+      else if (e.target.dataset.m) moveFloor(i, +e.target.dataset.m);
+      else if (i !== P.cur) switchFloor(i);
+    };
+    d.ondblclick = e => { if (e.target.classList.contains('x') || e.target.dataset.m) return; const nn = prompt('Navn på etasjen:', f.name); if (nn) { P.floors[i].name = nn; renderFloors(); touch(); } };
+    t.appendChild(d);
+  });
+  const add = document.createElement('button'); add.className = 'sm'; add.textContent = '+ Ny etasje'; add.onclick = addFloor; t.appendChild(add);
+  const dup = document.createElement('button'); dup.className = 'sm'; dup.textContent = '⧉ Kopier etasjen'; dup.title = 'Lag en kopi av denne etasjen (med bilde, vegger og alternativer)'; dup.onclick = dupFloor; t.appendChild(dup);
+}
+async function switchFloor(i) {
+  P.floors[P.cur] = snapFloor(); P.next = S.next; P.cur = i;
+  await enterFloor(P.floors[i]); touch();
+}
+async function addFloor() {
+  const nm = prompt('Navn på den nye etasjen:', `${P.floors.length + 1}. etasje`); if (!nm) return;
+  P.floors[P.cur] = snapFloor(); P.next = S.next;
+  P.floors.push(blankFloor(nm)); P.cur = P.floors.length - 1;
+  await enterFloor(P.floors[P.cur]); touch(); toast('Ny etasje – importer et bilde av planløsningen, eller tegn selv');
+}
+async function dupFloor() {
+  const snap = clone(snapFloor()); snap.name += ' (kopi)'; P.next = S.next;
+  P.floors.splice(P.cur + 1, 0, snap); P.cur++;
+  await enterFloor(snap); touch();
+}
+async function delFloor(i) {
+  if (P.floors.length < 2 || !confirm(`Slette «${P.floors[i].name}» med alle vegger og møbler?`)) return;
+  P.floors[P.cur] = snapFloor(); P.next = S.next;
+  P.floors.splice(i, 1); P.cur = Math.min(i, P.floors.length - 1);
+  await enterFloor(P.floors[P.cur]); touch();
+}
+function moveFloor(i, d) {
+  const j = i + d; if (j < 0 || j >= P.floors.length) return;
+  P.floors[P.cur] = snapFloor(); [P.floors[i], P.floors[j]] = [P.floors[j], P.floors[i]]; P.cur = j; renderFloors(); touch();
+}
+
+// ---------- projects dialog ----------
+async function showProjects() {
+  await autosave();
+  const list = (await dbList().catch(() => [])) || [];
+  list.sort((a, b) => b.updated - a.updated);
+  const box = $('#projList'); box.innerHTML = '';
+  if (!list.length) box.innerHTML = '<p class="hint">Ingen lagrede prosjekter i nettleseren.</p>';
+  list.forEach(m => {
+    const d = document.createElement('div'); d.className = 'proj' + (m.id === P.id ? ' cur' : '');
+    d.innerHTML = `<div class="meta"><b>${esc(m.name)}</b><span>${m.floors} etasje${m.floors > 1 ? 'r' : ''} · ${new Date(m.updated).toLocaleString('nb-NO', { dateStyle: 'short', timeStyle: 'short' })}${m.id === P.id ? ' · åpent nå' : ''}</span></div>`;
+    if (m.id !== P.id) {
+      const o = document.createElement('button'); o.textContent = 'Åpne'; o.onclick = async () => {
+        const rec = await dbLoad(m.id); if (!rec) return; fileHandle = null; lastFileSave = null;
+        await openProject(JSON.parse(rec.data)); P.saved = true; try { localStorage.setItem('planlosning-last', P.id); } catch {}
+        $('#projects').style.display = 'none';
+      };
+      const x = document.createElement('button'); x.className = 'danger'; x.textContent = 'Slett'; x.onclick = async () => {
+        if (confirm(`Slette prosjektet «${m.name}» for godt? Har du ikke en fil-kopi, kan det ikke angres.`)) { await dbDelete(m.id); showProjects(); }
+      };
+      d.append(o, x);
+    }
+    box.appendChild(d);
+  });
+  $('#projects').style.display = 'flex';
+}
+$('#projBtn').onclick = showProjects;
+$('#projClose').onclick = () => $('#projects').style.display = 'none';
+$('#projNew').onclick = async () => {
+  const nm = prompt('Navn på det nye prosjektet:', 'Nytt hus'); if (!nm) return;
+  await newProject(nm); $('#projects').style.display = 'none';
+};
 
 // ---------- alternatives (tabs) ----------
 function renderTabs() {
@@ -1458,18 +1666,30 @@ $('#tidyBtn').onclick = () => {
 };
 $('#rmauto').onclick = () => { if (!S.walls.some(w => w.auto)) return; checkpoint(); S.walls = S.walls.filter(w => !w.auto); sel = new Set([...sel].filter(id => getEl(id))); touch(); renderProps(); };
 $('#png').onclick = exportPng;
-$('#save').onclick = () => download('planlosning.json', new Blob([pack(true)], { type: 'application/json' }));
+const safeName = () => ((P.name || 'planlosning').replace(/[^\wæøåÆØÅ\- ]+/g, '').trim() || 'planlosning');
+async function saveFile(saveAs) {
+  const json = projectJSON();
+  if (window.showSaveFilePicker) {
+    try {
+      if (!fileHandle || saveAs) fileHandle = await window.showSaveFilePicker({ suggestedName: safeName() + '.planlosning.json', types: [{ description: 'Planløsning', accept: { 'application/json': ['.json'] } }] });
+      const w = await fileHandle.createWritable(); await w.write(json); await w.close();
+      lastFileSave = new Date(); dirtyFile = false; updateFileState(); toast('Lagret til ' + fileHandle.name); return;
+    } catch (e) { if (e && e.name === 'AbortError') return; fileHandle = null; }
+  }
+  download(safeName() + '.planlosning.json', new Blob([json], { type: 'application/json' }));
+  lastFileSave = new Date(); dirtyFile = false; updateFileState(); toast('Filen er lastet ned – legg den et trygt sted');
+}
+$('#saveFile').onclick = () => saveFile(false);
+$('#save').onclick = () => saveFile(true);
 $('#load').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   try {
-    const d = JSON.parse(await f.text());
-    if (d.v === 2 ? !(d.S && d.V) : !(d.S && Array.isArray(d.S.walls))) throw 0;
-    unpack(d);
-    if (d.img) await loadImageFromUrl(d.img, { keepScale: true, noFit: true, keepSettings: true }); else bg = { img: null, url: null, w: 0, h: 0 };
-    $('#imgrot').value = S.imgRot || 0; syncOutputs();
-    renderTabs(); fit(); touch(); renderProps(); toast('Plan åpnet');
+    const d = normalize(JSON.parse(await f.text()));
+    await autosave(); delete d.id; fileHandle = null; lastFileSave = null;
+    await openProject(d); await autosave(); toast(`«${P.name}» åpnet (${P.floors.length} etasje${P.floors.length > 1 ? 'r' : ''})`);
   } catch { toast('Kunne ikke åpne filen'); }
 };
+$('#pname').addEventListener('input', () => { P.name = $('#pname').value; touch(); });
 $('#clear').onclick = () => {
   if (!confirm('Fjerne alle vegger og møbler (i dette alternativet) og bildet?')) return;
   checkpoint(); S.walls = []; S.items = []; bg = { img: null, url: null, w: 0, h: 0 }; sel = new Set(); touch(); renderProps();
@@ -1500,6 +1720,7 @@ window.addEventListener('paste', e => {
 window.addEventListener('copy', e => { if (!typingNow() && copySel()) { e.preventDefault(); toast('Kopiert'); } });
 
 window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveFile(false); return; }
   const typing = typingNow();
   if (e.code === 'Space' && !typing) { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); return; }
   if (typing) return;
@@ -1512,6 +1733,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'delete' || k === 'backspace') { e.preventDefault(); deleteSel(); }
   else if (k === 'escape') {
     if ($('#help').style.display === 'flex') { $('#help').style.display = 'none'; return; }
+    if ($('#projects').style.display === 'flex') { $('#projects').style.display = 'none'; return; }
     if (chain) { chain = null; redraw(); return; }
     sel = new Set(); placeKind = null; setTool('select'); renderProps();
   }
@@ -1535,12 +1757,21 @@ function toast(msg) {
 // ---------- boot ----------
 buildCatalog();
 (async function boot() {
+  resize(); setTool('select');
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+  let opened = false;
   try {
-    const d = JSON.parse(localStorage.getItem('planlosning2') || 'null');
-    if (d && d.v === 2) { unpack(d); if (d.img) await loadImageFromUrl(d.img, { keepScale: true, noFit: true, keepSettings: true }); }
+    const id = localStorage.getItem('planlosning-last'), rec = id && await dbLoad(id);
+    if (rec) { await openProject(JSON.parse(rec.data)); P.saved = true; opened = true; }
   } catch {}
-  $('#imgrot').value = S.imgRot || 0; syncOutputs();
-  renderTabs(); resize(); fit(); setTool('select'); renderProps();
+  if (!opened) {
+    try {                                           // migrate the old browser-only save
+      const old = JSON.parse(localStorage.getItem('planlosning2') || 'null');
+      if (old && old.v === 2) { await openProject(old); opened = true; toast('Forrige plan er flyttet inn i et prosjekt'); }
+    } catch {}
+  }
+  if (!opened) { await openProject({ v: 3, name: 'Mitt hus', next: 1, cur: 0, floors: [blankFloor('1. etasje')] }); }
+  setSaveState('pending'); autosave();
 })();
 window.__plan = { get S() { return S; }, get V() { return V; }, detectWalls, loadSample, computeRooms, tidyWalls };   // handy for debugging
 </script>
