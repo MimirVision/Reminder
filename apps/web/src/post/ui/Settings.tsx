@@ -24,7 +24,7 @@ function Pick<T extends string>({ icon, label, value, options, onChange }: { ico
 }
 
 const SWIPE: [Cfg['swipeRight'], string][] = [['archive', 'Archive'], ['read', 'Mark read'], ['flag', 'Flag'], ['delete', 'Delete']];
-const SWIPE_L: [Cfg['swipeLeft'], string][] = [['snooze', 'Snooze'], ['flag', 'Flag'], ['delete', 'Delete'], ['read', 'Mark read']];
+const SWIPE_L: [Cfg['swipeLeft'], string][] = [['flag', 'Flag'], ['delete', 'Delete'], ['read', 'Mark read']];
 
 /** Which settings page an address means. The phone layout and the computer layout both ask here, so a new page only needs adding once. */
 export function SettingsPage({ s, page, account }: { s: State; page: string; account?: string }) {
@@ -65,7 +65,7 @@ export function Settings({ s }: { s: State }) {
         <div className="lbl">Swipe</div>
         <div className="card">
           <Pick icon="archive" label="Swipe right" value={s.settings.swipeRight} options={SWIPE} onChange={(v) => set({ swipeRight: v })} />
-          <Pick icon="clock" label="Swipe left" value={s.settings.swipeLeft} options={SWIPE_L} onChange={(v) => set({ swipeLeft: v })} />
+          <Pick icon="flag" label="Swipe left" value={s.settings.swipeLeft} options={SWIPE_L} onChange={(v) => set({ swipeLeft: v })} />
         </div>
         <div className="lbl">Privacy</div>
         <div className="card">

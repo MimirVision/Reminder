@@ -228,7 +228,7 @@ export function createController(deps: Deps) {
     const keys = new Set(gone.map((m) => m.key));
     for (const [k, v] of conversations) if (v.items.some((x) => keys.has(x.key))) conversations.set(k, { at: v.at, items: v.items.filter((x) => !keys.has(x.key)) });
   };
-  // Changes that read a message from the phone and write it back (read, flag, snooze) go one after the other, so two of them started together
+  // Changes that read a message from the phone and write it back (read, flag) go one after the other, so two of them started together
   // can never overwrite each other: the second one always sees what the first one saved.
   let editing: Promise<unknown> = Promise.resolve();
   const exclusive = <T,>(fn: () => Promise<T>): Promise<T> => { const run = editing.then(fn, fn); editing = run.catch(() => {}); return run; };
@@ -403,7 +403,7 @@ export function createController(deps: Deps) {
   /**
    * Takes messages out of the folder they are in and sends them somewhere else once the undo time has passed: archive, delete, or a move to any
    * folder. The messages are the ones in the inbox on this phone or ones seen in Outlook (a folder, a search result); both leave the screen at once.
-   * It goes in line with the changes that read a message from the phone and write it back (read, flag, snooze): none of them may put back a
+   * It goes in line with the changes that read a message from the phone and write it back (read, flag): none of them may put back a
    * message that was just taken away. Undo gets the copies as they were at this moment.
    */
   async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string, onUndo?: () => void) {
@@ -1169,31 +1169,6 @@ export function createController(deps: Deps) {
       await api.markRead(items, { quiet: true });
     },
 
-    /** Snoozes a message or a whole conversation (its messages that are in the inbox), with one Undo. */
-    snooze(m: Mail | Mail[], until: Date, label: string) {
-      return exclusive(async () => {
-        const items = Array.isArray(m) ? m : [m];
-        const fresh: Mail[] = [];
-        const before = new Map<string, string | null>(); // what each one was snoozed until before, for Undo
-        for (const x of items) { const cur = await store.getMail(x.key); if (cur) { before.set(cur.key, cur.snoozedUntil ?? null); fresh.push({ ...cur, snoozedUntil: until.toISOString() }); } } // one archived meanwhile must not come back
-        if (!fresh.length) return;
-        await store.putMail(fresh);
-        await reload();
-        toast(`Snoozed until ${label}`, () => { void api.setSnoozes(before); });
-      });
-    },
-    unsnooze(m: Mail | Mail[]) { return api.setSnoozes(new Map((Array.isArray(m) ? m : [m]).map((x) => [x.key, null]))); },
-    /** Puts each message's snooze back to what is given (null: not snoozed). A message that is no longer in the inbox on this phone is left alone. */
-    setSnoozes(until: ReadonlyMap<string, string | null>) {
-      return exclusive(async () => {
-        for (const [key, at] of until) {
-          const cur = await store.getMail(key);
-          if (cur) await store.putMail([{ ...cur, snoozedUntil: at }]);
-        }
-        await reload();
-      });
-    },
-
     /**
      * "Put this sender (or everything from their company) in this tab", or null to go back to automatic. Re-sorts everything at once, and is
      * the fix for every wrong guess. Shared mail providers (gmail.com ...) are never made a company rule.
@@ -1443,7 +1418,7 @@ export function createController(deps: Deps) {
       // not been told yet. Worked out now, not when Outlook was asked, because mail moves in between.
       const here = new Set(state.mail.map((x) => x.key));
       const leaving = await leavingKeys();
-      const items = found.filter((x) => !here.has(x.key) && !leaving.has(x.key)).map((x): Mail => ({ ...x, folder: 'archive', snoozedUntil: null }));
+      const items = found.filter((x) => !here.has(x.key) && !leaving.has(x.key)).map((x): Mail => ({ ...x, folder: 'archive' }));
       items.sort((x, y) => y.received.localeCompare(x.received));
       remember(items);
       return items;
@@ -1749,17 +1724,15 @@ export type Controller = ReturnType<typeof createController>;
 
 // ---- what the list shows ---------------------------------------------------------------------------------------------------------------
 
-export function visibleMail(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter'>, nowMs: number): Mail[] {
+// The time argument of the three list functions below is no longer used (nothing is hidden until a time any more); it stays optional so callers need not change.
+export function visibleMail(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter'>, _nowMs?: number): Mail[] {
   return s.mail.filter((m) => {
     if (m.folder !== 'inbox') return false;
-    if (m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs) return false;
     if (s.accountFilter && m.account !== s.accountFilter) return false;
     if (s.unreadOnly && m.isRead) return false;
     return s.view === 'all' || m.kind === s.view;
   });
 }
-
-const isSnoozed = (m: Mail, nowMs: number) => !!m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs;
 
 /** The inbox messages of the chosen mailbox as rows: one per conversation, or one per message when conversations are off. Newest first. */
 function inboxThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settings'>): Thread[] {
@@ -1768,19 +1741,18 @@ function inboxThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settings'>): Th
 }
 
 /**
- * What the list shows, a row at a time. A conversation is one row, placed by its newest message and in that message's tab, and it is hidden
- * while that message is snoozed (a new answer brings it back). Unread means anything unread in it.
+ * What the list shows, a row at a time. A conversation is one row, placed by its newest message and in that message's tab. Unread means
+ * anything unread in it.
  */
-export function visibleThreads(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter' | 'settings'>, nowMs: number): Thread[] {
+export function visibleThreads(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter' | 'settings'>, _nowMs?: number): Thread[] {
   return inboxThreads(s).filter((t) => {
-    if (isSnoozed(t.latest, nowMs)) return false;
     if (s.unreadOnly && !t.unread) return false;
     return s.view === 'all' || t.kind === s.view;
   });
 }
 
 export interface Counts {
-  /** Rows in the inbox that are not snoozed (for the chosen mailbox): conversations, or messages when conversations are off. */
+  /** Rows in the inbox (for the chosen mailbox): conversations, or messages when conversations are off. */
   total: number;
   /** Rows with something unread in them. */
   unread: number;
@@ -1836,9 +1808,6 @@ export function triageThreads(s: Pick<State, 'mail' | 'view' | 'accountFilter' |
     .filter((t) => !t.items.some((m) => m.flagged));
 }
 
-/** What is snoozed, a row at a time, the one that comes back first on top. */
-export const snoozedThreads = (s: Pick<State, 'mail' | 'settings'>, nowMs: number): Thread[] =>
-  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => isSnoozed(t.latest, nowMs)).sort((a, b) => String(a.latest.snoozedUntil).localeCompare(String(b.latest.snoozedUntil)));
-/** What you flagged to answer later (any message of a conversation flagged is enough), a row at a time. Snoozed ones wait for their time. */
-export const replyLaterThreads = (s: Pick<State, 'mail' | 'settings'>, nowMs: number): Thread[] =>
-  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => t.items.some((m) => m.flagged) && !isSnoozed(t.latest, nowMs));
+/** What you flagged to answer later (any message of a conversation flagged is enough), a row at a time. */
+export const replyLaterThreads = (s: Pick<State, 'mail' | 'settings'>, _nowMs?: number): Thread[] =>
+  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => t.items.some((m) => m.flagged));

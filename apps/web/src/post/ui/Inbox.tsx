@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cleanUpThreads, mailCounts, triageThreads, visibleThreads, type Counts, type State } from '../core/controller.ts';
 import { dayGroup, displayName, shortTime } from '../core/format.ts';
-import { isHorizontal, swipeOffset, swipeResult, SWIPE_COMMIT } from '../../lib/swipe.ts';
+import { isHorizontal, swipeOffset, swipeResult, tabSwipe, SWIPE_COMMIT } from '../../lib/swipe.ts';
 import { threadWho, type Thread } from '../core/threads.ts';
 import { KIND_TAB, mailKey, type Kind, type Mail } from '../core/types.ts';
-import { presets } from '../core/snooze.ts';
 import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
 import { go, labelOf, resolveAccount, useBadge, useC, useNow, useRoute } from './ctx.tsx';
 import { Tabs } from './Tabs.tsx';
@@ -68,22 +67,6 @@ export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, activ
   );
 }
 
-export function SnoozeSheet({ onPick, onClose }: { onPick: (at: Date, label: string) => void; onClose: () => void }) {
-  const list = presets(new Date());
-  const name: Record<string, string> = { later: 'Later today', tomorrow: 'Tomorrow', weekend: 'This weekend', monday: 'Monday', nextweek: 'Next week' };
-  return (
-    <Sheet title="Snooze until…" onClose={onClose}>
-      <div className="card">
-        {list.map((p) => {
-          const label = `${p.at.toLocaleDateString('en-GB', { weekday: 'short' })} ${p.at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
-          return <button key={p.id} className="it" onClick={() => onPick(p.at, label)}><span className="ico"><Icon n="clock" /></span>{name[p.id]}<span className="v">{label}</span></button>;
-        })}
-      </div>
-      <p className="note">The message stays in your mailbox. It comes back to the top of your inbox at that time, when you open Post. Nothing rings.</p>
-    </Sheet>
-  );
-}
-
 export function StatusBanners({ s }: { s: State }) {
   const c = useC();
   const bad = s.accounts.filter((a) => a.needsSignIn);
@@ -109,8 +92,11 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const now = useNow();
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [snoozing, setSnoozing] = useState<Thread | null>(null);
   const [limit, setLimit] = useState(60);
+  // Which way the list slides in when you change tab: towards the tab you are going to (All is the last one).
+  const seen = useRef(s.view);
+  const turn = useRef(0);
+  if (seen.current !== s.view) { turn.current = VIEW_ORDER.indexOf(s.view) > VIEW_ORDER.indexOf(seen.current) ? 1 : -1; seen.current = s.view; }
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [scrolled, setScrolled] = useState(false);
   const [pull, setPull] = useState(0);
@@ -150,15 +136,15 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
     setTimeout(() => { then(); setLeaving((p) => { const n = new Set(p); rows.forEach((t) => n.delete(t.key)); return n; }); }, 200);
   };
   // Every action reaches the whole conversation (all its messages in the inbox), and the toast and the Undo count it once.
-  const act = (t: Thread, a: 'archive' | 'read' | 'flag' | 'delete' | 'snooze') => {
-    if (a === 'archive') leave([t], () => void c.archive(t.items, 1)); else if (a === 'delete') leave([t], () => void c.trash(t.items, 1)); else if (a === 'read') void c.toggleRead(t.items); else if (a === 'flag') void c.toggleFlag(t.items); else setSnoozing(t);
+  const act = (t: Thread, a: 'archive' | 'read' | 'flag' | 'delete') => {
+    if (a === 'archive') leave([t], () => void c.archive(t.items, 1)); else if (a === 'delete') leave([t], () => void c.trash(t.items, 1)); else if (a === 'read') void c.toggleRead(t.items); else void c.toggleFlag(t.items);
   };
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const t = e.currentTarget.scrollTop; setScrolled((x) => (x ? t > 8 : t > 48)); };
   const touchStart = (e: React.TouchEvent<HTMLDivElement>) => { pullStart.current = e.currentTarget.scrollTop <= 0 ? e.touches[0].clientY : null; };
   const touchMove = (e: React.TouchEvent<HTMLDivElement>) => { if (pullStart.current === null) return; const d = e.touches[0].clientY - pullStart.current; setPull(d > 0 ? Math.min(90, d * 0.5) : 0); };
   const touchEnd = () => { if (pull >= 44) void c.sync(); pullStart.current = null; setPull(0); };
-  const lab: Record<string, string> = { archive: 'Archive', read: 'Read', flag: 'Flag', delete: 'Delete', snooze: 'Snooze' };
-  const ico: Record<string, string> = { archive: 'archive', read: 'eye', flag: 'flag', delete: 'trash', snooze: 'clock' };
+  const lab: Record<string, string> = { archive: 'Archive', read: 'Read', flag: 'Flag', delete: 'Delete' };
+  const ico: Record<string, string> = { archive: 'archive', read: 'eye', flag: 'flag', delete: 'trash' };
 
   return (
     <div className="pg">
@@ -179,6 +165,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
       <StatusBanners s={s} />
       <div className="pull" style={{ height: pull, opacity: Math.min(1, pull / 44) }} aria-hidden="true"><Icon n="refresh" size={20} className={pull >= 44 ? 'ready' : ''} /></div>
       <div className="scroll" onScroll={onScroll} onTouchStart={touchStart} onTouchMove={touchMove} onTouchEnd={touchEnd} onTouchCancel={touchEnd}>
+        <div key={s.view} className={`vwrap${turn.current > 0 ? ' slide-next' : turn.current < 0 ? ' slide-prev' : ''}`}>
         {promos.length > 0 && !selecting && !s.unreadOnly && (
           <div className="cleanbar">
             <span className="ico"><Icon n="sparkle" size={20} /></span>
@@ -200,6 +187,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
         ))}
         {list.length > shown.length && <div ref={sentinel}><button className="more" onClick={() => setLimit((n) => n + 60)}>Show more</button></div>}
         {!list.length && <Empty s={s} counts={counts} />}
+        </div>
       </div>
       {selecting ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
@@ -215,21 +203,38 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
           {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
         </>
       )}
-      {snoozing && <SnoozeSheet onClose={() => setSnoozing(null)} onPick={(at, label) => { void c.snooze(snoozing.items, at, label); setSnoozing(null); }} />}
       {cleaning && <CleanUpSheet s={s} onClose={() => setCleaning(false)} />}
       {moving && chosen.length > 0 && <MoveSheet s={s} items={chosenMail} rows={chosen.length} inbox onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
     </div>
   );
 }
 
+const VIEW_ORDER: State['view'][] = ['person', 'transaction', 'update', 'promo', 'all'];
+
 /** Primary, Transactions, Updates, Promotions and All, each with what is unread in it. Nothing is hidden: All shows everything. */
 export function CategoryTabs({ s, counts }: { s: State; counts: Counts }) {
   const c = useC();
   const ref = useRef<HTMLDivElement>(null);
   const tabs: [State['view'], string, number][] = [['person', KIND_TAB.person, counts.byKind.person.unread], ['transaction', KIND_TAB.transaction, counts.byKind.transaction.unread], ['update', KIND_TAB.update, counts.byKind.update.unread], ['promo', KIND_TAB.promo, counts.byKind.promo.unread], ['all', 'All', 0]];
-  useEffect(() => { (ref.current?.querySelector('[aria-selected="true"]') as HTMLElement | null)?.scrollIntoView?.({ inline: 'center', block: 'nearest' }); }, [s.view]);
+  useEffect(() => { (ref.current?.querySelector('[aria-selected="true"]') as HTMLElement | null)?.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }, [s.view]);
+  // Swipe the row of tabs: one tab at a time, or a long flick to the left all the way to All (like the categories in iOS Mail).
+  const st = useRef<{ x: number; y: number; t: number; id: number; live: boolean } | null>(null);
+  const swiped = useRef(false);
+  const at = tabs.findIndex(([v]) => v === s.view);
+  const down = (e: React.PointerEvent) => { swiped.current = false; if (e.pointerType === 'mouse') return; st.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, live: false }; };
+  const move = (e: React.PointerEvent) => {
+    const g = st.current; if (!g || g.live) return;
+    if (isHorizontal(e.clientX - g.x, e.clientY - g.y)) { g.live = true; (e.currentTarget as HTMLElement).setPointerCapture(g.id); }
+  };
+  const end = (e: React.PointerEvent) => {
+    const g = st.current; st.current = null;
+    if (!g?.live) return;
+    swiped.current = true;
+    const to = tabSwipe(e.clientX - g.x, e.clientY - g.y, e.timeStamp - g.t, at, tabs.length);
+    if (to !== null) c.setView(tabs[to][0]);
+  };
   return (
-    <div className="pills" role="tablist" aria-label="Mail categories" ref={ref}>
+    <div className="pills" role="tablist" aria-label="Mail categories" ref={ref} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onClickCapture={(e) => { if (swiped.current) { swiped.current = false; e.stopPropagation(); e.preventDefault(); } }}>
       {tabs.map(([v, text, n]) => (
         <button key={v} role="tab" aria-selected={s.view === v} className={`pill${s.view === v ? ' on' : ''}`} onClick={() => c.setView(v)}>
           {text}{n > 0 && <span className="n" aria-label={`${n} unread`}>{n > 99 ? '99+' : n}</span>}
@@ -290,7 +295,7 @@ function Empty({ s, counts }: { s: State; counts: Counts }) {
       </div>
     );
   }
-  return <div className="empty"><span className="big">Inbox zero</span>{counts.unread === 0 ? 'Nothing waiting. Enjoy it.' : 'Everything else is snoozed.'}</div>;
+  return <div className="empty"><span className="big">Inbox zero</span>Nothing waiting. Enjoy it.</div>;
 }
 
 /** Grey placeholder rows while the very first sync runs (or a folder is being read), so the screen feels alive instead of blank. */

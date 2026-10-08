@@ -91,7 +91,6 @@ test('a sent message carries who it went to, and is a person\'s, whatever it loo
   assert.equal(m.fid, 'SE');
   assert.equal(m.folder, 'archive', 'not in the inbox on this phone');
   assert.equal(m.draft, undefined);
-  assert.equal(m.snoozedUntil, null);
 });
 
 test('a draft is marked, has its last change as its time, and is a draft even when found by a search', () => {

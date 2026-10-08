@@ -327,6 +327,40 @@ textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: ve
 .sk-l { display: block; height: 13px; border-radius: 6px; margin: 4px 0; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .av.sk, .sk-l { animation: none; } }
+/* ---- polish 2: one easing for everything that enters, springier sheets, direction when you change tab, calmer press feedback ---- */
+.post { --ease-out: cubic-bezier(.22, 1, .36, 1); }
+.scroll { overflow-x: hidden; }
+.pills[aria-label="Mail categories"] { touch-action: pan-y; }
+@media (prefers-reduced-motion: no-preference) {
+  .pg { animation-duration: .3s; animation-timing-function: var(--ease-out); }
+  .scrim { animation: fade .24s ease; }
+  .sheet { animation: slidein .36s var(--ease-out); }
+  @keyframes slidein { from { transform: translateY(46px); opacity: 0; } }
+  .post.wide .sheet { animation: pop .24s var(--ease-out); }
+  .toast { animation: toastin .34s var(--ease-out); }
+  @keyframes toastin { from { transform: translateY(16px) scale(.97); opacity: 0; } }
+  .bar.sel { animation: barin .3s var(--ease-out); }
+  @keyframes barin { from { transform: translateY(14px); opacity: 0; } }
+  .bn, .cleanbar { animation: bnin .28s var(--ease-out); }
+  @keyframes bnin { from { transform: translateY(-6px); opacity: 0; } }
+  .vwrap.slide-next { animation: vfwd .3s var(--ease-out); }
+  .vwrap.slide-prev { animation: vback .3s var(--ease-out); }
+  @keyframes vfwd { from { opacity: 0; transform: translateX(32px); } }
+  @keyframes vback { from { opacity: 0; transform: translateX(-32px); } }
+  .tcard.top { animation: cardin .3s var(--ease-out); }
+  @keyframes cardin { from { transform: scale(.95) translateY(10px); opacity: .5; } }
+  .swipe-fg.settle { transition: transform .3s var(--ease-out); }
+  .pill, .tab, .sb-it, .row, .it { transition: background-color .18s ease, color .18s ease, box-shadow .18s ease, transform .12s ease; }
+  .sw { transition: background .2s ease; } .sw::after { transition: transform .26s var(--ease-out); }
+  .pill .n, .bdg { transition: transform .2s var(--ease-out), opacity .2s ease; }
+  .row .dot { transition: transform .2s var(--ease-out), opacity .2s ease; }
+  .prog i { transition: width .35s var(--ease-out); }
+  .sw-row { transition: max-height .26s var(--ease-out), opacity .18s ease; }
+  .row.active { transition: background-color .2s ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scrim, .sheet, .toast, .viewer, .post.wide .sheet { animation: none; }
+}
 .tstamp { position: absolute; top: 20px; padding: 6px 14px; border-radius: 12px; font: 700 15px var(--font-h); letter-spacing: .04em; text-transform: uppercase; border: 2px solid currentColor; opacity: 0; pointer-events: none; }
 .tstamp.r { left: 20px; color: var(--ink); transform: rotate(-8deg); } .tstamp.l { right: 20px; color: var(--at); transform: rotate(8deg); }
 

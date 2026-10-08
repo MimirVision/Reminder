@@ -5,7 +5,7 @@ import { replyTarget, threadWho, type Thread } from '../core/threads.ts';
 import { KIND_TAB } from '../core/types.ts';
 import { isHorizontal, swipeResult } from '../../lib/swipe.ts';
 import { Icon, avatarHue } from './ui.tsx';
-import { Skeleton, SnoozeSheet } from './Inbox.tsx';
+import { Skeleton } from './Inbox.tsx';
 import { back, go, labelOf, useBadge, useC } from './ctx.tsx';
 
 const plain = (b: { contentType: 'html' | 'text'; content: string }) => {
@@ -23,7 +23,6 @@ export function Triage({ s }: { s: State }) {
   if (!queue.current && !reading) queue.current = triageThreads(s, Date.now()).map((t) => t.key);
   const keys = queue.current ?? [];
   const [handled, setHandled] = useState<string[]>([]);
-  const [snooze, setSnooze] = useState(false);
   const [dx, setDx] = useState(0);
   const [drag, setDrag] = useState(false);
   const st = useRef<{ x: number; y: number; t: number; id: number; live: boolean } | null>(null);
@@ -63,7 +62,7 @@ export function Triage({ s }: { s: State }) {
       </div>
     );
   }
-  // Drag the card: right to archive, left to snooze. The buttons below do the same, for one thumb or for VoiceOver.
+  // Drag the card: right to archive, left to mark it read and move on. The buttons below do the same, for one thumb or for VoiceOver.
   const down = (e: React.PointerEvent) => { if (e.pointerType === 'mouse') return; st.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, live: false }; };
   const move = (e: React.PointerEvent) => {
     const g = st.current; if (!g) return;
@@ -77,7 +76,7 @@ export function Triage({ s }: { s: State }) {
     setDrag(false);
     const r = swipeResult(e.clientX - g.x, e.clientY - g.y, e.timeStamp - g.t, 110);
     if (r === 'done') { setDx(600); setTimeout(() => { void c.archive(thread.items, 1); mark(thread); setDx(0); }, 200); }
-    else if (r === 'delete') { setDx(0); setSnooze(true); }
+    else if (r === 'delete') { setDx(-600); setTimeout(() => { void c.markRead(thread.items, { quiet: true }); mark(thread); setDx(0); }, 200); }
     else setDx(0);
   };
   const stamp = Math.min(1, Math.abs(dx) / 90);
@@ -91,9 +90,9 @@ export function Triage({ s }: { s: State }) {
       <div className="prog" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={index - 1}><i style={{ width: `${((index - 1) / Math.max(1, total)) * 100}%` }} /></div>
       <div className="stack">
         {next && <div className="tcard b1" aria-hidden="true" />}
-        <article className="tcard" aria-label={`Message ${index} of ${total}`} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        <article key={thread.key} className="tcard top" aria-label={`Message ${index} of ${total}`} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           style={{ transform: dx ? `translateX(${dx}px) rotate(${dx / 22}deg)` : undefined, transition: drag ? 'none' : 'transform .2s ease' }}>
-          <span className="tstamp r" style={{ opacity: dx > 0 ? stamp : 0 }}>Archive</span><span className="tstamp l" style={{ opacity: dx < 0 ? stamp : 0 }}>Snooze</span>
+          <span className="tstamp r" style={{ opacity: dx > 0 ? stamp : 0 }}>Archive</span><span className="tstamp l" style={{ opacity: dx < 0 ? stamp : 0 }}>Read</span>
           <div className="r1">{s.accounts.length > 1 && <span className="chip"><i style={{ background: badgeOf(cur.account)?.colour ?? 'var(--at)' }} />{labelOf(s, cur.account)}</span>}{thread.items.length > 1 && <span className="chip">{thread.items.length} messages</span>}<span className="tm">{shortTime(cur.received)}</span></div>
           <div className="r1" style={{ marginTop: 14, gap: 12 }}><div className={`av${cur.kind === 'person' ? '' : ' sq'}`} style={avatarHue(cur.fromAddress, cur.fromName)}>{initials(cur.fromName, cur.fromAddress)}</div><div><b style={{ display: 'block', fontSize: 16 }}>{thread.items.length > 1 ? threadWho(thread) : displayName(cur.fromName, cur.fromAddress)}</b><span style={{ fontSize: 12.5, color: 'var(--mu)' }}>{cur.fromAddress}</span></div></div>
           <h1 className="sjb">{cur.subject || '(no subject)'}</h1>
@@ -104,11 +103,10 @@ export function Triage({ s }: { s: State }) {
       <div className="nx">{next ? <>Next: <b>{displayName(next.fromName, next.fromAddress)}</b> · {next.subject}</> : 'This is the last one'}</div>
       <div className="grid">
         <button className="g pri" onClick={() => { void c.archive(thread.items, 1); mark(thread); }}><Icon n="archive" /><span>Archive<small>then next</small></span></button>
-        <button className="g" onClick={() => setSnooze(true)}><Icon n="clock" /><span>Snooze<small>pick a time</small></span></button>
+        <button className="g" onClick={() => { void c.markRead(thread.items, { quiet: true }); mark(thread); }}><Icon n="eye" /><span>Mark read<small>then next</small></span></button>
         <button className="g" onClick={() => { void c.replyLater(thread.items); mark(thread); }}><Icon n="reply" /><span>Reply later<small>keeps it for you</small></span>{laterCount > 0 && <span className="b">{laterCount}</span>}</button>
         <button className="g" onClick={() => go({ name: 'compose', mode: 'reply', account: cur.account, id: (replyTarget(thread.items) ?? cur).id })}><Icon n="edit" /><span>Reply now<small>quick answer</small></span></button>
       </div>
-      {snooze && <SnoozeSheet onClose={() => setSnooze(false)} onPick={(at, label) => { void c.snooze(thread.items, at, label); mark(thread); setSnooze(false); }} />}
     </div>
   );
 }
