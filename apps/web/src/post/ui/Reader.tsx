@@ -5,6 +5,7 @@ import { displayName, shortTime } from '../core/format.ts';
 import { DELETE_WAY, FOLDER_ICON, FOLDER_NAME, placeActions, type Way } from '../core/folders.ts';
 import { toBase64 } from '../core/graph.ts';
 import { BLANK_PICTURE, frameDocument, hasRemoteImages, inlineCids, textToHtml } from '../core/html.ts';
+import { isForward, splitQuotedHtml, splitQuotedText } from '../core/quoted.ts';
 import { parseUnsubscribe, type Unsub } from '../core/unsubscribe.ts';
 import { isFreemail, orgDomain, ruleFor } from '../core/classify.ts';
 import { isMine, looksLikeReply, replyTarget, threadKey, threadOf } from '../core/threads.ts';
@@ -24,6 +25,23 @@ function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: bo
   const fit = () => { const d = ref.current?.contentDocument; if (d && ref.current) ref.current.style.height = `${Math.max(80, d.documentElement.scrollHeight)}px`; };
   useEffect(() => { const t = setTimeout(fit, 150); return () => clearTimeout(t); }, [doc]);
   return <iframe ref={ref} className="frame" title="Message" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={doc} onLoad={fit} />;
+}
+
+/** What a message says, with the earlier messages it quotes folded away under "Show quoted text" (Settings > Conversations turns that off). */
+function Body({ html, plain, subject, fold, remote, dark }: { html: string; plain: string | null; subject: string; fold: boolean; remote: boolean; dark: boolean }) {
+  const [shown, setShown] = useState(false);
+  const split = useMemo(() => {
+    if (!fold || isForward(subject)) return { main: html, rest: '' };
+    return plain !== null ? splitQuotedText(plain) : splitQuotedHtml(html);
+  }, [html, plain, subject, fold]);
+  const folded = split.rest !== '' && !shown;
+  const text = plain !== null && split.rest !== '' ? textToHtml(folded ? split.main : plain) : folded ? split.main : html;
+  return (
+    <>
+      <Frame html={text} remote={remote} dark={dark} />
+      {split.rest !== '' && <button type="button" className="quote-t" aria-expanded={shown} onClick={() => setShown(!shown)}><Icon n={shown ? 'up' : 'down'} size={16} />{shown ? 'Hide quoted text' : 'Show quoted text'}</button>}
+    </>
+  );
 }
 
 const toDataUri = (bytes: Uint8Array, type: string) => `data:${type};base64,${toBase64(bytes)}`;
@@ -358,7 +376,7 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, o
       )}
       {body && <FileList m={m} files={files} failed={!!body.attachmentsFailed} onRetry={() => { void c.openBody(m).then(setBody).catch(() => {}); }} />}
       {remote && !showImages && <div className="banner"><Icon n="eye" size={18} />Images are blocked<button onClick={() => setLoadImages(true)}>Load once</button></div>}
-      {err ? <p className="note" style={{ margin: 16 }}>{err}</p> : body ? <Frame html={html} remote={showImages} dark={dark} /> : <p className="note" style={{ margin: '18px 16px' }}>Opening…</p>}
+      {err ? <p className="note" style={{ margin: 16 }}>{err}</p> : body ? <Body html={html} plain={body.contentType === 'html' ? null : body.content} subject={m.subject} fold={s.settings.foldQuotes} remote={showImages} dark={dark} /> : <p className="note" style={{ margin: '18px 16px' }}>Opening…</p>}
       {many && (
         <div className="macts" role="group" aria-label={`Answer or forward ${mine ? 'your message' : `the message from ${who}`}`}>
           {!mine && <button type="button" aria-label={`Reply to ${who}`} onClick={() => onReply('reply')}><Icon n="reply" size={18} />Reply</button>}
