@@ -8,14 +8,17 @@ import { Row, SwipeRow } from './Inbox.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
 import { useCarry } from './Carry.tsx';
 import { Tabs } from './Tabs.tsx';
+import { keepSearch, searchKept } from './searchKeep.ts';
 import { go, openMail, useC, useNow } from './ctx.tsx';
 
 const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:promotions', 'account:work'];
 
 export function Search({ s, q: initial, pane = false }: { s: State; q: string; pane?: boolean }) {
   const c = useC();
-  const [q, setQ] = useState(initial);
-  const [remote, setRemote] = useState<Mail[] | null>(null);
+  const back = searchKept(); // the search you left to read a result
+  const [q, setQ] = useState(initial || back?.q || '');
+  const [remote, setRemote] = useState<Mail[] | null>(back && back.q === (initial || back.q) ? back.remote : null);
+  const was = useRef(q);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   // What can be done to the results is what can be done in the inbox and in the folders: swipe, the can, select several, hold and drag to a folder.
@@ -26,11 +29,14 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
   const [moving, setMoving] = useState(false);
   const carried = useRef<Mail[]>([]);
   useEffect(() => { ref.current?.focus(); }, []);
-  useEffect(() => { setRemote(null); setGone(new Set()); setSelecting(false); setPicked(new Set()); }, [q]);
+  useEffect(() => {
+    if (was.current !== q) { was.current = q; setRemote(null); setGone(new Set()); setSelecting(false); setPicked(new Set()); }
+  }, [q]);
+  useEffect(() => { keepSearch(q, remote); }, [q, remote]);
   const local = q.trim() ? c.searchLocal(q) : [];
   const older = (remote ?? []).filter((m) => !gone.has(m.key));
   const hide = (rows: Mail[]) => setGone((p) => new Set([...p, ...rows.map((m) => m.key)]));
-  const cr = useCarry(s, () => { hide(carried.current); });
+  const cr = useCarry(s, () => { hide(carried.current); exit(); });
   const kindOf = (m: Mail): FolderKind => m.fk ?? c.folderOf(m)?.kind ?? 'inbox';
   const leave = (rows: Mail[], then: () => void) => {
     setLeaving((p) => new Set([...p, ...rows.map((m) => m.key)]));
@@ -50,10 +56,11 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
     const pa = placeActions(kind);
     const w = pa.swipe;
     const act = (way: typeof DELETE_WAY) => leave([m], () => void moveWay(c, [m], way));
-    const drag = kind === 'drafts' ? undefined : () => ({ items: [m], rows: 1 });
+    const carry = () => { const rows = selecting ? (picked.has(m.key) ? chosen : [...chosen, m]) : [m]; return { items: rows, rows: rows.length }; };
+    const drag = kind === 'drafts' ? undefined : carry;
     return (
-      <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting || cr.active} onTrash={pa.canDelete ? () => act(DELETE_WAY) : undefined} drag={drag}
-        onLift={drag ? () => { carried.current = [m]; cr.begin([m], 1); } : undefined} onLiftMove={cr.move} onLiftEnd={cr.end} onDragged={() => hide([m])}
+      <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onTrash={pa.canDelete ? () => act(DELETE_WAY) : undefined} drag={drag}
+        onLift={drag ? () => { const d = carry(); carried.current = d.items; cr.begin(d.items, d.rows); } : undefined} onLiftMove={cr.move} onLiftEnd={cr.end} onDragged={() => { hide(carry().items); exit(); }}
         rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(w.right)} onLeft={() => act(w.left)}>
         <Row m={m} s={s} selecting={selecting} selected={picked.has(m.key)} place={place} onOpen={() => openMail(m)} onToggle={() => toggle(m.key)} />
       </SwipeRow>
@@ -69,7 +76,7 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
           <input ref={ref} aria-label="Search mail" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search mail" enterKeyHint="search" autoCapitalize="none" autoCorrect="off" style={{ flex: 1, minWidth: 0, border: 0, background: 'transparent', outline: 'none', height: 44 }} />
           {q && <button className="btn plain" style={{ width: 32, height: 32 }} aria-label="Clear" onClick={() => { setQ(''); ref.current?.focus(); }}><Icon n="x" size={18} /></button>}
         </div>
-        {everything.length > 0 && <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>}
+        {everything.length > 0 && <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => { if (selecting) exit(); else { ref.current?.blur(); setSelecting(true); } }}><Icon n={selecting ? 'x' : 'select'} /></button>}
       </div>
       <div className="scroll">
         {!q.trim() && (
@@ -92,7 +99,7 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
           </>
         )}
       </div>
-      {selecting ? (
+      {selecting && !cr.active ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
           <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(everything.map((m) => m.key)))}><Icon n="select" /></button>
           {primary
