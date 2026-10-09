@@ -24,7 +24,7 @@ const finePointer = () => typeof matchMedia === 'function' && matchMedia('(hover
  * without opening it. `drag`: the messages the row stands for, so it can be dragged onto a folder with the mouse. `onLift`, `onLiftMove`,
  * `onLiftEnd`: on a touch screen, a long press lifts the row and then reports where the finger is, and where it let go (see Carry.tsx).
  */
-export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving, onTrash, drag, onLift, onLiftMove, onLiftEnd }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean; onTrash?: () => void; drag?: () => { items: Mail[]; rows: number }; onLift?: () => void; onLiftMove?: (x: number, y: number) => void; onLiftEnd?: (x: number, y: number) => void }) {
+export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving, onTrash, drag, onLift, onLiftMove, onLiftEnd, onDragged }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean; onTrash?: () => void; drag?: () => { items: Mail[]; rows: number }; onLift?: () => void; onLiftMove?: (x: number, y: number) => void; onLiftEnd?: (x: number, y: number) => void; onDragged?: () => void }) {
   const [dx, setDx] = useState(0);
   const [settle, setSettle] = useState(false);
   const [held, setHeld] = useState(false);
@@ -93,7 +93,7 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
         onContextMenu={(e) => { if (carrying.current || timer.current || (e.nativeEvent as PointerEvent).pointerType === 'touch') e.preventDefault(); }}
         draggable={canDrag || undefined}
         onDragStart={canDrag ? (e) => { const d = drag!(); setDragging(d); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', d.rows === 1 ? 'One message' : `${d.rows} messages`); } : undefined}
-        onDragEnd={canDrag ? () => setDragging(null) : undefined}>
+        onDragEnd={canDrag ? (e) => { setDragging(null); if (e.dataTransfer.dropEffect !== 'none') onDragged?.(); } : undefined}>
         {children}
         {onTrash && !disabled && <button type="button" className="rowtrash" aria-label="Delete" title="Delete" onClick={(e) => { e.stopPropagation(); onTrash(); }}><Icon n="trash" size={19} /></button>}
       </div>
