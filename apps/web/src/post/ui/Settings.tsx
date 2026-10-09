@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { mailCounts, type State } from '../core/controller.ts';
 import { ACCENTS, ACCOUNT_COLOURS, LOOKS, accountColour, lookChange, type Settings as Cfg } from '../core/settings.ts';
+import { SEASON_MODES, activeSeason, seasonName } from '../core/seasons.ts';
 import { sortingReport } from '../core/report.ts';
 import { asKind, KINDS, KIND_TAB, type Kind } from '../core/types.ts';
 import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
@@ -102,6 +103,7 @@ export function Settings({ s }: { s: State }) {
         <div className="card">
           <Pick label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => set(lookChange(s.settings, v))} />
           <button className="it" onClick={() => go({ name: 'settings', page: 'appearance' })}>Accent colour<span className="v"><i className="swatch" style={{ background: a.light }} />{a.name}<Icon n="chev" /></span></button>
+          <Pick label="Seasonal touches" value={s.settings.seasonal.mode} options={SEASON_MODES} onChange={(v) => set({ seasonal: { ...s.settings.seasonal, mode: v } })} />
           <Pick label="Theme" value={s.settings.theme} options={[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => set({ theme: v })} />
           <Pick label="Row size" value={s.settings.rowSize} options={[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]} onChange={(v) => set({ rowSize: v })} />
         </div>
@@ -128,6 +130,8 @@ function ForgetRow() {
 export function Appearance({ s }: { s: State }) {
   const c = useC();
   const emails = s.accounts.map((a) => a.email);
+  const sz = s.settings.seasonal;
+  const now = activeSeason(sz.mode, new Date());
   return (
     <div className="pg">
       <div className="nav"><button className="back" onClick={() => go({ name: 'settings', page: '' })}><Icon n="back" />Settings</button></div>
@@ -136,6 +140,14 @@ export function Appearance({ s }: { s: State }) {
         <div className="lbl">Look</div>
         <div className="panel" style={{ marginTop: 0 }}><Seg label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => c.setSettings(lookChange(s.settings, v))} /></div>
         <Hint short="Refined is warm; Calm is plain, like the iPhone's own apps.">Refined is warm, with rounded cards. Calm is plain and quiet, close to the apps that come with the phone. The same mail, the same buttons: only how it looks changes.</Hint>
+        <div className="lbl">Seasonal touches</div>
+        <div className="card">
+          <Pick label="Season" value={sz.mode} options={SEASON_MODES} onChange={(v) => c.setSettings({ seasonal: { ...sz, mode: v } })} />
+          <div className="it">Falling leaves, snow and the like<Switch on={sz.motion} onChange={(v) => c.setSettings({ seasonal: { ...sz, motion: v } })} label="Falling animation" /></div>
+          <div className="it">A faint wash of colour<Switch on={sz.colours} onChange={(v) => c.setSettings({ seasonal: { ...sz, colours: v } })} label="Seasonal colours" /></div>
+          <div className="it">A small badge on people's pictures<Switch on={sz.badge} onChange={(v) => c.setSettings({ seasonal: { ...sz, badge: v } })} label="Avatar badge" /></div>
+        </div>
+        <Hint short={now ? `Showing ${seasonName(now)} now.` : 'Switched off.'}>Automatic follows the calendar: winter, Valentine's Day, Easter, spring, 17 May, summer, autumn, Halloween, Christmas and New Year. Pick a season to see it right away. The pieces are few, slow and never in the way of a tap, and they stay away if your phone is set to reduce motion.</Hint>
         <div className="lbl">Accent colour</div>
         <div className="card"><div className="accent-grid" role="radiogroup" aria-label="Accent colour">
           {ACCENTS.map((a) => <button key={a.id} role="radio" aria-checked={s.settings.accent === a.id} className={`accent${s.settings.accent === a.id ? ' on' : ''}`} onClick={() => c.setSettings({ accent: a.id })}><i style={{ background: a.light }} />{a.name}</button>)}

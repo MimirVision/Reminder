@@ -1,6 +1,8 @@
 // The look and behaviour choices. Kept deliberately small: 8 checked accent colours (every one passes contrast on both grounds),
 // theme, pure black for OLED, row size, and a colour per account. No free colour picker, so nothing can end up unreadable.
 
+import { DEFAULT_SEASONAL, SEASON_MODES, type SeasonalSettings } from './seasons.ts';
+
 export type ThemePref = 'system' | 'light' | 'dark';
 export type RowSize = 'compact' | 'comfortable' | 'roomy';
 /** Two ways the same screens can look: Refined (warm, rounded cards) and Calm (plain, like the system apps). The stylesheet reads it as data-look on the app root. */
@@ -48,11 +50,13 @@ export interface Settings {
   digest: boolean;
   /** Post archives a promotion by itself when it is older than this many days (0: never; the default). */
   autoClean: number;
+  /** Seasonal touches: falling pieces, a faint wash of colour and a small badge on people's avatars. */
+  seasonal: SeasonalSettings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system', look: 'refined', accent: 'ember', pureBlack: false, rowSize: 'comfortable', accountColours: {},
-  swipeRight: 'archive', swipeLeft: 'flag', blockImages: true, signature: '', undoSend: 10, threads: true, digest: true, autoClean: 0,
+  swipeRight: 'archive', swipeLeft: 'flag', blockImages: true, signature: '', undoSend: 10, threads: true, digest: true, autoClean: 0, seasonal: DEFAULT_SEASONAL,
 };
 
 const ONE_OF = <T extends string>(v: unknown, list: readonly T[], d: T): T => (list.includes(v as T) ? (v as T) : d);
@@ -80,7 +84,14 @@ export function loadSettings(raw: unknown): Settings {
     threads: o.threads !== false,
     digest: o.digest !== false,
     autoClean: [0, 3, 7, 14, 30].includes(Number(o.autoClean)) ? Number(o.autoClean) : d.autoClean,
+    seasonal: loadSeasonal(o.seasonal),
   };
+}
+
+function loadSeasonal(raw: unknown): SeasonalSettings {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const d = DEFAULT_SEASONAL;
+  return { mode: ONE_OF(o.mode, SEASON_MODES.map(([v]) => v), d.mode), motion: o.motion !== false, colours: o.colours !== false, badge: o.badge !== false };
 }
 
 /** The colour of an account's badge: the chosen one, else the next free colour in order. */
