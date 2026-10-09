@@ -4,6 +4,7 @@ import { FOLDER_NAME } from '../core/folders.ts';
 import { buildRoute, parseRoute, type Route } from '../core/route.ts';
 import { accountColour } from '../core/settings.ts';
 import type { Mail } from '../core/types.ts';
+import { dropSearch } from './searchKeep.ts';
 
 export const Ctx = createContext<Controller>(null as unknown as Controller);
 export const useC = () => useContext(Ctx);
@@ -15,7 +16,7 @@ export function useRoute(): Route {
   return parseRoute(hash);
 }
 /** Goes to a screen. `replace`: instead of this one, so Back skips it (what you just archived is not worth going back to). */
-export const go = (r: Route, opts: { replace?: boolean } = {}) => { if (opts.replace) location.replace(buildRoute(r)); else location.hash = buildRoute(r); };
+export const go = (r: Route, opts: { replace?: boolean } = {}) => { if (r.name !== 'search' && r.name !== 'message' && r.name !== 'compose') dropSearch(); if (opts.replace) location.replace(buildRoute(r)); else location.hash = buildRoute(r); };
 export const back = (fallback: Route = { name: 'inbox' }) => { if (history.length > 1 && !(window as { __first?: boolean }).__first) history.back(); else go(fallback); };
 
 /** Opens a message: a draft goes to the editor (it is not read, it is finished), anything else to the reader. */

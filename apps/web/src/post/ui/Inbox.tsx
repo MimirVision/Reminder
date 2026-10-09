@@ -22,9 +22,10 @@ const finePointer = () => typeof matchMedia === 'function' && matchMedia('(hover
 /**
  * A row you can swipe. `onTrash`: a small trash can at the side of it (always there on a phone, on hover on a computer) that deletes the message
  * without opening it. `drag`: the messages the row stands for, so it can be dragged onto a folder with the mouse. `onLift`, `onLiftMove`,
+ * `picking`: the list is being picked from (the swipes and the can are off), but a row can still be lifted or dragged: with the messages that are picked.
  * `onLiftEnd`: on a touch screen, a long press lifts the row and then reports where the finger is, and where it let go (see Carry.tsx).
  */
-export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving, onTrash, drag, onLift, onLiftMove, onLiftEnd, onDragged }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean; onTrash?: () => void; drag?: () => { items: Mail[]; rows: number }; onLift?: () => void; onLiftMove?: (x: number, y: number) => void; onLiftEnd?: (x: number, y: number) => void; onDragged?: () => void }) {
+export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving, onTrash, drag, onLift, onLiftMove, onLiftEnd, onDragged, picking }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean; onTrash?: () => void; drag?: () => { items: Mail[]; rows: number }; onLift?: () => void; onLiftMove?: (x: number, y: number) => void; onLiftEnd?: (x: number, y: number) => void; onDragged?: () => void; picking?: boolean }) {
   const [dx, setDx] = useState(0);
   const [settle, setSettle] = useState(false);
   const [held, setHeld] = useState(false);
@@ -37,7 +38,7 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
   cb.current = { onLiftMove, onLiftEnd };
   const stopTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = undefined; } };
   const down = (e: React.PointerEvent) => {
-    if (disabled || e.pointerType === 'mouse' || carrying.current) return;
+    if ((disabled && !picking) || e.pointerType === 'mouse' || carrying.current) return;
     st.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, live: false };
     stopTimer();
     if (onLift) timer.current = setTimeout(() => {
@@ -52,7 +53,7 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
     const s = st.current; if (!s || carrying.current) return;
     const mx = e.clientX - s.x, my = e.clientY - s.y;
     if (timer.current && Math.hypot(mx, my) > 8) stopTimer();
-    if (!s.live && isHorizontal(mx, my)) { s.live = true; (e.currentTarget as HTMLElement).setPointerCapture(s.id); }
+    if (!s.live && !disabled && isHorizontal(mx, my)) { s.live = true; (e.currentTarget as HTMLElement).setPointerCapture(s.id); }
     if (s.live) { setSettle(false); setDx(swipeOffset(mx)); }
   };
   const end = (e: React.PointerEvent) => {
@@ -81,7 +82,7 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
     return () => { el.removeEventListener('touchmove', moveT); el.removeEventListener('touchend', endT); el.removeEventListener('touchcancel', endT); stopTimer(); };
   }, [!!onLift]); // eslint-disable-line react-hooks/exhaustive-deps
   const strength = Math.min(1, Math.abs(dx) / SWIPE_COMMIT);
-  const canDrag = !!drag && !disabled && finePointer();
+  const canDrag = !!drag && (!disabled || !!picking) && finePointer();
   return (
     <div className={`sw-row${leaving ? ' leaving' : ''}`}>
       <div className="swipe-bg" aria-hidden="true" style={{ background: dx > 0 ? `color-mix(in srgb, var(--ink) ${Math.round(strength * 100)}%, var(--card))` : dx < 0 ? `color-mix(in srgb, var(--ac) ${Math.round(strength * 100)}%, var(--card))` : 'transparent', color: strength > .6 ? (dx > 0 ? 'var(--bg)' : 'var(--on)') : 'var(--mu)' }}>
@@ -164,7 +165,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const [pull, setPull] = useState(0);
   const [cleaning, setCleaning] = useState(false);
   const [moving, setMoving] = useState(false);
-  const cr = useCarry(s);
+  const cr = useCarry(s, () => exit());
   // The rows of senders that are opened up to show their conversations.
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const fold = (k: string) => setOpened((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -198,6 +199,8 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   // How many rows of the list a choice is, for the toast: a sender's row stands for each of its conversations.
   const rowsOf = (ts: Thread[]) => ts.reduce((n, t) => n + (t.members?.length ?? 1), 0);
   const exit = () => { setSelecting(false); setPicked(new Set()); };
+  // What a row carries when it is lifted or dragged: itself, or, while picking, everything picked (and the row it is held on).
+  const carry = (t: Thread) => { const rows = selecting ? (picked.has(t.key) ? chosen : [...chosen, t]) : [t]; return { items: rows.flatMap((x) => x.items), rows: rowsOf(rows) }; };
   // A row leaving the list shrinks away first, then the action runs, so the list closes up smoothly instead of jumping.
   const leave = (rows: Thread[], then: () => void) => {
     setLeaving((p) => new Set([...p, ...rows.map(keyOf)]));
@@ -248,7 +251,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
             <div className="card">
               {g.items.map((t) => (
                 <Fragment key={t.key}>
-                  <SwipeRow leaving={leaving.has(t.key)} disabled={selecting || cr.active} onTrash={t.members ? undefined : () => act(t, 'delete')} drag={() => ({ items: t.items, rows: t.members?.length ?? 1 })} onLift={t.members ? undefined : () => cr.begin(t.items, 1)} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
+                  <SwipeRow leaving={leaving.has(t.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onDragged={() => { if (selecting) exit(); }} onTrash={t.members ? undefined : () => act(t, 'delete')} drag={t.members && !selecting ? () => ({ items: t.items, rows: t.members?.length ?? 1 }) : () => carry(t)} onLift={t.members && !selecting ? undefined : () => { const d = carry(t); cr.begin(d.items, d.rows); }} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
                     <Row m={t.latest} thread={t} s={s} tag={s.view === 'all'} active={!!activeKey && t.items.some((x) => x.key === activeKey)} selecting={selecting} selected={picked.has(t.key)} expanded={opened.has(t.key)} onToggle={() => toggle(t.key)} onOpen={() => (t.members ? fold(t.key) : go({ name: 'message', account: t.latest.account, id: t.latest.id }))} />
                   </SwipeRow>
                   {t.members && opened.has(t.key) && !selecting && (
@@ -269,7 +272,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
         {!list.length && <Empty s={s} counts={counts} />}
         </div>
       </div>
-      {selecting ? (
+      {selecting && !cr.active ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
           <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(list.map(keyOf)))}><Icon n="select" /></button>
           <button className="go" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.archive(items, rowsOf(rows))); }}><Icon n="archive" />Archive {chosen.length || ''}</button>

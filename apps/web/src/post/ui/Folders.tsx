@@ -131,7 +131,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const [moving, setMoving] = useState(false);
   const [erase, setErase] = useState<'all' | 'picked' | null>(null);
   const [submaking, setSubmaking] = useState(false);
-  const cr = useCarry(s);
+  const cr = useCarry(s, () => exit());
   const sentinel = useRef<HTMLDivElement>(null);
   const sentSeen = useRef(s.sent);
   const { pull, bind } = usePull(() => void c.refreshFolder());
@@ -185,6 +185,8 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const chosen = items.filter((m) => picked.has(m.key));
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const exit = () => { setSelecting(false); setPicked(new Set()); };
+  // What a row carries when it is lifted or dragged: itself, or, while picking, everything picked (and the row it is held on).
+  const carry = (m: Mail) => { const rows = selecting ? (picked.has(m.key) ? chosen : [...chosen, m]) : [m]; return { items: rows, rows: rows.length }; };
   const leave = (rows: Mail[], then: () => void) => {
     setLeaving((p) => new Set([...p, ...rows.map((m) => m.key)]));
     setTimeout(() => { then(); setLeaving((p) => { const n = new Set(p); rows.forEach((m) => n.delete(m.key)); return n; }); }, 200);
@@ -250,7 +252,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
               {g.items.map((m) => {
                 const w = placeActions(m.fk ?? target.kind).swipe;
                 return (
-                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting || cr.active} onTrash={placeActions(m.fk ?? target.kind).canDelete ? () => act(m, DELETE_WAY) : undefined} drag={target.kind === 'drafts' ? undefined : () => ({ items: [m], rows: 1 })} onLift={target.kind === 'drafts' ? undefined : () => cr.begin([m], 1)} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
+                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onDragged={() => { if (selecting) exit(); }} onTrash={placeActions(m.fk ?? target.kind).canDelete ? () => act(m, DELETE_WAY) : undefined} drag={target.kind === 'drafts' ? undefined : () => carry(m)} onLift={target.kind === 'drafts' ? undefined : () => { const d = carry(m); cr.begin(d.items, d.rows); }} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
                     <Row m={m} s={s} tag={false} selecting={selecting} selected={picked.has(m.key)} active={m.key === open} onToggle={() => toggle(m.key)} onOpen={() => openMail(m)} />
                   </SwipeRow>
                 );
@@ -268,7 +270,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
           </div>
         )}
       </div>
-      {selecting ? (
+      {selecting && !cr.active ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
           <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(items.map((m) => m.key)))}><Icon n="select" /></button>
           {place.primary
