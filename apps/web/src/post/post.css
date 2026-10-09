@@ -702,3 +702,25 @@ body.dragging-mail .sb-it > * { pointer-events: none; }
 .mh:has(.det) { align-items: flex-start; }
 .post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .fn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mh .s:has(.det-btn) { overflow: visible; white-space: normal; }
+
+/* Seasonal touches (core/seasons.ts, ui/Seasons.tsx). The layer takes no taps, sits under the floating bars (z-index 5) and sheets (50), and the falling pieces
+   only exist for people who have not asked their phone for less motion. Only transform and opacity change, so it costs the phone almost nothing. */
+.sz { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; }
+.sz-wash { position: absolute; left: 0; right: 0; top: 0; height: 300px; background: linear-gradient(to bottom, color-mix(in srgb, var(--wl) 15%, transparent), transparent); }
+.post.dark .sz-wash { background: linear-gradient(to bottom, color-mix(in srgb, var(--wd) 17%, transparent), transparent); }
+.post[data-look="calm"] .sz-wash { height: 220px; }
+.pc { display: none; }
+.pc i { display: block; width: 100%; height: 100%; }
+.pc svg { display: block; width: 100%; height: 100%; }
+@media (prefers-reduced-motion: no-preference) {
+  .pc { display: block; position: absolute; top: 0; left: var(--l); width: var(--s); height: var(--s); opacity: 0; animation: szfall var(--d) linear var(--dl) infinite; will-change: transform, opacity; }
+  .pc i { animation: szsway calc(var(--d) / 4) ease-in-out var(--dl) infinite alternate; }
+  .sz.up .pc { animation-name: szrise; }
+}
+@keyframes szfall { 0% { transform: translate3d(0, -6vh, 0); opacity: 0; } 8% { opacity: var(--o); } 92% { opacity: var(--o); } 100% { transform: translate3d(0, 106vh, 0); opacity: 0; } }
+@keyframes szrise { 0% { transform: translate3d(0, 106vh, 0); opacity: 0; } 8% { opacity: var(--o); } 92% { opacity: var(--o); } 100% { transform: translate3d(0, -6vh, 0); opacity: 0; } }
+@keyframes szsway { from { transform: translateX(calc(var(--sw) * -1)) rotate(calc(var(--sp) * -.5)); } to { transform: translateX(var(--sw)) rotate(calc(var(--sp) * .5)); } }
+/* the badge sits on the top-left corner of a person's avatar (the unread dot is on the right, the account letter below) */
+.ssb { position: absolute; left: -5px; top: -7px; width: max(15px, calc(var(--av, 44px) * .4)); height: max(15px, calc(var(--av, 44px) * .4)); transform: rotate(-14deg); pointer-events: none; z-index: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.18)); }
+.ssb svg { display: block; width: 100%; height: 100%; }
+.ssb-christmas { left: -6px; top: -9px; }

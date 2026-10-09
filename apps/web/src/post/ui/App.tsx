@@ -14,6 +14,7 @@ import { Connecting, Login, SignedInElsewhere, SignInFailed, WaitingForMicrosoft
 import { Desktop } from './Desktop.tsx';
 import { Ctx, go, targetOfRoute, useDark, useRoute, useS, useWide } from './ctx.tsx';
 import { Mark } from './ui.tsx';
+import { SeasonLayer, SeasonProvider, useSeason } from './Seasons.tsx';
 
 function Toasts() {
   const s = useS();
@@ -122,9 +123,13 @@ function Themed({ controller }: { controller: Controller }) {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', vars['--bg']);
   }, [vars]);
   const wide = useWide();
+  const season = useSeason(s.settings.seasonal);
   return (
     <div className={`post${dark ? ' dark' : ''}${wide ? ' wide' : ''}`} data-look={s.settings.look} style={vars as React.CSSProperties}>
-      <ErrorBoundary controller={controller}><Shell /><Toasts /></ErrorBoundary>
+      <SeasonProvider value={{ season, badge: s.settings.seasonal.badge }}>
+        <ErrorBoundary controller={controller}><Shell /><Toasts /></ErrorBoundary>
+        <SeasonLayer season={season} cfg={s.settings.seasonal} wide={wide} />
+      </SeasonProvider>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { initials, senderHue } from '../core/format.ts';
 import type { Kind, Mail } from '../core/types.ts';
+import { SeasonBadge } from './Seasons.tsx';
 
 const P: Record<string, string> = {
   back: 'm15 6-6 6 6 6',
@@ -76,6 +77,7 @@ export function Avatar({ m, badge }: { m: Pick<Mail, 'fromName' | 'fromAddress' 
   return (
     <div className="avw">
       <div className={`av${person ? '' : ' sq'}`} style={avatarHue(m.fromAddress, m.fromName)}>{initials(m.fromName, m.fromAddress)}</div>
+      {person && <SeasonBadge />}
       {badge && <span className="ab" style={{ background: badge.colour }} aria-label={`Account ${badge.letter}`}>{badge.letter}</span>}
     </div>
   );
