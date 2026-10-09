@@ -497,6 +497,9 @@ export function createController(deps: Deps) {
   let tabCause: 'tab' | 'tabYou' = 'tab';
   /** The next change of the list is not written down (a mailbox was removed: its mail is not "gone"). */
   let quietNext = false;
+  /** When each message that arrived while Post was open first appeared in the list. Mail that was there from the start has no entry: the first sort of a mailbox is not news. */
+  const arrived = new Map<string, number>();
+  let watching = false;
   async function reload() {
     const [stored, ops, outbox] = await Promise.all([store.allMail(), queue.pending(), store.getMeta<OutboxItem[]>('outbox')]);
     // Archived or deleted here and Outlook not told yet: it stays out of the list, even if something that was busy with an older copy of it
@@ -507,11 +510,53 @@ export function createController(deps: Deps) {
     // What left the list, or changed tab, since the last time: written down with the reason (see leftlog.ts).
     const entries = quietNext ? [] : diffInbox(state.mail, mail, whyGone, now(), tabCause);
     quietNext = false;
+    if (watching && state.mail.length) { const had = new Set(state.mail.map((m) => m.key)); for (const m of mail) if (!had.has(m.key) && !arrived.has(m.key)) arrived.set(m.key, now()); if (arrived.size > 400) for (const k of [...arrived.keys()].slice(0, 200)) arrived.delete(k); }
     whyGone.clear();
-    if (entries.length) { const left = addLeft(state.left, entries); set({ left }); store.setMeta('leftlog', left).catch((e) => note('storage', e)); }
+    if (entries.length) { const left = addLeft(state.left, entries); set({ left }); store.setMeta('leftlog', left).catch((e) => note('storage', e)); void traceMoved(entries); tellMoved(entries); }
     // "Waiting" means held up, not just inside the undo window: only actions that are already due and still not confirmed count.
     const waiting = ops.filter((o) => o.runAfter <= now()).length + (outbox ?? []).filter((o) => o.sendAt <= now()).length;
     set({ mail, waiting, outbox: outbox ?? [], storage: store.status?.().kind === 'memory' ? 'memory' : 'device' });
+  }
+
+  /** Asks Outlook where the few messages it took away went (Junk, Deleted, a folder a rule files into), and writes the answer in the record. */
+  async function traceMoved(entries: LeftEntry[]) {
+    const lost = entries.filter((e) => e.why === 'outlook' && e.addr && e.recv).slice(0, 5);
+    if (!lost.length) return;
+    try {
+      await api.loadFolders();
+      const found = new Map<string, NonNullable<LeftEntry['where']>>();
+      for (const e of lost) {
+        const account = e.key.slice(0, e.key.indexOf('|'));
+        const g = graphFor(account);
+        if (!g) continue;
+        try {
+          const hit = (await g.whereIs(e.addr!, e.recv!)).find((x) => x.parentFolderId);
+          if (!hit) continue;
+          const f = state.folders.find((x) => x.account === account && x.id === hit.parentFolderId);
+          if (f?.kind === 'inbox') continue; // back in the inbox: Post sees it again with the next sync
+          found.set(`${e.key}|${e.at}`, { name: f?.name ?? 'another folder', kind: f?.kind ?? 'other', id: hit.parentFolderId });
+        } catch (err) { note('trace', err); }
+      }
+      if (!found.size) return;
+      const left = state.left.map((x) => (found.has(`${x.key}|${x.at}`) ? { ...x, where: found.get(`${x.key}|${x.at}`) } : x));
+      set({ left });
+      store.setMeta('leftlog', left).catch((err) => note('storage', err));
+    } catch (e) { note('trace', e); }
+  }
+
+  /**
+   * A message that moved to another tab while you were looking at the one it was in: one line says where it went, with an Undo that puts its sender
+   * back in Primary. Only for one to three messages at a time (a bigger re-sort, as after the first reading of a mailbox, would only be noise).
+   */
+  function tellMoved(entries: LeftEntry[]) {
+    const moved = entries.filter((e) => e.why === 'tab' && e.from && e.to && now() - (arrived.get(e.key) ?? -Infinity) < 10 * 60_000);
+    if (!moved.length || moved.length > 3 || state.view === 'all' || state.toast) return;
+    if (!moved.every((e) => e.from === state.view)) return;
+    const to = [...new Set(moved.map((e) => KIND_TAB[e.to!]))];
+    const first = moved[0];
+    const text = moved.length === 1 ? `“${first.subject}” moved to ${to[0]}` : `${moved.length} messages moved to ${to.join(' and ')}`;
+    const m = state.mail.find((x) => x.key === first.key);
+    toast(text, m && first.from === 'person' ? () => { void api.moveSender(m.fromAddress, 'person'); } : undefined, 6000);
   }
 
   function saveSettings(s: Settings) { kv.set('post.settings', JSON.stringify(s)); set({ settings: s }); }
@@ -998,7 +1043,7 @@ export function createController(deps: Deps) {
         await runQueue();
         await api.flushOutbox();
         await reload();
-        if (!error) set({ online: true });
+        if (!error) { set({ online: true }); watching = true; }
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
         note('sync', e);
@@ -1129,6 +1174,37 @@ export function createController(deps: Deps) {
     },
 
     /** Moves messages (from the inbox, or seen in a folder) to another folder, with one Undo. `rows`: how many rows of the list this was, for the toast. */
+    /**
+     * Makes a folder in Outlook: at the top, or inside `parent` (the id of one of your folders, or a standard folder's name such as 'inbox').
+     * Answers with the folder as the Folders screen lists it, or with what to tell the person. It says "Made folder ..." itself unless `say` is false
+     * (when the folder is made to move mail into, the move says it).
+     */
+    async createFolder(account: string, name: string, parent: string | null = null, say = true): Promise<{ ok: true; folder: FolderInfo } | { ok: false; error: string }> {
+      const clean = name.replace(/\s+/g, ' ').trim();
+      if (!clean) return { ok: false, error: 'Give the folder a name.' };
+      if (clean.length > 200) return { ok: false, error: 'That name is too long.' };
+      const g = graphFor(account);
+      if (!g) return { ok: false, error: 'Sign in again to make a folder.' };
+      let made;
+      try { made = await g.createFolder(clean, parent ?? undefined); } catch (e) {
+        if (e instanceof GraphError && (e.status === 409 || /exist/i.test(e.code))) return { ok: false, error: `There is already a folder called “${clean}” there.` };
+        note('folders', e);
+        return { ok: false, error: e instanceof GraphError && e.status === 0 ? 'No connection. The folder was not made.' : e instanceof GraphError && e.status === 403 ? 'Outlook did not allow Post to make a folder.' : describe(e, 'Could not make the folder.') };
+      }
+      await api.loadFolders({ force: true });
+      const folder = state.folders.find((f) => f.account === account && f.id === made.id) ?? { account, id: made.id, name: clean, kind: 'other' as const, unread: 0, total: 0, depth: 0, where: '' };
+      if (say) toast(`Made folder “${clean}”`);
+      return { ok: true, folder };
+    },
+
+    /** Makes a folder and moves the messages into it, as one step (Move to, New folder). */
+    async moveToNewFolder(items: Mail[], account: string, name: string, parent: string | null = null, rows: number = items.length): Promise<{ ok: true; folder: FolderInfo } | { ok: false; error: string }> {
+      const mine = items.filter((m) => m.account === account); // a folder belongs to one mailbox
+      const made = await api.createFolder(account, name, parent, false);
+      if (made.ok && mine.length) await api.moveTo(mine, { to: made.folder.id, name: made.folder.name }, rows);
+      return made;
+    },
+
     async moveTo(items: Mail[], to: { to: string; name: string }, rows: number = items.length) {
       if (to.to === GRAPH_NAME.inbox) await keep(items); // brought back on purpose: the next tidy-up leaves it alone
       await relocate(items, { type: 'move', to: to.to }, rows <= 1 ? `Moved to ${to.name}` : `Moved ${rows} to ${to.name}`);

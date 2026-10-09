@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createController } from './controller.ts';
+import { leftLine } from './leftlog.ts';
 import { memoryStore, type Store } from './store.ts';
 
 const SERVER = 'https://s.example/fn';
@@ -16,16 +17,17 @@ const STANDARD: [string, string][] = [['inbox', 'Innboks'], ['drafts', 'Kladd'],
 const idOf = (name: string) => (STANDARD.some(([n]) => n === name) ? `ID-${name}` : name);
 
 interface Person { name: string; address: string }
-interface Msg { id: string; folder: string; subject: string; received: string; from?: string; fromName?: string; to?: Person[]; cc?: Person[]; bcc?: Person[]; isRead?: boolean; flagged?: boolean; draft?: boolean; body?: string; attachments?: { name: string; size: number }[]; modified?: string; conversationId?: string }
+interface Msg { id: string; folder: string; subject: string; received: string; from?: string; fromName?: string; to?: Person[]; cc?: Person[]; bcc?: Person[]; isRead?: boolean; flagged?: boolean; draft?: boolean; body?: string; attachments?: { name: string; size: number }[]; headers?: { name: string; value: string }[]; modified?: string; conversationId?: string }
 interface Box { folders: Map<string, { id: string; name: string; parent: string }>; msgs: Map<string, Msg> }
 type Answer = { status: number; body?: unknown };
 
 function outlook(emails: string[] = [A]) {
   const log: string[] = [];
   const flags = {
-    offline: false, noHeaders: false, down: new Set<string>(), permanentStatus: 204, moveStatus: 201, sendStatus: 202, patchStatus: 200,
+    offline: false, noHeaders: false, down: new Set<string>(), permanentStatus: 204, createStatus: 201, moveStatus: 201, sendStatus: 202, patchStatus: 200,
     /** What Outlook calls a move to a folder that is not there (it may say "item not found", as for a message that is gone). */ missingFolder: 'ErrorFolderNotFound',
     /** Calls that Outlook carries out and then loses the answer to (the connection drops on the way back). */ loseAfter: [] as string[],
+    /** Messages Outlook has moved away (a rule): the next look at the inbox says so, once. */ removed: [] as string[],
     /** A folder whose pages are held back until the gate opens. */ hold: null as null | { folder: string; until: Promise<void> },
   };
   const boxes = new Map<string, Box>(emails.map((e) => [e, { folders: new Map(STANDARD.map(([n, name]) => [`ID-${n}`, { id: `ID-${n}`, name, parent: 'ROOT' }])), msgs: new Map() }]));
@@ -64,7 +66,17 @@ function outlook(emails: string[] = [A]) {
       for (const r of body.requests) responses.push({ id: r.id, ...(await handle(email, b, r.method, r.url, r.body)) });
       return ok({ responses });
     }
-    if (url.hostname === 'graph' || /^\/me\/mailFolders\/[^/]+\/messages\/delta$/.test(p)) { log.push('delta'); return ok({ value: inFolder(email, 'inbox').map(raw), '@odata.deltaLink': `https://graph/delta?d=${++seq}` }); }
+    if (url.hostname === 'graph' || /^\/me\/mailFolders\/[^/]+\/messages\/delta$/.test(p)) { log.push('delta'); return ok({ value: [...inFolder(email, 'inbox').map(raw), ...flags.removed.splice(0).map((id) => ({ id, '@removed': { reason: 'changed' } }))], '@odata.deltaLink': `https://graph/delta?d=${++seq}` }); }
+    if (method === 'POST' && (m = /^\/me\/mailFolders(?:\/([^/]+)\/childFolders)?$/.exec(p))) {
+      log.push(`createFolder ${m[1] ?? 'ROOT'} ${body.displayName}`);
+      if (flags.createStatus !== 201) return fail(flags.createStatus, flags.createStatus === 409 ? 'ErrorFolderExists' : 'ErrorAccessDenied', 'No.');
+      const parent = m[1] ? dest(decodeURIComponent(m[1])) : 'ROOT';
+      if (!parent) return missing();
+      if ([...b.folders.values()].some((f) => f.parent === parent && f.name.toLowerCase() === String(body.displayName).toLowerCase())) return fail(409, 'ErrorFolderExists', 'A folder with that name already exists.');
+      const id = `NEW${++seq}`;
+      b.folders.set(id, { id, name: body.displayName, parent });
+      return ok(folderBody(b, b.folders.get(id)!), 201);
+    }
     if (method === 'GET' && p === '/me/mailFolders') { log.push('folders'); return ok({ value: [...b.folders.values()].filter((f) => f.parent === 'ROOT').map((f) => folderBody(b, f)) }); }
     if (method === 'GET' && (m = /^\/me\/mailFolders\/([^/]+)$/.exec(p))) { const id = dest(decodeURIComponent(m[1])); const f = id ? b.folders.get(id) : undefined; return f ? ok(folderBody(b, f)) : missing(); }
     if (method === 'GET' && (m = /^\/me\/mailFolders\/([^/]+)\/childFolders$/.exec(p))) { const id = decodeURIComponent(m[1]); return ok({ value: [...b.folders.values()].filter((f) => f.parent === id).map((f) => folderBody(b, f)) }); }
@@ -85,6 +97,11 @@ function outlook(emails: string[] = [A]) {
       log.push('search');
       const term = (q.get('$search') ?? '').replace(/"/g, '').toLowerCase();
       return ok({ value: [...b.msgs.values()].filter((x) => x.subject.toLowerCase().includes(term)).slice(0, 25).map(raw) });
+    }
+    if (method === 'GET' && p === '/me/messages' && q.has('$filter') && /receivedDateTime eq/.test(q.get('$filter') ?? '')) {
+      log.push('where');
+      const f = /receivedDateTime eq (\S+) and from\/emailAddress\/address eq '(.*)'/.exec(q.get('$filter') ?? '');
+      return ok({ value: [...b.msgs.values()].filter((x) => f && x.received === f[1] && (x.from ?? 'anna@x.no') === f[2]).map(raw) });
     }
     if (method === 'GET' && p === '/me/messages' && q.has('$filter')) {
       const id = /conversationId eq '(.*)'/.exec(q.get('$filter') ?? '')?.[1];
@@ -123,7 +140,7 @@ function outlook(emails: string[] = [A]) {
       const x = b.msgs.get(id);
       if (!x) return missing();
       if (select === 'isDraft') { log.push(`isDraft ${id}`); return ok({ isDraft: !!x.draft }); }
-      if (select === 'internetMessageHeaders') return flags.noHeaders ? fail(500, 'ErrorServerBusy', 'busy') : ok({ internetMessageHeaders: [] });
+      if (select === 'internetMessageHeaders') return flags.noHeaders ? fail(500, 'ErrorServerBusy', 'busy') : ok({ internetMessageHeaders: x.headers ?? [] });
       if (select.includes('bccRecipients')) return ok({ subject: x.subject, body: { contentType: 'text', content: x.body ?? '' }, toRecipients: people(x.to), ccRecipients: people(x.cc), bccRecipients: people(x.bcc), isDraft: !!x.draft, lastModifiedDateTime: x.modified ?? x.received });
       if (select.startsWith('body')) return ok({ body: { contentType: 'html', content: `<p>${x.body ?? 'Hei'}</p>` }, toRecipients: people(x.to), hasAttachments: !!x.attachments?.length });
       log.push(`get ${id}`);
@@ -186,7 +203,9 @@ function outlook(emails: string[] = [A]) {
     return new Response(a.status === 204 || a.status === 202 ? null : JSON.stringify(a.body ?? {}), { status: a.status });
   }) as typeof fetch;
 
-  return { f, log, flags, put, folder, ids, dropFolder: (email: string, id: string) => { box(email).folders.delete(id); }, drop: (email: string, id: string) => { box(email).msgs.delete(id); }, get: (email: string, id: string) => box(email).msgs.get(id) };
+  return { f, log, flags, put, folder, ids, dropFolder: (email: string, id: string) => { box(email).folders.delete(id); }, drop: (email: string, id: string) => { box(email).msgs.delete(id); },
+    /** Outlook itself moves a message to another folder (a rule, the junk filter): it gets a new id there and the inbox says it is gone. */
+    outlookMove: (email: string, id: string, to: string) => { const b = box(email); const x = b.msgs.get(id)!; b.msgs.delete(id); b.msgs.set(`${id}^`, { ...x, id: `${id}^`, folder: idOf(to) }); flags.removed.push(id); }, get: (email: string, id: string) => box(email).msgs.get(id) };
 }
 
 function make(w = outlook(), opts: { emails?: string[]; store?: Store; kv?: Map<string, string>; at?: number } = {}) {
@@ -1380,4 +1399,104 @@ test('signing an account out does not fill the record with its mail', async () =
   await c.removeAccount(W);
   assert.equal(inboxIds(c).includes('w1'), false);
   assert.deepEqual(leftOf(c), []);
+});
+
+test('mail that Outlook moved is traced: the record says which folder it is in now', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' }); inbox(w, 'o1', 'ola@y.no', NEW, { subject: 'Tilbud!' });
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  w.outlookMove(A, 'o1', 'junkemail');
+  await c.sync();
+  await until(() => leftOf(c).some((e) => !!e.where), 'the record to say where it went');
+  const e = leftOf(c).find((x) => x.subject === 'Tilbud!')!;
+  assert.equal(e.why, 'outlook');
+  assert.deepEqual([e.where!.kind, e.where!.name], ['junk', 'Junk']);
+  assert.match(leftLine(e), /^Outlook moved it to Junk /);
+  assert.equal((await made.store.getMeta<{ where?: unknown }[]>('leftlog'))?.some((x) => !!x.where), true, 'and it is kept');
+});
+
+test('mail Outlook deleted for good has no folder to point at, and the record stays plain', async () => {
+  const w = outlook();
+  inbox(w, 'o1', 'ola@y.no', NEW, { subject: 'Borte' });
+  inbox(w, 'a1', 'anna@x.no', NEW);
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  w.drop(A, 'o1'); // gone, nowhere (the delta of the pretend Outlook cannot say removed, so the first sync below reads everything again)
+  w.outlookMove(A, 'o1', 'inbox'); w.drop(A, 'o1^');
+  await c.sync(); await c.sync();
+  assert.ok(leftOf(c).every((e) => !e.where));
+});
+
+test('a message that moves tab while you look at its tab is told in one line, and Undo puts the sender back in Primary', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' });
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  c.setView('person');
+  w.flags.noHeaders = true;
+  inbox(w, 'n2', 'news@shop.no', NEW, { subject: 'Ukens nyheter', headers: [{ name: 'List-Unsubscribe', value: '<https://u>' }] });
+  await c.sync();
+  assert.equal(c.getState().mail.find((x) => x.id === 'n2')!.kind, 'person', 'shown in Primary while its marks cannot be read');
+  w.flags.noHeaders = false;
+  await c.sortInBackground();
+  const t = c.getState().toast;
+  assert.ok(t, 'a toast says it');
+  assert.equal(t!.text, '“Ukens nyheter” moved to Updates');
+  t!.undo!();
+  await until(() => c.getState().overrides['news@shop.no'] === 'person', 'the sender to go back to Primary');
+  assert.equal(c.getState().mail.find((x) => x.id === 'n2')!.kind, 'person');
+});
+
+// ---- making folders ----------------------------------------------------------------------------------------------------------------------------
+const mineIn = (c: Made['c']) => c.getState().folders.filter((f) => f.kind === 'other').map((f) => `${f.depth}:${f.where ? `${f.where} / ` : ''}${f.name}`);
+
+test('a new folder is made at Outlook, shows in the list at once, and the toast says so', async () => {
+  const w = outlook(); inbox(w, 'o1', 'ola@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const r = await c.createFolder(A, '  Kunder  ');
+  assert.ok(r.ok);
+  assert.deepEqual(mineIn(c), ['0:Kunder']);
+  assert.equal(c.getState().toast!.text, 'Made folder “Kunder”');
+  assert.ok(w.log.includes('createFolder ROOT Kunder'), 'the name is trimmed');
+});
+
+test('a subfolder is made inside one of your folders, or inside Inbox', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const r = await c.createFolder(A, 'Acme', 'K');
+  assert.ok(r.ok && r.folder.depth === 1 && r.folder.where === 'Kunder');
+  const i = await c.createFolder(A, 'Privat', 'inbox');
+  assert.ok(i.ok);
+  assert.deepEqual(mineIn(c).sort(), ['0:Inbox / Privat', '0:Kunder', '1:Kunder / Acme']);
+});
+
+test('a name that is empty, or already taken there, or refused, says why and makes nothing', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const empty = await c.createFolder(A, '   ');
+  assert.deepEqual(empty, { ok: false, error: 'Give the folder a name.' });
+  const dup = await c.createFolder(A, 'kunder');
+  assert.deepEqual(dup, { ok: false, error: 'There is already a folder called “kunder” there.' });
+  w.flags.createStatus = 403;
+  const no = await c.createFolder(A, 'Ny');
+  assert.deepEqual(no, { ok: false, error: 'Outlook did not allow Post to make a folder.' });
+  assert.equal(c.getState().toast, null);
+  assert.deepEqual(mineIn(c), ['0:Kunder']);
+});
+
+test('Move to, New folder: the folder is made and the messages go into it with one toast and an Undo', async () => {
+  const w = outlook(); inbox(w, 'o1', 'ola@y.no'); inbox(w, 'o2', 'per@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  const items = c.getState().mail.filter((m) => m.id === 'o1');
+  const r = await c.moveToNewFolder(items, A, 'Prosjekt');
+  assert.ok(r.ok);
+  assert.equal(c.getState().toast!.text, 'Moved to Prosjekt');
+  assert.deepEqual(inboxIds(c), ['o2']);
+  await settle(made);
+  assert.deepEqual(w.ids(A, (r as { folder: { id: string } }).folder.id), ['o1~']);
 });

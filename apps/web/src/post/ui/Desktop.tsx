@@ -15,6 +15,7 @@ import { Triage } from './Triage.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { AccountsSheet } from './Accounts.tsx';
 import { Icon, KIND_ICON, Mark, Sheet } from './ui.tsx';
+import { DropButton } from './Carry.tsx';
 import { folderContext, folderTitle, go, openMail as openItem, resolveAccount, routeOfFolder, targetOfRoute, useC, useNow, useRoute } from './ctx.tsx';
 
 /** The computer layout: a sidebar, the message list, and the reading pane side by side. The same screens as on the phone, just in panes. */
@@ -141,7 +142,11 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
   const nav = (active: boolean, icon: string, text: string, onClick: () => void, badge?: number) => (
     <button className={`sb-it${active ? ' on' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon n={icon} size={20} />{text}{badge ? <span className="sb-n">{badge > 99 ? '99+' : badge}</span> : null}</button>
   );
-  const tab = (v: View, icon: string, text: string, n: number) => nav(inbox && s.view === v, icon, text, () => { c.setView(v); go({ name: 'inbox' }); }, n);
+  // Dropping mail on a tab of the inbox puts it back in the inbox (from Archive, Junk or Deleted).
+  const tab = (v: View, icon: string, text: string, n: number) => {
+    const active = inbox && s.view === v;
+    return <DropButton key={v} s={s} dest={{ kind: 'inbox', id: '', name: 'Inbox' }} className={`sb-it${active ? ' on' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => { c.setView(v); go({ name: 'inbox' }); }}><Icon n={icon} size={20} />{text}{n ? <span className="sb-n">{n > 99 ? '99+' : n}</span> : null}</DropButton>;
+  };
   return (
     <aside className="sb" aria-label="Post">
       <div className="sb-brand"><span className="sb-mark"><Mark size={22} /></span><b>Post</b></div>

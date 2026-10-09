@@ -537,6 +537,22 @@ export function createGraph(deps: GraphDeps) {
      * The ids of the messages in one folder (up to `max`), a page of 200 at a time, for what is done to all of them (emptying it). `more`: the folder
      * has more than that. Fails as a whole when a page cannot be read: a part of a folder is not "the folder".
      */
+    /**
+     * Makes a folder, at the top of the mailbox or inside `parent` (a standard folder's name or any folder's id). Asked once: a retry after a lost
+     * answer would only be told that the folder exists.
+     */
+    async createFolder(name: string, parent?: WellKnownFolder | string): Promise<RawFolder> {
+      const path = parent ? `/me/mailFolders/${enc(parent)}/childFolders` : '/me/mailFolders';
+      return (await request('POST', path, { displayName: name }, {}, { once: true })) as RawFolder;
+    },
+
+    /** Where a message that left the inbox now is, found by who sent it and when it arrived (its id changes when Outlook moves it). Searches every folder. */
+    async whereIs(address: string, receivedIso: string): Promise<{ id: string; parentFolderId: string }[]> {
+      const a = address.replace(/'/g, "''");
+      const j = await request('GET', `/me/messages?$filter=${encodeURIComponent(`receivedDateTime eq ${receivedIso} and from/emailAddress/address eq '${a}'`)}&$select=id,parentFolderId&$top=5`);
+      return ((j?.value ?? []) as { id?: string; parentFolderId?: string }[]).flatMap((x) => (x.id && x.parentFolderId ? [{ id: x.id, parentFolderId: x.parentFolderId }] : []));
+    },
+
     async idsIn(folder: WellKnownFolder | string, max = 5000): Promise<{ ids: string[]; more: boolean }> {
       const ids: string[] = [];
       let link: string | undefined = `/me/mailFolders/${enc(folder)}/messages?$top=200&$select=id`;
