@@ -67,10 +67,11 @@ button.find::after { content: ''; position: absolute; inset: -3px 0; } /* the se
 .card { margin: 0 16px; background: var(--card); border-radius: var(--r-card); overflow: hidden; }
 .sw-row { position: relative; overflow: hidden; border-top: var(--hair) solid var(--ln); }
 .card > .sw-row:first-child { border-top: 0; }
-.row { --py: 12px; --av: 42px; position: relative; display: flex; gap: 12px; padding: var(--py) 16px var(--py) 28px; background: var(--card); width: 100%; text-align: left; border: 0; }
+.row { --py: 12px; --av: 42px; --rb: var(--card); position: relative; display: flex; gap: 12px; padding: var(--py) 16px var(--py) 18px; background: var(--card); width: 100%; text-align: left; border: 0; }
 .row.compact { --py: 8px; --av: 38px; } .row.compact .pv { -webkit-line-clamp: 1; }
 .row.roomy { --py: 16px; --av: 46px; }
-.dot { position: absolute; left: 12px; top: calc(var(--py) + var(--av) / 2 - 3px); width: 8px; height: 8px; border-radius: 4px; background: var(--ac); }
+/* The unread dot sits on the corner of the avatar (a ring in the row's own colour cuts it out), so the left edge stays calm. */
+.dot { position: absolute; left: calc(18px + var(--av) - 11px); top: calc(var(--py) - 3px); width: 12px; height: 12px; border-radius: 6px; background: var(--ac); box-shadow: 0 0 0 2.5px var(--rb); z-index: 1; }
 .avw { position: relative; flex: none; margin-top: 1px; }
 /* Every sender has a tint of their own (the hue is theirs, how pale or deep it is comes from themeVars, and is checked for contrast): people are easy to tell apart at a glance. */
 .av { width: var(--av, 44px); height: var(--av, 44px); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: calc(var(--av, 44px) * .34); font-weight: 600; letter-spacing: .01em; flex: none;
@@ -559,9 +560,9 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post[data-look="calm"] .sec { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; padding: 14px 16px 6px; }
 .post[data-look="calm"] .sec + .card { margin: 0; border-radius: 0; border-block: var(--hair) solid var(--ln); }
 .post[data-look="calm"] .sw-row { border-top: 0; }
-.post[data-look="calm"] .row::after { content: ''; position: absolute; left: calc(28px + var(--av) + 12px); right: 0; bottom: 0; border-bottom: var(--hair) solid var(--ln); }
+.post[data-look="calm"] .row::after { content: ''; position: absolute; left: calc(18px + var(--av) + 12px); right: 0; bottom: 0; border-bottom: var(--hair) solid var(--ln); }
 .post[data-look="calm"] .sw-row:last-child .row::after { display: none; }
-.post[data-look="calm"] .dot { left: 10px; }
+
 .post[data-look="calm"] .who { font-size: 16px; }
 .post[data-look="calm"] .sj { font-size: 15px; }
 .post[data-look="calm"] .pv { font-size: 14px; }
@@ -616,15 +617,24 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .it.subrow .v { align-self: center; }
 .it.subrow .rw small { overflow-wrap: anywhere; }
 
-/* The trash can at the side of a row: delete without opening. Always there on a touch screen; on a computer it shows when the pointer is over the row, as in Outlook. */
+/* The trash can at the side of a row: delete without opening. On a phone it is always there, small and faint so it does not compete with the mail (the touch target stays 44 px). On a computer a small pill of Archive, Mark unread and Delete shows when the pointer is over the row, as in Outlook, and the time makes room for it. */
 .swipe-fg.has-trash .row { padding-right: 58px; }
-.rowtrash { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--mu); border-radius: 12px; opacity: .75; }
+.rowacts { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
+.rowacts .ra.x { display: none; }
+.rowtrash { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--mu); border-radius: 12px; opacity: .5; }
+.rowtrash .ic { width: 17px; height: 17px; }
 .rowtrash:active { background: color-mix(in srgb, var(--bad) 14%, var(--card)); color: var(--bad); opacity: 1; }
 @media (hover: hover) and (pointer: fine) {
   .swipe-fg.has-trash .row { padding-right: 16px; }
-  .rowtrash { opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease; background: var(--card); }
-  .swipe-fg:hover .rowtrash, .rowtrash:focus-visible { opacity: 1; }
-  .rowtrash:hover { background: color-mix(in srgb, var(--bad) 14%, var(--card)); color: var(--bad); }
+  .rowacts { top: 8px; transform: none; right: 10px; height: 34px; padding: 0 3px; border-radius: 17px; background: var(--card); box-shadow: 0 1px 6px rgba(0,0,0,.14), inset 0 0 0 1px var(--ln); opacity: 0; transition: opacity .12s ease; }
+  .rowacts .ra.x { display: grid; }
+  .swipe-fg:hover .rowacts, .rowacts:focus-within { opacity: 1; }
+  .rowacts .ra { width: 36px; height: 30px; border-radius: 15px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink); opacity: 1; transition: background .12s ease, color .12s ease; }
+  .rowacts .rowtrash .ic { width: 18px; height: 18px; }
+  .rowacts .ra:hover { background: color-mix(in srgb, var(--ink) 9%, var(--card)); }
+  .rowacts .rowtrash:hover { background: color-mix(in srgb, var(--bad) 14%, var(--card)); color: var(--bad); }
+  .swipe-fg:hover .tm, .swipe-fg:has(.rowacts:focus-within) .tm { opacity: 0; }
+  .tm { transition: opacity .12s ease; }
 }
 
 /* New folder: the small buttons beside a heading. */
@@ -648,3 +658,47 @@ body.dragging-mail .sb-it > * { pointer-events: none; }
 .cchip small { display: block; font-size: 11px; font-weight: 500; color: var(--mu); }
 .cchip.over { background: var(--ac); color: var(--on); border-color: var(--ac); transform: scale(1.04); }
 .cchip.over small { color: inherit; opacity: .85; }
+
+/* ---- UI polish: calmer colour, a fade under the floating bar, gentler motion ---- */
+/* Orange is for what you can do (compose, Triage, the main button) and for the unread dot; counts are plain ink so they stop shouting. */
+.un .n { color: var(--ink); }
+.un.on .n { color: var(--bg); }
+.pill .n { color: var(--ink); }
+.pills[aria-label="Mail categories"] .pill .n { background: var(--ink); color: var(--bg); }
+.bdg { background: var(--ink); color: var(--bg); }
+.sb-n { color: var(--ink); }
+.row.active { --rb: color-mix(in srgb, var(--ac) 9%, var(--card)); }
+.swipe-fg.held .dot { box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ac) 12%, var(--card)); }
+.post[data-look="calm"] .pills[aria-label="Mail categories"] .pill.on .n { background: var(--ink); color: var(--bg); }
+/* Mail no longer shows through the floating bar: the list fades into the page colour underneath it. */
+.pg:has(> .tabs)::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(env(safe-area-inset-bottom, 0px) + 104px); background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 62%, var(--bg)); pointer-events: none; z-index: 4; }
+.post[data-look="calm"] .pg:has(> .tabs)::after { display: none; }
+.post.wide .pg:has(> .tabs)::after { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  /* a row that goes (archive, delete) slides a little the way it leaves while the list closes up */
+  .sw-row { transition: max-height .24s cubic-bezier(.4, 0, .2, 1), opacity .18s ease, border-top-width .24s ease; }
+  .sw-row.leaving .swipe-fg { transition: transform .22s cubic-bezier(.4, 0, .2, 1); transform: translateX(-28px); }
+  /* Calm: the line under the tab you are on draws itself in instead of jumping */
+  .post[data-look="calm"] .pill.on::before { transform-origin: left; animation: ulin .22s var(--ease-out); }
+  @keyframes ulin { from { transform: scaleX(0); opacity: .4; } }
+  .pill, .tab { transition: background-color .2s ease, color .2s ease, box-shadow .2s ease, transform .12s ease; }
+}
+
+/* the "Learn more" at the end of a note: a plain link with a 44 px reach */
+.note .more-hint { display: inline; position: relative; border: 0; background: transparent; padding: 0; color: var(--at); font: inherit; font-weight: 600; }
+.note .more-hint::after { content: ''; position: absolute; inset: -14px -8px; }
+
+/* reader: recipients and the full date open under the sender when asked for */
+.mh .s .det-btn { display: inline-flex; align-items: center; gap: 2px; position: relative; border: 0; background: transparent; padding: 0; color: var(--mu); font: inherit; }
+.mh .s .det-btn::after { content: ''; position: absolute; inset: -14px -8px; }
+.det { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 6px 0 2px; font-size: 12.5px; line-height: 1.4; color: var(--mu); }
+.det dt { font-weight: 600; color: var(--ink); } .det dd { margin: 0; overflow-wrap: anywhere; }
+/* a phone shows several files as one row of tiles you swipe through, not a tall list */
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) { display: flex; gap: 8px; overflow-x: auto; background: transparent; padding: 0 0 2px; scrollbar-width: none; scroll-snap-type: x proximity; border-radius: 0; margin: 12px 0 0; padding-inline: 12px; scroll-padding-inline: 12px; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2))::-webkit-scrollbar { display: none; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file { flex: none; width: 210px; border: 0; background: var(--bg); border-radius: 12px; scroll-snap-align: start; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file .fc { display: none; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file.more-files, .post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file.warn-row { width: 150px; }
+.mh:has(.det) { align-items: flex-start; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .fn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mh .s:has(.det-btn) { overflow: visible; white-space: normal; }
