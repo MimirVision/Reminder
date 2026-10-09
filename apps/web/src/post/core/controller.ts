@@ -10,6 +10,7 @@ import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, s
 import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
+import { addLeft, diffInbox, loadLeft, type LeftEntry, type LeftWhy } from './leftlog.ts';
 import { blockedMail, canMute, keepMore, keptKey, muteName, MUTED_MAX, mutedMail, type Muted } from './tidy.ts';
 import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, type FolderKind, type Kind, type Mail, type MailBody } from './types.ts';
 
@@ -98,6 +99,8 @@ export interface State {
   blocked: string[];
   /** Conversations you muted: new replies to them skip the inbox (Post archives them while it is open). */
   muted: Muted[];
+  /** The record of mail that left the inbox list or changed tab, and why (Settings, Where did my mail go?). Newest first. */
+  left: LeftEntry[];
 }
 
 export interface Deps {
@@ -114,6 +117,8 @@ export interface Deps {
   pushState?: () => Promise<boolean>;
   setTimer?: (fn: () => void, ms: number) => unknown;
   sleep?: (ms: number) => Promise<void>;
+  /** How long new mail may wait to be sorted before it is shown (a moment; tests make it short). */
+  presortMs?: number;
 }
 
 /** A file opened for reading or saving. `link`: this attachment is only a link to a cloud file (there are no bytes). */
@@ -197,7 +202,7 @@ export function createController(deps: Deps) {
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
     sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, serverSmart: null, sent: 0, storage: 'device',
-    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null, blocked: [], muted: [],
+    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null, blocked: [], muted: [], left: [],
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -409,7 +414,7 @@ export function createController(deps: Deps) {
    * It goes in line with the changes that read a message from the phone and write it back (read, flag): none of them may put back a
    * message that was just taken away. Undo gets the copies as they were at this moment.
    */
-  async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string, onUndo?: () => void) {
+  async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string, onUndo?: () => void, why?: LeftWhy) {
     if (!items.length) return;
     const moved = await exclusive(async () => {
       const taken: { mail: Mail; inbox: boolean }[] = [];
@@ -423,6 +428,7 @@ export function createController(deps: Deps) {
       }
       if (!taken.length) return null;
       const inInbox = taken.filter((t) => t.inbox).map((t) => t.mail.key);
+      for (const k of inInbox) whyGone.set(k, why ?? (op.type === 'archive' ? 'archive' : op.type === 'delete' ? 'delete' : 'move'));
       if (inInbox.length) await store.deleteMail(inInbox);
       const away = new Set(taken.map((t) => t.mail.key));
       setView((v) => (v.items.some((m) => away.has(m.key)) ? { ...v, items: v.items.filter((m) => !away.has(m.key)) } : v));
@@ -485,6 +491,12 @@ export function createController(deps: Deps) {
     setTimer(() => { if (state.toast?.id === id) set({ toast: null }); }, ms ?? (undo ? UNDO_WINDOW_MS : 3500));
   }
 
+  /** Why messages are about to leave the list (set by whatever takes them away); a message that leaves with no reason here was moved at Outlook's end. */
+  const whyGone = new Map<string, LeftWhy>();
+  /** Whether a change of tab that happens now is the result of a choice made here. */
+  let tabCause: 'tab' | 'tabYou' = 'tab';
+  /** The next change of the list is not written down (a mailbox was removed: its mail is not "gone"). */
+  let quietNext = false;
   async function reload() {
     const [stored, ops, outbox] = await Promise.all([store.allMail(), queue.pending(), store.getMeta<OutboxItem[]>('outbox')]);
     // Archived or deleted here and Outlook not told yet: it stays out of the list, even if something that was busy with an older copy of it
@@ -492,6 +504,11 @@ export function createController(deps: Deps) {
     const leaving = new Set(ops.filter((o) => isMove(o.type)).map((o) => mailKey(o.account, o.messageId)));
     const mail = leaving.size ? stored.filter((m) => !leaving.has(m.key)) : stored;
     mail.sort((a, b) => b.received.localeCompare(a.received));
+    // What left the list, or changed tab, since the last time: written down with the reason (see leftlog.ts).
+    const entries = quietNext ? [] : diffInbox(state.mail, mail, whyGone, now(), tabCause);
+    quietNext = false;
+    whyGone.clear();
+    if (entries.length) { const left = addLeft(state.left, entries); set({ left }); store.setMeta('leftlog', left).catch((e) => note('storage', e)); }
     // "Waiting" means held up, not just inside the undo window: only actions that are already due and still not confirmed count.
     const waiting = ops.filter((o) => o.runAfter <= now()).length + (outbox ?? []).filter((o) => o.sendAt <= now()).length;
     set({ mail, waiting, outbox: outbox ?? [], storage: store.status?.().kind === 'memory' ? 'memory' : 'device' });
@@ -503,8 +520,8 @@ export function createController(deps: Deps) {
   async function applyOverrides(overrides: Record<string, Kind>) {
     await store.setMeta('overrides', overrides);
     set({ overrides });
-    await reclassifyAll(store, sortCtx());
-    await reload();
+    tabCause = 'tabYou';
+    try { await reclassifyAll(store, sortCtx()); await reload(); } finally { tabCause = 'tab'; }
     void pushTaught(); // the icon number follows the same choices
   }
 
@@ -837,7 +854,7 @@ export function createController(deps: Deps) {
         try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
         const savedMuted = await store.getMeta<unknown>('muted');
         const muted: Muted[] = Array.isArray(savedMuted) ? savedMuted.filter((x): x is Muted => !!x && typeof (x as Muted).key === 'string' && typeof (x as Muted).subject === 'string' && (x as Muted).key.length > 0 && (x as Muted).key.length <= 300).slice(-MUTED_MAX) : [];
-        set({ settings, accounts: cachedAccounts, overrides, blocked, muted, signingIn: !!readPending() });
+        set({ settings, accounts: cachedAccounts, overrides, blocked, muted, left: loadLeft(await store.getMeta<unknown>('leftlog').catch(() => null)), signingIn: !!readPending() });
         // Only now, with the saved choices on screen: a start that could not read them sends the alert server nothing (it would look like "all removed").
         taughtSent = sentOf(savedSent);
         try { sweepEdits(); } catch { /* only tidying */ }
@@ -956,8 +973,17 @@ export function createController(deps: Deps) {
           const g = graphFor(a.email);
           if (!g) continue;
           try {
-            await syncAccount({ graph: g, store, account: a.email, ctx: sortCtx(), now: () => new Date(now()) });
+            const got = await syncAccount({ graph: g, store, account: a.email, ctx: sortCtx(), now: () => new Date(now()) });
             alive();
+            // A few new messages are sorted before they are shown, so a newsletter does not appear in Primary for a moment and then leave it.
+            if (got.added > 0 && got.added <= 20 && !got.resynced) {
+              // It waits for that at most a moment: a slow answer must never keep new mail off the screen (the background sorting finishes the job).
+              const sorted = enrichHeaders({ graph: g, store, account: a.email, ctx: sortCtx, max: got.added, sleep: deps.sleep }).catch(() => undefined);
+              let deadline: ReturnType<typeof setTimeout> | undefined;
+              await Promise.race([sorted, new Promise<void>((r) => { deadline = setTimeout(r, deps.presortMs ?? 2500); })]);
+              clearTimeout(deadline);
+              alive();
+            }
             await reload();
             await learnKnown(a.email, g);
           } catch (e) {
@@ -1057,6 +1083,7 @@ export function createController(deps: Deps) {
         if (waiting.some((x) => x.account === email)) await store.setMeta('outbox', waiting.filter((x) => x.account !== email)); // their files went with clearAccount
       });
       await refreshAccounts();
+      quietNext = true;
       await reload();
     },
 
@@ -1213,11 +1240,12 @@ export function createController(deps: Deps) {
       try {
         const beforeBlocked = state.blocked, beforeRules = state.overrides;
         await saveBlocked([...beforeBlocked, key]);
+        quietNext = true; // their move to Promotions is part of the block: the record tells it once, as the block
         await applyOverrides({ ...beforeRules, [key]: 'promo' });
         const lift = () => { void (async () => { await saveBlocked(beforeBlocked); await applyOverrides(beforeRules); })(); };
         const items = blockedMail(state.mail, [key], new Set(await loadKept()));
         const who = company ? key.slice(1) : addr;
-        if (items.length) await relocate(items, { type: 'move', to: GRAPH_NAME.junk }, `Blocked ${who}. ${items.length === 1 ? '1 message' : `${items.length} messages`} moved to Junk.`, lift);
+        if (items.length) await relocate(items, { type: 'move', to: GRAPH_NAME.junk }, `Blocked ${who}. ${items.length === 1 ? '1 message' : `${items.length} messages`} moved to Junk.`, lift, 'blocked');
         else toast(`Blocked ${who}. Their mail goes to Junk from now on.`, lift);
       } finally { tidying = false; }
     },
@@ -1248,7 +1276,7 @@ export function createController(deps: Deps) {
         const lift = () => { void saveMuted(before); };
         const items = mutedMail(state.mail, [entry], new Set(await loadKept()));
         const what = `Muted “${entry.subject.length > 28 ? `${entry.subject.slice(0, 27)}…` : entry.subject}”`;
-        if (items.length) await relocate(items, { type: 'archive' }, `${what}. ${items.length === 1 ? '1 message' : `${items.length} messages`} archived.`, lift);
+        if (items.length) await relocate(items, { type: 'archive' }, `${what}. ${items.length === 1 ? '1 message' : `${items.length} messages`} archived.`, lift, 'muted');
         else toast(`${what}. New replies skip the inbox.`, lift);
       } finally { tidying = false; }
     },
@@ -1273,13 +1301,13 @@ export function createController(deps: Deps) {
       try {
         const keptNow = new Set(await loadKept());
         const bad = blockedMail(state.mail, state.blocked, keptNow);
-        if (bad.length) await relocate(bad, { type: 'move', to: GRAPH_NAME.junk }, bad.length === 1 ? 'Moved 1 message from a blocked sender to Junk' : `Moved ${bad.length} messages from blocked senders to Junk`, () => void keep(bad));
+        if (bad.length) await relocate(bad, { type: 'move', to: GRAPH_NAME.junk }, bad.length === 1 ? 'Moved 1 message from a blocked sender to Junk' : `Moved ${bad.length} messages from blocked senders to Junk`, () => void keep(bad), 'blocked');
         const quiet = mutedMail(state.mail, state.muted, keptNow);
-        if (quiet.length) await relocate(quiet, { type: 'archive' }, quiet.length === 1 ? 'Archived 1 message from a muted conversation' : `Archived ${quiet.length} messages from muted conversations`, () => void keep(quiet));
+        if (quiet.length) await relocate(quiet, { type: 'archive' }, quiet.length === 1 ? 'Archived 1 message from a muted conversation' : `Archived ${quiet.length} messages from muted conversations`, () => void keep(quiet), 'muted');
         const days = state.settings.autoClean;
         if (days > 0) {
           const rows = staleThreads(state, now(), days, keptNow);
-          if (rows.length) await relocate(rows.flatMap((t) => t.items), { type: 'archive' }, rows.length === 1 ? 'Archived 1 old promotion' : `Archived ${rows.length} old promotions`, () => void keep(rows.flatMap((t) => t.items)));
+          if (rows.length) await relocate(rows.flatMap((t) => t.items), { type: 'archive' }, rows.length === 1 ? 'Archived 1 old promotion' : `Archived ${rows.length} old promotions`, () => void keep(rows.flatMap((t) => t.items)), 'clean');
         }
       } finally { tidying = false; }
     },
@@ -1754,6 +1782,8 @@ export function createController(deps: Deps) {
     /** What went wrong lately, oldest first. */
     problems: diag.list,
     clearProblems: diag.clear,
+    /** Empties the record of mail that left the list (Settings, Where did my mail go?). */
+    clearLeft() { set({ left: [] }); store.setMeta('leftlog', []).catch((e) => note('storage', e)); },
   };
   return api;
 }

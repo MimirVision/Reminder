@@ -1,3 +1,4 @@
+import { leftCounts } from './leftlog.ts';
 import type { Problem } from './diag.ts';
 import type { OutboxItem, State } from './controller.ts';
 import type { StoreStatus } from './store.ts';
@@ -8,7 +9,7 @@ import type { StoreStatus } from './store.ts';
 export interface HealthInput {
   build: string;
   now: number;
-  state: Pick<State, 'online' | 'accounts' | 'sync' | 'waiting' | 'outbox' | 'alertsOn' | 'ready'>;
+  state: Pick<State, 'online' | 'accounts' | 'sync' | 'waiting' | 'outbox' | 'alertsOn' | 'ready'> & { left?: State['left'] };
   storage: StoreStatus;
   problems: Problem[];
   device: {
@@ -79,6 +80,7 @@ export function healthReport(i: HealthInput): string {
     `Storage: ${i.storage.kind === 'device' ? 'saved on this phone' : 'NOT saved (memory only)'}${i.storage.reopened ? `; connection reopened ${i.storage.reopened}x` : ''}${i.storage.lastError ? `; last error: ${i.storage.lastError}` : ''}`,
     ...(i.device.room ? [`Room: ${mb(i.device.room.usage)} of ${mb(i.device.room.quota)}${i.device.room.persisted === undefined ? '' : i.device.room.persisted ? '; kept' : '; may be cleared by the phone'}`] : []),
     `Alerts: ${state.alertsOn ? 'on' : 'off'}`,
+    `Left the inbox list or changed tab (last ${(state.left ?? []).length}): ${leftCounts(state.left ?? [])}`,
     `Needs a look: ${findings(i).filter((f) => f.level !== 'ok').map((f) => f.title).join('; ') || 'nothing'}`,
     '',
     `Written down (${i.problems.length}, oldest first):`,
