@@ -92,6 +92,22 @@
   #textio .card { width: min(720px, 94%); }
   #dlg h3, #textio h3 { margin: 0 0 8px; }
   #textio textarea { width: 100%; height: 38vh; font: 11px/1.3 ui-monospace, monospace; border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
+  #v3d { position: absolute; inset: 0; display: none; background: #dfe8f0; z-index: 4; touch-action: none; }
+  #c3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+  #bar3d { position: absolute; left: 10px; right: 10px; top: 10px; display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center;
+    background: rgba(251,250,247,.94); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+  #bar3d label { display: flex; align-items: center; gap: 5px; }
+  #bar3d input[type=number] { width: 58px; padding: 3px 5px; }
+  #bar3d select { font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  #bar3d .grow { flex: 1; }
+  #mini { position: absolute; right: 10px; bottom: 10px; background: rgba(251,250,247,.94); border: 1px solid var(--line); border-radius: 10px; padding: 4px; }
+  #miniC { display: block; width: 190px; height: 190px; cursor: crosshair; }
+  #hint3d { position: absolute; left: 10px; bottom: 10px; background: rgba(38,35,31,.78); color: #fff; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; max-width: min(520px, 60%); }
+  #pad3d { position: absolute; left: 10px; bottom: 64px; display: none; grid-template-columns: repeat(3, 46px); gap: 4px; }
+  #pad3d button { height: 46px; padding: 0; font-size: 18px; background: rgba(251,250,247,.9); touch-action: none; user-select: none; }
+  @media (pointer: coarse) { #pad3d { display: grid; } }
+  .refrow { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+  .refrow input { flex: 1; }
   #zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
   #zoom button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
   #legend { position: absolute; left: 12px; top: 10px; background: rgba(251,250,247,.92); border: 1px solid var(--line);
@@ -142,6 +158,14 @@
     <div class="row" style="margin-top:6px">
       <button id="undo">↶ Angre</button><button id="redo">↷ Gjør om</button><button id="fit">Tilpass</button>
     </div>
+
+    <button id="open3d" class="primary" style="width:100%;margin-top:8px" title="Tast 3">3D – gå rundt i planen</button>
+
+    <h2>Skala</h2>
+    <div id="refs"></div>
+    <div class="row" style="margin-top:6px"><button id="addRef">+ Mål en kjent avstand</button></div>
+    <div class="row" style="margin-top:6px"><button id="refsAll" class="sm">Bruk skalaen på alle etasjer</button></div>
+    <p class="hint">Alt (møbler, arealer, 3D) regnes ut fra denne skalaen. Legg inn flere målinger så beregnes skalaen som et snitt. Du kan også velge en vegg og trykke «Bruk veggen som kjent mål».</p>
 
     <h2>Bilde → vegger</h2>
     <button id="detect" class="primary" style="width:100%">Konverter bilde til vegger</button>
@@ -197,6 +221,23 @@
       </div></div>
       <div id="zoom"><button id="zin" title="Zoom inn">+</button><button id="zout" title="Zoom ut">−</button><button id="zfit" title="Tilpass" style="font-size:13px">⤢</button></div>
       <div id="toast"></div>
+      <div id="v3d">
+        <canvas id="c3d"></canvas>
+        <div id="bar3d">
+          <div class="row" style="flex:0 0 auto;flex-wrap:nowrap"><button id="m3walk" class="on">Gå rundt</button><button id="m3orbit">Oversikt</button></div>
+          <label>Veggehøyde <input id="o3Wall" type="number" step="0.05" min="1.8" max="6" value="2.5"> m</label>
+          <label><input id="o3Img" type="checkbox"> Plantegning på gulvet</label>
+          <label><input id="o3Fig" type="checkbox" checked> Referanseperson 1,75 m</label>
+          <label><input id="o3Col" type="checkbox" checked> Vegger stopper deg</label>
+          <label id="o3AllL"><input id="o3All" type="checkbox"> Alle etasjer</label>
+          <label id="o3FloorL" style="display:none">Står i <select id="o3Floor"></select></label>
+          <span class="grow"></span>
+          <button id="c3close" class="primary">Lukk 3D</button>
+        </div>
+        <div id="pad3d"><button data-p="tl">⟲</button><button data-p="f">▲</button><button data-p="tr">⟳</button><button data-p="l">◀</button><button data-p="b">▼</button><button data-p="r">▶</button></div>
+        <div id="hint3d"></div>
+        <div id="mini"><canvas id="miniC" width="380" height="380"></canvas></div>
+      </div>
       <div id="dlg"><div class="card">
         <h3 id="dlgTitle"></h3><p id="dlgText" class="hint" style="margin:0 0 10px"></p>
         <input id="dlgInput" type="text" style="margin-bottom:12px">
@@ -227,6 +268,7 @@
           <tr><td>Ctrl+C / Ctrl+V / Ctrl+D</td><td>Kopier, lim inn, dupliser</td></tr>
           <tr><td>Ctrl+A</td><td>Marker alt</td></tr>
           <tr><td>R</td><td>Roter valgte møbler 90°</td></tr>
+          <tr><td>3</td><td>3D-visning: gå rundt med W A S D, dra for å se deg rundt</td></tr>
           <tr><td>Piltaster</td><td>Flytt valgte 5 cm (Shift = 50 cm)</td></tr>
           <tr><td>Mellomrom + dra</td><td>Flytt vyen (eller midtre/høyre museknapp)</td></tr>
           <tr><td>Scroll / knip</td><td>Zoom</td></tr>
@@ -255,7 +297,7 @@ const PAPER = '#f6f4ef';
 const ACCENT = '#2f6fed';
 
 // ---------- state ----------
-let S = { ppm: 50, calibrated: false, imgRot: 0, walls: [], items: [], next: 1 };   // ppm = world px per meter
+let S = { ppm: 50, calibrated: false, imgRot: 0, refs: [], wallH: 2.5, walls: [], items: [], next: 1 };   // ppm = world px per meter
 let V = { names: ['Alternativ A'], data: [null], cur: 0 };                           // plan alternatives
 let opt = { ghost: -1 };
 let view = { x: 0, y: 0, z: 1 };
@@ -284,7 +326,7 @@ function afterRestore() {
   const ids = new Set([...S.walls, ...S.items].map(e => e.id));
   sel = new Set([...sel].filter(i => ids.has(i)));
   $('#imgrot').value = S.imgRot || 0; syncOutputs();
-  touch(); renderProps();
+  touch(); renderProps(); renderRefs();
 }
 
 let saveTimer = 0, pendingSave = false, dirtyFile = false, fileHandle = null, lastFileSave = null, saveStateNow = '';
@@ -315,11 +357,11 @@ function touch() {
 
 // ----- project (de)serialisation: a project is a list of floors, each with its own image, scale and alternatives -----
 function blankFloor(name) {
-  return { name, ppm: 50, calibrated: false, imgRot: 0, img: null, set: null, V: { names: ['Alternativ A'], data: [{ walls: [], items: [] }], cur: 0 } };
+  return { name, ppm: 50, calibrated: false, imgRot: 0, refs: [], wallH: 2.5, img: null, set: null, V: { names: ['Alternativ A'], data: [{ walls: [], items: [] }], cur: 0 } };
 }
 function snapFloor() {
   V.data[V.cur] = { walls: S.walls, items: S.items };
-  return { name: P.floors[P.cur].name, ppm: S.ppm, calibrated: S.calibrated, imgRot: S.imgRot || 0, V,
+  return { name: P.floors[P.cur].name, ppm: S.ppm, calibrated: S.calibrated, imgRot: S.imgRot || 0, refs: S.refs || [], wallH: S.wallH || 2.5, V,
     img: bg.url && bg.url.startsWith('data:') ? bg.url : null,
     set: { thr: +$('#thr').value, minlen: +$('#minlen').value, minthick: +$('#minthick').value, gap: +$('#gap').value } };
 }
@@ -337,7 +379,7 @@ function normalize(d) {          // accepts v3 projects and the older single-pla
   throw new Error('bad file');
 }
 async function enterFloor(snap) {
-  S = { ppm: snap.ppm, calibrated: !!snap.calibrated, imgRot: snap.imgRot || 0, walls: [], items: [], next: P.next };
+  S = { ppm: snap.ppm, calibrated: !!snap.calibrated, imgRot: snap.imgRot || 0, refs: snap.refs || [], wallH: snap.wallH || 2.5, walls: [], items: [], next: P.next };
   V = snap.V; S.walls = V.data[V.cur].walls; S.items = V.data[V.cur].items;
   bg = { img: null, url: null, w: 0, h: 0 };
   sel = new Set(); hist.u = []; hist.r = []; opt.ghost = -1; chain = null; measureLast = null; roomsCache = extCache = null;
@@ -345,7 +387,7 @@ async function enterFloor(snap) {
   if (snap.set) { for (const k of ['thr', 'minlen', 'minthick', 'gap']) $('#' + k).value = snap.set[k]; }
   syncOutputs();
   if (snap.img) await loadImageFromUrl(snap.img, { keepScale: true, noFit: true, keepSettings: !!snap.set });
-  renderTabs(); renderFloors(); renderProps(); fit(); redraw(); updateStatus();
+  renderTabs(); renderFloors(); renderProps(); renderRefs(); fit(); redraw(); updateStatus();
 }
 async function openProject(d) {
   d = normalize(d);
@@ -610,9 +652,9 @@ function snapOpening(it, p) {
 }
 
 // Walls that meet at a corner get their ends extended so the corner is filled.
-function extensions() {
-  if (extCache) return extCache;
-  const m = new Map(), ws = S.walls;
+function extensions() { return extCache || (extCache = computeExt(S.walls)); }
+function computeExt(ws) {
+  const m = new Map();
   for (let i = 0; i < ws.length; i++) {
     const a = ws[i];
     for (let j = i + 1; j < ws.length; j++) {
@@ -628,7 +670,7 @@ function extensions() {
       }
     }
   }
-  return extCache = m;
+  return m;
 }
 
 // ---------- rooms (area from enclosed regions) ----------
@@ -879,6 +921,12 @@ function drawWorld(c, o) {
     }
   }
 
+  // known distances used for the scale
+  (S.refs || []).forEach((r, i) => {
+    c.beginPath(); c.moveTo(r.x1, r.y1); c.lineTo(r.x2, r.y2); c.strokeStyle = '#e8590c'; c.lineWidth = 2 / view.z; c.setLineDash([6 / view.z, 4 / view.z]); c.stroke(); c.setLineDash([]);
+    for (const q of [[r.x1, r.y1], [r.x2, r.y2]]) { c.beginPath(); c.arc(q[0], q[1], 3.5 / view.z, 0, 7); c.fillStyle = '#e8590c'; c.fill(); }
+    tag(c, `${i + 1}: ${String(r.m).replace('.', ',')} m`, (r.x1 + r.x2) / 2, (r.y1 + r.y2) / 2);
+  });
   // selection
   for (const id of sel) {
     const el = getEl(id); if (!el) continue;
@@ -973,6 +1021,7 @@ function resize() {
   const r = wrap.getBoundingClientRect(); dpr = window.devicePixelRatio || 1;
   cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
   cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px'; redraw();
+  if (typeof v3 !== 'undefined' && v3.open && v3.renderer) resize3();
 }
 new ResizeObserver(resize).observe(wrap);
 
@@ -1004,7 +1053,7 @@ const HINTS = {
   erase: 'Klikk eller dra over vegger og møbler for å fjerne dem.',
   cut: 'Klikk på en vegg for å dele den, eller dra langs veggen for å fjerne et stykke (åpning).',
   measure: 'Dra for å måle en avstand. Skalaen må være satt riktig først.',
-  calib: 'Klikk to punkter på bildet der du kjenner avstanden (f.eks. en dør på 90 cm).',
+  calib: 'Klikk to punkter på bildet der du kjenner avstanden (en vegg, en dør, hele huset). Du kan legge inn flere målinger – skalaen blir et snitt.',
   hand: 'Dra for å flytte vyen. Du kan også holde mellomrom, eller bruke høyre/midtre museknapp. Scroll for å zoome.',
   place: 'Klikk for å plassere. Shift+klikk for å plassere flere. Esc avbryter.',
 };
@@ -1067,7 +1116,7 @@ cv.addEventListener('pointerdown', e => {
     const w = S.walls.find(w => hitWall(w, p, 5 / view.z));
     if (w) { const t = segDist(p.x, p.y, w.x1, w.y1, w.x2, w.y2).t; drag = { type: 'cut', wall: w, t0: t, t1: t }; }
   } else if (tool === 'calib') {
-    calibPts.push(p);
+    calibPts.push(snapEnd(p));
     if (calibPts.length === 2) finishCalibration();
     redraw();
   } else if (tool === 'place') {
@@ -1201,17 +1250,63 @@ function cutWall(w, t0, t1) {
 }
 
 // ---------- scale ----------
-async function finishCalibration() {
-  const [a, b] = calibPts, px = Math.hypot(a.x - b.x, a.y - b.y);
-  const ans = await ask({ title: 'Mål skala', text: 'Hvor lang er denne avstanden i virkeligheten? (meter, f.eks. 0.9 for en dør)', input: '0.9' });
-  calibPts = [];
+function snapEnd(p) {            // snap to a wall end when close, otherwise keep the exact point (no grid: precision matters here)
+  let best = null, bd = 10 / view.z;
+  for (const w of S.walls) for (const q of [[w.x1, w.y1], [w.x2, w.y2]]) { const d = Math.hypot(q[0] - p.x, q[1] - p.y); if (d < bd) { bd = d; best = { x: q[0], y: q[1] }; } }
+  return best || p;
+}
+function applyRefs() {           // scale = least-squares fit over all known distances
+  const r = S.refs || [];
+  if (r.length) {
+    let a = 0, b = 0; r.forEach(x => { a += Math.hypot(x.x2 - x.x1, x.y2 - x.y1) * x.m; b += x.m * x.m; });
+    S.ppm = a / b; S.calibrated = true;
+  } else S.calibrated = false;
+  touch(); renderRefs(); renderProps();
+}
+async function addRef(x1, y1, x2, y2, hint) {
+  const px = Math.hypot(x2 - x1, y2 - y1); if (px < 2) return false;
+  const ans = await ask({ title: 'Kjent avstand', text: 'Hvor lang er denne avstanden i virkeligheten? (meter, f.eks. 0.9 for en dør, 4.2 for en vegg)', input: hint != null ? String(hint) : (S.refs && S.refs.length ? '' : '0.9'), ok: 'Bruk' });
   const m = parseFloat(String(ans || '').replace(',', '.'));
-  if (m > 0 && px > 1) {
-    checkpoint(); S.ppm = px / m; S.calibrated = true;
-    toast(`Skala satt: 1 m = ${S.ppm.toFixed(1)} px`); touch(); renderProps();
-  }
+  if (!(m > 0)) return false;
+  checkpoint(); (S.refs = S.refs || []).push({ x1, y1, x2, y2, m }); applyRefs();
+  toast(`Skala satt: 1 m = ${S.ppm.toFixed(1)} px (${S.refs.length} måling${S.refs.length > 1 ? 'er' : ''})`);
+  return true;
+}
+async function finishCalibration() {
+  const [a, b] = calibPts; calibPts = [];
+  await addRef(a.x, a.y, b.x, b.y);
   setTool('select');
 }
+function renderRefs() {
+  const box = $('#refs'), refs = S.refs || [];
+  if (!refs.length) {
+    box.innerHTML = `<div class="hint">${S.calibrated ? 'Skalaen er satt uten målinger (fra en eldre lagring). Legg inn en måling for å kalibrere på nytt.' : 'Ikke kalibrert ennå. Mål en avstand du kjenner, for eksempel en vegg eller en dør.'}</div>`; return;
+  }
+  const devs = refs.map(r => (Math.hypot(r.x2 - r.x1, r.y2 - r.y1) / S.ppm - r.m) / r.m * 100), mx = Math.max(...devs.map(Math.abs));
+  let h = `<div style="margin-bottom:6px"><b>1 m = ${S.ppm.toFixed(1)} px</b> <span class="hint">(1 px = ${(100 / S.ppm).toFixed(2).replace('.', ',')} cm)</span></div>`;
+  refs.forEach((r, i) => {
+    h += `<div class="refrow"><span class="hint">${i + 1}.</span><input type="number" step="0.01" min="0.01" data-ref="${i}" value="${r.m}"><span class="hint">m</span>` +
+      (refs.length > 1 ? `<span class="hint" style="flex:0 0 52px;text-align:right;color:${Math.abs(devs[i]) > 4 ? '#c8372d' : 'inherit'}">${devs[i] >= 0 ? '+' : ''}${devs[i].toFixed(1).replace('.', ',')} %</span>` : '') +
+      `<button class="sm danger" data-refdel="${i}" style="flex:0 0 auto">×</button></div>`;
+  });
+  if (refs.length > 1) h += mx > 4 ? '<div class="hint" style="color:#c8372d">Målingene avviker mer enn 4 % fra hverandre. Sjekk målingene, eller bildet kan være skjevt.</div>' : `<div class="hint">Største avvik ${mx.toFixed(1).replace('.', ',')} %.</div>`;
+  box.innerHTML = h;
+}
+$('#refs').addEventListener('change', e => {
+  const i = e.target.dataset.ref; if (i == null) return; const v = parseFloat(String(e.target.value).replace(',', '.'));
+  if (!(v > 0)) { renderRefs(); return; } checkpoint(); S.refs[+i].m = v; applyRefs();
+});
+$('#refs').addEventListener('click', e => {
+  const i = e.target.dataset.refdel; if (i == null) return; checkpoint(); S.refs.splice(+i, 1); applyRefs();
+});
+$('#addRef').onclick = () => setTool('calib');
+$('#refsAll').onclick = async () => {
+  if (P.floors.length < 2) { toast('Det finnes bare én etasje'); return; }
+  if (!S.calibrated) { toast('Kalibrer denne etasjen først'); return; }
+  if (!await ask({ title: 'Bruke skalaen på alle etasjer?', text: `1 m = ${S.ppm.toFixed(1)} px settes på alle etasjer. Gjør bare dette hvis bildene har samme oppløsning og er tegnet i samme målestokk.`, ok: 'Bruk på alle' })) return;
+  P.floors.forEach((f, i) => { if (i !== P.cur) { f.ppm = S.ppm; f.calibrated = true; } });
+  toast('Skalaen er satt på alle etasjer'); touch();
+};
 
 // ---------- image import + detection ----------
 function syncOutputs() { ['thr', 'minlen', 'minthick', 'gap', 'imgrot'].forEach(id => { const el = $('#' + id); el.parentElement.querySelector('output').textContent = el.value; }); }
@@ -1420,7 +1515,7 @@ function makeSample() {
 async function loadSample() {
   await newProject('Eksempel');
   await loadImageFromUrl(makeSample());
-  S.ppm = 920 / 11; S.calibrated = true;
+  S.refs = [{ x1: 40, y1: 20, x2: 960, y2: 20, m: 11 }]; applyRefs();
   detectWalls(true);
   // windows and doors sit in the gaps, which also closes the rooms
   const add = (kind, x, y, wpx, rot) => {
@@ -1576,12 +1671,14 @@ function renderProps(light) {
     if (isWall(el)) {
       box.innerHTML = `<label class="f"><span>Lengde (m)</span><input type="number" step="0.05" min="0.05" data-f="len" value="${(wLen(el) / S.ppm).toFixed(2)}"></label>
         <label class="f"><span>Tykkelse (cm)</span><input type="number" step="1" min="1" data-f="t" value="${(el.t / S.ppm * 100).toFixed(1)}"></label>
-        <label class="chk"><input type="checkbox" data-f="load" ${el.load ? 'checked' : ''}> Bærende vegg (markeres rød)</label>${actions}`;
+        <label class="chk"><input type="checkbox" data-f="load" ${el.load ? 'checked' : ''}> Bærende vegg (markeres rød)</label>
+        <button data-a="refwall" style="width:100%">Bruk veggen som kjent mål</button>${actions}`;
     } else {
       const op = isOpening(el);
       box.innerHTML = `<label class="f"><span>Navn</span><input type="text" data-f="label" value="${esc(el.label || '')}"></label>
         <label class="f"><span>Bredde (m)</span><input type="number" step="0.05" min="0.05" data-f="w" value="${el.w.toFixed(2)}"></label>
         <label class="f"><span>Dybde (m)</span><input type="number" step="0.05" min="0.05" data-f="h" value="${el.h.toFixed(2)}"></label>
+        ${op || el.shape === 'text' ? '' : `<label class="f"><span>Høyde (m)</span><input type="number" step="0.05" min="0.02" data-f="hgt" value="${(el.hgt != null ? el.hgt : (H3[el.kind] != null ? H3[el.kind] : 0.8)).toFixed(2)}"></label>`}
         <label class="f"><span>Rotasjon (°)</span><input type="number" step="15" data-f="rot" value="${el.rot}"></label>
         ${op ? '' : `<label class="f"><span>Farge</span><input type="color" data-f="color" value="${/^#[0-9a-f]{6}$/i.test(el.color) ? el.color : '#dddddd'}"></label>`}
         <div class="row"><button data-a="rot">Roter 90°</button><button data-a="flip">Speil</button></div>
@@ -1611,6 +1708,7 @@ $('#props').addEventListener('click', e => {
   const a = e.target.dataset.a; if (!a) return;
   if (a === 'del') deleteSel();
   else if (a === 'dup') duplicateSel();
+  else if (a === 'refwall') { const w = getEl([...sel][0]); if (w && isWall(w)) addRef(w.x1, w.y1, w.x2, w.y2, (wLen(w) / S.ppm).toFixed(2)); }
   else if (a === 'loadOn' || a === 'loadOff') { checkpoint(); S.walls.forEach(w => { if (sel.has(w.id)) w.load = a === 'loadOn'; }); touch(); }
   else {
     const el = getEl([...sel][0]); if (!el) return; checkpoint();
@@ -1788,6 +1886,7 @@ window.addEventListener('paste', e => {
 window.addEventListener('copy', e => { if (!typingNow() && copySel()) { e.preventDefault(); toast('Kopiert'); } });
 
 window.addEventListener('keydown', e => {
+  if (v3.open) return;
   if ($('#dlg').style.display === 'flex') { if (e.key === 'Escape') $('#dlgNo').click(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveFile(false); return; }
   const typing = typingNow();
@@ -1807,6 +1906,7 @@ window.addEventListener('keydown', e => {
     sel = new Set(); placeKind = null; setTool('select'); renderProps();
   }
   else if (k === '?') $('#help').style.display = 'flex';
+  else if (k === '3') open3D();
   else if (k === 'v') setTool('select'); else if (k === 'w') setTool('wall'); else if (k === 'e') setTool('erase');
   else if (k === 'c') setTool('cut'); else if (k === 'k') setTool('calib'); else if (k === 'h') setTool('hand'); else if (k === 'm') setTool('measure');
   else if (k === 'r') { const its = [...sel].map(getEl).filter(x => x && !isWall(x)); if (its.length) { checkpoint(); its.forEach(i => i.rot = (i.rot + 90) % 360); touch(); renderProps(); } }
@@ -1822,6 +1922,299 @@ function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 4200);
 }
+
+// ---------- 3D walkthrough ----------
+// World units are metres: x = plan x / ppm, z = plan y / ppm, y = up. Every size comes from the calibrated scale.
+const H3 = { island: .9, counter: .9, stove: .9, fridge: 1.85, sink: .9, dishwasher: .85, tallcab: 2.1, barstool: .75, sofa: .85, corner: .85, armchair: .8, pouf: .4,
+  coffee: .4, table: .75, round: .75, chair: .9, tvbench: .5, shelf: 1.9, fireplace: 1.1, piano: 1.2, rug: .02, bed: .55, bed1: .55, crib: .9, wardrobe: 2.1, dresser: .85,
+  nightstand: .55, desk: .75, ochair: .9, toilet: .4, shower: 2.0, bath: .55, basin: .85, basin2: .85, washer: .85, boiler: 1.7, spiral: 2.6, pillar: 2.4, chimney: 2.4,
+  zone: .01, terrace: .05, plant: 1.2, car: 1.45, box: 1.0 };
+const v3 = { open: false, renderer: null, scene: null, camera: null, mode: 'walk', yaw: -Math.PI / 2, pitch: 0, px: 0, pz: 0, az: 0.5, el: 0.9, dist: 20, target: [0, 0, 0],
+  keys: {}, pad: {}, colliders: {}, floorY: {}, fb: {}, mini: null, stand: 0, raf: 0, last: 0, figure: null, drag: null, ptrs: new Map() };
+
+function loadThree() {
+  return window.THREE ? Promise.resolve() : new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    sc.onload = res; sc.onerror = () => rej(new Error('three')); document.head.appendChild(sc);
+  });
+}
+function floorData(i) {
+  if (i === P.cur) return { walls: S.walls, items: S.items, ppm: S.ppm, wallH: S.wallH || 2.5, name: P.floors[i].name };
+  const f = P.floors[i], d = f.V.data[f.V.cur];
+  return { walls: d.walls, items: d.items, ppm: f.ppm, wallH: f.wallH || 2.5, name: f.name };
+}
+const m3 = (c, o) => new THREE.MeshLambertMaterial(Object.assign({ color: c }, o || {}));
+function bx(w, h, d, col, x, yb, z, o) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m3(col, o)); m.position.set(x, yb + h / 2, z); return m; }
+function cy(rx, rz, h, col, x, yb, z) { const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, h, 28), m3(col)); m.scale.set(rx, 1, rz); m.position.set(x, yb + h / 2, z); return m; }
+
+function openingsFor(w, items, ppm, wallH) {
+  const Lpx = wLen(w), L = Lpx / ppm, out = []; if (Lpx < 1) return out;
+  const ux = (w.x2 - w.x1) / Lpx, uy = (w.y2 - w.y1) / Lpx;
+  for (const it of items) {
+    if (!isOpening(it)) continue;
+    const a = it.rot * Math.PI / 180; if (Math.abs(Math.cos(a) * ux + Math.sin(a) * uy) < 0.9) continue;
+    const q = toWorldFrom(it, 0, it.shape === 'door' ? it.h * ppm / 2 : 0), sd = segDist(q.x, q.y, w.x1, w.y1, w.x2, w.y2);
+    if (sd.d > w.t / 2 + 0.12 * ppm) continue;
+    const s = sd.t * L, win = it.shape === 'window';
+    out.push({ s0: s - it.w / 2, s1: s + it.w / 2, zb: win ? 0.9 : 0, zt: Math.min(wallH, 2.1) });
+  }
+  return out.sort((p, q) => p.s0 - q.s0);
+}
+function addWall(g, cols, w, ppm, ext, wallH, y0, items) {
+  const Lpx = wLen(w); if (Lpx < 1) return;
+  const L = Lpx / ppm, t = w.t / ppm, ux = (w.x2 - w.x1) / Lpx, uy = (w.y2 - w.y1) / Lpx, ang = Math.atan2(uy, ux);
+  const e1 = (ext.get(w.id + ':1') || 0) / ppm, e2 = (ext.get(w.id + ':2') || 0) / ppm, sx = w.x1 / ppm, sz = w.y1 / ppm;
+  const mat = m3(w.load ? '#c9857c' : '#ece8e0');
+  const box = (sA, sB, yA, yB) => {
+    if (sB - sA < 0.005 || yB - yA < 0.005) return;
+    const len = sB - sA, s = (sA + sB) / 2, mesh = new THREE.Mesh(new THREE.BoxGeometry(len, yB - yA, t), mat);
+    mesh.position.set(sx + ux * s, y0 + (yA + yB) / 2, sz + uy * s); mesh.rotation.y = -ang; g.add(mesh);
+    if (yA < 1.7 && yB > 0.2) cols.push({ cx: sx + ux * s, cz: sz + uy * s, len, t, ang });
+  };
+  let cur = -e1;
+  for (const o of openingsFor(w, items, ppm, wallH)) {
+    const a = Math.max(o.s0, cur), b = Math.min(o.s1, L + e2); if (b <= a) continue;
+    box(cur, a, 0, wallH); box(a, b, 0, o.zb); box(a, b, o.zt, wallH); cur = b;
+  }
+  box(cur, L + e2, 0, wallH);
+}
+function tableLike(g, w, d, H, col) {
+  g.add(bx(w, 0.05, d, col, 0, H - 0.05, 0));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(bx(0.05, H - 0.05, 0.05, col, sx * (w / 2 - 0.05), 0, sz * (d / 2 - 0.05)));
+}
+function buildItem(it, ppm, wallH, y0) {
+  const g = new THREE.Group(); g.position.set(it.x / ppm, y0, it.y / ppm); g.rotation.y = -it.rot * Math.PI / 180; if (it.flip) g.scale.x = -1;
+  const w = it.w, d = it.h, H = it.hgt != null ? it.hgt : (H3[it.kind] != null ? H3[it.kind] : 0.8), col = it.color || '#dddddd';
+  const glass = { transparent: true, opacity: 0.35, depthWrite: false };
+  switch (it.shape) {
+    case 'door': g.add(bx(0.04, 2.05, d, '#a8845a', -w / 2, 0, 0)); break;                       // door standing open, hinged on the left
+    case 'sliding': g.add(bx(w * 0.55, 2.0, 0.03, '#cfd8de', -w * 0.22, 0, 0, glass)); break;
+    case 'window': g.add(bx(w, 1.2, 0.025, '#8ec5ea', 0, 0.9, 0, glass)); break;
+    case 'zone': g.add(bx(w, 0.01, d, col, 0, 0.004, 0, { transparent: true, opacity: 0.6, depthWrite: false })); break;
+    case 'rug': g.add(bx(w, 0.02, d, col, 0, 0, 0)); break;
+    case 'text': break;
+    case 'stairs': {
+      const n = Math.max(3, Math.round(wallH / 0.18));
+      for (let i = 0; i < n; i++) g.add(bx(w, wallH * (i + 1) / n, d / n, col, 0, 0, d / 2 - (i + 0.5) * d / n));
+      break;
+    }
+    case 'ellipse':
+      if (it.kind === 'spiral') {
+        g.add(cy(0.08, 0.08, wallH, '#8f8a82', 0, 0, 0));
+        const n = 13;
+        for (let i = 0; i < n; i++) { const p = new THREE.Group(); p.rotation.y = -i * 0.55; p.position.y = wallH * (i + 1) / (n + 1); p.add(bx(w / 2, 0.05, 0.32, col, w / 4, 0, 0)); g.add(p); }
+      } else if (it.kind === 'plant') {
+        g.add(cy(w * 0.35, d * 0.35, 0.3, '#9a6b4a', 0, 0, 0));
+        const f = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), m3(col)); f.scale.set(w / 2, Math.max(0.3, (H - 0.3) / 2), d / 2); f.position.set(0, 0.3 + (H - 0.3) / 2, 0); g.add(f);
+      } else if (it.kind === 'round') { g.add(cy(w / 2, d / 2, 0.05, col, 0, H - 0.05, 0)); g.add(cy(0.06, 0.06, H - 0.05, col, 0, 0, 0)); }
+      else if (it.kind === 'barstool' || it.kind === 'ochair') { g.add(cy(w / 2, d / 2, 0.08, col, 0, H * 0.5, 0)); g.add(cy(0.04, 0.04, H * 0.5, '#777', 0, 0, 0)); }
+      else g.add(cy(w / 2, d / 2, H, col, 0, 0, 0));
+      break;
+    default:
+      switch (it.kind) {
+        case 'sofa': case 'armchair': g.add(bx(w, 0.45, d, col, 0, 0, 0)); g.add(bx(w, H, 0.22, col, 0, 0, -d / 2 + 0.11)); break;
+        case 'corner': {
+          const a = Math.min(w, d) * 0.42;
+          g.add(bx(w, 0.45, a, col, 0, 0, -d / 2 + a / 2)); g.add(bx(a, 0.45, d, col, -w / 2 + a / 2, 0, 0));
+          g.add(bx(w, H, 0.22, col, 0, 0, -d / 2 + 0.11)); g.add(bx(0.22, H, d, col, -w / 2 + 0.11, 0, 0)); break;
+        }
+        case 'bed': case 'bed1': g.add(bx(w, 0.45, d, col, 0, 0, 0)); g.add(bx(w, 0.95, 0.06, '#8a7a68', 0, 0, -d / 2 + 0.03)); break;
+        case 'crib': g.add(bx(w, 0.35, d, col, 0, 0.25, 0)); g.add(bx(w, H, 0.04, '#d9cfe3', 0, 0, -d / 2 + 0.02, glass)); break;
+        case 'chair': g.add(bx(w, 0.45, d, col, 0, 0, 0)); g.add(bx(w, 0.45, 0.05, col, 0, 0.45, -d / 2 + 0.025)); break;
+        case 'table': case 'desk': case 'coffee': tableLike(g, w, d, H, col); break;
+        case 'island': case 'counter': case 'sink': g.add(bx(w, H - 0.04, d, col, 0, 0, 0)); g.add(bx(w + 0.02, 0.04, d + 0.02, '#e9e4da', 0, H - 0.04, 0)); break;
+        case 'toilet': g.add(bx(w, 0.4, d, col, 0, 0, 0)); g.add(bx(w, 0.8, 0.18, col, 0, 0, -d / 2 + 0.09)); break;
+        case 'shower': g.add(bx(w, 0.05, d, col, 0, 0, 0)); g.add(bx(w, H, d, '#bfe0f0', 0, 0, 0, { transparent: true, opacity: 0.18, depthWrite: false })); break;
+        case 'car': g.add(bx(w, 0.7, d, col, 0, 0.25, 0)); g.add(bx(w * 0.5, 0.55, d * 0.85, '#aab4c0', -w * 0.05, 0.95, 0)); break;
+        case 'terrace': g.add(bx(w, 0.05, d, col, 0, 0, 0)); break;
+        default: g.add(bx(w, H, d, col, 0, 0, 0));
+      }
+  }
+  return g;
+}
+function floorTexture() {
+  const k = Math.min(1, 2048 / Math.max(bg.w, bg.h)), c = document.createElement('canvas'); c.width = Math.round(bg.w * k); c.height = Math.round(bg.h * k);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.translate(c.width / 2, c.height / 2); g.rotate((S.imgRot || 0) * Math.PI / 180); g.drawImage(bg.img, -c.width / 2, -c.height / 2, c.width, c.height);
+  return new THREE.CanvasTexture(c);
+}
+function buildFloor(fd, y0, withImg) {
+  const g = new THREE.Group(), cols = [], ppm = fd.ppm, ext = computeExt(fd.walls);
+  let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+  const add = (x, z) => { x0 = Math.min(x0, x / ppm); z0 = Math.min(z0, z / ppm); x1 = Math.max(x1, x / ppm); z1 = Math.max(z1, z / ppm); };
+  fd.walls.forEach(w => { add(w.x1, w.y1); add(w.x2, w.y2); });
+  fd.items.forEach(i => add(i.x, i.y));
+  if (x0 > x1) { x0 = 0; z0 = 0; x1 = 10; z1 = 8; }
+  const mg = 1.5, W = x1 - x0 + mg * 2, D = z1 - z0 + mg * 2;
+  const slab = bx(W, 0.25, D, '#bfae96', (x0 + x1) / 2, -0.25, (z0 + z1) / 2); slab.position.y += y0; g.add(slab);
+  if (withImg && bg.img) {
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(bg.w / ppm, bg.h / ppm), new THREE.MeshBasicMaterial({ map: floorTexture(), transparent: true, opacity: 0.9 }));
+    pl.rotation.x = -Math.PI / 2; pl.position.set(bg.w / 2 / ppm, y0 + 0.004, bg.h / 2 / ppm); g.add(pl);
+  }
+  fd.walls.forEach(w => addWall(g, cols, w, ppm, ext, fd.wallH, y0, fd.items));
+  fd.items.forEach(it => g.add(buildItem(it, ppm, fd.wallH, y0)));
+  return { group: g, colliders: cols, bounds: { x0, z0, x1, z1 } };
+}
+function disposeScene() {
+  if (!v3.scene) return;
+  v3.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
+  v3.scene = null;
+}
+function standStart(i) {
+  const b = v3.fb[i];
+  if (i === P.cur) { const r = computeRooms().list.slice().sort((p, q) => q.area - p.area)[0]; if (r) return [r.x / S.ppm, r.y / S.ppm]; }
+  return [(b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2];
+}
+function buildScene(reset) {
+  disposeScene();
+  const sc = new THREE.Scene(); sc.background = new THREE.Color('#dfe8f0');
+  sc.add(new THREE.HemisphereLight(0xffffff, 0x9a9a9a, 0.85));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.55); dl.position.set(6, 12, 4); sc.add(dl);
+  const all = $('#o3All').checked, idxs = all ? P.floors.map((_, i) => i) : [P.cur];
+  v3.colliders = {}; v3.floorY = {}; v3.fb = {};
+  let y0 = 0, B = { x0: 1e9, z0: 1e9, x1: -1e9, z1: -1e9 };
+  idxs.forEach(i => {
+    const fd = floorData(i), r = buildFloor(fd, y0, i === P.cur && $('#o3Img').checked);
+    sc.add(r.group); v3.colliders[i] = r.colliders; v3.floorY[i] = y0; v3.fb[i] = r.bounds;
+    B.x0 = Math.min(B.x0, r.bounds.x0); B.z0 = Math.min(B.z0, r.bounds.z0); B.x1 = Math.max(B.x1, r.bounds.x1); B.z1 = Math.max(B.z1, r.bounds.z1);
+    y0 += fd.wallH + 0.25;
+  });
+  // 1 m grid so the scale can be checked by eye
+  const ext = Math.ceil(Math.max(B.x1 - B.x0, B.z1 - B.z0)) + 4, gr = new THREE.GridHelper(ext, ext, 0x7a8896, 0xb7c2cc);
+  gr.position.set((B.x0 + B.x1) / 2, -0.26, (B.z0 + B.z1) / 2); sc.add(gr);
+  // 1.75 m reference person
+  const fig = new THREE.Group(); fig.add(cy(0.2, 0.14, 1.45, '#2f6fed', 0, 0.25, 0));
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), m3('#e8c9a8')); head.position.y = 1.64; fig.add(head); sc.add(fig); v3.figure = fig;
+  v3.scene = sc;
+  if (!(v3.stand in v3.fb)) v3.stand = P.cur;
+  // floor picker
+  const sel3 = $('#o3Floor'); sel3.innerHTML = idxs.map(i => `<option value="${i}" ${i === v3.stand ? 'selected' : ''}>${esc(P.floors[i].name)}</option>`).join('');
+  $('#o3FloorL').style.display = all && P.floors.length > 1 ? '' : 'none';
+  // minimap data for the floor you stand on
+  const fd = floorData(v3.stand);
+  v3.mini = { segs: fd.walls.map(w => [w.x1 / fd.ppm, w.y1 / fd.ppm, w.x2 / fd.ppm, w.y2 / fd.ppm, w.t / fd.ppm]), b: v3.fb[v3.stand] };
+  v3.target = [(B.x0 + B.x1) / 2, 1, (B.z0 + B.z1) / 2]; v3.boundsAll = B;
+  if (reset) { const p = standStart(v3.stand); v3.px = p[0]; v3.pz = p[1]; v3.yaw = -Math.PI / 2; v3.pitch = 0; v3.dist = Math.max(B.x1 - B.x0, B.z1 - B.z0) * 1.2 + 6; v3.az = 0.5; v3.el = 0.95; }
+}
+function collide(x, z, r, list) {
+  for (let pass = 0; pass < 2; pass++) for (const c of list) {
+    const dx = x - c.cx, dz = z - c.cz, ca = Math.cos(c.ang), sa = Math.sin(c.ang);
+    const lx = dx * ca + dz * sa, lz = -dx * sa + dz * ca, hx = c.len / 2 + r, hz = c.t / 2 + r;
+    if (Math.abs(lx) < hx && Math.abs(lz) < hz) {
+      let nx = lx, nz = lz;
+      if (hz - Math.abs(lz) < hx - Math.abs(lx)) nz = (lz < 0 ? -1 : 1) * hz; else nx = (lx < 0 ? -1 : 1) * hx;
+      x = c.cx + nx * ca - nz * sa; z = c.cz + nx * sa + nz * ca;
+    }
+  }
+  return [x, z];
+}
+function resize3() {
+  const r = wrap.getBoundingClientRect(); if (!v3.renderer) return;
+  v3.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); v3.renderer.setSize(r.width, r.height, false);
+  v3.camera.aspect = r.width / Math.max(1, r.height); v3.camera.updateProjectionMatrix();
+}
+function setMode3(m) {
+  v3.mode = m; $('#m3walk').classList.toggle('on', m === 'walk'); $('#m3orbit').classList.toggle('on', m === 'orbit');
+  $('#hint3d').textContent = m === 'walk'
+    ? 'Dra for å se deg rundt · W A S D går (Shift løper) · piltast venstre/høyre snur · klikk i kartet for å hoppe dit'
+    : 'Dra for å rotere · scroll for å zoome · klikk i kartet for å flytte referansepersonen';
+  $('#c3d').style.cursor = 'grab';
+}
+function draw3() {
+  const cam = v3.camera;
+  if (v3.mode === 'walk') {
+    cam.position.set(v3.px, (v3.floorY[v3.stand] || 0) + 1.65, v3.pz); cam.rotation.set(v3.pitch, v3.yaw, 0, 'YXZ'); v3.figure.visible = false;
+  } else {
+    const t = v3.target, ce = Math.cos(v3.el);
+    cam.position.set(t[0] + v3.dist * Math.sin(v3.az) * ce, t[1] + v3.dist * Math.sin(v3.el), t[2] + v3.dist * Math.cos(v3.az) * ce); cam.lookAt(t[0], t[1], t[2]);
+    v3.figure.visible = $('#o3Fig').checked; v3.figure.position.set(v3.px, v3.floorY[v3.stand] || 0, v3.pz);
+  }
+  v3.renderer.render(v3.scene, cam);
+  // minimap
+  const c = $('#miniC'), g = c.getContext('2d'), M = v3.mini, b = M.b, pad = 14, W = c.width, H = c.height;
+  const k = Math.min((W - pad * 2) / Math.max(0.1, b.x1 - b.x0), (H - pad * 2) / Math.max(0.1, b.z1 - b.z0));
+  const ox = (W - (b.x1 - b.x0) * k) / 2 - b.x0 * k, oy = (H - (b.z1 - b.z0) * k) / 2 - b.z0 * k;
+  v3.miniMap = { k, ox, oy };
+  g.clearRect(0, 0, W, H); g.fillStyle = '#f6f4ef'; g.fillRect(0, 0, W, H); g.strokeStyle = '#2a2723'; g.lineCap = 'butt';
+  for (const s of M.segs) { g.beginPath(); g.moveTo(s[0] * k + ox, s[1] * k + oy); g.lineTo(s[2] * k + ox, s[3] * k + oy); g.lineWidth = Math.max(1.5, s[4] * k); g.stroke(); }
+  const mx = v3.px * k + ox, mz = v3.pz * k + oy, fa = v3.mode === 'walk' ? v3.yaw : 0;
+  g.fillStyle = '#2f6fed'; g.beginPath(); g.arc(mx, mz, 7, 0, 7); g.fill();
+  if (v3.mode === 'walk') { const fx = -Math.sin(fa), fz = -Math.cos(fa); g.strokeStyle = '#2f6fed'; g.lineWidth = 3; g.beginPath(); g.moveTo(mx, mz); g.lineTo(mx + fx * 24, mz + fz * 24); g.stroke(); }
+}
+function loop3(t) {
+  if (!v3.open) return;
+  const dt = Math.min(0.05, (t - (v3.last || t)) / 1000); v3.last = t;
+  if (v3.mode === 'walk') {
+    const k = v3.keys, P_ = v3.pad;
+    const f = (k.w ? 1 : 0) - (k.s ? 1 : 0) + (k.arrowup ? 1 : 0) - (k.arrowdown ? 1 : 0) + (P_.f || 0) - (P_.b || 0);
+    const r = (k.d ? 1 : 0) - (k.a ? 1 : 0) + (P_.r || 0) - (P_.l || 0);
+    v3.yaw += ((k.arrowleft ? 1 : 0) - (k.arrowright ? 1 : 0) + (P_.tl || 0) - (P_.tr || 0)) * 1.8 * dt;
+    if (f || r) {
+      const sp = (k.shift ? 3.4 : 1.5) * dt, fx = -Math.sin(v3.yaw), fz = -Math.cos(v3.yaw), rx = Math.cos(v3.yaw), rz = -Math.sin(v3.yaw);
+      let nx = v3.px + (fx * f + rx * r) * sp, nz = v3.pz + (fz * f + rz * r) * sp;
+      if ($('#o3Col').checked) [nx, nz] = collide(nx, nz, 0.22, v3.colliders[v3.stand] || []);
+      v3.px = nx; v3.pz = nz;
+    }
+  }
+  draw3(); v3.raf = requestAnimationFrame(loop3);
+}
+async function open3D() {
+  if (v3.open) return;
+  $('#v3d').style.display = 'block'; v3.open = true;
+  try { await loadThree(); } catch { toast('Klarte ikke å laste 3D-biblioteket. Det trenger nettilgang.'); close3D(); return; }
+  try {
+    if (!v3.renderer) {
+      v3.renderer = new THREE.WebGLRenderer({ canvas: $('#c3d'), antialias: true });
+      v3.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 600);
+    }
+  } catch { toast('Nettleseren kan ikke vise 3D (WebGL er av).'); close3D(); return; }
+  $('#o3Wall').value = S.wallH || 2.5; v3.stand = P.cur;
+  resize3(); buildScene(true); setMode3(v3.mode); v3.last = 0; cancelAnimationFrame(v3.raf); v3.raf = requestAnimationFrame(loop3);
+}
+function close3D() {
+  v3.open = false; cancelAnimationFrame(v3.raf); $('#v3d').style.display = 'none'; v3.keys = {}; v3.pad = {};
+  if (v3.scene) disposeScene();
+}
+function rebuild3() { if (v3.open && v3.renderer) buildScene(false); }
+$('#open3d').onclick = open3D; $('#c3close').onclick = close3D;
+$('#m3walk').onclick = () => setMode3('walk'); $('#m3orbit').onclick = () => setMode3('orbit');
+$('#o3Wall').onchange = () => { const v = Math.min(6, Math.max(1.8, +$('#o3Wall').value || 2.5)); checkpoint(); S.wallH = v; touch(); rebuild3(); };
+['o3Img', 'o3All'].forEach(id => $('#' + id).onchange = rebuild3);
+$('#o3Floor').onchange = () => { v3.stand = +$('#o3Floor').value; buildScene(true); };
+window.addEventListener('keydown', e => {
+  if (!v3.open) return;
+  const k = e.key.toLowerCase();
+  if (k === 'escape') { close3D(); return; }
+  if (/^(INPUT|SELECT)$/.test(document.activeElement.tagName) && document.activeElement.type !== 'checkbox') return;
+  v3.keys[k] = true; if (k.startsWith('arrow') || k === ' ') e.preventDefault();
+});
+window.addEventListener('keyup', e => { v3.keys[e.key.toLowerCase()] = false; });
+window.addEventListener('blur', () => { v3.keys = {}; });
+$('#pad3d').addEventListener('pointerdown', e => { const p = e.target.dataset.p; if (p) { v3.pad[p] = 1; e.target.setPointerCapture(e.pointerId); } });
+$('#pad3d').addEventListener('pointerup', e => { const p = e.target.dataset.p; if (p) v3.pad[p] = 0; });
+$('#pad3d').addEventListener('pointercancel', () => { v3.pad = {}; });
+const c3 = $('#c3d');
+c3.addEventListener('pointerdown', e => { c3.setPointerCapture(e.pointerId); v3.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); v3.drag = { x: e.clientX, y: e.clientY }; c3.style.cursor = 'grabbing'; });
+c3.addEventListener('pointermove', e => {
+  if (!v3.ptrs.has(e.pointerId)) return;
+  const prev = v3.ptrs.get(e.pointerId); v3.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (v3.ptrs.size === 2 && v3.mode === 'orbit') {                      // pinch to zoom
+    const [a, b] = [...v3.ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y); if (v3.pinch) v3.dist = Math.max(2, Math.min(300, v3.dist * v3.pinch / d)); v3.pinch = d; return;
+  }
+  const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+  if (v3.mode === 'walk') { v3.yaw -= dx * 0.004; v3.pitch = Math.max(-1.3, Math.min(1.3, v3.pitch - dy * 0.004)); }
+  else { v3.az -= dx * 0.006; v3.el = Math.max(0.05, Math.min(1.55, v3.el + dy * 0.006)); }
+});
+const endP = e => { v3.ptrs.delete(e.pointerId); v3.pinch = 0; c3.style.cursor = 'grab'; };
+c3.addEventListener('pointerup', endP); c3.addEventListener('pointercancel', endP);
+c3.addEventListener('wheel', e => { e.preventDefault(); if (v3.mode === 'orbit') v3.dist = Math.max(2, Math.min(300, v3.dist * Math.exp(e.deltaY * 0.001))); else { v3.pitch = Math.max(-1.3, Math.min(1.3, v3.pitch - e.deltaY * 0.0005)); } }, { passive: false });
+$('#miniC').addEventListener('pointerdown', e => {
+  const c = $('#miniC'), r = c.getBoundingClientRect(), m = v3.miniMap; if (!m) return;
+  const mx = (e.clientX - r.left) / r.width * c.width, my = (e.clientY - r.top) / r.height * c.height;
+  let nx = (mx - m.ox) / m.k, nz = (my - m.oy) / m.k;
+  if ($('#o3Col').checked) [nx, nz] = collide(nx, nz, 0.22, v3.colliders[v3.stand] || []);
+  v3.px = nx; v3.pz = nz;
+});
 
 // ---------- boot ----------
 buildCatalog();
@@ -1842,7 +2235,7 @@ buildCatalog();
   if (!opened) { await openProject({ v: 3, name: 'Mitt hus', next: 1, cur: 0, floors: [blankFloor('1. etasje')] }); }
   setSaveState('pending'); autosave();
 })();
-window.__plan = { get S() { return S; }, get V() { return V; }, detectWalls, loadSample, computeRooms, tidyWalls };   // handy for debugging
+window.__plan = { get v3() { return v3; }, open3D, applyRefs, get P() { return P; }, get S() { return S; }, get V() { return V; }, detectWalls, loadSample, computeRooms, tidyWalls };   // handy for debugging
 </script>
 </body>
 </html>
