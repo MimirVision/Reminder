@@ -25,6 +25,17 @@ function Pick<T extends string>({ icon, label, value, options, onChange }: { ico
   );
 }
 
+/** A note under a setting: one short line, and the whole explanation a tap away. */
+function Hint({ short, style, children }: { short: string; style?: React.CSSProperties; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <p className="note" style={style}>
+      {open ? children : short}{' '}
+      <button type="button" className="more-hint" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Show less' : 'Learn more'}</button>
+    </p>
+  );
+}
+
 const SWIPE: [Cfg['swipeRight'], string][] = [['archive', 'Archive'], ['read', 'Mark read'], ['flag', 'Flag'], ['delete', 'Delete']];
 const SWIPE_L: [Cfg['swipeLeft'], string][] = [['flag', 'Flag'], ['delete', 'Delete'], ['read', 'Mark read']];
 
@@ -68,7 +79,7 @@ export function Settings({ s }: { s: State }) {
           <div className="it"><span className="ico"><Icon n="reply" /></span>Group replies together<Switch on={s.settings.threads} onChange={(v) => set({ threads: v })} label="Group replies together" /></div>
           <div className="it"><span className="ico"><Icon n="inbox" /></span>One row per sender<Switch on={s.settings.digest} onChange={(v) => set({ digest: v })} label="One row per sender" /></div>
         </div>
-        <p className="note">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. In Transactions, Updates and Promotions all of one sender's mail is one row too: tap it to see the conversations, swipe it to archive them all at once. Nothing is hidden: every message is still there.</p>
+        <Hint short="Replies are grouped into one row; one company's mail can share a row.">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. In Transactions, Updates and Promotions all of one sender's mail is one row too: tap it to see the conversations, swipe it to archive them all at once. Nothing is hidden: every message is still there.</Hint>
         <div className="lbl">Swipe</div>
         <div className="card">
           <Pick icon="archive" label="Swipe right" value={s.settings.swipeRight} options={SWIPE} onChange={(v) => set({ swipeRight: v })} />
@@ -86,7 +97,7 @@ export function Settings({ s }: { s: State }) {
           <Pick label="Undo send" value={String(s.settings.undoSend)} options={[['0', 'Off'], ['5', '5 seconds'], ['10', '10 seconds'], ['20', '20 seconds'], ['30', '30 seconds']]} onChange={(v) => set({ undoSend: Number(v) })} />
           <div className="it" style={{ alignItems: 'flex-start', flexDirection: 'column', padding: '12px 16px' }}>Signature<textarea className="field" aria-label="Signature" rows={2} placeholder="None" value={s.settings.signature} onChange={(e) => set({ signature: e.target.value })} style={{ minHeight: 64, marginTop: 6 }} /></div>
         </div>
-        <p className="note">Undo works while Post is on screen. If you leave Post, what is waiting is sent right away, so it never gets stuck on a phone that has put Post to sleep.</p>
+        <Hint short="Undo works only while Post is on screen.">Undo works while Post is on screen. If you leave Post, what is waiting is sent right away, so it never gets stuck on a phone that has put Post to sleep.</Hint>
         <div className="lbl">Appearance</div>
         <div className="card">
           <Pick label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => set(lookChange(s.settings, v))} />
@@ -124,7 +135,7 @@ export function Appearance({ s }: { s: State }) {
       <div className="scroll">
         <div className="lbl">Look</div>
         <div className="panel" style={{ marginTop: 0 }}><Seg label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => c.setSettings(lookChange(s.settings, v))} /></div>
-        <p className="note">Refined is warm, with rounded cards. Calm is plain and quiet, close to the apps that come with the phone. The same mail, the same buttons: only how it looks changes.</p>
+        <Hint short="Refined is warm; Calm is plain, like the iPhone's own apps.">Refined is warm, with rounded cards. Calm is plain and quiet, close to the apps that come with the phone. The same mail, the same buttons: only how it looks changes.</Hint>
         <div className="lbl">Accent colour</div>
         <div className="card"><div className="accent-grid" role="radiogroup" aria-label="Accent colour">
           {ACCENTS.map((a) => <button key={a.id} role="radio" aria-checked={s.settings.accent === a.id} className={`accent${s.settings.accent === a.id ? ' on' : ''}`} onClick={() => c.setSettings({ accent: a.id })}><i style={{ background: a.light }} />{a.name}</button>)}
@@ -176,7 +187,7 @@ export function Sorting({ s }: { s: State }) {
       <div className="nav"><button className="back" onClick={() => go({ name: 'settings', page: '' })}><Icon n="back" />Settings</button></div>
       <div className="ttl"><h1 className="h1">Sorting</h1></div>
       <div className="scroll">
-        <p className="note" style={{ marginTop: 8 }}>Post puts each message in one of four tabs, like iOS Mail. It looks at who sent it, what the subject says, and the hidden marks that bulk mail carries. Nothing is ever hidden: All shows everything, and a message it is unsure about stays in Primary.</p>
+        <Hint short="Four tabs, sorted by sender, subject and bulk-mail marks. Nothing is hidden." style={{ marginTop: 8 }}>Post puts each message in one of four tabs, like iOS Mail. It looks at who sent it, what the subject says, and the hidden marks that bulk mail carries. Nothing is ever hidden: All shows everything, and a message it is unsure about stays in Primary.</Hint>
         <div className="lbl">In your inbox now</div>
         <div className="card">
           {KINDS.map((k) => <div key={k} className="it"><span className="ico"><Icon n={KIND_ICON[k]} /></span>{KIND_TAB[k]}<span className="v">{counts.byKind[k].total}{counts.byKind[k].unread ? ` · ${counts.byKind[k].unread} unread` : ''}</span></div>)}
@@ -211,7 +222,7 @@ export function Sorting({ s }: { s: State }) {
             ))}
           </div>
         ) : <p className="note" style={{ marginTop: 0 }}>Nobody is blocked. Open a message, tap More, then Block sender: their mail goes to Junk from then on.</p>}
-        <p className="note">Blocked mail is moved to Junk, never deleted, whenever Post is open. While Post is closed it waits in your Outlook inbox until the next time you open Post. Mail you bring back from Junk stays where you put it.</p>
+        <Hint short="Blocked mail goes to Junk while Post is open.">Blocked mail is moved to Junk, never deleted, whenever Post is open. While Post is closed it waits in your Outlook inbox until the next time you open Post. Mail you bring back from Junk stays where you put it.</Hint>
         <div className="lbl">Muted conversations</div>
         {s.muted.length ? (
           <div className="card">
@@ -224,12 +235,12 @@ export function Sorting({ s }: { s: State }) {
             ))}
           </div>
         ) : <p className="note" style={{ marginTop: 0 }}>No muted conversations. Open a message, tap More, then Mute conversation: it and its later replies go to Archive.</p>}
-        <p className="note">Mute works while Post is open. A reply that arrives while Post is closed may still give an alert and a number on the icon once; the next time you open Post it is archived. Muted mail is in Archive, never deleted. Mail you flag or bring back to the inbox stays.</p>
+        <Hint short="Muted mail goes to Archive while Post is open.">Mute works while Post is open. A reply that arrives while Post is closed may still give an alert and a number on the icon once; the next time you open Post it is archived. Muted mail is in Archive, never deleted. Mail you flag or bring back to the inbox stays.</Hint>
         <div className="lbl">Clean up old promotions</div>
         <div className="card">
           <Pick label="Archive by itself" value={String(s.settings.autoClean)} options={[['0', 'Off'], ['3', 'After 3 days'], ['7', 'After 7 days'], ['14', 'After 14 days'], ['30', 'After 30 days']]} onChange={(v) => c.setSettings({ autoClean: Number(v) })} />
         </div>
-        <p className="note">Promotions older than this are archived while Post is open, with an Undo. Mail you flagged, mail Post has only guessed a tab for, and mail you brought back are left alone. Archived mail is still in Outlook, in Archive.</p>
+        <Hint short="Old promotions are archived while Post is open, with an Undo.">Promotions older than this are archived while Post is open, with an Undo. Mail you flagged, mail Post has only guessed a tab for, and mail you brought back are left alone. Archived mail is still in Outlook, in Archive.</Hint>
         <p className="note">{s.serverSmart === false ? 'The icon number does not follow these tabs yet: your alert server still has the older code. See Settings, Alerts.' : 'The icon number follows these tabs too: when Alerts is set to Primary, mail from a sender you moved out of Primary does not count (people on your VIP list always do).'}</p>
         <div className="lbl">Help improve the sorting</div>
         <div className="card"><button className="it" onClick={() => void copy()}><span className="ico"><Icon n="copy" /></span>Copy sorting report</button></div>

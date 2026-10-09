@@ -316,6 +316,7 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, o
     return () => { live = false; };
   }, [m.key, m.kind, anchor, onPhone]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [det, setDet] = useState(false);
   const who = mine ? 'You' : displayName(m.fromName, m.fromAddress);
   const unread = editable && !m.isRead;
 
@@ -345,7 +346,15 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, o
         <Avatar m={m} />
         <div className="w">
           {mine ? <div className="n">You</div> : <>{named && <div className="n">{m.fromName.trim()}</div>}{m.fromAddress ? <CopyAddress address={m.fromAddress} bold={!named} /> : <div className="n">{displayName(m.fromName, m.fromAddress)}</div>}</>}
-          <div className="s">{to ? `to ${to} · ` : ''}{shortTime(m.received)}{many && m.flagged && <span className="fl"><Icon n="flag" size={13} /></span>}</div>
+          {/* Who it went to is behind a tap: "to me" on every message is noise, and the full list is one tap away when it matters. */}
+          <div className="s">{shortTime(m.received)}{many && m.flagged && <span className="fl"><Icon n="flag" size={13} /></span>}{to && <> · <button type="button" className="det-btn" aria-expanded={det} onClick={() => setDet(!det)}>{det ? 'Hide details' : `to ${to}`}<Icon n={det ? 'up' : 'down'} size={13} /></button></>}</div>
+          {det && body && (
+            <dl className="det">
+              <dt>To</dt><dd>{body.to.map((r) => r.name && r.name.toLowerCase() !== r.address.toLowerCase() ? `${r.name} <${r.address}>` : r.address).join(', ') || 'nobody'}</dd>
+              {body.cc.length > 0 && <><dt>Cc</dt><dd>{body.cc.map((r) => r.name && r.name.toLowerCase() !== r.address.toLowerCase() ? `${r.name} <${r.address}>` : r.address).join(', ')}</dd></>}
+              <dt>Date</dt><dd>{new Date(m.received).toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'short' })}</dd>
+            </dl>
+          )}
         </div>
         {many ? (
           <button className="btn plain" aria-label="Fold this message up" aria-expanded={true} onClick={onToggle}><Icon n="up" /></button>

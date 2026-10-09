@@ -25,7 +25,7 @@ const finePointer = () => typeof matchMedia === 'function' && matchMedia('(hover
  * `picking`: the list is being picked from (the swipes and the can are off), but a row can still be lifted or dragged: with the messages that are picked.
  * `onLiftEnd`: on a touch screen, a long press lifts the row and then reports where the finger is, and where it let go (see Carry.tsx).
  */
-export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving, onTrash, drag, onLift, onLiftMove, onLiftEnd, onDragged, picking }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean; onTrash?: () => void; drag?: () => { items: Mail[]; rows: number }; onLift?: () => void; onLiftMove?: (x: number, y: number) => void; onLiftEnd?: (x: number, y: number) => void; onDragged?: () => void; picking?: boolean }) {
+export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving, onTrash, onArchive, onRead, drag, onLift, onLiftMove, onLiftEnd, onDragged, picking }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean; onTrash?: () => void; onArchive?: () => void; onRead?: { unread: boolean; fn: () => void }; drag?: () => { items: Mail[]; rows: number }; onLift?: () => void; onLiftMove?: (x: number, y: number) => void; onLiftEnd?: (x: number, y: number) => void; onDragged?: () => void; picking?: boolean }) {
   const [dx, setDx] = useState(0);
   const [settle, setSettle] = useState(false);
   const [held, setHeld] = useState(false);
@@ -96,7 +96,14 @@ export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rig
         onDragStart={canDrag ? (e) => { const d = drag!(); setDragging(d); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', d.rows === 1 ? 'One message' : `${d.rows} messages`); } : undefined}
         onDragEnd={canDrag ? (e) => { setDragging(null); if (e.dataTransfer.dropEffect !== 'none') onDragged?.(); } : undefined}>
         {children}
-        {onTrash && !disabled && <button type="button" className="rowtrash" aria-label="Delete" title="Delete" onClick={(e) => { e.stopPropagation(); onTrash(); }}><Icon n="trash" size={19} /></button>}
+        {onTrash && !disabled && (
+          <div className="rowacts">
+            {/* On a computer the pointer brings a small pill of three; on a phone only the can is there (the rest are swipes). */}
+            {onArchive && <button type="button" className="ra x" aria-label="Archive" title="Archive" onClick={(e) => { e.stopPropagation(); onArchive(); }}><Icon n="archive" size={18} /></button>}
+            {onRead && <button type="button" className="ra x" aria-label={onRead.unread ? 'Mark as read' : 'Mark as unread'} title={onRead.unread ? 'Mark as read' : 'Mark as unread'} onClick={(e) => { e.stopPropagation(); onRead.fn(); }}><Icon n={onRead.unread ? 'eye' : 'mail'} size={18} /></button>}
+            <button type="button" className="rowtrash ra" aria-label="Delete" title="Delete" onClick={(e) => { e.stopPropagation(); onTrash(); }}><Icon n="trash" size={19} /></button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -251,7 +258,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
             <div className="card">
               {g.items.map((t) => (
                 <Fragment key={t.key}>
-                  <SwipeRow leaving={leaving.has(t.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onDragged={() => { if (selecting) exit(); }} onTrash={t.members ? undefined : () => act(t, 'delete')} drag={t.members && !selecting ? () => ({ items: t.items, rows: t.members?.length ?? 1 }) : () => carry(t)} onLift={t.members && !selecting ? undefined : () => { const d = carry(t); cr.begin(d.items, d.rows); }} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
+                  <SwipeRow leaving={leaving.has(t.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onDragged={() => { if (selecting) exit(); }} onTrash={t.members ? undefined : () => act(t, 'delete')} onArchive={t.members ? undefined : () => act(t, 'archive')} onRead={t.members ? undefined : { unread: t.unread > 0, fn: () => act(t, 'read') }} drag={t.members && !selecting ? () => ({ items: t.items, rows: t.members?.length ?? 1 }) : () => carry(t)} onLift={t.members && !selecting ? undefined : () => { const d = carry(t); cr.begin(d.items, d.rows); }} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
                     <Row m={t.latest} thread={t} s={s} tag={s.view === 'all'} active={!!activeKey && t.items.some((x) => x.key === activeKey)} selecting={selecting} selected={picked.has(t.key)} expanded={opened.has(t.key)} onToggle={() => toggle(t.key)} onOpen={() => (t.members ? fold(t.key) : go({ name: 'message', account: t.latest.account, id: t.latest.id }))} />
                   </SwipeRow>
                   {t.members && opened.has(t.key) && !selecting && (
