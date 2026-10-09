@@ -9,36 +9,94 @@ import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
 import { go, labelOf, resolveAccount, useBadge, useC, useNow, useRoute } from './ctx.tsx';
 import { Tabs } from './Tabs.tsx';
 import { MoveSheet } from './Move.tsx';
+import { setDragging, useCarry } from './Carry.tsx';
 
 /** The small label on a row. Shown where mail of several kinds is mixed (All, search, Later); inside a tab it would only repeat the tab. */
 const TAG: Record<Kind, string> = { person: '', transaction: 'Transaction', update: 'Update', promo: 'Promotion' };
 
-export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean }) {
+/** How long a finger rests on a row before it is lifted (to be dropped on a folder). */
+const LIFT_MS = 450;
+/** A mouse drags rows onto the folders in the sidebar; a touch screen lifts them with a long press instead. */
+const finePointer = () => typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+/**
+ * A row you can swipe. `onTrash`: a small trash can at the side of it (always there on a phone, on hover on a computer) that deletes the message
+ * without opening it. `drag`: the messages the row stands for, so it can be dragged onto a folder with the mouse. `onLift`, `onLiftMove`,
+ * `onLiftEnd`: on a touch screen, a long press lifts the row and then reports where the finger is, and where it let go (see Carry.tsx).
+ */
+export function SwipeRow({ children, onRight, onLeft, rightLabel, leftLabel, rightIcon, leftIcon, disabled, leaving, onTrash, drag, onLift, onLiftMove, onLiftEnd }: { children: React.ReactNode; onRight: () => void; onLeft: () => void; rightLabel: string; leftLabel: string; rightIcon: string; leftIcon: string; disabled?: boolean; leaving?: boolean; onTrash?: () => void; drag?: () => { items: Mail[]; rows: number }; onLift?: () => void; onLiftMove?: (x: number, y: number) => void; onLiftEnd?: (x: number, y: number) => void }) {
   const [dx, setDx] = useState(0);
   const [settle, setSettle] = useState(false);
+  const [held, setHeld] = useState(false);
   const st = useRef<{ x: number; y: number; t: number; id: number; live: boolean } | null>(null);
-  const down = (e: React.PointerEvent) => { if (disabled || e.pointerType === 'mouse') return; st.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, live: false }; };
+  const fg = useRef<HTMLDivElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const carrying = useRef(false);
+  const lastPt = useRef<{ x: number; y: number } | null>(null);
+  const cb = useRef({ onLiftMove, onLiftEnd });
+  cb.current = { onLiftMove, onLiftEnd };
+  const stopTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = undefined; } };
+  const down = (e: React.PointerEvent) => {
+    if (disabled || e.pointerType === 'mouse' || carrying.current) return;
+    st.current = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, live: false };
+    stopTimer();
+    if (onLift) timer.current = setTimeout(() => {
+      timer.current = undefined;
+      if (!st.current || st.current.live) return;
+      st.current = null; carrying.current = true; lastPt.current = null; setHeld(true); setDx(0);
+      try { navigator.vibrate?.(12); } catch { /* not every phone can */ }
+      onLift();
+    }, LIFT_MS);
+  };
   const move = (e: React.PointerEvent) => {
-    const s = st.current; if (!s) return;
+    const s = st.current; if (!s || carrying.current) return;
     const mx = e.clientX - s.x, my = e.clientY - s.y;
+    if (timer.current && Math.hypot(mx, my) > 8) stopTimer();
     if (!s.live && isHorizontal(mx, my)) { s.live = true; (e.currentTarget as HTMLElement).setPointerCapture(s.id); }
     if (s.live) { setSettle(false); setDx(swipeOffset(mx)); }
   };
   const end = (e: React.PointerEvent) => {
+    stopTimer();
+    if (carrying.current) return; // the finger events below finish a lift
     const s = st.current; st.current = null;
     if (!s?.live) return;
     const r = swipeResult(e.clientX - s.x, e.clientY - s.y, e.timeStamp - s.t);
     setSettle(true); setDx(0);
     if (r === 'done') onRight(); else if (r === 'delete') onLeft();
   };
+  // Once a row is lifted the page must not scroll under the finger: that needs listeners that may cancel the touch, which React's are not.
+  useEffect(() => {
+    const el = fg.current; if (!el || !onLift) return;
+    const moveT = (e: TouchEvent) => { if (!carrying.current) return; if (e.cancelable) e.preventDefault(); const t = e.touches[0]; if (t) { lastPt.current = { x: t.clientX, y: t.clientY }; cb.current.onLiftMove?.(t.clientX, t.clientY); } };
+    const endT = (e: TouchEvent) => {
+      if (!carrying.current) return;
+      carrying.current = false; setHeld(false);
+      if (e.cancelable) e.preventDefault(); // so that letting go does not also open the message
+      const t = e.changedTouches[0], last = lastPt.current; // where the finger was last seen, which is what was lit up under it
+      if (e.type === 'touchend' && (last || t)) cb.current.onLiftEnd?.(last?.x ?? t.clientX, last?.y ?? t.clientY); else cb.current.onLiftEnd?.(-1, -1);
+    };
+    el.addEventListener('touchmove', moveT, { passive: false });
+    el.addEventListener('touchend', endT, { passive: false });
+    el.addEventListener('touchcancel', endT, { passive: false });
+    return () => { el.removeEventListener('touchmove', moveT); el.removeEventListener('touchend', endT); el.removeEventListener('touchcancel', endT); stopTimer(); };
+  }, [!!onLift]); // eslint-disable-line react-hooks/exhaustive-deps
   const strength = Math.min(1, Math.abs(dx) / SWIPE_COMMIT);
+  const canDrag = !!drag && !disabled && finePointer();
   return (
     <div className={`sw-row${leaving ? ' leaving' : ''}`}>
       <div className="swipe-bg" aria-hidden="true" style={{ background: dx > 0 ? `color-mix(in srgb, var(--ink) ${Math.round(strength * 100)}%, var(--card))` : dx < 0 ? `color-mix(in srgb, var(--ac) ${Math.round(strength * 100)}%, var(--card))` : 'transparent', color: strength > .6 ? (dx > 0 ? 'var(--bg)' : 'var(--on)') : 'var(--mu)' }}>
         <span className={`l${dx > 8 ? ' show' : ''}`}><Icon n={rightIcon} size={18} />{rightLabel}</span>
         <span className={`r${dx < -8 ? ' show' : ''}`}>{leftLabel}<Icon n={leftIcon} size={18} /></span>
       </div>
-      <div className={`swipe-fg${settle ? ' settle' : ''}`} style={{ transform: dx ? `translateX(${dx}px)` : undefined }} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>{children}</div>
+      <div ref={fg} className={`swipe-fg${settle ? ' settle' : ''}${onTrash && !disabled ? ' has-trash' : ''}${held ? ' held' : ''}${onLift ? ' liftable' : ''}`} style={{ transform: dx ? `translateX(${dx}px)` : undefined }}
+        onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        onContextMenu={(e) => { if (carrying.current || timer.current || (e.nativeEvent as PointerEvent).pointerType === 'touch') e.preventDefault(); }}
+        draggable={canDrag || undefined}
+        onDragStart={canDrag ? (e) => { const d = drag!(); setDragging(d); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', d.rows === 1 ? 'One message' : `${d.rows} messages`); } : undefined}
+        onDragEnd={canDrag ? () => setDragging(null) : undefined}>
+        {children}
+        {onTrash && !disabled && <button type="button" className="rowtrash" aria-label="Delete" title="Delete" onClick={(e) => { e.stopPropagation(); onTrash(); }}><Icon n="trash" size={19} /></button>}
+      </div>
     </div>
   );
 }
@@ -106,6 +164,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const [pull, setPull] = useState(0);
   const [cleaning, setCleaning] = useState(false);
   const [moving, setMoving] = useState(false);
+  const cr = useCarry(s);
   // The rows of senders that are opened up to show their conversations.
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const fold = (k: string) => setOpened((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -189,13 +248,13 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
             <div className="card">
               {g.items.map((t) => (
                 <Fragment key={t.key}>
-                  <SwipeRow leaving={leaving.has(t.key)} disabled={selecting} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
+                  <SwipeRow leaving={leaving.has(t.key)} disabled={selecting || cr.active} onTrash={t.members ? undefined : () => act(t, 'delete')} drag={() => ({ items: t.items, rows: t.members?.length ?? 1 })} onLift={t.members ? undefined : () => cr.begin(t.items, 1)} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>
                     <Row m={t.latest} thread={t} s={s} tag={s.view === 'all'} active={!!activeKey && t.items.some((x) => x.key === activeKey)} selecting={selecting} selected={picked.has(t.key)} expanded={opened.has(t.key)} onToggle={() => toggle(t.key)} onOpen={() => (t.members ? fold(t.key) : go({ name: 'message', account: t.latest.account, id: t.latest.id }))} />
                   </SwipeRow>
                   {t.members && opened.has(t.key) && !selecting && (
                     <div className="dkids">
                       {t.members.map((x) => (
-                        <SwipeRow key={x.key} leaving={leaving.has(x.key)} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(x, s.settings.swipeRight)} onLeft={() => act(x, s.settings.swipeLeft)}>
+                        <SwipeRow key={x.key} leaving={leaving.has(x.key)} disabled={cr.active} onTrash={() => act(x, 'delete')} drag={() => ({ items: x.items, rows: 1 })} onLift={() => cr.begin(x.items, 1)} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(x, s.settings.swipeRight)} onLeft={() => act(x, s.settings.swipeLeft)}>
                           <Row m={x.latest} thread={x} s={s} tag={false} active={!!activeKey && x.items.some((y) => y.key === activeKey)} selecting={false} selected={false} onToggle={() => {}} onOpen={() => go({ name: 'message', account: x.latest.account, id: x.latest.id })} />
                         </SwipeRow>
                       ))}
@@ -218,12 +277,13 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
           <button className="ib" aria-label="Move to a folder" disabled={!chosen.length} onClick={() => setMoving(true)}><Icon n="folder" /></button>
           <button className="ib" aria-label="Delete" disabled={!chosen.length} onClick={() => { const rows = chosen, items = chosenMail; exit(); leave(rows, () => void c.trash(items, rowsOf(rows))); }}><Icon n="trash" /></button>
         </div>
-      ) : (
+      ) : cr.active ? cr.strip : (
         <>
           {!pane && <Tabs at="inbox" s={s} />}
           {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
         </>
       )}
+      {cr.sheet}
       {cleaning && <CleanUpSheet s={s} onClose={() => setCleaning(false)} />}
       {moving && chosen.length > 0 && <MoveSheet s={s} items={chosenMail} rows={rowsOf(chosen)} inbox onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
     </div>

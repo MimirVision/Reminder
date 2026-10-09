@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { folderKey, mailCounts, type Draft, type FolderTarget, type State } from '../core/controller.ts';
 import { dayGroup } from '../core/format.ts';
-import { FOLDER_ICON, FOLDER_NAME, placeActions, STANDARD_KINDS, type Way } from '../core/folders.ts';
+import { DELETE_WAY, FOLDER_ICON, FOLDER_NAME, placeActions, STANDARD_KINDS, type Way } from '../core/folders.ts';
 import type { Route } from '../core/route.ts';
 import { mailKey, type FolderKind, type Mail } from '../core/types.ts';
 import { Banner, Icon, Sheet } from './ui.tsx';
 import { folderTitle, go, labelOf, openMail, resolveAccount, routeOfFolder, useC, useNow, useRoute } from './ctx.tsx';
 import { Row, Skeleton, StatusBanners, SwipeRow } from './Inbox.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
+import { NewFolderSheet } from './NewFolder.tsx';
+import { DropButton, useCarry } from './Carry.tsx';
 import { Tabs } from './Tabs.tsx';
 
 // The Folders tab (what Outlook has besides the inbox), the list of one folder, and the folders in the sidebar of the computer layout.
@@ -57,6 +59,8 @@ export function FoldersScreen({ s }: { s: State }) {
   const scope = many ? s.accountFilter : null;
   const mailboxes = s.accounts.filter((a) => !a.needsSignIn && (!scope || a.email === scope));
   const mine = (email: string) => s.folders.filter((f) => f.account === email && f.kind === 'other');
+  const [making, setMaking] = useState<{ account: string } | null>(null);
+  const head = (title: string, email: string) => <div className="lbl lblrow"><span>{title}</span><button className="link" aria-label={`New folder in ${title}`} onClick={() => setMaking({ account: email })}><Icon n="plus" size={14} />New folder</button></div>;
   return (
     <div className="pg">
       <header className="hd">
@@ -79,11 +83,11 @@ export function FoldersScreen({ s }: { s: State }) {
           if (!own.length) {
             if (s.foldersLoading) return <div key={a.email}><div className="lbl">{title}</div><p className="note" role="status">Reading your folders…</p></div>;
             if (s.foldersError) return null; // the banner above says so
-            return <div key={a.email}><div className="lbl">{title}</div><p className="note">None yet. Folders you make in Outlook show up here.</p></div>;
+            return <div key={a.email}>{head(title, a.email)}<p className="note">None yet. Make one here, or in Outlook, and it shows up in both.</p></div>;
           }
           return (
             <div key={a.email}>
-              <div className="lbl">{title}</div>
+              {head(title, a.email)}
               <div className="card">
                 {own.map((f) => <FolderRow key={f.id} icon="folder" name={f.name} n={f.unread} depth={f.depth} where={f.depth === 0 && f.where ? `in ${f.where}` : undefined} onClick={() => go(routeOfFolder({ kind: 'other', account: a.email, id: f.id }))} />)}
               </div>
@@ -94,6 +98,7 @@ export function FoldersScreen({ s }: { s: State }) {
       </div>
       <Tabs at="folders" s={s} />
       <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>
+      {making && <NewFolderSheet s={s} account={making.account} onClose={() => setMaking(null)} />}
     </div>
   );
 }
@@ -125,6 +130,8 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState(false);
   const [erase, setErase] = useState<'all' | 'picked' | null>(null);
+  const [submaking, setSubmaking] = useState(false);
+  const cr = useCarry(s);
   const sentinel = useRef<HTMLDivElement>(null);
   const sentSeen = useRef(s.sent);
   const { pull, bind } = usePull(() => void c.refreshFolder());
@@ -204,6 +211,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
         <div style={{ minWidth: 0 }}><h1 className="h1" style={{ overflowWrap: 'anywhere' }}>{title}</h1>{sub && <p className="sub" style={{ marginTop: 4 }}>{sub}</p>}</div>
         <div className="r">
           {items.length > 0 && <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>}
+          {target.kind === 'other' && info && <button className="btn" aria-label="New subfolder here" title="New subfolder here" onClick={() => setSubmaking(true)}><Icon n="plus" /></button>}
           <button className="btn" aria-label="Update now" onClick={() => void c.refreshFolder()}><Icon n="refresh" /></button>
         </div>
       </header>
@@ -242,7 +250,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
               {g.items.map((m) => {
                 const w = placeActions(m.fk ?? target.kind).swipe;
                 return (
-                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
+                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting || cr.active} onTrash={placeActions(m.fk ?? target.kind).canDelete ? () => act(m, DELETE_WAY) : undefined} drag={target.kind === 'drafts' ? undefined : () => ({ items: [m], rows: 1 })} onLift={target.kind === 'drafts' ? undefined : () => cr.begin([m], 1)} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
                     <Row m={m} s={s} tag={false} selecting={selecting} selected={picked.has(m.key)} active={m.key === open} onToggle={() => toggle(m.key)} onOpen={() => openMail(m)} />
                   </SwipeRow>
                 );
@@ -272,12 +280,14 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
             ? <button className="ib" aria-label="Delete" disabled={!chosen.length || busy} onClick={() => { const rows = chosen; exit(); leave(rows, () => void c.trash(rows, rows.length)); }}><Icon n="trash" /></button>
             : <button className="ib bad" aria-label="Delete for good" disabled={!chosen.length || busy} onClick={() => setErase('picked')}><Icon n="trash" /></button>}
         </div>
-      ) : (
+      ) : cr.active ? cr.strip : (
         <>
           {!pane && <Tabs at="folders" s={s} />}
           {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
         </>
       )}
+      {cr.sheet}
+      {submaking && info && <NewFolderSheet s={s} account={info.account} parent={info.depth <= 1 ? info.id : undefined} onClose={() => setSubmaking(false)} />}
       {moving && chosen.length > 0 && <MoveSheet s={s} items={chosen} rows={chosen.length} onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
       {erase && (
         <EraseSheet
@@ -317,6 +327,7 @@ function EraseSheet({ what, onClose, onGo }: { what: { title: string; count: num
 export function SidebarFolders({ s, active }: { s: State; active: string | null }) {
   const c = useC();
   const now = useNow();
+  const [making, setMaking] = useState(false);
   useEffect(() => {
     void c.loadFolders();
     const on = () => { if (document.visibilityState === 'visible') void c.loadFolders(); };
@@ -330,14 +341,15 @@ export function SidebarFolders({ s, active }: { s: State; active: string | null 
   const item = (target: FolderTarget, icon: string, text: string, n: number, depth = 0, drafts = false) => {
     const k = folderKey(target);
     return (
-      <button key={k} className={`sb-it${active === k ? ' on' : ''}`} style={depth ? { paddingLeft: 12 + depth * 16 } : undefined} aria-current={active === k ? 'page' : undefined} title={text} onClick={() => go(routeOfFolder(target))}>
+      <DropButton key={k} s={s} dest={{ kind: target.kind, id: target.kind === 'other' ? target.id ?? '' : '', name: text, account: target.account }} className={`sb-it${active === k ? ' on' : ''}`} style={depth ? { paddingLeft: 12 + depth * 16 } : undefined} aria-current={active === k ? 'page' : undefined} title={text} onClick={() => go(routeOfFolder(target))}>
         <Icon n={icon} size={20} /><span className="sb-t">{text}</span>{n > 0 && <span className={`sb-n${drafts ? ' mu' : ''}`}>{n > 99 ? '99+' : n}</span>}
-      </button>
+      </DropButton>
     );
   };
   return (
     <>
-      <div className="sb-h">Folders</div>
+      <div className="sb-h sb-hrow"><span>Folders</span><button className="sb-plus" aria-label="New folder" title="New folder" onClick={() => setMaking(true)}><Icon n="plus" size={16} /></button></div>
+      {making && <NewFolderSheet s={s} account={scope ?? undefined} onClose={() => setMaking(false)} />}
       <nav className="sb-nav" aria-label="Folders">
         {STANDARD_KINDS.filter((kind) => kind !== 'inbox').map((kind) => item({ kind, ...(scope ? { account: scope } : {}) }, FOLDER_ICON[kind], FOLDER_NAME[kind], countOf(s, kind, scope, now), 0, kind === 'drafts'))}
       </nav>
