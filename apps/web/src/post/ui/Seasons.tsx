@@ -70,11 +70,11 @@ export function SeasonLayer({ season, cfg, wide }: { season: Season | null; cfg:
   const pieces = useMemo(() => (season && cfg.motion ? piecesFor(season, wide ? 13 : 8) : []), [season, cfg.motion, wide]);
   if (!season || !look || (!cfg.colours && !pieces.length)) return null;
   return (
-    <div className={`sz sz-${season}${look.dir === 'up' ? ' up' : ''}`} aria-hidden="true" data-season={season}
+    <div className={`sz sz-${season}`} aria-hidden="true" data-season={season}
       style={{ '--wl': look.wash[0], '--wd': look.wash[1] } as CSSProperties}>
       {cfg.colours && <div className="sz-wash" />}
       {pieces.map((p, i) => (
-        <span key={i} className="pc" style={{ '--l': `${p.left}%`, '--s': `${p.size}px`, '--d': `${p.dur}s`, '--dl': `${p.delay}s`, '--sw': `${p.sway}px`, '--sp': `${p.spin}deg`, '--o': p.opacity } as CSSProperties}>
+        <span key={i} className={`pc m-${p.mode} g-${p.glyph}`} style={{ '--t': `${p.top}%`, '--l': `${p.left}%`, '--s': `${p.size}px`, '--d': `${p.dur}s`, '--dl': `${p.delay}s`, '--sw': `${p.sway}px`, '--sp': `${p.spin}deg`, '--o': p.opacity } as CSSProperties}>
           <i><GlyphSvg g={look.glyphs[i % look.glyphs.length]} hue={p.hue} season={season} /></i>
         </span>
       ))}

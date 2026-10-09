@@ -715,11 +715,40 @@ body.dragging-mail .sb-it > * { pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) {
   .pc { display: block; position: absolute; top: 0; left: var(--l); width: var(--s); height: var(--s); opacity: 0; animation: szfall var(--d) linear var(--dl) infinite; will-change: transform, opacity; }
   .pc i { animation: szsway calc(var(--d) / 4) ease-in-out var(--dl) infinite alternate; }
-  .sz.up .pc { animation-name: szrise; }
+  .pc.m-rise { animation-name: szrise; }
+  /* a bat crosses the screen in a few seconds, then the sky is quiet for a long while */
+  .pc.m-fly { top: var(--t); left: 0; width: calc(var(--s) * 1.5); animation-name: szfly; }
+  .pc.m-fly i { animation: szbob 1.6s ease-in-out infinite alternate; }
+  .pc.m-fly svg { animation: szflap .32s ease-in-out infinite alternate; }
+  /* sparkles and stars pop in place for a moment, now and then */
+  .pc.m-twinkle { top: var(--t); animation-name: sztwinkle; }
+  .pc.m-twinkle i { animation: none; }
+  .g-leaf i, .g-leafGold i { animation-name: szleaf; animation-duration: calc(var(--d) / 5); }
+  .g-petal i { animation-name: szpetal; animation-duration: calc(var(--d) / 4); }
+  .g-flake svg { animation: szspin calc(var(--d) / 2) linear infinite; }
+  .g-heart svg { animation: szbeat 1.3s ease-in-out infinite; transform-origin: 50% 60%; }
+  .g-ghost svg { animation: szwobble 2.4s ease-in-out infinite alternate; }
+  .g-pumpkin svg, .g-egg svg { animation: szrock 2.2s ease-in-out infinite alternate; }
+  .g-confetti svg { animation: szflip 1.5s linear infinite; }
+  .g-dot.m-rise svg { animation: szblink 3.2s ease-in-out infinite alternate; }
+  .g-star svg { animation: szspin 9s linear infinite; }
 }
 @keyframes szfall { 0% { transform: translate3d(0, -6vh, 0); opacity: 0; } 8% { opacity: var(--o); } 92% { opacity: var(--o); } 100% { transform: translate3d(0, 106vh, 0); opacity: 0; } }
 @keyframes szrise { 0% { transform: translate3d(0, 106vh, 0); opacity: 0; } 8% { opacity: var(--o); } 92% { opacity: var(--o); } 100% { transform: translate3d(0, -6vh, 0); opacity: 0; } }
 @keyframes szsway { from { transform: translateX(calc(var(--sw) * -1)) rotate(calc(var(--sp) * -.5)); } to { transform: translateX(var(--sw)) rotate(calc(var(--sp) * .5)); } }
+/* leaves tumble: a wide swing, a turn, and a flip as they catch the air */
+@keyframes szleaf { 0% { transform: translateX(calc(var(--sw) * -1.6)) rotate(-60deg) scaleX(1); } 50% { transform: translateX(0) rotate(10deg) scaleX(.45); } 100% { transform: translateX(calc(var(--sw) * 1.6)) rotate(70deg) scaleX(1); } }
+@keyframes szpetal { 0% { transform: translateX(calc(var(--sw) * -1.4)) rotate(-40deg) scale(1); } 50% { transform: translateX(0) rotate(20deg) scale(.8); } 100% { transform: translateX(calc(var(--sw) * 1.4)) rotate(80deg) scale(1); } }
+@keyframes szspin { to { transform: rotate(360deg); } }
+@keyframes szbeat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.22); } 30% { transform: scale(.96); } 45% { transform: scale(1.12); } 60% { transform: scale(1); } }
+@keyframes szwobble { from { transform: rotate(-9deg) translateY(-1px); } to { transform: rotate(9deg) translateY(2px); } }
+@keyframes szrock { from { transform: rotate(-14deg); } to { transform: rotate(14deg); } }
+@keyframes szflip { 0% { transform: rotateX(0deg) rotate(10deg); } 100% { transform: rotateX(360deg) rotate(10deg); } }
+@keyframes szblink { from { opacity: .25; transform: scale(.7); } to { opacity: 1; transform: scale(1.15); } }
+@keyframes szfly { 0% { transform: translate3d(-14vw, 0, 0); opacity: var(--o); } 28% { transform: translate3d(114vw, 0, 0); opacity: var(--o); } 29%, 100% { transform: translate3d(114vw, 0, 0); opacity: 0; } }
+@keyframes szbob { from { transform: translateY(-16px); } to { transform: translateY(16px); } }
+@keyframes szflap { from { transform: scaleY(1); } to { transform: scaleY(.45); } }
+@keyframes sztwinkle { 0% { transform: scale(0) rotate(0deg); opacity: 0; } 10% { transform: scale(1.15) rotate(40deg); opacity: var(--o); } 20% { transform: scale(0) rotate(90deg); opacity: 0; } 100% { transform: scale(0); opacity: 0; } }
 /* the badge sits on the top-left corner of a person's avatar (the unread dot is on the right, the account letter below) */
 .ssb { position: absolute; left: -5px; top: -7px; width: max(15px, calc(var(--av, 44px) * .4)); height: max(15px, calc(var(--av, 44px) * .4)); transform: rotate(-14deg); pointer-events: none; z-index: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.18)); }
 .ssb svg { display: block; width: 100%; height: 100%; }

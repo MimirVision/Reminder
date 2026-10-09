@@ -54,8 +54,6 @@ export type Glyph = 'leaf' | 'leafGold' | 'pumpkin' | 'ghost' | 'flake' | 'dot' 
 export interface SeasonLook {
   /** What falls (cycled through in order). */
   glyphs: Glyph[];
-  /** Which way: 'down' falls, 'up' floats up. */
-  dir: 'down' | 'up';
   /** The wash of colour at the top of the screen (light and dark ground). */
   wash: [string, string];
   /** The small thing on a person's avatar. */
@@ -65,16 +63,16 @@ export interface SeasonLook {
 }
 
 export const LOOKS_BY_SEASON: Record<Season, SeasonLook> = {
-  winter: { glyphs: ['flake', 'dot'], dir: 'down', wash: ['#7FA8D8', '#4C78B0'], badge: 'flake', slow: 22 },
-  christmas: { glyphs: ['flake', 'dot', 'star'], dir: 'down', wash: ['#C8473F', '#B23A3A'], badge: 'hat', slow: 24 },
-  newyear: { glyphs: ['spark', 'confetti'], dir: 'up', wash: ['#D9A441', '#C79A3A'], badge: 'star', slow: 20 },
-  valentine: { glyphs: ['heart'], dir: 'up', wash: ['#E27A9C', '#D4608A'], badge: 'heart', slow: 22 },
-  easter: { glyphs: ['egg', 'petal'], dir: 'down', wash: ['#E8C85A', '#B9A0E0'], badge: 'egg', slow: 24 },
-  spring: { glyphs: ['petal', 'petal', 'dot'], dir: 'down', wash: ['#8FCB9B', '#6DB38A'], badge: 'flower', slow: 22 },
-  may17: { glyphs: ['confetti'], dir: 'down', wash: ['#C0392B', '#2F5AA8'], badge: 'flag', slow: 20 },
-  summer: { glyphs: ['spark', 'dot'], dir: 'up', wash: ['#F2C14E', '#E0A93A'], badge: 'sun', slow: 26 },
-  autumn: { glyphs: ['leaf', 'leafGold', 'leaf'], dir: 'down', wash: ['#E39A4C', '#C97B2E'], badge: 'leaf', slow: 20 },
-  halloween: { glyphs: ['pumpkin', 'ghost', 'bat', 'leaf'], dir: 'down', wash: ['#E8803A', '#8A5CC8'], badge: 'pumpkin', slow: 24 },
+  winter: { glyphs: ['flake', 'flake', 'dot'], wash: ['#7FA8D8', '#4C78B0'], badge: 'flake', slow: 22 },
+  christmas: { glyphs: ['flake', 'star', 'dot', 'flake'], wash: ['#C8473F', '#B23A3A'], badge: 'hat', slow: 24 },
+  newyear: { glyphs: ['confetti', 'spark', 'confetti', 'spark'], wash: ['#D9A441', '#C79A3A'], badge: 'star', slow: 20 },
+  valentine: { glyphs: ['heart'], wash: ['#E27A9C', '#D4608A'], badge: 'heart', slow: 22 },
+  easter: { glyphs: ['egg', 'petal', 'egg', 'petal'], wash: ['#E8C85A', '#B9A0E0'], badge: 'egg', slow: 24 },
+  spring: { glyphs: ['petal', 'petal', 'dot'], wash: ['#8FCB9B', '#6DB38A'], badge: 'flower', slow: 22 },
+  may17: { glyphs: ['confetti'], wash: ['#C0392B', '#2F5AA8'], badge: 'flag', slow: 20 },
+  summer: { glyphs: ['spark', 'dot', 'spark', 'dot'], wash: ['#F2C14E', '#E0A93A'], badge: 'sun', slow: 26 },
+  autumn: { glyphs: ['leaf', 'leafGold', 'leaf'], wash: ['#E39A4C', '#C97B2E'], badge: 'leaf', slow: 20 },
+  halloween: { glyphs: ['pumpkin', 'ghost', 'bat', 'leaf', 'ghost', 'pumpkin'], wash: ['#E8803A', '#8A5CC8'], badge: 'pumpkin', slow: 24 },
 };
 
 /** A tiny deterministic generator, so the same pieces appear on every render (no jumping when the screen redraws). */
@@ -83,16 +81,28 @@ function rng(seed: number): () => number {
   return () => { t = (t + 0x6D2B79F5) >>> 0; let r = Math.imul(t ^ (t >>> 15), 1 | t); r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r; return ((r ^ (r >>> 14)) >>> 0) / 4294967296; };
 }
 
-export interface Piece { glyph: Glyph; left: number; size: number; dur: number; delay: number; sway: number; spin: number; opacity: number; hue: number }
+/** How a piece moves: falls, floats up, flies across now and then (bats), or twinkles in place (sparkles, stars). */
+export type Motion = 'fall' | 'rise' | 'fly' | 'twinkle';
+export function motionOf(g: Glyph, season: Season): Motion {
+  if (g === 'ghost' || g === 'heart' || (g === 'dot' && season === 'summer')) return 'rise';
+  if (g === 'bat') return 'fly';
+  if (g === 'spark' || g === 'star') return 'twinkle';
+  return 'fall';
+}
+
+export interface Piece { mode: Motion; top: number; glyph: Glyph; left: number; size: number; dur: number; delay: number; sway: number; spin: number; opacity: number; hue: number }
 
 /** The pieces for a season: few, small, slow, spread across the width. Phones get fewer. */
 export function piecesFor(season: Season, count: number): Piece[] {
   const look = LOOKS_BY_SEASON[season];
   const r = rng(season.split('').reduce((n, ch) => n * 31 + ch.charCodeAt(0), 7));
   return Array.from({ length: count }, (_, i) => {
-    const dur = look.slow * (0.8 + r() * 0.6);
+    const glyph = look.glyphs[i % look.glyphs.length];
+    const mode = motionOf(glyph, season);
+    const dur = mode === 'twinkle' ? 6 + r() * 5 : mode === 'fly' ? 26 + r() * 8 : look.slow * (0.8 + r() * 0.6);
     return {
-      glyph: look.glyphs[i % look.glyphs.length],
+      mode, top: Math.round((6 + r() * 66) * 10) / 10,
+      glyph,
       left: Math.round(((i + 0.2 + r() * 0.6) / count) * 1000) / 10,
       size: Math.round(14 + r() * 9),
       dur: Math.round(dur * 10) / 10,

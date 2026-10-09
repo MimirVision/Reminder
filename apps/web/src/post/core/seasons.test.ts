@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LOOKS_BY_SEASON, SEASONS, activeSeason, easterSunday, piecesFor, seasonOn } from './seasons.ts';
+import { LOOKS_BY_SEASON, motionOf, SEASONS, activeSeason, easterSunday, piecesFor, seasonOn } from './seasons.ts';
 import { DEFAULT_SETTINGS, loadSettings } from './settings.ts';
 
 const d = (y: number, m: number, day: number) => new Date(y, m - 1, day, 12);
@@ -47,8 +47,20 @@ test('pieces are few, deterministic and tidy', () => {
     const a = piecesFor(id, 8);
     assert.deepEqual(a, piecesFor(id, 8));
     assert.equal(a.length, 8);
-    for (const p of a) { assert.ok(p.left >= 0 && p.left <= 100); assert.ok(p.size >= 14 && p.size <= 23); assert.ok(p.dur >= 14); assert.ok(p.opacity <= 0.75); assert.ok(LOOKS_BY_SEASON[id].glyphs.includes(p.glyph)); }
+    for (const p of a) { assert.ok(p.left >= 0 && p.left <= 100); assert.ok(p.size >= 14 && p.size <= 23); assert.ok(p.dur >= (p.mode === 'twinkle' ? 6 : 14)); assert.ok(p.opacity <= 0.75); assert.ok(LOOKS_BY_SEASON[id].glyphs.includes(p.glyph)); }
   }
+});
+
+test('each kind of piece moves as intended', () => {
+  assert.equal(motionOf('ghost', 'halloween'), 'rise');
+  assert.equal(motionOf('heart', 'valentine'), 'rise');
+  assert.equal(motionOf('bat', 'halloween'), 'fly');
+  assert.equal(motionOf('spark', 'summer'), 'twinkle');
+  assert.equal(motionOf('dot', 'summer'), 'rise');
+  assert.equal(motionOf('dot', 'winter'), 'fall');
+  assert.equal(motionOf('leaf', 'autumn'), 'fall');
+  const bats = piecesFor('halloween', 8).filter((p) => p.mode === 'fly').length;
+  assert.ok(bats >= 1 && bats <= 2, `bats ${bats}`);
 });
 
 test('seasonal settings default on, survive a round trip and ignore junk', () => {
