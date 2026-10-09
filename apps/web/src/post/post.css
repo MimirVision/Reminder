@@ -201,6 +201,8 @@ textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: ve
 .mh.folded .pv1 { font-size: 13.5px; color: var(--mu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mh.folded > svg { color: var(--mu); flex: none; }
 /* answering or forwarding one message of a conversation: right under that message, so it is clear which one is meant */
+.quote-t { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px 12px; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--r-ctl); background: var(--bg); color: var(--mu); font-size: 13px; font-weight: 600; }
+.quote-t:active { opacity: .7; }
 .macts { display: flex; gap: 8px; padding: 12px 12px 4px; }
 .macts button { flex: 1 1 0; min-width: 0; height: 44px; border: 0; border-radius: var(--r-ctl); background: var(--bg); color: var(--ink); font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 /* The address the mail came from is shown in full (it wraps instead of being cut off): the part after the @ is what tells people apart. */

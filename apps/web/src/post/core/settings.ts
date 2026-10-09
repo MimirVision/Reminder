@@ -44,6 +44,8 @@ export interface Settings {
   undoSend: number; // seconds
   /** Messages that answer each other are one row in the list, and one conversation when opened. */
   threads: boolean;
+  /** The earlier messages a reply quotes under its own text are folded away behind a "Show quoted text" button. */
+  foldQuotes: boolean;
   /** One row per sender in Transactions, Updates and Promotions. */
   digest: boolean;
   /** Post archives a promotion by itself when it is older than this many days (0: never; the default). */
@@ -52,7 +54,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system', look: 'refined', accent: 'ember', pureBlack: false, rowSize: 'comfortable', accountColours: {},
-  swipeRight: 'archive', swipeLeft: 'flag', blockImages: true, signature: '', undoSend: 10, threads: true, digest: true, autoClean: 0,
+  swipeRight: 'archive', swipeLeft: 'flag', blockImages: true, signature: '', undoSend: 10, threads: true, foldQuotes: true, digest: true, autoClean: 0,
 };
 
 const ONE_OF = <T extends string>(v: unknown, list: readonly T[], d: T): T => (list.includes(v as T) ? (v as T) : d);
@@ -78,6 +80,7 @@ export function loadSettings(raw: unknown): Settings {
     signature: typeof o.signature === 'string' ? o.signature.slice(0, 500) : '',
     undoSend: [0, 5, 10, 20, 30].includes(Number(o.undoSend)) ? Number(o.undoSend) : d.undoSend,
     threads: o.threads !== false,
+    foldQuotes: o.foldQuotes !== false,
     digest: o.digest !== false,
     autoClean: [0, 3, 7, 14, 30].includes(Number(o.autoClean)) ? Number(o.autoClean) : d.autoClean,
   };
