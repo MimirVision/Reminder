@@ -64,7 +64,7 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
   return (
     <div className="pg">
       <div className="nav" style={{ paddingBottom: 4 }}>
-        <div className="find" style={{ margin: 0, flex: 1, width: 'auto', color: 'var(--ink)' }}>
+        <div className="find" style={{ margin: 0, flex: 1, minWidth: 0, width: 'auto', color: 'var(--ink)' }}>
           <Icon n="search" />
           <input ref={ref} aria-label="Search mail" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search mail" enterKeyHint="search" autoCapitalize="none" autoCorrect="off" style={{ flex: 1, minWidth: 0, border: 0, background: 'transparent', outline: 'none', height: 44 }} />
           {q && <button className="btn plain" style={{ width: 32, height: 32 }} aria-label="Clear" onClick={() => { setQ(''); ref.current?.focus(); }}><Icon n="x" size={18} /></button>}
