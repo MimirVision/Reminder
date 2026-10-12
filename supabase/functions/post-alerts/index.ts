@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
         if (!mine) return json({ error: 'not_found' }, 404);
         const next = alertTaughtPatch(await store.getTaught(mine.id), body);
         await store.setTaught(mine.id, next);
-        return json({ ok: true, extra: next.extra, rules_digest: alertRulesDigest(next) });
+        return json({ ok: true, extra: next.extra, rules_digest: alertRulesDigest(next), muted: next.muted.length });
       }
       case 'seen': return json({ ok: await alertSeen(deps, String(body.endpoint ?? '')) });
       case 'test': return json({ sent: await alertTest(deps) });

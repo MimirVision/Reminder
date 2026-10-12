@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { initials, senderHue } from '../core/format.ts';
 import type { Kind, Mail } from '../core/types.ts';
 
@@ -116,3 +116,18 @@ export function Seg<T extends string>({ value, options, onChange, label }: { val
     </div>
   );
 }
+
+/** A note under a setting: one short line, and the whole explanation a tap away. */
+export function Hint({ short, style, children }: { short: string; style?: React.CSSProperties; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <p className="note" style={style}>
+      {open ? children : short}{' '}
+      <button type="button" className="more-hint" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Show less' : 'Learn more'}</button>
+    </p>
+  );
+}
+
+
+/** A round tinted icon above an empty screen's title: it says what the screen is for before you read a word. */
+export function EmptyIcon({ n }: { n: string }) { return <span className="eico" aria-hidden="true"><Icon n={n} size={30} /></span>; }

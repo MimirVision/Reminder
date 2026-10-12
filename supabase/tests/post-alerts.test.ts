@@ -680,7 +680,7 @@ const mail = (name: string, address: string, subject: string, bodyPreview = '', 
   msg({ from: { emailAddress: { name, address } }, subject, bodyPreview, internetMessageHeaders: h });
 /** A Microsoft that has never seen the person write to anyone. */
 const nobodyWrittenTo = () => fakeFetch(() => ({ body: { value: [] } }));
-const taughtOf = (rules: Record<string, Kind>, extra: AlertExtra): AlertStore => ({ getTaught: async () => ({ rules, extra }) } as unknown as AlertStore);
+const taughtOf = (rules: Record<string, Kind>, extra: AlertExtra): AlertStore => ({ getTaught: async () => ({ rules, extra, muted: [] }) } as unknown as AlertStore);
 
 // The made-up mailbox of the picture the owner was shown (17 mails): who adds to the number today, and with each of the three choices.
 const PLAN: { who: string; m: GraphMessage; rules?: Record<string, Kind>; today: boolean; primary: boolean; codes: boolean; transactions: boolean }[] = [
@@ -789,7 +789,7 @@ test('what the person taught: a sender beats its company, a code from a sender m
   assert.equal((await alertVerdict(dd, 'T', shop, acct({ mode: 'all' }))).reason, 'all mail');
   assert.equal((await alertVerdict(dd, 'T', shop, acct({ mode: 'vips' }))).reason, 'not a VIP');
   assert.equal((await alertVerdict(dd, 'T', shop, acct({ mode: 'off' }))).send, false);
-  assert.equal(reads, 0);
+  assert.equal(reads, 3, 'the choices are read in every mode now: a muted conversation is quiet in all of them');
   // The schedule, read mail and other folders still come first.
   assert.match((await alertVerdict({ ...d({}), now: () => MON_20 }, 'T', shop, acct({ quiet: WORK }))).reason, /alert hours/);
   assert.equal((await alertVerdict(d({}), 'T', shop, acct({ quiet: WORK }))).send, true, 'inside the hours');
@@ -901,49 +901,49 @@ test('what the phone sends is checked, merged key by key and read back defensive
   assert.throws(() => alertCleanRules(Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [`u${i}@x.no`, 'promo']))), /too many rules/);
   assert.equal(Object.keys(alertCleanRules(Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`u${i}@x.no`, 'promo'])))).length, 1000);
 
-  const base: AlertTaught = { rules: { 'a@x.no': 'promo' }, extra: 'codes' };
-  assert.deepEqual(alertTaughtPatch(base, { extra: 'none' }), { rules: { 'a@x.no': 'promo' }, extra: 'none' }, 'only the key that was sent changes');
+  const base: AlertTaught = { rules: { 'a@x.no': 'promo' }, extra: 'codes', muted: [] };
+  assert.deepEqual(alertTaughtPatch(base, { extra: 'none' }), { rules: { 'a@x.no': 'promo' }, extra: 'none', muted: [] }, 'only the key that was sent changes');
   assert.deepEqual(alertTaughtPatch(base, {}), base, 'nothing sent, nothing changed');
   assert.deepEqual(alertTaughtPatch(base, { rules: {} }), base, 'a whole list is not something a device can send: only what changed');
-  assert.deepEqual(alertTaughtPatch(base, { set: { 'B@x.no ': 'update' } }), { rules: { 'a@x.no': 'promo', 'b@x.no': 'update' }, extra: 'codes' }, 'adds to the list');
-  assert.deepEqual(alertTaughtPatch(base, { set: { 'a@x.no': 'person' } }), { rules: { 'a@x.no': 'person' }, extra: 'codes' }, 'changes one of the list');
-  assert.deepEqual(alertTaughtPatch(base, { remove: ['A@x.no', 'unknown@x.no'] }), { rules: {}, extra: 'codes' }, 'forgets what it is told to, and only that (an unknown name is no error)');
-  assert.deepEqual(alertTaughtPatch(base, { set: { '@shop.no': 'promo' }, remove: ['a@x.no'], extra: 'transactions' }), { rules: { '@shop.no': 'promo' }, extra: 'transactions' }, 'all three at once');
-  assert.deepEqual(alertTaughtPatch({ rules: {}, extra: 'codes' }, { remove: ['a@x.no'] }), { rules: {}, extra: 'codes' });
+  assert.deepEqual(alertTaughtPatch(base, { set: { 'B@x.no ': 'update' } }), { rules: { 'a@x.no': 'promo', 'b@x.no': 'update' }, extra: 'codes', muted: [] }, 'adds to the list');
+  assert.deepEqual(alertTaughtPatch(base, { set: { 'a@x.no': 'person' } }), { rules: { 'a@x.no': 'person' }, extra: 'codes', muted: [] }, 'changes one of the list');
+  assert.deepEqual(alertTaughtPatch(base, { remove: ['A@x.no', 'unknown@x.no'] }), { rules: {}, extra: 'codes', muted: [] }, 'forgets what it is told to, and only that (an unknown name is no error)');
+  assert.deepEqual(alertTaughtPatch(base, { set: { '@shop.no': 'promo' }, remove: ['a@x.no'], extra: 'transactions' }), { rules: { '@shop.no': 'promo' }, extra: 'transactions', muted: [] }, 'all three at once');
+  assert.deepEqual(alertTaughtPatch({ rules: {}, extra: 'codes', muted: [] }, { remove: ['a@x.no'] }), { rules: {}, extra: 'codes', muted: [] });
   for (const bad of [{ remove: 'a@x.no' }, { remove: [1] }, { remove: ['not an address'] }, { remove: [null] }, { set: { 'not an address': 'promo' } }, { set: 'x' }]) assert.throws(() => alertTaughtPatch(base, bad), /bad rules/, JSON.stringify(bad));
   assert.throws(() => alertTaughtPatch(base, { extra: 'everything' }), /bad extra/);
-  assert.deepEqual(base, { rules: { 'a@x.no': 'promo' }, extra: 'codes' }, 'what was stored is not changed in place');
+  assert.deepEqual(base, { rules: { 'a@x.no': 'promo' }, extra: 'codes', muted: [] }, 'what was stored is not changed in place');
   // Many devices add to the same list: more than the server holds is refused, whatever the way there.
-  const full: AlertTaught = { rules: Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`u${i}@x.no`, 'promo' as Kind])), extra: 'codes' };
+  const full: AlertTaught = { rules: Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`u${i}@x.no`, 'promo' as Kind])), extra: 'codes', muted: [] };
   assert.equal(Object.keys(alertTaughtPatch(full, { set: { 'u1@x.no': 'update' } }).rules).length, 1000, 'changing one of a full list is fine');
   assert.throws(() => alertTaughtPatch(full, { set: { 'new@x.no': 'promo' } }), /too many rules/);
   assert.equal(Object.keys(alertTaughtPatch(full, { set: { 'new@x.no': 'promo' }, remove: ['u0@x.no'] }).rules).length, 1000, 'room made in the same call');
   assert.throws(() => alertTaughtPatch(base, { remove: Array.from({ length: 1001 }, (_, i) => `u${i}@x.no`) }), /bad rules/);
 
-  assert.deepEqual(alertParseTaught(null), { rules: {}, extra: ALERT_EXTRA_DEFAULT });
+  assert.deepEqual(alertParseTaught(null), { rules: {}, extra: ALERT_EXTRA_DEFAULT, muted: [] });
   assert.equal(ALERT_EXTRA_DEFAULT, 'codes');
   assert.deepEqual(alertParseTaught('not json'), alertTaughtDefault());
-  assert.deepEqual(alertParseTaught(JSON.stringify({ rules: { 'a@x.no': 'promo', 'bad key': 'promo', 'b@x.no': 'nonsense' }, extra: 'weird' })), { rules: { 'a@x.no': 'promo' }, extra: 'codes' });
-  assert.deepEqual(alertParseTaught(JSON.stringify({ rules: 'x', extra: 'none' })), { rules: {}, extra: 'none' });
+  assert.deepEqual(alertParseTaught(JSON.stringify({ rules: { 'a@x.no': 'promo', 'bad key': 'promo', 'b@x.no': 'nonsense' }, extra: 'weird', muted: [] })), { rules: { 'a@x.no': 'promo' }, extra: 'codes', muted: [] });
+  assert.deepEqual(alertParseTaught(JSON.stringify({ rules: 'x', extra: 'none' })), { rules: {}, extra: 'none', muted: [] });
 });
 
 test('the fingerprint of the choices is the one the app computes, whatever the order or case', () => {
   const rules: Record<string, Kind> = { 'b@x.no': 'promo', '@Shop.no': 'update', 'a@x.no': 'person' };
   assert.equal(alertRulesDigest({ rules, extra: 'codes' }), appRulesDigest(rules));
-  assert.equal(alertRulesDigest({ rules: { 'a@x.no': 'person', '@shop.no': 'update', 'b@x.no': 'promo' }, extra: 'none' }), alertRulesDigest({ rules, extra: 'codes' }), 'order, case and the "extra" do not matter');
-  assert.notEqual(alertRulesDigest({ rules: { ...rules, 'c@x.no': 'promo' }, extra: 'codes' }), alertRulesDigest({ rules, extra: 'codes' }));
-  assert.notEqual(alertRulesDigest({ rules: { ...rules, 'b@x.no': 'update' }, extra: 'codes' }), alertRulesDigest({ rules, extra: 'codes' }));
+  assert.equal(alertRulesDigest({ rules: { 'a@x.no': 'person', '@shop.no': 'update', 'b@x.no': 'promo' }, extra: 'none', muted: [] }), alertRulesDigest({ rules, extra: 'codes' }), 'order, case and the "extra" do not matter');
+  assert.notEqual(alertRulesDigest({ rules: { ...rules, 'c@x.no': 'promo' }, extra: 'codes', muted: [] }), alertRulesDigest({ rules, extra: 'codes' }));
+  assert.notEqual(alertRulesDigest({ rules: { ...rules, 'b@x.no': 'update' }, extra: 'codes', muted: [] }), alertRulesDigest({ rules, extra: 'codes' }));
   assert.match(alertRulesDigest(alertTaughtDefault()), /^0:/);
 });
 
 test('the status the app reads: the settings of the mailbox with what counts besides Primary and the fingerprint of the choices', () => {
   const a = { ...acct(), refresh_token_enc: 'x', client_state: 'c', subscription_id: 's', subscription_expires_at: '2026-10-09T08:00:00Z', last_alert_at: '2026-10-05T07:00:00Z' } as AlertStored;
-  const row = alertStatusRow(a, { rules: { 'a@x.no': 'promo' }, extra: 'transactions' });
+  const row = alertStatusRow(a, { rules: { 'a@x.no': 'promo' }, extra: 'transactions', muted: [] });
   assert.deepEqual(row, {
     id: 'a1', email: 'andreas@outlook.com', label: 'Personal', mode: 'people', quiet: null, vips: [], subscription_expires_at: '2026-10-09T08:00:00Z',
-    last_alert_at: '2026-10-05T07:00:00Z', sub_error: null, extra: 'transactions', rules_digest: appRulesDigest({ 'a@x.no': 'promo' }),
+    last_alert_at: '2026-10-05T07:00:00Z', sub_error: null, extra: 'transactions', rules_digest: appRulesDigest({ 'a@x.no': 'promo' }), muted: 0,
   });
-  assert.equal(ALERT_SMART, 1);
+  assert.equal(ALERT_SMART, 2);
 });
 
 test('the server sorts with the app’s own rules: the copy it runs gives the same verdict as the app for every example', async () => {
@@ -954,4 +954,27 @@ test('the server sorts with the app’s own rules: the copy it runs gives the sa
     const s = alertSort(e.m, { rules: e.rules ?? {}, extra: 'codes' }, []);
     assert.deepEqual({ kind: s.kind, why: s.why }, appClassify(input, { overrides: e.rules }), `${e.who}: the verdict the server used`);
   }
+});
+
+test('conversations muted in the app are quiet here too: stored per mailbox, merged by key, checked, and applied in every mode', async () => {
+  const base = alertTaughtDefault();
+  const m1 = alertTaughtPatch(base, { mute: ['conv-1', 'conv-2'] });
+  assert.deepEqual(m1.muted, ['conv-1', 'conv-2']);
+  assert.deepEqual(alertTaughtPatch(m1, { mute: ['conv-2', 'conv-3'] }).muted, ['conv-1', 'conv-2', 'conv-3'], 'a conversation is held once');
+  assert.deepEqual(alertTaughtPatch(m1, { unmute: ['conv-1', 'unknown'] }).muted, ['conv-2'], 'forgets what it is told to, and only that');
+  assert.deepEqual(alertTaughtPatch(m1, { extra: 'none' }).muted, ['conv-1', 'conv-2'], 'other changes leave them alone');
+  for (const bad of [{ mute: 'x' }, { mute: [1] }, { mute: [''] }, { unmute: [null] }, { mute: ['x'.repeat(401)] }]) assert.throws(() => alertTaughtPatch(base, bad), /bad muted/);
+  const many = alertTaughtPatch(base, { mute: Array.from({ length: 200 }, (_, i) => `c${i}`) });
+  assert.equal(alertTaughtPatch(many, { mute: ['newest'] }).muted.length, 200, 'the oldest is forgotten first');
+  assert.equal(alertTaughtPatch(many, { mute: ['newest'] }).muted.at(-1), 'newest');
+  assert.deepEqual(alertParseTaught(JSON.stringify({ rules: {}, extra: 'codes', muted: ['a', 3, '', 'b'] })).muted, ['a', 'b'], 'read defensively');
+  assert.deepEqual(alertParseTaught(JSON.stringify({ rules: {}, extra: 'codes' })).muted, [], 'an older stored record has none');
+  const mk = (muted: string[]) => ({ getTaught: async () => ({ rules: {}, extra: 'codes', muted }) } as unknown as AlertStore);
+  const mail = { id: 'x', subject: 'Re: Middag', from: { emailAddress: { name: 'Maria', address: 'maria@outlook.com' } }, isRead: false, conversationId: 'conv-1' } as GraphMessage;
+  for (const mode of ['people', 'all', 'vips'] as const) {
+    const v = await alertVerdict({ store: mk(['conv-1']), fetch: nobodyWrittenTo().f, now: () => MON_10 }, 'T', mail, acct({ mode, vips: ['maria@outlook.com'] }));
+    assert.deepEqual(v, { send: false, reason: 'a muted conversation' }, `${mode}: even a VIP's muted conversation stays quiet`);
+  }
+  const other = await alertVerdict({ store: mk(['conv-9']), fetch: nobodyWrittenTo().f, now: () => MON_10 }, 'T', mail, acct({ mode: 'people' }));
+  assert.equal(other.send, true, 'another conversation of the same person still counts');
 });

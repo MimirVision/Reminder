@@ -19,7 +19,7 @@ import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, 
 
 /** Which tab of the inbox is open: one of the four kinds (Primary is 'person'), or everything. */
 export type View = 'all' | Kind;
-export interface Toast { id: number; text: string; undo?: () => void }
+export interface Toast { id: number; text: string; undo?: () => void; /** Something went wrong: the toast offers a button that copies a problem report. */ fail?: boolean }
 
 /** Which folder to open: a standard one (of one mailbox, or of every mailbox), or one of your own (always of one mailbox, by its id). */
 export interface FolderTarget { kind: FolderKind; account?: string; id?: string }
@@ -124,6 +124,8 @@ export interface Deps {
 /** A file opened for reading or saving. `link`: this attachment is only a link to a cloud file (there are no bytes). */
 export interface Opened { name: string; type: string; bytes: Uint8Array; link?: string }
 
+/** The words a message that says something went wrong starts with (or has early on): those messages offer a problem report to copy. */
+const FAILED = /^(Could not|Outlook would not|Not sent|The files could not)|could not be (deleted|kept)|^No connection/;
 const MAX_TRIES = 3;          // a message with files is tried this many times (time offline does not count) and is then handed back as a draft
 const DRAFT_FILES = 'draft-files';
 /** What was changed in drafts that live at Outlook and was not saved or sent (kv: one entry per draft), and how long such a change is kept when the draft is never opened again. */
@@ -364,7 +366,7 @@ export function createController(deps: Deps) {
     try { await store.setMeta('kept', kept); } catch (e) { note('storage', e); }
   };
   let tidying = false;
-  const saveMuted = async (muted: Muted[]) => { set({ muted }); try { await store.setMeta('muted', muted); } catch (e) { note('storage', e); } };
+  const saveMuted = async (muted: Muted[]) => { set({ muted }); try { await store.setMeta('muted', muted); } catch (e) { note('storage', e); } void pushMuted(); };
   const saveBlocked = async (blocked: string[]) => { set({ blocked }); try { await store.setMeta('blocked', blocked); } catch (e) { note('storage', e); } };
 
   // ---- deleting for good ---------------------------------------------------------------------------------------------------------------
@@ -487,8 +489,9 @@ export function createController(deps: Deps) {
 
   function toast(text: string, undo?: () => void, ms?: number) {
     const id = ++toastSeq;
-    set({ toast: { id, text, undo } });
-    setTimer(() => { if (state.toast?.id === id) set({ toast: null }); }, ms ?? (undo ? UNDO_WINDOW_MS : 3500));
+    const fail = FAILED.test(text);
+    set({ toast: { id, text, undo, ...(fail ? { fail: true } : {}) } });
+    setTimer(() => { if (state.toast?.id === id) set({ toast: null }); }, fail ? Math.max(ms ?? 0, 8000) : ms ?? (undo ? UNDO_WINDOW_MS : 3500));
   }
 
   /** Why messages are about to leave the list (set by whatever takes them away); a message that leaves with no reason here was moved at Outlook's end. */
@@ -537,11 +540,25 @@ export function createController(deps: Deps) {
           found.set(`${e.key}|${e.at}`, { name: f?.name ?? 'another folder', kind: f?.kind ?? 'other', id: hit.parentFolderId });
         } catch (err) { note('trace', err); }
       }
-      if (!found.size) return;
-      const left = state.left.map((x) => (found.has(`${x.key}|${x.at}`) ? { ...x, where: found.get(`${x.key}|${x.at}`) } : x));
-      set({ left });
-      store.setMeta('leftlog', left).catch((err) => note('storage', err));
+      if (found.size) {
+        const left = state.left.map((x) => (found.has(`${x.key}|${x.at}`) ? { ...x, where: found.get(`${x.key}|${x.at}`) } : x));
+        set({ left });
+        store.setMeta('leftlog', left).catch((err) => note('storage', err));
+      }
+      tellOutlook(lost, found);
     } catch (e) { note('trace', e); }
+  }
+
+  /** One to three messages that Outlook (a rule, the junk filter, another app) took out of the inbox while Post was open: one line says so, so mail never seems to vanish. */
+  function tellOutlook(lost: LeftEntry[], found: Map<string, NonNullable<LeftEntry['where']>>) {
+    if (!lost.length || lost.length > 3 || state.toast) return;
+    const first = lost[0];
+    const w = found.get(`${first.key}|${first.at}`);
+    const cut = (t: string) => (t.length > 30 ? `${t.slice(0, 29)}…` : t);
+    const text = lost.length === 1
+      ? `“${cut(first.subject)}” ${w ? `is now in ${w.name}` : 'left your inbox'}: Outlook moved it, not Post. Settings, Where did my mail go?`
+      : `${lost.length} messages left your inbox: Outlook moved them, not Post. Settings, Where did my mail go?`;
+    toast(text, undefined, 7000);
   }
 
   /**
@@ -615,6 +632,34 @@ export function createController(deps: Deps) {
     return taughtRun;
   }
 
+  // The conversations you muted are told to the alert server too (it keeps them per mailbox), so a reply to one never gives an alert or a number on the icon, even while Post is closed.
+  let mutedSent: Record<string, string[]> = {}; // per mailbox: the conversation ids this device got through to the server
+  let serverMutes = false; // the server is new enough to hold them (it says so in its status)
+  let mutedRun: Promise<void> = Promise.resolve();
+  function pushMuted(): Promise<void> {
+    const run = async () => {
+      if (!server || !serverMutes) return;
+      for (const x of sessions) {
+        const acct = state.accounts.find((a) => a.email === x.email);
+        if (!acct || acct.needsSignIn) continue;
+        const pre = `c|${x.email}|`;
+        const wanted = state.muted.map((m) => m.key).filter((k) => k.startsWith(pre)).map((k) => k.slice(pre.length)).slice(-MUTED_MAX);
+        const had = acct.muted === 0 ? [] : mutedSent[x.email] ?? []; // a server that holds none although this device sent some (the mailbox was added again): all go again
+        const add = wanted.filter((k) => !had.includes(k));
+        const drop = had.filter((k) => !wanted.includes(k));
+        if (!add.length && !drop.length) continue;
+        try {
+          const r = await server.taught(x.session, { ...(add.length ? { mute: add } : {}), ...(drop.length ? { unmute: drop } : {}) });
+          mutedSent = { ...mutedSent, [x.email]: wanted };
+          try { await store.setMeta('mutedSent', mutedSent); } catch (e) { note('alerts', e); }
+          set({ accounts: state.accounts.map((a) => (a.email === x.email ? { ...a, muted: r.muted ?? wanted.length } : a)) });
+        } catch (e) { note('alerts', e); } // sent again the next time the server's status is read
+      }
+    };
+    mutedRun = mutedRun.then(run, run);
+    return mutedRun;
+  }
+
   /** Looks at Sent Items now and then, so mail from people you have written to is always Primary. Never fails a sync. */
   async function learnKnown(email: string, g: Graph) {
     try {
@@ -652,6 +697,7 @@ export function createController(deps: Deps) {
       try {
         const r = await server.status(x.session);
         smart = (r.smart ?? 0) >= 1;
+        serverMutes = (r.smart ?? 0) >= 2;
         const a = r.accounts.find((y) => y.email === x.email) ?? r.accounts[0];
         out.push({ ...(a as AccountStatus), needsSignIn: old?.needsSignIn && !a ? true : false });
       } catch (e) {
@@ -663,6 +709,7 @@ export function createController(deps: Deps) {
     await store.setMeta('accounts', out);
     set({ accounts: out, serverSmart: smart ?? state.serverSmart, ...(offline ? { online: false } : { online: true }) });
     void pushTaught(); // a mailbox whose server holds other choices than this phone (just signed in, or a change that did not get through) is brought up to date
+    void pushMuted();
   }
 
   /** Any signed-in session, for things that belong to the device rather than to one mailbox (alerts, the icon number). */
@@ -902,6 +949,7 @@ export function createController(deps: Deps) {
         set({ settings, accounts: cachedAccounts, overrides, blocked, muted, left: loadLeft(await store.getMeta<unknown>('leftlog').catch(() => null)), signingIn: !!readPending() });
         // Only now, with the saved choices on screen: a start that could not read them sends the alert server nothing (it would look like "all removed").
         taughtSent = sentOf(savedSent);
+        { const ms = await store.getMeta<unknown>('mutedSent').catch(() => null); mutedSent = ms && typeof ms === 'object' && !Array.isArray(ms) ? Object.fromEntries(Object.entries(ms as Record<string, unknown>).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, (v as unknown[]).filter((x): x is string => typeof x === 'string')])) : {}; }
         try { sweepEdits(); } catch { /* only tidying */ }
         known = await loadKnown(store, cachedAccounts.map((a) => a.email));
         await reclassifyAll(store, sortCtx()); // every start: a better rule applies to mail already on the phone, and older saved kinds are renamed

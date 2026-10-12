@@ -515,7 +515,7 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .hd .sub { margin: 4px 0 0; }
 .it.fr { min-height: 54px; }
 .it.fr.nested { padding-left: calc(16px + var(--d, 0) * 22px); }
-.it.fr .cnt { font-size: 14.5px; font-weight: 700; color: var(--at); }
+.it.fr .cnt { font-size: 14.5px; font-weight: 700; color: var(--ink); }
 .it.fr .cnt.mu { color: var(--mu); font-weight: 600; }
 .it.fr .v .ic { color: var(--mu); }
 .tg.dr { color: var(--at); border-color: color-mix(in srgb, var(--at) 38%, var(--ln)); }
@@ -702,3 +702,25 @@ body.dragging-mail .sb-it > * { pointer-events: none; }
 .mh:has(.det) { align-items: flex-start; }
 .post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .fn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mh .s:has(.det-btn) { overflow: visible; white-space: normal; }
+
+/* the More menu: its rows come in groups (reply, organise, senders, delete) with a little air between them */
+.sheet .card + .card { margin-top: 12px; }
+.sheet .card:empty { display: none; }
+
+/* Triage: the next-line and the four buttons sit at the bottom whatever the card's height, so the thumb always finds them in the same place */
+.stack + .nx { margin-top: auto; }
+
+.empty .eico { width: 68px; height: 68px; border-radius: 22px; background: var(--tint); color: var(--ti); display: grid; place-items: center; margin: 0 auto 16px; }
+
+/* A shorter top: the sync line is slimmer, the Unread filter sits inside the search bar (and in the sync line once the search has scrolled away), and the tab row tucks away while you read down the list. */
+.sync-row { margin-top: 0; }
+.sync-row .sync { height: 30px; }
+.fold > div { position: relative; }
+.fold:not(.min) > div { overflow: visible; }
+.fold .un { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); height: 30px; padding: 0 10px; font-size: 12.5px; background: var(--bg); box-shadow: none; z-index: 2; }
+.fold .un.on { background: var(--ink); }
+.post.wide .fold .un { right: 24px; }
+.find { padding-right: 96px; }
+.tabsfold.min { pointer-events: none; }
+.fold .un::after { content: ''; position: absolute; inset: -7px -6px; }
+.tabsfold { grid-template-columns: minmax(0, 1fr); } .tabsfold > div { min-width: 0; }

@@ -243,13 +243,19 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
             <button className="it" onClick={() => reply('replyAll')}><span className="ico"><Icon n="replyAll" /></span>Reply all</button>
             <button className="it" onClick={() => reply('forward')}><span className="ico"><Icon n="forward" /></span>Forward</button>
             <button className="it" onClick={() => setSheet('remind')}><span className="ico"><Icon n="home" /></span>Remind me<span className="v">in Home Memory</span></button>
+          </div>
+          <div className="card">
             {(canTriage || far) && <button className="it" onClick={() => { void c.toggleRead(mine); setSheet(null); if (!anyUnread) go(home); }}><span className="ico"><Icon n="mail" /></span>{anyUnread ? 'Mark as read' : 'Mark as unread'}</button>}
             {(canTriage || far) && <button className="it" onClick={() => { void c.toggleFlag(mine); setSheet(null); }}><span className="ico"><Icon n="flag" /></span>{anyFlag ? 'Remove flag' : 'Flag'}</button>}
-            {movable && <button className="it" onClick={() => setSheet('move')}><span className="ico"><Icon n="folder" /></span>Move to a folder<span className="v">…</span></button>}
+            {movable && <button className="it" onClick={() => setSheet('move')}><span className="ico"><Icon n="folder" /></span>Move to a folder<span className="v"><Icon n="chev" size={16} /></span></button>}
             {here && <button className="it" onClick={() => setSheet('why')}><span className="ico"><Icon n="inbox" /></span>Sorted as {KIND_TAB[here.kind]}<span className="v">Change</span></button>}
-            {canTriage && here && canMute(here) && !s.muted.some((x) => x.key === threadKey(here)) && <button className="it" onClick={() => { void c.muteConversation(here); setSheet(null); open(next, true); }}><span className="ico"><Icon n="bellOff" /></span>Mute conversation<span className="v">…</span></button>}
-            {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('block')}><span className="ico"><Icon n="ban" /></span>Block sender<span className="v">…</span></button>}
-            {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('sweep')}><span className="ico"><Icon n="sparkle" /></span>Sweep this sender<span className="v">…</span></button>}
+          </div>
+          <div className="card">
+            {canTriage && here && canMute(here) && !s.muted.some((x) => x.key === threadKey(here)) && <button className="it" onClick={() => { void c.muteConversation(here); setSheet(null); open(next, true); }}><span className="ico"><Icon n="bellOff" /></span>Mute conversation<span className="v"><Icon n="chev" size={16} /></span></button>}
+            {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('block')}><span className="ico"><Icon n="ban" /></span>Block sender<span className="v"><Icon n="chev" size={16} /></span></button>}
+            {canTriage && here && !isMine(here) && <button className="it" onClick={() => setSheet('sweep')}><span className="ico"><Icon n="sparkle" /></span>Sweep this sender<span className="v"><Icon n="chev" size={16} /></span></button>}
+          </div>
+          <div className="card">
             {canDelete && <button className="it danger" onClick={() => { setSheet(null); deleteIt(); }}><span className="ico"><Icon n="trash" /></span>Delete{many && !far ? ' conversation' : ''}</button>}
           </div>
         </Sheet>

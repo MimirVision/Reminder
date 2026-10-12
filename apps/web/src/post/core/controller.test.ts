@@ -24,13 +24,14 @@ function world() {
     /** What Outlook answers to a move (201 is one that worked). */ moveStatus: 201,
     /** A later sync (from a saved place) hears only what changed, as the real thing does; otherwise it hears everything every time. */ strictDelta: false,
     /** The alert server has the code that follows the Primary tab (it says so in its status and takes "taught"). */ smart: false,
+    /** The alert server also holds muted conversations (it says smart 2 in its status). */ mutes: false,
     /** The alert server answers "taught" with a refusal (400), as it does for more moved senders than it can hold. */ refuseTaught: false,
   };
   /** Every "taught" call the alert server took: what the device sent. */
-  const taughtSeen: { email: string; set?: Record<string, string>; remove?: string[]; extra?: string }[] = [];
+  const taughtSeen: { email: string; set?: Record<string, string>; remove?: string[]; extra?: string; mute?: string[]; unmute?: string[] }[] = [];
   /** What the alert server holds that the phone taught it, per mailbox. */
-  const held = new Map<string, { rules: Record<string, string>; extra: string }>();
-  const heldBy = (email: string) => { if (!held.has(email)) held.set(email, { rules: {}, extra: 'codes' }); return held.get(email)!; };
+  const held = new Map<string, { rules: Record<string, string>; extra: string; muted: string[] }>();
+  const heldBy = (email: string) => { if (!held.has(email)) held.set(email, { rules: {}, extra: 'codes', muted: [] }); return held.get(email)!; };
   const drafts = new Map<string, { kind: string; subject: string; body: string; to: string[]; cc: string[]; replyTo?: string; attachments: { name: string; size: number }[] }>(); // made and not sent
   const sentMails: { kind: string; subject: string; body: string; to: string[]; cc: string[]; replyTo?: string; attachments: { name: string; size: number }[] }[] = []; // what really went out
   let draftSeq = 0;
@@ -57,18 +58,19 @@ function world() {
       if (body.op === 'signin_forget') return j({ ok: true });
       if (!known) return j({ error: 'unauthorized' }, 401);
       if (body.op === 'status') return j(flags.smart
-        ? { smart: 1, devices: 1, accounts: [{ ...accounts.get(email), extra: heldBy(email).extra, rules_digest: rulesDigest(heldBy(email).rules as never) }] }
+        ? { smart: flags.mutes ? 2 : 1, devices: 1, accounts: [{ ...accounts.get(email), extra: heldBy(email).extra, rules_digest: rulesDigest(heldBy(email).rules as never), ...(flags.mutes ? { muted: heldBy(email).muted.length } : {}) }] }
         : { devices: 1, accounts: [accounts.get(email)] });
       if (body.op === 'taught') {
         if (!flags.smart) return j({ error: 'bad_request' }, 400); // an older copy of the function does not know it
         if (flags.refuseTaught) return j({ error: 'too many rules' }, 400);
-        taughtSeen.push({ email, set: body.set, remove: body.remove, extra: body.extra });
+        taughtSeen.push({ email, set: body.set, remove: body.remove, extra: body.extra, mute: body.mute, unmute: body.unmute });
         const t = heldBy(email);
         // The server holds ONE list per mailbox for every device: what a device sends is added to it (`set`) or taken out of it (`remove`).
         for (const who of body.remove ?? []) delete t.rules[who];
         Object.assign(t.rules, body.set ?? {});
         if ('extra' in body) t.extra = body.extra;
-        return j({ ok: true, extra: t.extra, rules_digest: rulesDigest(t.rules as never) });
+        if (flags.mutes) { t.muted = t.muted.filter((x) => !(body.unmute ?? []).includes(x)); for (const x of body.mute ?? []) if (!t.muted.includes(x)) t.muted.push(x); }
+        return j({ ok: true, extra: t.extra, rules_digest: rulesDigest(t.rules as never), ...(flags.mutes ? { muted: t.muted.length } : {}) });
       }
       if (body.op === 'token') return flags.tokenFail.has(email) ? j({ error: 'AADSTS700082: The refresh token has expired due to inactivity.' }, 400) : j({ accessToken: 'T', expiresIn: 3600, email });
       if (body.op === 'unregister') { accounts.delete(email); return j({ removed: true }); }
@@ -2158,4 +2160,38 @@ test('a message that changes tab after its headers are read is written down as s
   await c.sortInBackground();
   const l = c.getState().left;
   assert.ok(l.length <= 1 && l.every((e) => e.why === 'tab' || e.why === 'tabYou'));
+});
+
+
+test('a conversation you mute is told to the alert server (only the change), and told to forget it when you unmute', async () => {
+  const w = world(); w.flags.smart = true; w.flags.mutes = true; w.add('1', { conversationId: 'conv-A', subject: 'Ferie' });
+  const { c } = make(w);
+  await c.init();
+  const m = c.getState().mail[0];
+  assert.ok(m.conversationId, 'the pretend mail has a conversation');
+  await c.muteConversation(m);
+  await c.syncTaught();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(w.held('a@outlook.com').muted, [m.conversationId], 'the server holds the conversation id');
+  assert.deepEqual(w.taughtSeen.filter((x) => x.mute).map((x) => x.mute), [[m.conversationId]]);
+  await c.unmute(c.getState().muted[0].key);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(w.held('a@outlook.com').muted, [], 'and forgets it again');
+});
+
+test('an alert server that does not hold muted conversations is not sent any', async () => {
+  const w = world(); w.flags.smart = true; w.add('1', { conversationId: 'conv-A', subject: 'Ferie' });
+  const { c } = make(w);
+  await c.init();
+  await c.muteConversation(c.getState().mail[0]);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(w.taughtSeen.filter((x) => x.mute), []);
+});
+
+test('Archived is not a failure: its toast does not offer a problem report', async () => {
+  const w = world(); w.add('1');
+  const { c } = make(w);
+  await c.init();
+  await c.archive([c.getState().mail[0]]);
+  assert.equal(c.getState().toast?.fail, undefined);
 });
