@@ -12,18 +12,23 @@ import { AccountsSheet } from './Accounts.tsx';
 import { ErrorBoundary } from './Crash.tsx';
 import { Connecting, Login, SignedInElsewhere, SignInFailed, WaitingForMicrosoft, cleanUrl, readCallback } from './signin.tsx';
 import { Desktop } from './Desktop.tsx';
-import { Ctx, go, targetOfRoute, useDark, useRoute, useS, useWide } from './ctx.tsx';
+import { Ctx, go, targetOfRoute, useC, useDark, useRoute, useS, useWide } from './ctx.tsx';
 import { Mark } from './ui.tsx';
+import { healthInput } from './Health.tsx';
+import { copyText } from './recover.ts';
+import { healthReport } from '../core/health.ts';
 
 function Toasts() {
   const s = useS();
+  const c = useC();
+  const [copied, setCopied] = useState<number | null>(null);
   const route = useRoute();
   const t = s.toast;
   if (!t) return null;
   // On the triage screen the buttons are at the bottom, so the message goes to the top instead of covering them.
   return (
     <div className={`toast-dock${route.name === 'triage' ? ' top' : ''}`} aria-live="polite">
-      <div className="toast" key={t.id} role="status"><span>{t.text}</span>{t.undo && <button className="undo" onClick={() => { const u = t.undo!; u(); }}>Undo</button>}</div>
+      <div className="toast" key={t.id} role="status"><span>{t.text}</span>{t.undo && <button className="undo" onClick={() => { const u = t.undo!; u(); }}>Undo</button>}{t.fail && <button className="undo" onClick={() => { void copyText(healthReport(healthInput(c, s, Date.now()))).then((ok) => setCopied(ok ? t.id : null)); }}>{copied === t.id ? 'Copied' : 'Copy report'}</button>}</div>
     </div>
   );
 }

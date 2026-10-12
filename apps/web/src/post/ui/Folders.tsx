@@ -4,7 +4,7 @@ import { dayGroup } from '../core/format.ts';
 import { DELETE_WAY, FOLDER_ICON, FOLDER_NAME, placeActions, STANDARD_KINDS, type Way } from '../core/folders.ts';
 import type { Route } from '../core/route.ts';
 import { mailKey, type FolderKind, type Mail } from '../core/types.ts';
-import { Banner, Icon, Sheet } from './ui.tsx';
+import { Banner, EmptyIcon, Hint, Icon, Sheet } from './ui.tsx';
 import { folderTitle, go, labelOf, openMail, resolveAccount, routeOfFolder, useC, useNow, useRoute } from './ctx.tsx';
 import { Row, Skeleton, StatusBanners, SwipeRow } from './Inbox.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
@@ -94,7 +94,7 @@ export function FoldersScreen({ s }: { s: State }) {
             </div>
           );
         })}
-        <p className="note">Outlook keeps these folders, so Post reads them when you open one and needs a connection to do it. Moving, archiving and deleting here work the same as in the inbox, with the same Undo.</p>
+        <Hint short="Outlook keeps these folders; Post needs a connection to open one.">Outlook keeps these folders, so Post reads them when you open one and needs a connection to do it. Moving, archiving and deleting here work the same as in the inbox, with the same Undo.</Hint>
       </div>
       <Tabs at="folders" s={s} />
       <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>
@@ -261,7 +261,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
           </section>
         ))}
         {v?.more && <div ref={sentinel}>{v.paging ? <p className="note" role="status" style={{ textAlign: 'center', margin: '16px 0' }}>Reading more…</p> : <button className="more" onClick={() => void c.moreInFolder()}>Show more</button>}</div>}
-        {v && v.state === 'ready' && !items.length && !unsent && <div className="empty"><span className="big">{EMPTY[target.kind][0]}</span>{EMPTY[target.kind][1]}</div>}
+        {v && v.state === 'ready' && !items.length && !unsent && <div className="empty"><EmptyIcon n={FOLDER_ICON[target.kind] ?? 'folder'} /><span className="big">{EMPTY[target.kind][0]}</span>{EMPTY[target.kind][1]}</div>}
         {v && failedNow && (
           <div className="empty">
             <span className="big">{noNet ? 'No connection' : `Could not open ${title}`}</span>

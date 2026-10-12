@@ -544,6 +544,7 @@ test('when Outlook will not move a message it stays where it was, the folder is 
   made.advance(7_000);
   await c.sync(); await c.sync(); await c.sync(); // refused three times: that will not change
   assert.match(c.getState().toast!.text, /Outlook would not move a message, so it stays where it was/);
+  assert.equal(c.getState().toast!.fail, true, 'a failure offers the problem report');
   await until(() => c.getState().folder!.items.some((x) => x.id === 'x1'), 'the folder to be read again');
   assert.equal(c.getState().waiting, 0);
 });
@@ -1414,6 +1415,7 @@ test('mail that Outlook moved is traced: the record says which folder it is in n
   assert.deepEqual([e.where!.kind, e.where!.name], ['junk', 'Junk']);
   assert.match(leftLine(e), /^Outlook moved it to Junk /);
   assert.equal((await made.store.getMeta<{ where?: unknown }[]>('leftlog'))?.some((x) => !!x.where), true, 'and it is kept');
+  assert.match(c.getState().toast?.text ?? '', /“Tilbud!” is now in Junk: Outlook moved it, not Post/, 'and one line says so at once');
 });
 
 test('mail Outlook deleted for good has no folder to point at, and the record stays plain', async () => {

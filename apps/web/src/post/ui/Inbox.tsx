@@ -5,7 +5,7 @@ import { isHorizontal, swipeOffset, swipeResult, tabSwipe, SWIPE_COMMIT } from '
 import { digestThreads } from '../core/digest.ts';
 import { threadWho, type Thread } from '../core/threads.ts';
 import { KIND_TAB, mailKey, type Kind, type Mail } from '../core/types.ts';
-import { Avatar, Banner, Icon, Sheet } from './ui.tsx';
+import { Avatar, Banner, EmptyIcon, Icon, Sheet } from './ui.tsx';
 import { go, labelOf, resolveAccount, useBadge, useC, useNow, useRoute } from './ctx.tsx';
 import { Tabs } from './Tabs.tsx';
 import { MoveSheet } from './Move.tsx';
@@ -169,6 +169,8 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   if (seen.current !== s.view) { turn.current = VIEW_ORDER.indexOf(s.view) > VIEW_ORDER.indexOf(seen.current) ? 1 : -1; seen.current = s.view; }
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [scrolled, setScrolled] = useState(false);
+  const [tabsHidden, setTabsHidden] = useState(false); // the tab row tucks away while you read down the list and comes back when you scroll up
+  const lastTop = useRef(0);
   const [pull, setPull] = useState(0);
   const [cleaning, setCleaning] = useState(false);
   const [moving, setMoving] = useState(false);
@@ -218,13 +220,18 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
     const n = t.members?.length ?? 1;
     if (a === 'archive') leave([t], () => void c.archive(t.items, n)); else if (a === 'delete') leave([t], () => void c.trash(t.items, n)); else if (a === 'read') void c.toggleRead(t.items); else void c.toggleFlag(t.items);
   };
-  const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const t = e.currentTarget.scrollTop; setScrolled((x) => (x ? t > 8 : t > 48)); };
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const t = e.currentTarget.scrollTop; const d = t - lastTop.current; lastTop.current = t;
+    setScrolled((x) => (x ? t > 8 : t > 48));
+    if (!pane) setTabsHidden((h) => (h ? !(d < -12 || t <= 48) : t > 140 && d > 8));
+  };
   const touchStart = (e: React.TouchEvent<HTMLDivElement>) => { pullStart.current = e.currentTarget.scrollTop <= 0 ? e.touches[0].clientY : null; };
   const touchMove = (e: React.TouchEvent<HTMLDivElement>) => { if (pullStart.current === null) return; const d = e.touches[0].clientY - pullStart.current; setPull(d > 0 ? Math.min(90, d * 0.5) : 0); };
   const touchEnd = () => { if (pull >= 44) void c.sync(); pullStart.current = null; setPull(0); };
   const lab: Record<string, string> = { archive: 'Archive', read: 'Read', flag: 'Flag', delete: 'Delete' };
   const ico: Record<string, string> = { archive: 'archive', read: 'eye', flag: 'flag', delete: 'trash' };
 
+  const unreadBtn = <button className={`un${s.unreadOnly ? ' on' : ''}`} aria-pressed={s.unreadOnly} onClick={() => c.setUnreadOnly(!s.unreadOnly)}>Unread{viewUnread > 0 && <span className="n">{viewUnread > 99 ? '99+' : viewUnread}</span>}</button>;
   return (
     <div className="pg">
       <header className={`hd${scrolled ? ' min' : ''}`}>
@@ -237,10 +244,10 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
       </header>
       <div className="sync-row">
         <button className="sync" onClick={() => void c.sync()} aria-label="Update now"><b>{scope}</b> · {when}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>
-        <button className={`un${s.unreadOnly ? ' on' : ''}`} aria-pressed={s.unreadOnly} onClick={() => c.setUnreadOnly(!s.unreadOnly)}>Unread{viewUnread > 0 && <span className="n">{viewUnread > 99 ? '99+' : viewUnread}</span>}</button>
+        {scrolled && unreadBtn}
       </div>
-      <div className={`fold${scrolled ? ' min' : ''}`}><div><button className="find" tabIndex={scrolled ? -1 : 0} onClick={() => go({ name: 'search', q: '' })}><Icon n="search" />Search mail</button></div></div>
-      {!pane && <CategoryTabs s={s} counts={counts} />}
+      <div className={`fold${scrolled ? ' min' : ''}`}><div><button className="find" tabIndex={scrolled ? -1 : 0} onClick={() => go({ name: 'search', q: '' })}><Icon n="search" />Search mail</button>{!scrolled && unreadBtn}</div></div>
+      {!pane && <div className={`fold tabsfold${tabsHidden ? ' min' : ''}`} aria-hidden={tabsHidden || undefined}><div><CategoryTabs s={s} counts={counts} /></div></div>}
       <StatusBanners s={s} />
       <div className="pull" style={{ height: pull, opacity: Math.min(1, pull / 44) }} aria-hidden="true"><Icon n="refresh" size={20} className={pull >= 44 ? 'ready' : ''} /></div>
       <div className="scroll" onScroll={onScroll} onTouchStart={touchStart} onTouchMove={touchMove} onTouchEnd={touchEnd} onTouchCancel={touchEnd}>
@@ -371,6 +378,7 @@ function Empty({ s, counts }: { s: State; counts: Counts }) {
     const elsewhere = s.view === 'all' ? 0 : s.unreadOnly ? counts.unread - counts.byKind[s.view].unread : counts.total - counts.byKind[s.view].total;
     return (
       <div className="empty">
+        <EmptyIcon n={s.unreadOnly ? 'eye' : 'inbox'} />
         <span className="big">{s.unreadOnly ? 'Nothing unread' : s.view === 'person' ? 'Primary is clear' : 'Nothing here'}</span>
         {s.unreadOnly ? `No unread mail in ${name}.` : `No mail in ${name} right now.`}
         {elsewhere > 0 && <> {elsewhere} more {s.unreadOnly ? 'unread ' : ''}in the other tabs.</>}
@@ -381,7 +389,7 @@ function Empty({ s, counts }: { s: State; counts: Counts }) {
       </div>
     );
   }
-  return <div className="empty"><span className="big">Inbox zero</span>Nothing waiting. Enjoy it.</div>;
+  return <div className="empty"><EmptyIcon n="check" /><span className="big">Inbox zero</span>Nothing waiting. Enjoy it.</div>;
 }
 
 /** Grey placeholder rows while the very first sync runs (or a folder is being read), so the screen feels alive instead of blank. */

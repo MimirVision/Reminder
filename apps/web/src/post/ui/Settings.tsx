@@ -3,7 +3,7 @@ import { mailCounts, type State } from '../core/controller.ts';
 import { ACCENTS, ACCOUNT_COLOURS, LOOKS, accountColour, lookChange, type Settings as Cfg } from '../core/settings.ts';
 import { sortingReport } from '../core/report.ts';
 import { asKind, KINDS, KIND_TAB, type Kind } from '../core/types.ts';
-import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
+import { Hint, Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
 import { go, useC, useNow } from './ctx.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { Health, dotOf, useHealthLine } from './Health.tsx';
@@ -22,17 +22,6 @@ function Pick<T extends string>({ icon, label, value, options, onChange }: { ico
         {options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
       </select>
     </label>
-  );
-}
-
-/** A note under a setting: one short line, and the whole explanation a tap away. */
-function Hint({ short, style, children }: { short: string; style?: React.CSSProperties; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <p className="note" style={style}>
-      {open ? children : short}{' '}
-      <button type="button" className="more-hint" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Show less' : 'Learn more'}</button>
-    </p>
   );
 }
 

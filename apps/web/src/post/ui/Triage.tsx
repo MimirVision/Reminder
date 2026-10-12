@@ -88,7 +88,8 @@ export function Triage({ s }: { s: State }) {
         <button className="back" onClick={() => mark(thread)} disabled={!next} style={{ opacity: next ? 1 : .4 }}>Skip<Icon n="skip" /></button>
       </div>
       <div className="prog" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={index - 1}><i style={{ width: `${((index - 1) / Math.max(1, total)) * 100}%` }} /></div>
-      <div className="stack">
+      {/* A short mail gets a short card (the buttons stay put at the bottom); a long one gets the full height and a fade. */}
+      <div className="stack" style={{ flex: 'none', height: text.length < 220 ? 330 : text.length < 520 ? 410 : 470 }}>
         {next && <div className="tcard b1" aria-hidden="true" />}
         <article key={thread.key} className="tcard top" aria-label={`Message ${index} of ${total}`} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           style={{ transform: dx ? `translateX(${dx}px) rotate(${dx / 22}deg)` : undefined, transition: drag ? 'none' : 'transform .2s ease' }}>
@@ -96,7 +97,7 @@ export function Triage({ s }: { s: State }) {
           <div className="r1">{s.accounts.length > 1 && <span className="chip"><i style={{ background: badgeOf(cur.account)?.colour ?? 'var(--at)' }} />{labelOf(s, cur.account)}</span>}{thread.items.length > 1 && <span className="chip">{thread.items.length} messages</span>}<span className="tm">{shortTime(cur.received)}</span></div>
           <div className="r1" style={{ marginTop: 14, gap: 12 }}><div className={`av${cur.kind === 'person' ? '' : ' sq'}`} style={avatarHue(cur.fromAddress, cur.fromName)}>{initials(cur.fromName, cur.fromAddress)}</div><div><b style={{ display: 'block', fontSize: 16 }}>{thread.items.length > 1 ? threadWho(thread) : displayName(cur.fromName, cur.fromAddress)}</b><span style={{ fontSize: 12.5, color: 'var(--mu)' }}>{cur.fromAddress}</span></div></div>
           <h1 className="sjb">{cur.subject || '(no subject)'}</h1>
-          <div className="tb">{text}<div className="fade" /></div>
+          <div className="tb">{text}{text.length >= 520 && <div className="fade" />}</div>
           <button className="open" onClick={() => go({ name: 'message', account: cur.account, id: cur.id })}>Open the whole message<Icon n="chev" size={16} /></button>
         </article>
       </div>

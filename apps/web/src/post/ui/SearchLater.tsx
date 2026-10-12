@@ -3,7 +3,7 @@ import type { State } from '../core/controller.ts';
 import { replyLaterThreads } from '../core/controller.ts';
 import { ARCHIVE_WAY, DELETE_WAY, FOLDER_NAME, placeActions } from '../core/folders.ts';
 import type { FolderKind, Mail } from '../core/types.ts';
-import { Icon } from './ui.tsx';
+import { EmptyIcon, Icon } from './ui.tsx';
 import { Row, SwipeRow } from './Inbox.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
 import { useCarry } from './Carry.tsx';
@@ -125,7 +125,7 @@ export function Later({ s, pane = false }: { s: State; pane?: boolean }) {
       <header className="hd"><h1 className="h1">Later</h1></header>
       <div className="scroll">
         <div className="sec">Reply later</div>
-        {later.length ? <div className="card">{later.map((t) => <div key={t.key} className="sw-row"><Row m={t.latest} thread={t} s={s} selecting={false} selected={false} onOpen={() => open(t.latest)} onToggle={() => {}} /></div>)}</div> : <p className="note">Flagged messages show up here, so “I will answer that later” does not get lost.</p>}
+        {later.length ? <div className="card">{later.map((t) => <div key={t.key} className="sw-row"><Row m={t.latest} thread={t} s={s} selecting={false} selected={false} onOpen={() => open(t.latest)} onToggle={() => {}} /></div>)}</div> : <div className="empty"><EmptyIcon n="clock" /><span className="big">Nothing waiting for a reply</span>Flag a message (the flag in the reader, or Reply later in Triage) and it waits here until you have answered it.</div>}
       </div>
       {!pane && <Tabs at="later" s={s} />}
     </div>
