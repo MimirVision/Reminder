@@ -14,7 +14,7 @@ import { FilterSheet } from '@/lib/FilterSheet';
 import { Glass } from '@/lib/glass';
 import { MapSheet, tabBarSpace, type Snap } from '@/lib/MapSheet';
 import { useI18n } from '@/lib/i18n';
-import { flush, pending, queuedToMemory } from '@/lib/outbox';
+import { failedItems, flush, pending, queuedToMemory, retryFailed } from '@/lib/outbox';
 import { RecapCard } from '@/lib/RecapCard';
 import { ensureNotifyPermission, mapPins, refreshRegions, scheduleBriefings, scheduleDueReminders, scheduleLeaveReminders, setBadge, type Pin } from '@/lib/reminders';
 import { readJson, writeJson } from '@/lib/store';
@@ -87,8 +87,8 @@ export default function Todo() {
       setPlaces(p);
       setMembers(mem);
       setPhotos(await listPhotoUrls(m.map((x) => x.id)));
-      void scheduleDueReminders(m);
-      void scheduleBriefings(m);
+      void scheduleDueReminders([...waiting, ...m]); // to-dos still waiting to be sent ring too
+      void scheduleBriefings([...waiting, ...m]);
       latest = { m, p };
       void setBadge(m, todayISO());
       await refreshRegions().catch(() => {});
@@ -194,13 +194,15 @@ export default function Todo() {
   const byline = (m: Memory) => (m.author_id === uid ? undefined : `${nameOf(m.author_id) ?? t('common.partner')} · ${ago(m.created_at)}`);
 
   async function complete(m: Memory) {
-    if (m.pending) return;
+    if (m.pending) { toast({ text: t('sync.stillSending') }); void flush().then(() => load()); return; }
     setMemories((cur) => cur.filter((x) => x.id !== m.id));
     setDoneTicks((n) => n + 1);
     try {
       const next = await completeMemory(m.id);
       const text = next && m.due_on && m.repeat_rule ? t('toast.doneRepeat', { date: formatDay(nextOccurrence(m.due_on, m.repeat_rule, todayISO()), locale) }) : t('toast.done');
       toast({ text, undo: () => void (async () => { await reopenMemory(m.id, m).catch(() => {}); if (next) await deleteMemory(next).catch(() => {}); await load(); })() });
+    } catch (e) {
+      toast({ text: t('sync.completeFailed', { msg: e instanceof Error ? e.message : String(e) }) });
     } finally {
       void load();
     }
@@ -487,6 +489,13 @@ export default function Todo() {
         {!showDone && segmented(true)}
         {searching && !showDone && <Field autoFocus placeholder={t('search.placeholder')} value={query} onChangeText={setQuery} returnKeyType="search" clearButtonMode="while-editing" autoCorrect={false} />}
         {queued > 0 && <Muted>{tn('sync.waiting', queued)}</Muted>}
+        {failedItems().length > 0 && (
+          <View style={{ gap: 8, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.tint }}>
+            <Text style={{ color: th.tintInk, fontSize: 14, fontFamily: font.semi }}>{tn('sync.failed', failedItems().length)}</Text>
+            <Muted>{failedItems()[0].msg}</Muted>
+            <View style={styles.row}><Btn small label={t('sync.retry')} onPress={() => { retryFailed(); void load(); }} /></View>
+          </View>
+        )}
         {showDone || searching ? null : reordering ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.card }}>
             <Text style={{ flex: 1, color: th.muted, fontSize: 14, fontFamily: font.body }}>{t('reorder.hint')}</Text>

@@ -150,13 +150,22 @@ export type NewMemory = {
   capture_lon: number | null;
 };
 
-export async function insertMemory(m: NewMemory) {
+export async function insertMemory(m: NewMemory, basicOnly = false) {
+  if (basicOnly) return insertBasic(m);
   // Details are only sent when used, so it works before the database upgrades (0011, 0013) are run.
   const { assignee_id, pinned, notes, checklist, priority, remind_before, tags, duration_min, remind_travel, place_trigger, ...base } = m;
   const row = {
     ...base, ...(assignee_id ? { assignee_id } : {}), ...(pinned ? { pinned } : {}),
     ...(notes ? { notes } : {}), ...(checklist?.length ? { checklist } : {}), ...(priority ? { priority } : {}), ...(tags?.length ? { tags } : {}), ...(duration_min != null ? { duration_min } : {}), ...(remind_travel ? { remind_travel: true } : {}), ...(place_trigger === 'leave' ? { place_trigger: 'leave' as const } : {}), ...(remind_before != null && m.due_on ? { remind_before } : {}), due_time: m.due_on ? m.due_time ?? null : null, repeat_rule: m.due_on ? m.repeat_rule ?? null : null, status: statusFor(m),
   };
+  const res = await supabase.from('memories').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
+  if (res.error) throw new Error(res.error.message);
+}
+
+/** Only text, place, date, time and repeat: works on any version of the database. */
+async function insertBasic(m: NewMemory) {
+  const { id, household_id, body, place_id, due_on, due_time, repeat_rule, capture_lat, capture_lon } = m;
+  const row = { id, household_id, body, place_id: place_id ?? null, due_on: due_on ?? null, due_time: due_on ? due_time ?? null : null, repeat_rule: due_on ? repeat_rule ?? null : null, capture_lat, capture_lon, status: statusFor(m) };
   const res = await supabase.from('memories').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
   if (res.error) throw new Error(res.error.message);
 }

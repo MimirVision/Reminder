@@ -448,8 +448,8 @@
   "places.hereSave": "Lagre der jeg er nå",
   "places.hereName": "Navn (f.eks. Hjemme)",
   "places.locationNeeded": "Tilgang til posisjon trengs for å lagre stedet.",
-  "sync.waiting_one": "{n} venter på synk (frakoblet)",
-  "sync.waiting_other": "{n} venter på synk (frakoblet)",
+  "sync.waiting_one": "{n} venter på å bli sendt",
+  "sync.waiting_other": "{n} venter på å bli sendt",
   "photo.take": "Ta bilde",
   "photo.choose": "Velg bilde",
   "set.reminders": "Stedspåminnelser",
@@ -745,5 +745,10 @@
   "alerts.leave": "Når jeg drar",
   "alerts.leaveHint": "Varsler når du går ut av stedets område (på telefonen, med «Alltid»-posisjon).",
   "row.leaving": "Når jeg drar fra {place}",
-  "notif.leaving": "Du forlater {label}"
+  "notif.leaving": "Du forlater {label}",
+  "sync.failed_one": "{n} oppgave kunne ikke lagres",
+  "sync.failed_other": "{n} oppgaver kunne ikke lagres",
+  "sync.retry": "Prøv igjen",
+  "sync.stillSending": "Sendes fortsatt. Prøver igjen nå …",
+  "sync.completeFailed": "Kunne ikke fullføre: {msg}"
 }

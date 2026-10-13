@@ -448,8 +448,8 @@
   "places.hereSave": "Save where I am now",
   "places.hereName": "Name (e.g. Home)",
   "places.locationNeeded": "Location permission is needed to save this place.",
-  "sync.waiting_one": "{n} waiting to sync (offline)",
-  "sync.waiting_other": "{n} waiting to sync (offline)",
+  "sync.waiting_one": "{n} waiting to be sent",
+  "sync.waiting_other": "{n} waiting to be sent",
   "photo.take": "Take photo",
   "photo.choose": "Choose photo",
   "set.reminders": "Place reminders",
@@ -745,5 +745,10 @@
   "alerts.leave": "When I leave",
   "alerts.leaveHint": "Rings when you walk out of the place's area (on the phone, with Always location).",
   "row.leaving": "When leaving {place}",
-  "notif.leaving": "Leaving {label}"
+  "notif.leaving": "Leaving {label}",
+  "sync.failed_one": "{n} to-do could not be saved",
+  "sync.failed_other": "{n} to-dos could not be saved",
+  "sync.retry": "Try again",
+  "sync.stillSending": "Still being sent. Trying again now…",
+  "sync.completeFailed": "Could not finish that: {msg}"
 }

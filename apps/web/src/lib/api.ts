@@ -131,12 +131,20 @@ export const pendingTodos = (householdId: string): Memory[] => pendingFor(safeKV
 /** Sends whatever was written offline. Returns the ids that reached the server. */
 export async function flushOutbox(): Promise<string[]> {
   const r = await flushQueue(safeKV, async (q) => {
-    const { error } = await supabase.from('memories').insert(toRow({
+    const dup = (e: { message: string; code?: string }) => /duplicate key|23505/.test(e.message + e.code);
+    const basic = { id: q.id, household_id: q.household_id, body: q.body, place_id: q.place_id, due_on: q.due_on, due_time: q.due_time, repeat_rule: q.repeat_rule as RepeatRule | null };
+    const first = await supabase.from('memories').insert(toRow({
       id: q.id, household_id: q.household_id, body: q.body, place_id: q.place_id, due_on: q.due_on, due_time: q.due_time, repeat_rule: q.repeat_rule as RepeatRule | null,
       ...(q.assignee_id ? { assignee_id: q.assignee_id } : {}), ...(q.pinned ? { pinned: true } : {}),
       ...(q.notes ? { notes: q.notes } : {}), ...(q.checklist?.length ? { checklist: q.checklist } : {}), ...(q.priority ? { priority: q.priority as Memory["priority"] } : {}), ...(q.remind_before != null ? { remind_before: q.remind_before } : {}), ...(q.tags?.length ? { tags: q.tags } : {}), ...(q.duration_min != null ? { duration_min: q.duration_min } : {}), ...(q.remind_travel ? { remind_travel: true } : {}), ...(q.place_trigger === 'leave' ? { place_trigger: 'leave' as const } : {}), // only sent when used, so it works before the 0011 upgrade is run
     }));
-    if (error && !/duplicate key|23505/.test(error.message + (error as { code?: string }).code)) throw new Error(error.message);
+    const error = first.error;
+    if (error && !dup(error)) {
+      // Refused (most often: the database upgrade has not been run, so a newer extra has no column): save the basics instead of dropping it.
+      if (isNetworkError(error, true) || !/column|schema cache|does not exist/i.test(error.message)) throw new Error(error.message);
+      const retry = await supabase.from('memories').insert(toRow(basic));
+      if (retry.error && !dup(retry.error)) throw new Error(retry.error.message);
+    }
   }, navigator.onLine);
   return r.sent;
 }
