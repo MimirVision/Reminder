@@ -8,7 +8,7 @@ import { Row, SwipeRow } from './Inbox.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
 import { useCarry } from './Carry.tsx';
 import { Tabs } from './Tabs.tsx';
-import { keepSearch, searchKept } from './searchKeep.ts';
+import { keepSearch, openedFromSearch, searchKept, touchSearch } from './searchKeep.ts';
 import { go, openMail, useC, useNow } from './ctx.tsx';
 
 const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:promotions', 'account:work'];
@@ -33,6 +33,7 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
     if (was.current !== q) { was.current = q; setRemote(null); setGone(new Set()); setSelecting(false); setPicked(new Set()); }
   }, [q]);
   useEffect(() => { keepSearch(q, remote); }, [q, remote]);
+  useEffect(() => { const t = () => touchSearch(); const v = () => { if (document.visibilityState === 'hidden') t(); }; document.addEventListener('visibilitychange', v); return () => { document.removeEventListener('visibilitychange', v); t(); }; }, []);
   const local = q.trim() ? c.searchLocal(q) : [];
   const older = (remote ?? []).filter((m) => !gone.has(m.key));
   const hide = (rows: Mail[]) => setGone((p) => new Set([...p, ...rows.map((m) => m.key)]));
@@ -62,7 +63,7 @@ export function Search({ s, q: initial, pane = false }: { s: State; q: string; p
       <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onTrash={pa.canDelete ? () => act(DELETE_WAY) : undefined} drag={drag}
         onLift={drag ? () => { const d = carry(); carried.current = d.items; cr.begin(d.items, d.rows); } : undefined} onLiftMove={cr.move} onLiftEnd={cr.end} onDragged={() => { hide(carry().items); exit(); }}
         rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(w.right)} onLeft={() => act(w.left)}>
-        <Row m={m} s={s} selecting={selecting} selected={picked.has(m.key)} place={place} onOpen={() => openMail(m)} onToggle={() => toggle(m.key)} />
+        <Row m={m} s={s} selecting={selecting} selected={picked.has(m.key)} place={place} onOpen={() => { openedFromSearch(true); openMail(m); }} onToggle={() => toggle(m.key)} />
       </SwipeRow>
     );
   };
