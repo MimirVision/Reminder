@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { initials, senderHue } from '../core/format.ts';
 import type { Kind, Mail } from '../core/types.ts';
+import { useWide } from './ctx.tsx';
 
 const P: Record<string, string> = {
   back: 'm15 6-6 6 6 6',
@@ -120,6 +121,7 @@ export function Seg<T extends string>({ value, options, onChange, label }: { val
 /** A note under a setting: one short line, and the whole explanation a tap away. */
 export function Hint({ short, style, children }: { short: string; style?: React.CSSProperties; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  if (useWide()) return <p className="note" style={style}>{children}</p>; // a computer has room: the whole note, no "Learn more"
   return (
     <p className="note" style={style}>
       {open ? children : short}{' '}

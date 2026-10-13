@@ -161,7 +161,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       <Sidebar s={s} onAdd={onAdd} onHelp={() => setHelp(true)} />
       <div className="dsk-split" aria-hidden="true"><i title="Drag to resize · double-click to reset" onPointerDown={split('sb')} onDoubleClick={resetSplit('sb')} /></div>
       {full ? (
-        <main className="dsk-full">
+        <main className={`dsk-full${route.name === 'settings' ? ' dsk-set' : ''}`}>
           {route.name === 'triage' ? <Triage s={s} /> : route.name === 'settings' ? <SettingsPage s={s} page={route.page} account={route.account} /> : null}
         </main>
       ) : (
