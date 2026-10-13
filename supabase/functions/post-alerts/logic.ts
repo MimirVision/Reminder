@@ -12,7 +12,7 @@ export type AlertAccount = {
   id: string; email: string; label: string; mode: AlertMode; vips: string[]; quiet: AlertQuiet | null; tz: string; inbox_folder_id?: string | null;
 };
 export type GraphMessage = {
-  id: string; subject?: string; bodyPreview?: string; isRead?: boolean; parentFolderId?: string; inferenceClassification?: string;
+  id: string; subject?: string; bodyPreview?: string; isRead?: boolean; parentFolderId?: string; inferenceClassification?: string; conversationId?: string;
   from?: { emailAddress?: { name?: string; address?: string } };
   internetMessageHeaders?: { name: string; value: string }[];
 };
@@ -101,12 +101,15 @@ export const ALERT_EXTRAS: AlertExtra[] = ['none', 'codes', 'transactions'];
 /** What counts besides Primary mail until the person says otherwise: one-time codes and sign-in alerts. */
 export const ALERT_EXTRA_DEFAULT: AlertExtra = 'codes';
 /** What the alert rules here can do. The app reads it from `status` to know whether this server follows the Primary tab (an older copy of the function does not know it). */
-export const ALERT_SMART = 1;
+export const ALERT_SMART = 2; // 1: follows the Primary tab; 2: also knows the conversations the person muted
 const ALERT_KINDS: Kind[] = ['person', 'transaction', 'update', 'promo'];
 const ALERT_RULES_MAX = 1000;
 
-export type AlertTaught = { rules: Record<string, Kind>; extra: AlertExtra };
-export const alertTaughtDefault = (): AlertTaught => ({ rules: {}, extra: ALERT_EXTRA_DEFAULT });
+/** How many muted conversations are held per mailbox (the oldest are forgotten first), and the longest id accepted (Outlook's are about 150 characters). */
+export const ALERT_MUTED_MAX = 200;
+const ALERT_CONV_MAX = 400;
+export type AlertTaught = { rules: Record<string, Kind>; extra: AlertExtra; /** Outlook conversation ids the person muted in the app: their new replies never count or alert. */ muted: string[] };
+export const alertTaughtDefault = (): AlertTaught => ({ rules: {}, extra: ALERT_EXTRA_DEFAULT, muted: [] });
 /** A fingerprint of the moved senders the server holds (the same function the app has). A phone that has sent some and finds this is the fingerprint of none sends them again. */
 export const alertRulesDigest = (t: AlertTaught): string => rulesDigest(t.rules);
 
@@ -129,10 +132,11 @@ export function alertParseTaught(raw: string | null | undefined): AlertTaught {
   const base = alertTaughtDefault();
   if (!raw) return base;
   try {
-    const o = JSON.parse(raw) as { rules?: Record<string, unknown>; extra?: unknown } | null;
+    const o = JSON.parse(raw) as { rules?: Record<string, unknown>; extra?: unknown; muted?: unknown } | null;
     const rules: Record<string, Kind> = {};
     for (const [who, kind] of Object.entries(o?.rules && typeof o.rules === 'object' ? o.rules : {})) if (isRuleKey(who) && ALERT_KINDS.includes(kind as Kind)) rules[who] = kind as Kind;
-    return { rules, extra: ALERT_EXTRAS.includes(o?.extra as AlertExtra) ? (o!.extra as AlertExtra) : base.extra };
+    const muted = Array.isArray(o?.muted) ? (o!.muted as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= ALERT_CONV_MAX).slice(-ALERT_MUTED_MAX) : [];
+    return { rules, extra: ALERT_EXTRAS.includes(o?.extra as AlertExtra) ? (o!.extra as AlertExtra) : base.extra, muted };
   } catch { return base; }
 }
 
@@ -151,12 +155,21 @@ export function alertCleanKeys(input: unknown): string[] {
  * or computer of the person adds to it: `set` adds or changes some, `remove` forgets some. Nobody sends "the whole list", so a computer that
  * moved nothing can never wipe what the phone moved.
  */
-export function alertTaughtPatch(current: AlertTaught, input: { set?: unknown; remove?: unknown; extra?: unknown }): AlertTaught {
+/** The conversation ids a phone sent, checked: a list of plain, reasonably short strings. */
+export function alertCleanConversations(input: unknown): string[] {
+  if (!Array.isArray(input) || input.length > ALERT_MUTED_MAX) throw new Error('bad muted');
+  return input.map((x) => { if (typeof x !== 'string' || !x || x.length > ALERT_CONV_MAX) throw new Error('bad muted'); return x; });
+}
+
+export function alertTaughtPatch(current: AlertTaught, input: { set?: unknown; remove?: unknown; extra?: unknown; mute?: unknown; unmute?: unknown }): AlertTaught {
   const rules = { ...current.rules };
   if ('remove' in input) for (const who of alertCleanKeys(input.remove)) delete rules[who];
   if ('set' in input) Object.assign(rules, alertCleanRules(input.set));
   if (Object.keys(rules).length > ALERT_RULES_MAX) throw new Error('too many rules');
-  const next: AlertTaught = { rules, extra: current.extra };
+  let muted = [...current.muted];
+  if ('unmute' in input) { const drop = new Set(alertCleanConversations(input.unmute)); muted = muted.filter((x) => !drop.has(x)); }
+  if ('mute' in input) for (const x of alertCleanConversations(input.mute)) if (!muted.includes(x)) muted.push(x);
+  const next: AlertTaught = { rules, extra: current.extra, muted: muted.slice(-ALERT_MUTED_MAX) };
   if ('extra' in input) {
     if (!ALERT_EXTRAS.includes(input.extra as AlertExtra)) throw new Error('bad extra');
     next.extra = input.extra as AlertExtra;
@@ -307,7 +320,7 @@ export async function alertExchangeCode(f: typeof fetch, p: { clientId: string; 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
 export async function alertGetMessage(f: typeof fetch, token: string, id: string): Promise<GraphMessage> {
-  const sel = 'subject,bodyPreview,from,isRead,parentFolderId,inferenceClassification,internetMessageHeaders';
+  const sel = 'subject,bodyPreview,from,isRead,parentFolderId,inferenceClassification,internetMessageHeaders,conversationId';
   return await graphJson(await f(`${GRAPH}/me/messages/${encodeURIComponent(id)}?$select=${sel}`, { headers: authHeaders(token) }));
 }
 
@@ -484,8 +497,10 @@ export type AlertAsked = Map<string, Promise<boolean>>;
 
 /** Whether one new message adds to the icon number: the account's settings, and for a "Primary" account the same sorting the app does. */
 export async function alertVerdict(d: Pick<AlertDeps, 'store' | 'fetch' | 'now'>, token: string, m: GraphMessage, a: AlertAccount, asked: AlertAsked = new Map()): Promise<{ send: boolean; reason: string }> {
-  if (a.mode !== 'people') return alertDecide(m, a, d.now());
   const taught = await d.store.getTaught(a.id).catch(() => alertTaughtDefault()); // not being able to read the choices only means they are not applied
+  // A conversation the person muted in the app stays quiet, whoever it is from and whatever the mode is (it is archived by the app while it is open).
+  if (m.conversationId && taught.muted.includes(m.conversationId)) return { send: false, reason: 'a muted conversation' };
+  if (a.mode !== 'people') return alertDecide(m, a, d.now());
   let first: AlertSorted;
   try { first = alertSort(m, taught, a.vips); } catch { first = alertUnsure(); }
   const v = alertDecide(m, a, d.now(), { sorted: first, extra: taught.extra });
@@ -647,7 +662,7 @@ export type AlertStatusAccount = {
   id: string; email: string; label: string; mode: AlertMode; quiet: AlertQuiet | null; vips: string[];
   subscription_expires_at: string | null; last_alert_at: string | null; sub_error: string | null;
   /** What counts besides Primary mail, and a fingerprint of the moved senders the server holds. */
-  extra: AlertExtra; rules_digest: string;
+  extra: AlertExtra; rules_digest: string; muted: number;
 };
 
 /** One mailbox as the app's Alerts screen sees it. */
@@ -655,7 +670,7 @@ export function alertStatusRow(a: AlertStored & { last_alert_at?: string | null 
   return {
     id: a.id, email: a.email, label: a.label, mode: a.mode, quiet: a.quiet, vips: a.vips,
     subscription_expires_at: a.subscription_expires_at, last_alert_at: a.last_alert_at ?? null, sub_error: a.sub_error ?? null,
-    extra: taught.extra, rules_digest: alertRulesDigest(taught),
+    extra: taught.extra, rules_digest: alertRulesDigest(taught), muted: taught.muted.length,
   };
 }
 

@@ -10,6 +10,8 @@ import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, s
 import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
+import { addLeft, diffInbox, loadLeft, type LeftEntry, type LeftWhy } from './leftlog.ts';
+import { blockedMail, canMute, keepMore, keptKey, muteName, MUTED_MAX, mutedMail, type Muted } from './tidy.ts';
 import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, type FolderKind, type Kind, type Mail, type MailBody } from './types.ts';
 
 // The brain of the app, with no browser or React in it so it is tested in Node. The screens only read `state` and call these methods.
@@ -17,7 +19,7 @@ import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, 
 
 /** Which tab of the inbox is open: one of the four kinds (Primary is 'person'), or everything. */
 export type View = 'all' | Kind;
-export interface Toast { id: number; text: string; undo?: () => void }
+export interface Toast { id: number; text: string; undo?: () => void; /** Something went wrong: the toast offers a button that copies a problem report. */ fail?: boolean }
 
 /** Which folder to open: a standard one (of one mailbox, or of every mailbox), or one of your own (always of one mailbox, by its id). */
 export interface FolderTarget { kind: FolderKind; account?: string; id?: string }
@@ -93,6 +95,12 @@ export interface State {
   folder: FolderView | null;
   /** Set while mail is deleted for good (emptying Junk or Deleted, or deleting the messages picked in Deleted). */
   erasing: Erasing | null;
+  /** Senders (`anna@x.no`) and companies (`@x.no`) you blocked: their mail goes to Junk, and never counts for the icon number. */
+  blocked: string[];
+  /** Conversations you muted: new replies to them skip the inbox (Post archives them while it is open). */
+  muted: Muted[];
+  /** The record of mail that left the inbox list or changed tab, and why (Settings, Where did my mail go?). Newest first. */
+  left: LeftEntry[];
 }
 
 export interface Deps {
@@ -109,11 +117,15 @@ export interface Deps {
   pushState?: () => Promise<boolean>;
   setTimer?: (fn: () => void, ms: number) => unknown;
   sleep?: (ms: number) => Promise<void>;
+  /** How long new mail may wait to be sorted before it is shown (a moment; tests make it short). */
+  presortMs?: number;
 }
 
 /** A file opened for reading or saving. `link`: this attachment is only a link to a cloud file (there are no bytes). */
 export interface Opened { name: string; type: string; bytes: Uint8Array; link?: string }
 
+/** The words a message that says something went wrong starts with (or has early on): those messages offer a problem report to copy. */
+const FAILED = /^(Could not|Outlook would not|Not sent|The files could not)|could not be (deleted|kept)|^No connection/;
 const MAX_TRIES = 3;          // a message with files is tried this many times (time offline does not count) and is then handed back as a draft
 const DRAFT_FILES = 'draft-files';
 /** What was changed in drafts that live at Outlook and was not saved or sent (kv: one entry per draft), and how long such a change is kept when the draft is never opened again. */
@@ -192,7 +204,7 @@ export function createController(deps: Deps) {
   let state: State = {
     ready: false, serverReady: !!deps.serverUrl, signingIn: false, accounts: [], mail: [], settings: DEFAULT_SETTINGS, overrides: {}, view: 'person', unreadOnly: false, accountFilter: null, sorting: false,
     sync: { running: false, at: null, error: null }, online: true, waiting: 0, outbox: [], toast: null, alertsOn: false, serverSmart: null, sent: 0, storage: 'device',
-    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null,
+    folders: [], foldersLoading: false, foldersError: null, folder: null, erasing: null, blocked: [], muted: [], left: [],
   };
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
@@ -225,7 +237,7 @@ export function createController(deps: Deps) {
     const keys = new Set(gone.map((m) => m.key));
     for (const [k, v] of conversations) if (v.items.some((x) => keys.has(x.key))) conversations.set(k, { at: v.at, items: v.items.filter((x) => !keys.has(x.key)) });
   };
-  // Changes that read a message from the phone and write it back (read, flag, snooze) go one after the other, so two of them started together
+  // Changes that read a message from the phone and write it back (read, flag) go one after the other, so two of them started together
   // can never overwrite each other: the second one always sees what the first one saved.
   let editing: Promise<unknown> = Promise.resolve();
   const exclusive = <T,>(fn: () => Promise<T>): Promise<T> => { const run = editing.then(fn, fn); editing = run.catch(() => {}); return run; };
@@ -338,6 +350,25 @@ export function createController(deps: Deps) {
     staleView();
   };
 
+  // ---- what Post tidies by itself ---------------------------------------------------------------------------------------------------------
+  // Mail from blocked senders goes to Junk and, when it is turned on, old promotions are archived, each time the mail has been read and sorted. Both
+  // only move mail and say so with an Undo. What you brought back (moved to the inbox from another folder, or undid a tidy-up of) is remembered
+  // as a "kept" mark and never tidied again, or the next sync would undo what you just did.
+  let kept: string[] | null = null;
+  const loadKept = async (): Promise<string[]> => {
+    if (kept) return kept;
+    const saved = await store.getMeta<unknown>('kept').catch(() => null);
+    kept = Array.isArray(saved) ? saved.filter((k): k is string => typeof k === 'string').slice(-400) : [];
+    return kept;
+  };
+  const keep = async (items: Mail[]) => {
+    kept = keepMore(await loadKept(), items.map(keptKey));
+    try { await store.setMeta('kept', kept); } catch (e) { note('storage', e); }
+  };
+  let tidying = false;
+  const saveMuted = async (muted: Muted[]) => { set({ muted }); try { await store.setMeta('muted', muted); } catch (e) { note('storage', e); } void pushMuted(); };
+  const saveBlocked = async (blocked: string[]) => { set({ blocked }); try { await store.setMeta('blocked', blocked); } catch (e) { note('storage', e); } };
+
   // ---- deleting for good ---------------------------------------------------------------------------------------------------------------
   // Unlike every other change this has no Undo and no waiting time: Outlook cannot bring the mail back. It is asked for in a sheet that says so, it
   // runs at once, and the screen says how far it is. It is not queued: a delete for good that was kept for later could meet mail that was moved back.
@@ -382,10 +413,10 @@ export function createController(deps: Deps) {
   /**
    * Takes messages out of the folder they are in and sends them somewhere else once the undo time has passed: archive, delete, or a move to any
    * folder. The messages are the ones in the inbox on this phone or ones seen in Outlook (a folder, a search result); both leave the screen at once.
-   * It goes in line with the changes that read a message from the phone and write it back (read, flag, snooze): none of them may put back a
+   * It goes in line with the changes that read a message from the phone and write it back (read, flag): none of them may put back a
    * message that was just taken away. Undo gets the copies as they were at this moment.
    */
-  async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string) {
+  async function relocate(items: Mail[], op: { type: 'archive' | 'delete' | 'move'; to?: string }, label: string, onUndo?: () => void, why?: LeftWhy) {
     if (!items.length) return;
     const moved = await exclusive(async () => {
       const taken: { mail: Mail; inbox: boolean }[] = [];
@@ -399,6 +430,7 @@ export function createController(deps: Deps) {
       }
       if (!taken.length) return null;
       const inInbox = taken.filter((t) => t.inbox).map((t) => t.mail.key);
+      for (const k of inInbox) whyGone.set(k, why ?? (op.type === 'archive' ? 'archive' : op.type === 'delete' ? 'delete' : 'move'));
       if (inInbox.length) await store.deleteMail(inInbox);
       const away = new Set(taken.map((t) => t.mail.key));
       setView((v) => (v.items.some((m) => away.has(m.key)) ? { ...v, items: v.items.filter((m) => !away.has(m.key)) } : v));
@@ -408,7 +440,7 @@ export function createController(deps: Deps) {
       return { taken, ops };
     });
     if (!moved) return;
-    toast(label, () => { void api.undo(moved.ops.map((o) => o.id), moved.taken.map((t) => t.mail), moved.taken.map((t) => t.inbox)); });
+    toast(label, () => { onUndo?.(); void api.undo(moved.ops.map((o) => o.id), moved.taken.map((t) => t.mail), moved.taken.map((t) => t.inbox)); });
     setTimer(() => {
       void runQueue()
         .then(() => (op.to === GRAPH_NAME.inbox ? api.sync() : undefined)) // mail moved to the inbox shows up there with its new name
@@ -457,10 +489,20 @@ export function createController(deps: Deps) {
 
   function toast(text: string, undo?: () => void, ms?: number) {
     const id = ++toastSeq;
-    set({ toast: { id, text, undo } });
-    setTimer(() => { if (state.toast?.id === id) set({ toast: null }); }, ms ?? (undo ? UNDO_WINDOW_MS : 3500));
+    const fail = FAILED.test(text);
+    set({ toast: { id, text, undo, ...(fail ? { fail: true } : {}) } });
+    setTimer(() => { if (state.toast?.id === id) set({ toast: null }); }, fail ? Math.max(ms ?? 0, 8000) : ms ?? (undo ? UNDO_WINDOW_MS : 3500));
   }
 
+  /** Why messages are about to leave the list (set by whatever takes them away); a message that leaves with no reason here was moved at Outlook's end. */
+  const whyGone = new Map<string, LeftWhy>();
+  /** Whether a change of tab that happens now is the result of a choice made here. */
+  let tabCause: 'tab' | 'tabYou' = 'tab';
+  /** The next change of the list is not written down (a mailbox was removed: its mail is not "gone"). */
+  let quietNext = false;
+  /** When each message that arrived while Post was open first appeared in the list. Mail that was there from the start has no entry: the first sort of a mailbox is not news. */
+  const arrived = new Map<string, number>();
+  let watching = false;
   async function reload() {
     const [stored, ops, outbox] = await Promise.all([store.allMail(), queue.pending(), store.getMeta<OutboxItem[]>('outbox')]);
     // Archived or deleted here and Outlook not told yet: it stays out of the list, even if something that was busy with an older copy of it
@@ -468,9 +510,70 @@ export function createController(deps: Deps) {
     const leaving = new Set(ops.filter((o) => isMove(o.type)).map((o) => mailKey(o.account, o.messageId)));
     const mail = leaving.size ? stored.filter((m) => !leaving.has(m.key)) : stored;
     mail.sort((a, b) => b.received.localeCompare(a.received));
+    // What left the list, or changed tab, since the last time: written down with the reason (see leftlog.ts).
+    const entries = quietNext ? [] : diffInbox(state.mail, mail, whyGone, now(), tabCause);
+    quietNext = false;
+    if (watching && state.mail.length) { const had = new Set(state.mail.map((m) => m.key)); for (const m of mail) if (!had.has(m.key) && !arrived.has(m.key)) arrived.set(m.key, now()); if (arrived.size > 400) for (const k of [...arrived.keys()].slice(0, 200)) arrived.delete(k); }
+    whyGone.clear();
+    if (entries.length) { const left = addLeft(state.left, entries); set({ left }); store.setMeta('leftlog', left).catch((e) => note('storage', e)); void traceMoved(entries); tellMoved(entries); }
     // "Waiting" means held up, not just inside the undo window: only actions that are already due and still not confirmed count.
     const waiting = ops.filter((o) => o.runAfter <= now()).length + (outbox ?? []).filter((o) => o.sendAt <= now()).length;
     set({ mail, waiting, outbox: outbox ?? [], storage: store.status?.().kind === 'memory' ? 'memory' : 'device' });
+  }
+
+  /** Asks Outlook where the few messages it took away went (Junk, Deleted, a folder a rule files into), and writes the answer in the record. */
+  async function traceMoved(entries: LeftEntry[]) {
+    const lost = entries.filter((e) => e.why === 'outlook' && e.addr && e.recv).slice(0, 5);
+    if (!lost.length) return;
+    try {
+      await api.loadFolders();
+      const found = new Map<string, NonNullable<LeftEntry['where']>>();
+      for (const e of lost) {
+        const account = e.key.slice(0, e.key.indexOf('|'));
+        const g = graphFor(account);
+        if (!g) continue;
+        try {
+          const hit = (await g.whereIs(e.addr!, e.recv!)).find((x) => x.parentFolderId);
+          if (!hit) continue;
+          const f = state.folders.find((x) => x.account === account && x.id === hit.parentFolderId);
+          if (f?.kind === 'inbox') continue; // back in the inbox: Post sees it again with the next sync
+          found.set(`${e.key}|${e.at}`, { name: f?.name ?? 'another folder', kind: f?.kind ?? 'other', id: hit.parentFolderId });
+        } catch (err) { note('trace', err); }
+      }
+      if (found.size) {
+        const left = state.left.map((x) => (found.has(`${x.key}|${x.at}`) ? { ...x, where: found.get(`${x.key}|${x.at}`) } : x));
+        set({ left });
+        store.setMeta('leftlog', left).catch((err) => note('storage', err));
+      }
+      tellOutlook(lost, found);
+    } catch (e) { note('trace', e); }
+  }
+
+  /** One to three messages that Outlook (a rule, the junk filter, another app) took out of the inbox while Post was open: one line says so, so mail never seems to vanish. */
+  function tellOutlook(lost: LeftEntry[], found: Map<string, NonNullable<LeftEntry['where']>>) {
+    if (!lost.length || lost.length > 3 || state.toast) return;
+    const first = lost[0];
+    const w = found.get(`${first.key}|${first.at}`);
+    const cut = (t: string) => (t.length > 30 ? `${t.slice(0, 29)}…` : t);
+    const text = lost.length === 1
+      ? `“${cut(first.subject)}” ${w ? `is now in ${w.name}` : 'left your inbox'}: Outlook moved it, not Post. Settings, Where did my mail go?`
+      : `${lost.length} messages left your inbox: Outlook moved them, not Post. Settings, Where did my mail go?`;
+    toast(text, undefined, 7000);
+  }
+
+  /**
+   * A message that moved to another tab while you were looking at the one it was in: one line says where it went, with an Undo that puts its sender
+   * back in Primary. Only for one to three messages at a time (a bigger re-sort, as after the first reading of a mailbox, would only be noise).
+   */
+  function tellMoved(entries: LeftEntry[]) {
+    const moved = entries.filter((e) => e.why === 'tab' && e.from && e.to && now() - (arrived.get(e.key) ?? -Infinity) < 10 * 60_000);
+    if (!moved.length || moved.length > 3 || state.view === 'all' || state.toast) return;
+    if (!moved.every((e) => e.from === state.view)) return;
+    const to = [...new Set(moved.map((e) => KIND_TAB[e.to!]))];
+    const first = moved[0];
+    const text = moved.length === 1 ? `“${first.subject}” moved to ${to[0]}` : `${moved.length} messages moved to ${to.join(' and ')}`;
+    const m = state.mail.find((x) => x.key === first.key);
+    toast(text, m && first.from === 'person' ? () => { void api.moveSender(m.fromAddress, 'person'); } : undefined, 6000);
   }
 
   function saveSettings(s: Settings) { kv.set('post.settings', JSON.stringify(s)); set({ settings: s }); }
@@ -479,8 +582,8 @@ export function createController(deps: Deps) {
   async function applyOverrides(overrides: Record<string, Kind>) {
     await store.setMeta('overrides', overrides);
     set({ overrides });
-    await reclassifyAll(store, sortCtx());
-    await reload();
+    tabCause = 'tabYou';
+    try { await reclassifyAll(store, sortCtx()); await reload(); } finally { tabCause = 'tab'; }
     void pushTaught(); // the icon number follows the same choices
   }
 
@@ -529,6 +632,34 @@ export function createController(deps: Deps) {
     return taughtRun;
   }
 
+  // The conversations you muted are told to the alert server too (it keeps them per mailbox), so a reply to one never gives an alert or a number on the icon, even while Post is closed.
+  let mutedSent: Record<string, string[]> = {}; // per mailbox: the conversation ids this device got through to the server
+  let serverMutes = false; // the server is new enough to hold them (it says so in its status)
+  let mutedRun: Promise<void> = Promise.resolve();
+  function pushMuted(): Promise<void> {
+    const run = async () => {
+      if (!server || !serverMutes) return;
+      for (const x of sessions) {
+        const acct = state.accounts.find((a) => a.email === x.email);
+        if (!acct || acct.needsSignIn) continue;
+        const pre = `c|${x.email}|`;
+        const wanted = state.muted.map((m) => m.key).filter((k) => k.startsWith(pre)).map((k) => k.slice(pre.length)).slice(-MUTED_MAX);
+        const had = acct.muted === 0 ? [] : mutedSent[x.email] ?? []; // a server that holds none although this device sent some (the mailbox was added again): all go again
+        const add = wanted.filter((k) => !had.includes(k));
+        const drop = had.filter((k) => !wanted.includes(k));
+        if (!add.length && !drop.length) continue;
+        try {
+          const r = await server.taught(x.session, { ...(add.length ? { mute: add } : {}), ...(drop.length ? { unmute: drop } : {}) });
+          mutedSent = { ...mutedSent, [x.email]: wanted };
+          try { await store.setMeta('mutedSent', mutedSent); } catch (e) { note('alerts', e); }
+          set({ accounts: state.accounts.map((a) => (a.email === x.email ? { ...a, muted: r.muted ?? wanted.length } : a)) });
+        } catch (e) { note('alerts', e); } // sent again the next time the server's status is read
+      }
+    };
+    mutedRun = mutedRun.then(run, run);
+    return mutedRun;
+  }
+
   /** Looks at Sent Items now and then, so mail from people you have written to is always Primary. Never fails a sync. */
   async function learnKnown(email: string, g: Graph) {
     try {
@@ -566,6 +697,7 @@ export function createController(deps: Deps) {
       try {
         const r = await server.status(x.session);
         smart = (r.smart ?? 0) >= 1;
+        serverMutes = (r.smart ?? 0) >= 2;
         const a = r.accounts.find((y) => y.email === x.email) ?? r.accounts[0];
         out.push({ ...(a as AccountStatus), needsSignIn: old?.needsSignIn && !a ? true : false });
       } catch (e) {
@@ -577,6 +709,7 @@ export function createController(deps: Deps) {
     await store.setMeta('accounts', out);
     set({ accounts: out, serverSmart: smart ?? state.serverSmart, ...(offline ? { online: false } : { online: true }) });
     void pushTaught(); // a mailbox whose server holds other choices than this phone (just signed in, or a change that did not get through) is brought up to date
+    void pushMuted();
   }
 
   /** Any signed-in session, for things that belong to the device rather than to one mailbox (alerts, the icon number). */
@@ -805,13 +938,18 @@ export function createController(deps: Deps) {
         for (const [who, v] of Object.entries(savedRules)) { const kind = asKind(v); if (kind) overrides[who] = kind; }
         if (JSON.stringify(savedRules) !== JSON.stringify(overrides)) await store.setMeta('overrides', overrides);
         const savedSent = await store.getMeta<unknown>('taughtSent');
+        const savedBlocked = await store.getMeta<unknown>('blocked');
+        const blocked = Array.isArray(savedBlocked) ? savedBlocked.filter((k): k is string => typeof k === 'string' && k.length > 0 && k.length <= 120) : [];
         try { const x = JSON.parse(kv.get('post.sessions') ?? '[]'); sessions = Array.isArray(x) ? x.filter((y: Session) => y && typeof y.email === 'string' && typeof y.session === 'string') : []; } catch { sessions = []; }
         const cachedAccounts = ((await store.getMeta<AppAccount[]>('accounts')) ?? []).filter((a) => sessions.some((x) => x.email === a.email));
         let settings = DEFAULT_SETTINGS;
         try { settings = loadSettings(JSON.parse(kv.get('post.settings') ?? 'null')); } catch { /* defaults */ }
-        set({ settings, accounts: cachedAccounts, overrides, signingIn: !!readPending() });
+        const savedMuted = await store.getMeta<unknown>('muted');
+        const muted: Muted[] = Array.isArray(savedMuted) ? savedMuted.filter((x): x is Muted => !!x && typeof (x as Muted).key === 'string' && typeof (x as Muted).subject === 'string' && (x as Muted).key.length > 0 && (x as Muted).key.length <= 300).slice(-MUTED_MAX) : [];
+        set({ settings, accounts: cachedAccounts, overrides, blocked, muted, left: loadLeft(await store.getMeta<unknown>('leftlog').catch(() => null)), signingIn: !!readPending() });
         // Only now, with the saved choices on screen: a start that could not read them sends the alert server nothing (it would look like "all removed").
         taughtSent = sentOf(savedSent);
+        { const ms = await store.getMeta<unknown>('mutedSent').catch(() => null); mutedSent = ms && typeof ms === 'object' && !Array.isArray(ms) ? Object.fromEntries(Object.entries(ms as Record<string, unknown>).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, (v as unknown[]).filter((x): x is string => typeof x === 'string')])) : {}; }
         try { sweepEdits(); } catch { /* only tidying */ }
         known = await loadKnown(store, cachedAccounts.map((a) => a.email));
         await reclassifyAll(store, sortCtx()); // every start: a better rule applies to mail already on the phone, and older saved kinds are renamed
@@ -928,8 +1066,17 @@ export function createController(deps: Deps) {
           const g = graphFor(a.email);
           if (!g) continue;
           try {
-            await syncAccount({ graph: g, store, account: a.email, ctx: sortCtx(), now: () => new Date(now()) });
+            const got = await syncAccount({ graph: g, store, account: a.email, ctx: sortCtx(), now: () => new Date(now()) });
             alive();
+            // A few new messages are sorted before they are shown, so a newsletter does not appear in Primary for a moment and then leave it.
+            if (got.added > 0 && got.added <= 20 && !got.resynced) {
+              // It waits for that at most a moment: a slow answer must never keep new mail off the screen (the background sorting finishes the job).
+              const sorted = enrichHeaders({ graph: g, store, account: a.email, ctx: sortCtx, max: got.added, sleep: deps.sleep }).catch(() => undefined);
+              let deadline: ReturnType<typeof setTimeout> | undefined;
+              await Promise.race([sorted, new Promise<void>((r) => { deadline = setTimeout(r, deps.presortMs ?? 2500); })]);
+              clearTimeout(deadline);
+              alive();
+            }
             await reload();
             await learnKnown(a.email, g);
           } catch (e) {
@@ -944,7 +1091,7 @@ export function createController(deps: Deps) {
         await runQueue();
         await api.flushOutbox();
         await reload();
-        if (!error) set({ online: true });
+        if (!error) { set({ online: true }); watching = true; }
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
         note('sync', e);
@@ -952,7 +1099,7 @@ export function createController(deps: Deps) {
         if (mine === syncSeq) { set({ sync: { running: false, at: now(), error } }); syncRun = null; }
         done();
       }
-      void api.sortInBackground();
+      void api.sortInBackground().then(() => api.autoTidy()).catch((e) => note('tidy', e));
     },
 
     /**
@@ -1029,6 +1176,7 @@ export function createController(deps: Deps) {
         if (waiting.some((x) => x.account === email)) await store.setMeta('outbox', waiting.filter((x) => x.account !== email)); // their files went with clearAccount
       });
       await refreshAccounts();
+      quietNext = true;
       await reload();
     },
 
@@ -1074,7 +1222,59 @@ export function createController(deps: Deps) {
     },
 
     /** Moves messages (from the inbox, or seen in a folder) to another folder, with one Undo. `rows`: how many rows of the list this was, for the toast. */
+    /**
+     * Makes a folder in Outlook: at the top, or inside `parent` (the id of one of your folders, or a standard folder's name such as 'inbox').
+     * Answers with the folder as the Folders screen lists it, or with what to tell the person. It says "Made folder ..." itself unless `say` is false
+     * (when the folder is made to move mail into, the move says it).
+     */
+    async createFolder(account: string, name: string, parent: string | null = null, say = true): Promise<{ ok: true; folder: FolderInfo } | { ok: false; error: string }> {
+      const clean = name.replace(/\s+/g, ' ').trim();
+      if (!clean) return { ok: false, error: 'Give the folder a name.' };
+      if (clean.length > 200) return { ok: false, error: 'That name is too long.' };
+      const g = graphFor(account);
+      if (!g) return { ok: false, error: 'Sign in again to make a folder.' };
+      let made;
+      try { made = await g.createFolder(clean, parent ?? undefined); } catch (e) {
+        if (e instanceof GraphError && (e.status === 409 || /exist/i.test(e.code))) return { ok: false, error: `There is already a folder called “${clean}” there.` };
+        note('folders', e);
+        return { ok: false, error: e instanceof GraphError && e.status === 0 ? 'No connection. The folder was not made.' : e instanceof GraphError && e.status === 403 ? 'Outlook did not allow Post to make a folder.' : describe(e, 'Could not make the folder.') };
+      }
+      await api.loadFolders({ force: true });
+      const folder = state.folders.find((f) => f.account === account && f.id === made.id) ?? { account, id: made.id, name: clean, kind: 'other' as const, unread: 0, total: 0, depth: 0, where: '' };
+      if (say) toast(`Made folder “${clean}”`);
+      return { ok: true, folder };
+    },
+
+    /**
+     * Deletes one of your own folders in Outlook (never a standard one such as Junk or Inbox). Outlook moves it, with what is in it, to Deleted Items.
+     * The caller has asked the person first. Answers with what to tell them when it did not work.
+     */
+    async deleteFolder(account: string, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+      const f = state.folders.find((x) => x.account === account && x.id === id);
+      if (!f || f.kind !== 'other') return { ok: false, error: 'Only folders you made yourself can be deleted. Outlook keeps its own folders.' };
+      const g = graphFor(account);
+      if (!g) return { ok: false, error: 'Sign in again to delete a folder.' };
+      try { await g.deleteFolder(id); } catch (e) {
+        note('folders', e);
+        return { ok: false, error: e instanceof GraphError && e.status === 0 ? 'No connection. The folder was not deleted.' : e instanceof GraphError && e.status === 403 ? 'Outlook did not allow Post to delete the folder.' : describe(e, 'Could not delete the folder.') };
+      }
+      set({ folders: state.folders.filter((x) => !(x.account === account && x.id === id)) });
+      if (state.folder?.target.kind === 'other' && state.folder.target.account === account && state.folder.target.id === id) set({ folder: null });
+      toast(`Deleted folder “${f.name}”`);
+      await api.loadFolders({ force: true }).catch(() => {});
+      return { ok: true };
+    },
+
+    /** Makes a folder and moves the messages into it, as one step (Move to, New folder). */
+    async moveToNewFolder(items: Mail[], account: string, name: string, parent: string | null = null, rows: number = items.length): Promise<{ ok: true; folder: FolderInfo } | { ok: false; error: string }> {
+      const mine = items.filter((m) => m.account === account); // a folder belongs to one mailbox
+      const made = await api.createFolder(account, name, parent, false);
+      if (made.ok && mine.length) await api.moveTo(mine, { to: made.folder.id, name: made.folder.name }, rows);
+      return made;
+    },
+
     async moveTo(items: Mail[], to: { to: string; name: string }, rows: number = items.length) {
+      if (to.to === GRAPH_NAME.inbox) await keep(items); // brought back on purpose: the next tidy-up leaves it alone
       await relocate(items, { type: 'move', to: to.to }, rows <= 1 ? `Moved to ${to.name}` : `Moved ${rows} to ${to.name}`);
     },
 
@@ -1145,31 +1345,6 @@ export function createController(deps: Deps) {
       await api.markRead(items, { quiet: true });
     },
 
-    /** Snoozes a message or a whole conversation (its messages that are in the inbox), with one Undo. */
-    snooze(m: Mail | Mail[], until: Date, label: string) {
-      return exclusive(async () => {
-        const items = Array.isArray(m) ? m : [m];
-        const fresh: Mail[] = [];
-        const before = new Map<string, string | null>(); // what each one was snoozed until before, for Undo
-        for (const x of items) { const cur = await store.getMail(x.key); if (cur) { before.set(cur.key, cur.snoozedUntil ?? null); fresh.push({ ...cur, snoozedUntil: until.toISOString() }); } } // one archived meanwhile must not come back
-        if (!fresh.length) return;
-        await store.putMail(fresh);
-        await reload();
-        toast(`Snoozed until ${label}`, () => { void api.setSnoozes(before); });
-      });
-    },
-    unsnooze(m: Mail | Mail[]) { return api.setSnoozes(new Map((Array.isArray(m) ? m : [m]).map((x) => [x.key, null]))); },
-    /** Puts each message's snooze back to what is given (null: not snoozed). A message that is no longer in the inbox on this phone is left alone. */
-    setSnoozes(until: ReadonlyMap<string, string | null>) {
-      return exclusive(async () => {
-        for (const [key, at] of until) {
-          const cur = await store.getMail(key);
-          if (cur) await store.putMail([{ ...cur, snoozedUntil: at }]);
-        }
-        await reload();
-      });
-    },
-
     /**
      * "Put this sender (or everything from their company) in this tab", or null to go back to automatic. Re-sorts everything at once, and is
      * the fix for every wrong guess. Shared mail providers (gmail.com ...) are never made a company rule.
@@ -1193,6 +1368,92 @@ export function createController(deps: Deps) {
       delete overrides[key];
       await applyOverrides(overrides);
       toast('Rule removed', () => { void applyOverrides(before); });
+    },
+
+    /**
+     * Blocks a sender (or everything from their company): their mail in the inbox goes to Junk at once, and so does whatever they send while Post
+     * is open. It also moves them to Promotions, so the icon number ignores them (the alert server follows that tab). Nothing is deleted, and Undo
+     * (here, or Settings, Sorting, Blocked senders) lifts the block again. A mail you flagged is left where it is.
+     */
+    async blockSender(address: string, scope: 'sender' | 'company' = 'sender') {
+      const addr = address.trim().toLowerCase();
+      const company = scope === 'company' && !isFreemail(addr);
+      const key = company ? `@${orgDomain(addr)}` : addr;
+      if (!addr.includes('@') || state.blocked.includes(key)) return;
+      tidying = true; // the tidy-up that follows a sync must not move this mail first, under its own toast
+      try {
+        const beforeBlocked = state.blocked, beforeRules = state.overrides;
+        await saveBlocked([...beforeBlocked, key]);
+        quietNext = true; // their move to Promotions is part of the block: the record tells it once, as the block
+        await applyOverrides({ ...beforeRules, [key]: 'promo' });
+        const lift = () => { void (async () => { await saveBlocked(beforeBlocked); await applyOverrides(beforeRules); })(); };
+        const items = blockedMail(state.mail, [key], new Set(await loadKept()));
+        const who = company ? key.slice(1) : addr;
+        if (items.length) await relocate(items, { type: 'move', to: GRAPH_NAME.junk }, `Blocked ${who}. ${items.length === 1 ? '1 message' : `${items.length} messages`} moved to Junk.`, lift, 'blocked');
+        else toast(`Blocked ${who}. Their mail goes to Junk from now on.`, lift);
+      } finally { tidying = false; }
+    },
+
+    /** Lifts a block (Settings, Sorting). Mail already in Junk stays there; the sender goes back to automatic sorting. */
+    async unblock(key: string) {
+      if (!state.blocked.includes(key)) return;
+      const beforeBlocked = state.blocked, beforeRules = state.overrides;
+      await saveBlocked(beforeBlocked.filter((k) => k !== key));
+      if (beforeRules[key] === 'promo') { const { [key]: _gone, ...rest } = beforeRules; await applyOverrides(rest); }
+      toast(`Unblocked ${key.startsWith('@') ? key.slice(1) : key}`, () => { void (async () => { await saveBlocked(beforeBlocked); await applyOverrides(beforeRules); })(); });
+    },
+
+    /**
+     * Mutes a conversation: what is in the inbox of it goes to Archive at once, and so does every later reply while Post is open, so it stops
+     * filling the inbox. Nothing is deleted, flagged mail stays, and Undo (here, or Settings, Sorting, Muted conversations) lifts the mute.
+     * Post cannot silence the alert for a reply that arrives while it is closed: that one is archived the next time Post is open.
+     */
+    async muteConversation(m: Mail) {
+      if (!canMute(m)) return;
+      const key = threadKey(m);
+      if (state.muted.some((x) => x.key === key)) return;
+      tidying = true; // the tidy-up that follows a sync must not move this mail first, under its own toast
+      try {
+        const before = state.muted;
+        const entry: Muted = { key, subject: muteName(m.subject) };
+        await saveMuted([...before, entry].slice(-MUTED_MAX));
+        const lift = () => { void saveMuted(before); };
+        const items = mutedMail(state.mail, [entry], new Set(await loadKept()));
+        const what = `Muted “${entry.subject.length > 28 ? `${entry.subject.slice(0, 27)}…` : entry.subject}”`;
+        if (items.length) await relocate(items, { type: 'archive' }, `${what}. ${items.length === 1 ? '1 message' : `${items.length} messages`} archived.`, lift, 'muted');
+        else toast(`${what}. New replies skip the inbox.`, lift);
+      } finally { tidying = false; }
+    },
+
+    /** Lifts a mute (Settings, Sorting). What was archived stays in Archive; new replies stay in the inbox again. */
+    async unmute(key: string) {
+      const before = state.muted;
+      const gone = before.find((x) => x.key === key);
+      if (!gone) return;
+      await saveMuted(before.filter((x) => x.key !== key));
+      toast(`Unmuted “${gone.subject.length > 28 ? `${gone.subject.slice(0, 27)}…` : gone.subject}”`, () => { void saveMuted(before); });
+    },
+
+    /**
+     * What Post does with mail by itself, after the mail has been sorted: blocked senders' mail goes to Junk, and (Settings, Sorting, Clean up
+     * old promotions) promotions older than the chosen days are archived. One tidy-up at a time; each ends in one toast with an Undo, and Undo
+     * also marks the mail as kept, so it is never tidied again.
+     */
+    async autoTidy() {
+      if (tidying || !state.ready || state.toast?.undo) return; // not over the Undo of something you just did: the next sync tries again
+      tidying = true;
+      try {
+        const keptNow = new Set(await loadKept());
+        const bad = blockedMail(state.mail, state.blocked, keptNow);
+        if (bad.length) await relocate(bad, { type: 'move', to: GRAPH_NAME.junk }, bad.length === 1 ? 'Moved 1 message from a blocked sender to Junk' : `Moved ${bad.length} messages from blocked senders to Junk`, () => void keep(bad), 'blocked');
+        const quiet = mutedMail(state.mail, state.muted, keptNow);
+        if (quiet.length) await relocate(quiet, { type: 'archive' }, quiet.length === 1 ? 'Archived 1 message from a muted conversation' : `Archived ${quiet.length} messages from muted conversations`, () => void keep(quiet), 'muted');
+        const days = state.settings.autoClean;
+        if (days > 0) {
+          const rows = staleThreads(state, now(), days, keptNow);
+          if (rows.length) await relocate(rows.flatMap((t) => t.items), { type: 'archive' }, rows.length === 1 ? 'Archived 1 old promotion' : `Archived ${rows.length} old promotions`, () => void keep(rows.flatMap((t) => t.items)), 'clean');
+        }
+      } finally { tidying = false; }
     },
 
     /** Marks these as read in one go, with one toast (or none, when `quiet`: opening a conversation marks it read without a word). */
@@ -1367,7 +1628,7 @@ export function createController(deps: Deps) {
       // not been told yet. Worked out now, not when Outlook was asked, because mail moves in between.
       const here = new Set(state.mail.map((x) => x.key));
       const leaving = await leavingKeys();
-      const items = found.filter((x) => !here.has(x.key) && !leaving.has(x.key)).map((x): Mail => ({ ...x, folder: 'archive', snoozedUntil: null }));
+      const items = found.filter((x) => !here.has(x.key) && !leaving.has(x.key)).map((x): Mail => ({ ...x, folder: 'archive' }));
       items.sort((x, y) => y.received.localeCompare(x.received));
       remember(items);
       return items;
@@ -1641,7 +1902,11 @@ export function createController(deps: Deps) {
     setView(view: View) { set({ view }); },
     setUnreadOnly(unreadOnly: boolean) { set({ unreadOnly }); },
     setAccountFilter(accountFilter: string | null) { set({ accountFilter }); },
-    setSettings(patch: Partial<Settings>) { saveSettings({ ...state.settings, ...patch }); },
+    setSettings(patch: Partial<Settings>) {
+      const before = state.settings.autoClean;
+      saveSettings({ ...state.settings, ...patch });
+      if (state.settings.autoClean > 0 && state.settings.autoClean !== before) void api.autoTidy().catch((e) => note('tidy', e)); // turned on: it starts at once
+    },
     toast,
     device,
     /** Writes a problem down for the Health page and the problem report (an address in the text is replaced). */
@@ -1661,6 +1926,8 @@ export function createController(deps: Deps) {
     /** What went wrong lately, oldest first. */
     problems: diag.list,
     clearProblems: diag.clear,
+    /** Empties the record of mail that left the list (Settings, Where did my mail go?). */
+    clearLeft() { set({ left: [] }); store.setMeta('leftlog', []).catch((e) => note('storage', e)); },
   };
   return api;
 }
@@ -1669,17 +1936,15 @@ export type Controller = ReturnType<typeof createController>;
 
 // ---- what the list shows ---------------------------------------------------------------------------------------------------------------
 
-export function visibleMail(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter'>, nowMs: number): Mail[] {
+// The time argument of the three list functions below is no longer used (nothing is hidden until a time any more); it stays optional so callers need not change.
+export function visibleMail(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter'>, _nowMs?: number): Mail[] {
   return s.mail.filter((m) => {
     if (m.folder !== 'inbox') return false;
-    if (m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs) return false;
     if (s.accountFilter && m.account !== s.accountFilter) return false;
     if (s.unreadOnly && m.isRead) return false;
     return s.view === 'all' || m.kind === s.view;
   });
 }
-
-const isSnoozed = (m: Mail, nowMs: number) => !!m.snoozedUntil && new Date(m.snoozedUntil).getTime() > nowMs;
 
 /** The inbox messages of the chosen mailbox as rows: one per conversation, or one per message when conversations are off. Newest first. */
 function inboxThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settings'>): Thread[] {
@@ -1688,19 +1953,18 @@ function inboxThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settings'>): Th
 }
 
 /**
- * What the list shows, a row at a time. A conversation is one row, placed by its newest message and in that message's tab, and it is hidden
- * while that message is snoozed (a new answer brings it back). Unread means anything unread in it.
+ * What the list shows, a row at a time. A conversation is one row, placed by its newest message and in that message's tab. Unread means
+ * anything unread in it.
  */
-export function visibleThreads(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter' | 'settings'>, nowMs: number): Thread[] {
+export function visibleThreads(s: Pick<State, 'mail' | 'view' | 'unreadOnly' | 'accountFilter' | 'settings'>, _nowMs?: number): Thread[] {
   return inboxThreads(s).filter((t) => {
-    if (isSnoozed(t.latest, nowMs)) return false;
     if (s.unreadOnly && !t.unread) return false;
     return s.view === 'all' || t.kind === s.view;
   });
 }
 
 export interface Counts {
-  /** Rows in the inbox that are not snoozed (for the chosen mailbox): conversations, or messages when conversations are off. */
+  /** Rows in the inbox (for the chosen mailbox): conversations, or messages when conversations are off. */
   total: number;
   /** Rows with something unread in them. */
   unread: number;
@@ -1734,6 +1998,15 @@ export function cleanUpThreads(s: Pick<State, 'mail' | 'accountFilter' | 'settin
     .filter((t) => !t.items.some((m) => m.flagged) && (days <= 0 || new Date(t.latest.received).getTime() < cutoff));
 }
 
+/**
+ * The promotions Post archives by itself: the rows `cleanUpThreads` lists for every mailbox, but only mail whose sorting is settled (its header
+ * marks have been read: a first guess is never acted on without you), and never a row with a message you brought back.
+ */
+export function staleThreads(s: Pick<State, 'mail' | 'settings'>, nowMs: number, days: number, kept: ReadonlySet<string>): Thread[] {
+  return cleanUpThreads({ mail: s.mail, accountFilter: null, settings: s.settings }, nowMs, days)
+    .filter((t) => t.items.every((m) => m.sig !== undefined && !kept.has(keptKey(m))));
+}
+
 /** The messages of those rows: what archiving them acts on. */
 export const cleanUpList = (s: Pick<State, 'mail' | 'accountFilter' | 'settings'>, nowMs: number, days: number): Mail[] => cleanUpThreads(s, nowMs, days).flatMap((t) => t.items);
 
@@ -1747,9 +2020,6 @@ export function triageThreads(s: Pick<State, 'mail' | 'view' | 'accountFilter' |
     .filter((t) => !t.items.some((m) => m.flagged));
 }
 
-/** What is snoozed, a row at a time, the one that comes back first on top. */
-export const snoozedThreads = (s: Pick<State, 'mail' | 'settings'>, nowMs: number): Thread[] =>
-  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => isSnoozed(t.latest, nowMs)).sort((a, b) => String(a.latest.snoozedUntil).localeCompare(String(b.latest.snoozedUntil)));
-/** What you flagged to answer later (any message of a conversation flagged is enough), a row at a time. Snoozed ones wait for their time. */
-export const replyLaterThreads = (s: Pick<State, 'mail' | 'settings'>, nowMs: number): Thread[] =>
-  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => t.items.some((m) => m.flagged) && !isSnoozed(t.latest, nowMs));
+/** What you flagged to answer later (any message of a conversation flagged is enough), a row at a time. */
+export const replyLaterThreads = (s: Pick<State, 'mail' | 'settings'>, _nowMs?: number): Thread[] =>
+  inboxThreads({ mail: s.mail, accountFilter: null, settings: s.settings }).filter((t) => t.items.some((m) => m.flagged));

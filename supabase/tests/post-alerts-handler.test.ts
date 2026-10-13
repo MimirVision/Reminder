@@ -302,7 +302,7 @@ test('what the phone teaches the server: kept per mailbox, merged key by key, sh
 
   // Nothing taught yet: the defaults, and the function says it can follow the Primary tab.
   const st0 = await (await as(done.session, { op: 'status' })).json();
-  assert.equal(st0.smart, 1);
+  assert.equal(st0.smart, 2);
   assert.equal(st0.accounts[0].extra, 'codes');
   assert.match(st0.accounts[0].rules_digest, /^0:/);
   assert.equal(await hook('T1', 'Nytt fra Kjøkkenhuset', 'bjorn@kjokkenhuset.no'), 1, 'a mail that looks personal counts');
@@ -319,11 +319,11 @@ test('what the phone teaches the server: kept per mailbox, merged key by key, sh
   assert.equal(r1.ok, true);
   assert.equal(r1.extra, 'codes');
   const stored = db.post_config.find((r) => r.key === `taught:${account.id}`)!;
-  assert.deepEqual(JSON.parse(stored.value), { rules: { '@kjokkenhuset.no': 'promo' }, extra: 'codes' });
+  assert.deepEqual(JSON.parse(stored.value), { rules: { '@kjokkenhuset.no': 'promo' }, extra: 'codes', muted: [] });
   assert.equal(await hook('T2', 'Nytt fra Kjøkkenhuset', 'bjorn@kjokkenhuset.no'), 0, 'a company the person moved to Promotions stays quiet');
   const r2 = await (await as(done.session, { op: 'taught', extra: 'none' })).json();
   assert.equal(r2.rules_digest, r1.rules_digest, 'the rules were not touched');
-  assert.deepEqual(JSON.parse(db.post_config.find((r) => r.key === `taught:${account.id}`)!.value), { rules: { '@kjokkenhuset.no': 'promo' }, extra: 'none' });
+  assert.deepEqual(JSON.parse(db.post_config.find((r) => r.key === `taught:${account.id}`)!.value), { rules: { '@kjokkenhuset.no': 'promo' }, extra: 'none', muted: [] });
   const st1 = await (await as(done.session, { op: 'status' })).json();
   assert.deepEqual([st1.accounts[0].extra, st1.accounts[0].rules_digest], ['none', r1.rules_digest]);
 

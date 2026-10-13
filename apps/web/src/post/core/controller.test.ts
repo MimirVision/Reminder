@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanUpList, cleanUpThreads, createController, mailCounts, replyLaterThreads, snoozedThreads, triageThreads, visibleMail, visibleThreads, type Deps } from './controller.ts';
+import { cleanUpList, cleanUpThreads, createController, mailCounts, replyLaterThreads, triageThreads, visibleMail, visibleThreads, type Deps } from './controller.ts';
 import { memoryStore, type Store } from './store.ts';
 import { rulesDigest } from './classify.ts';
 
@@ -24,13 +24,14 @@ function world() {
     /** What Outlook answers to a move (201 is one that worked). */ moveStatus: 201,
     /** A later sync (from a saved place) hears only what changed, as the real thing does; otherwise it hears everything every time. */ strictDelta: false,
     /** The alert server has the code that follows the Primary tab (it says so in its status and takes "taught"). */ smart: false,
+    /** The alert server also holds muted conversations (it says smart 2 in its status). */ mutes: false,
     /** The alert server answers "taught" with a refusal (400), as it does for more moved senders than it can hold. */ refuseTaught: false,
   };
   /** Every "taught" call the alert server took: what the device sent. */
-  const taughtSeen: { email: string; set?: Record<string, string>; remove?: string[]; extra?: string }[] = [];
+  const taughtSeen: { email: string; set?: Record<string, string>; remove?: string[]; extra?: string; mute?: string[]; unmute?: string[] }[] = [];
   /** What the alert server holds that the phone taught it, per mailbox. */
-  const held = new Map<string, { rules: Record<string, string>; extra: string }>();
-  const heldBy = (email: string) => { if (!held.has(email)) held.set(email, { rules: {}, extra: 'codes' }); return held.get(email)!; };
+  const held = new Map<string, { rules: Record<string, string>; extra: string; muted: string[] }>();
+  const heldBy = (email: string) => { if (!held.has(email)) held.set(email, { rules: {}, extra: 'codes', muted: [] }); return held.get(email)!; };
   const drafts = new Map<string, { kind: string; subject: string; body: string; to: string[]; cc: string[]; replyTo?: string; attachments: { name: string; size: number }[] }>(); // made and not sent
   const sentMails: { kind: string; subject: string; body: string; to: string[]; cc: string[]; replyTo?: string; attachments: { name: string; size: number }[] }[] = []; // what really went out
   let draftSeq = 0;
@@ -57,18 +58,19 @@ function world() {
       if (body.op === 'signin_forget') return j({ ok: true });
       if (!known) return j({ error: 'unauthorized' }, 401);
       if (body.op === 'status') return j(flags.smart
-        ? { smart: 1, devices: 1, accounts: [{ ...accounts.get(email), extra: heldBy(email).extra, rules_digest: rulesDigest(heldBy(email).rules as never) }] }
+        ? { smart: flags.mutes ? 2 : 1, devices: 1, accounts: [{ ...accounts.get(email), extra: heldBy(email).extra, rules_digest: rulesDigest(heldBy(email).rules as never), ...(flags.mutes ? { muted: heldBy(email).muted.length } : {}) }] }
         : { devices: 1, accounts: [accounts.get(email)] });
       if (body.op === 'taught') {
         if (!flags.smart) return j({ error: 'bad_request' }, 400); // an older copy of the function does not know it
         if (flags.refuseTaught) return j({ error: 'too many rules' }, 400);
-        taughtSeen.push({ email, set: body.set, remove: body.remove, extra: body.extra });
+        taughtSeen.push({ email, set: body.set, remove: body.remove, extra: body.extra, mute: body.mute, unmute: body.unmute });
         const t = heldBy(email);
         // The server holds ONE list per mailbox for every device: what a device sends is added to it (`set`) or taken out of it (`remove`).
         for (const who of body.remove ?? []) delete t.rules[who];
         Object.assign(t.rules, body.set ?? {});
         if ('extra' in body) t.extra = body.extra;
-        return j({ ok: true, extra: t.extra, rules_digest: rulesDigest(t.rules as never) });
+        if (flags.mutes) { t.muted = t.muted.filter((x) => !(body.unmute ?? []).includes(x)); for (const x of body.mute ?? []) if (!t.muted.includes(x)) t.muted.push(x); }
+        return j({ ok: true, extra: t.extra, rules_digest: rulesDigest(t.rules as never), ...(flags.mutes ? { muted: t.muted.length } : {}) });
       }
       if (body.op === 'token') return flags.tokenFail.has(email) ? j({ error: 'AADSTS700082: The refresh token has expired due to inactivity.' }, 400) : j({ accessToken: 'T', expiresIn: 3600, email });
       if (body.op === 'unregister') { accounts.delete(email); return j({ removed: true }); }
@@ -179,7 +181,7 @@ function make(w = world(), extra: Partial<Deps> = {}) {
   const timers: { fn: () => void; ms: number }[] = [];
   let t = Date.parse('2026-10-05T10:00:00Z');
   const c = createController({
-    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, presortMs: 150, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     kv: { get: (k) => kv.get(k) ?? null, set: (k, v) => void kv.set(k, v), del: (k) => void kv.delete(k) }, ...extra,
   });
   const runTimers = async () => { while (timers.length) { const x = timers.shift()!; x.fn(); await new Promise((r) => setTimeout(r, 5)); } };
@@ -252,16 +254,6 @@ test('mark read is optimistic and goes to Outlook straight away', async () => {
   assert.equal(c.getState().mail[0].isRead, true);
   await new Promise((r) => setTimeout(r, 10));
   assert.ok(w.log.some((l) => l.includes('graph patch 1') && l.includes('"isRead":true')));
-});
-
-test('snooze hides the message from the inbox list until its time, and keeps it in Later', async () => {
-  const w = world(); w.add('1');
-  const { c } = make(w);
-  await c.init();
-  await c.snooze(c.getState().mail[0], new Date('2026-10-06T08:00:00Z'), 'tomorrow 08:00');
-  const now = Date.parse('2026-10-05T10:00:00Z');
-  assert.equal(visibleMail(c.getState(), now).length, 0);
-  assert.equal(visibleMail(c.getState(), Date.parse('2026-10-06T09:00:00Z')).length, 1);
 });
 
 test('offline: the app opens with the stored mail and says so honestly', async () => {
@@ -1084,7 +1076,7 @@ test('conversations: messages that answer each other are one row, in the tab of 
   assert.equal(mailCounts({ ...s, settings: { ...s.settings, threads: false } }, T0).total, 4);
 });
 
-test('conversations: the tab filter, the mailbox filter and the snooze work on the whole conversation', async () => {
+test('conversations: the tab filter and the mailbox filter work on the whole conversation', async () => {
   const w = world();
   const shop = { emailAddress: { name: 'Butikk', address: 'tilbud@butikk.no' } };
   chat(w, 'C1', ['1', '2']);
@@ -1097,30 +1089,6 @@ test('conversations: the tab filter, the mailbox filter and the snooze work on t
   assert.deepEqual(visibleThreads({ ...s, view: 'promo' }, T0).map((t) => t.items.length), [2]);
   assert.deepEqual(visibleThreads({ ...s, view: 'person' }, T0).map((t) => t.items.length), [2]);
   assert.deepEqual(visibleThreads({ ...s, view: 'all', accountFilter: 'nobody@x.no' }, T0), []);
-  // snoozed: the row goes while its newest message is snoozed
-  await c.snooze(c.threadOf(s.mail.find((m) => m.id === '2')!), new Date('2026-10-06T08:00:00Z'), 'tomorrow');
-  assert.equal(c.getState().toast!.text, 'Snoozed until tomorrow');
-  assert.deepEqual(visibleThreads({ ...c.getState(), view: 'person' }, T0), []);
-  assert.deepEqual(snoozedThreads(c.getState(), T0).map((t) => t.items.length), [2], 'one row in Later, not one for each message');
-  assert.equal(visibleThreads({ ...c.getState(), view: 'person' }, Date.parse('2026-10-06T09:00:00Z')).length, 1, 'back at its time');
-  // ... and one Undo brings back the lot
-  c.getState().toast!.undo!();
-  await settle();
-  assert.equal(visibleThreads({ ...c.getState(), view: 'person' }, T0).length, 1);
-  assert.deepEqual(snoozedThreads(c.getState(), T0), []);
-});
-
-test('conversations: a new answer brings a snoozed conversation back', async () => {
-  const w = world();
-  chat(w, 'C1', ['1', '2']);
-  const { c } = make(w);
-  await c.init();
-  await c.snooze(c.getState().mail, new Date('2026-10-06T08:00:00Z'), 'tomorrow');
-  assert.equal(visibleThreads(c.getState(), T0).length, 0);
-  w.add('3', { conversationId: 'C1', subject: 'Re: Ferie', receivedDateTime: '2026-10-05T09:00:00Z' });
-  await c.sync();
-  const rows = visibleThreads(c.getState(), T0);
-  assert.deepEqual(rows.map((t) => t.items.map((m) => m.id)), [['3', '2', '1']], 'the new message is not snoozed, so the conversation is back with all its messages');
 });
 
 test('conversations: archiving a conversation moves every message of it, with one toast and one Undo', async () => {
@@ -1190,9 +1158,9 @@ test('read and flag started at the same moment both stick (neither overwrites th
   const { c } = make(w);
   await c.init();
   const m = c.getState().mail[0];
-  await Promise.all([c.setFlag(m, true), c.setRead(m, true), c.snooze(m, new Date('2026-10-06T08:00:00Z'), 'tomorrow')]);
+  await Promise.all([c.setFlag(m, true), c.setRead(m, true)]);
   const x = c.getState().mail[0];
-  assert.deepEqual([x.flagged, x.isRead, !!x.snoozedUntil], [true, true, true]);
+  assert.deepEqual([x.flagged, x.isRead], [true, true]);
 });
 
 test('read and flag leave a message that is not on the phone alone', async () => {
@@ -1200,7 +1168,7 @@ test('read and flag leave a message that is not on the phone alone', async () =>
   const { c, store } = make(w);
   await c.init();
   const gone = { ...c.getState().mail[0], key: 'a@outlook.com|elsewhere', id: 'elsewhere' };
-  await c.setRead(gone, true); await c.setFlag(gone, true); await c.snooze(gone, new Date('2026-10-06T08:00:00Z'), 'x');
+  await c.setRead(gone, true); await c.setFlag(gone, true);
   assert.equal(await store.getMail(gone.key), undefined);
   assert.equal(c.getState().mail.length, 1);
 });
@@ -1464,12 +1432,11 @@ test('Triage goes through the unread rows of the tab you are in, never a flagged
   // the button and the screen use the same rows: every unread, not flagged row of the list, and nothing else
   const rows = visibleThreads({ ...s, view: 'person', unreadOnly: true }, T0);
   assert.equal(triageThreads({ ...s, view: 'person' }, T0).length, rows.length - 1, 'the rows of the unread list but for the flagged one');
-  // what is read, snoozed or flagged on the way is gone from it
+  // what is read or flagged on the way is gone from it
   await c.markRead(c.threadOf(s.mail.find((m) => m.id === '3')!), { quiet: true });
   assert.deepEqual(triageThreads({ ...c.getState(), view: 'person' }, T0).map((t) => t.latest.id), ['2']);
-  await c.snooze(c.threadOf(c.getState().mail.find((m) => m.id === '2')!), new Date('2026-10-06T08:00:00Z'), 'tomorrow');
+  await c.markRead(c.threadOf(c.getState().mail.find((m) => m.id === '2')!), { quiet: true });
   assert.deepEqual(triageThreads({ ...c.getState(), view: 'person' }, T0), []);
-  assert.equal(triageThreads({ ...c.getState(), view: 'person' }, Date.parse('2026-10-06T09:00:00Z')).length, 1, 'back when its time has come');
 });
 
 test('mark read: the toast counts rows of the list, not the messages in them', async () => {
@@ -1485,20 +1452,18 @@ test('mark read: the toast counts rows of the list, not the messages in them', a
   assert.equal(c.getState().toast!.text, 'Marked 2 as read', 'a conversation and a message');
 });
 
-test('Undo of a snooze puts back what each message was snoozed until before', async () => {
-  const w = world();
-  chat(w, 'C1', ['1', '2']);
+test('mail that an older version of Post snoozed is simply in the inbox again, and a saved "snooze" swipe becomes Flag', async () => {
+  const w = world(); w.add('1');
   const { c, store } = make(w);
   await c.init();
-  const [older, newest] = [c.getState().mail.find((m) => m.id === '1')!, c.getState().mail.find((m) => m.id === '2')!];
-  await c.snooze(older, new Date('2026-10-09T08:00:00Z'), 'Fri');
-  await c.snooze([newest, older], new Date('2026-10-06T08:00:00Z'), 'tomorrow');
-  c.getState().toast!.undo!();
-  await settle();
-  assert.equal((await store.getMail(older.key))!.snoozedUntil, '2026-10-09T08:00:00.000Z', 'back to Friday, not to nothing');
-  assert.equal((await store.getMail(newest.key))!.snoozedUntil ?? null, null);
+  const m = c.getState().mail[0];
+  await store.putMail([{ ...m, snoozedUntil: '2099-01-01T00:00:00Z' } as typeof m]);
+  const stored = await store.getMail(m.key);
+  assert.equal(visibleThreads({ ...c.getState(), mail: [stored!], view: 'all' }, T0).length, 1, 'no longer hidden until a time');
+  const { loadSettings } = await import('./settings.ts');
+  assert.equal(loadSettings({ swipeLeft: 'snooze' }).swipeLeft, 'flag');
+  assert.equal(loadSettings({}).swipeLeft, 'flag');
 });
-
 
 // ---- reliability: what goes wrong on a phone, and what Post does about it ----------------------------------------------------------------------
 
@@ -2171,4 +2136,62 @@ test('a server that is not the newer one says "bad_request" and is told so; any 
   await c.setExtra('a@outlook.com', 'none');
   assert.equal(c.getState().toast?.text, 'too many rules');
   assert.equal(c.getState().accounts[0].extra, 'codes', 'put back');
+});
+
+test('new mail from a mailing list is sorted before it is first shown, so it never shows in Primary and moves away', async () => {
+  const w = world();
+  w.add('1', { subject: 'Hei fra Anna' });
+  const { c } = make(w);
+  await c.init(); await c.sync();
+  w.add('9', { subject: 'Ukens nyheter' }); w.headers['9'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const seen: string[] = [];
+  c.subscribe(() => { const m = c.getState().mail.find((x) => x.id === '9'); if (m) seen.push(m.kind); });
+  await c.sync();
+  assert.ok(seen.length > 0 && seen.every((k) => k !== 'person'), `first shown as ${seen.join(',')}`);
+  assert.deepEqual(c.getState().left, [], 'and nothing is written down as having moved');
+});
+
+test('a message that changes tab after its headers are read is written down as such', async () => {
+  const w = world();
+  w.add('1', { subject: 'Hei fra Anna' }); w.add('2', { subject: 'Ukens nyheter' }); w.headers['2'] = [{ name: 'List-Unsubscribe', value: '<https://u>' }];
+  const { c } = make(w);
+  await c.init(); await c.sync(); // first sync: nothing is written down
+  assert.deepEqual(c.getState().left, []);
+  await c.sortInBackground();
+  const l = c.getState().left;
+  assert.ok(l.length <= 1 && l.every((e) => e.why === 'tab' || e.why === 'tabYou'));
+});
+
+
+test('a conversation you mute is told to the alert server (only the change), and told to forget it when you unmute', async () => {
+  const w = world(); w.flags.smart = true; w.flags.mutes = true; w.add('1', { conversationId: 'conv-A', subject: 'Ferie' });
+  const { c } = make(w);
+  await c.init();
+  const m = c.getState().mail[0];
+  assert.ok(m.conversationId, 'the pretend mail has a conversation');
+  await c.muteConversation(m);
+  await c.syncTaught();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(w.held('a@outlook.com').muted, [m.conversationId], 'the server holds the conversation id');
+  assert.deepEqual(w.taughtSeen.filter((x) => x.mute).map((x) => x.mute), [[m.conversationId]]);
+  await c.unmute(c.getState().muted[0].key);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(w.held('a@outlook.com').muted, [], 'and forgets it again');
+});
+
+test('an alert server that does not hold muted conversations is not sent any', async () => {
+  const w = world(); w.flags.smart = true; w.add('1', { conversationId: 'conv-A', subject: 'Ferie' });
+  const { c } = make(w);
+  await c.init();
+  await c.muteConversation(c.getState().mail[0]);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(w.taughtSeen.filter((x) => x.mute), []);
+});
+
+test('Archived is not a failure: its toast does not offer a problem report', async () => {
+  const w = world(); w.add('1');
+  const { c } = make(w);
+  await c.init();
+  await c.archive([c.getState().mail[0]]);
+  assert.equal(c.getState().toast?.fail, undefined);
 });

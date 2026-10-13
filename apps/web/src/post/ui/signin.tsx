@@ -6,7 +6,7 @@ import { useC, useS } from './ctx.tsx';
 
 const FEATURES: [string, string, string][] = [
   ['mail', 'One inbox for every Outlook account', 'Personal and work side by side, with a small coloured letter on each message.'],
-  ['archive', 'Clear it fast', 'Swipe or press a key to archive, snooze or reply, with Undo on everything.'],
+  ['archive', 'Clear it fast', 'Swipe or press a key to archive, flag or reply, with Undo on everything.'],
   ['bell', 'The number on your icon', 'New mail shows as a number on the Home Screen icon, with alert hours per account.'],
   ['lock', 'Private by default', 'Tracking pixels blocked, no read receipts, and mail shown in a sandbox.'],
 ];

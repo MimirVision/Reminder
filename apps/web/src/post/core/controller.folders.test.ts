@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createController } from './controller.ts';
+import { leftLine } from './leftlog.ts';
 import { memoryStore, type Store } from './store.ts';
 
 const SERVER = 'https://s.example/fn';
@@ -16,16 +17,17 @@ const STANDARD: [string, string][] = [['inbox', 'Innboks'], ['drafts', 'Kladd'],
 const idOf = (name: string) => (STANDARD.some(([n]) => n === name) ? `ID-${name}` : name);
 
 interface Person { name: string; address: string }
-interface Msg { id: string; folder: string; subject: string; received: string; from?: string; fromName?: string; to?: Person[]; cc?: Person[]; bcc?: Person[]; isRead?: boolean; flagged?: boolean; draft?: boolean; body?: string; attachments?: { name: string; size: number }[]; modified?: string; conversationId?: string }
+interface Msg { id: string; folder: string; subject: string; received: string; from?: string; fromName?: string; to?: Person[]; cc?: Person[]; bcc?: Person[]; isRead?: boolean; flagged?: boolean; draft?: boolean; body?: string; attachments?: { name: string; size: number }[]; headers?: { name: string; value: string }[]; modified?: string; conversationId?: string }
 interface Box { folders: Map<string, { id: string; name: string; parent: string }>; msgs: Map<string, Msg> }
 type Answer = { status: number; body?: unknown };
 
 function outlook(emails: string[] = [A]) {
   const log: string[] = [];
   const flags = {
-    offline: false, down: new Set<string>(), permanentStatus: 204, moveStatus: 201, sendStatus: 202, patchStatus: 200,
+    offline: false, noHeaders: false, down: new Set<string>(), permanentStatus: 204, createStatus: 201, moveStatus: 201, sendStatus: 202, patchStatus: 200,
     /** What Outlook calls a move to a folder that is not there (it may say "item not found", as for a message that is gone). */ missingFolder: 'ErrorFolderNotFound',
     /** Calls that Outlook carries out and then loses the answer to (the connection drops on the way back). */ loseAfter: [] as string[],
+    /** Messages Outlook has moved away (a rule): the next look at the inbox says so, once. */ removed: [] as string[],
     /** A folder whose pages are held back until the gate opens. */ hold: null as null | { folder: string; until: Promise<void> },
   };
   const boxes = new Map<string, Box>(emails.map((e) => [e, { folders: new Map(STANDARD.map(([n, name]) => [`ID-${n}`, { id: `ID-${n}`, name, parent: 'ROOT' }])), msgs: new Map() }]));
@@ -64,7 +66,25 @@ function outlook(emails: string[] = [A]) {
       for (const r of body.requests) responses.push({ id: r.id, ...(await handle(email, b, r.method, r.url, r.body)) });
       return ok({ responses });
     }
-    if (url.hostname === 'graph' || /^\/me\/mailFolders\/[^/]+\/messages\/delta$/.test(p)) { log.push('delta'); return ok({ value: inFolder(email, 'inbox').map(raw), '@odata.deltaLink': `https://graph/delta?d=${++seq}` }); }
+    if (url.hostname === 'graph' || /^\/me\/mailFolders\/[^/]+\/messages\/delta$/.test(p)) { log.push('delta'); return ok({ value: [...inFolder(email, 'inbox').map(raw), ...flags.removed.splice(0).map((id) => ({ id, '@removed': { reason: 'changed' } }))], '@odata.deltaLink': `https://graph/delta?d=${++seq}` }); }
+    if (method === 'POST' && (m = /^\/me\/mailFolders(?:\/([^/]+)\/childFolders)?$/.exec(p))) {
+      log.push(`createFolder ${m[1] ?? 'ROOT'} ${body.displayName}`);
+      if (flags.createStatus !== 201) return fail(flags.createStatus, flags.createStatus === 409 ? 'ErrorFolderExists' : 'ErrorAccessDenied', 'No.');
+      const parent = m[1] ? dest(decodeURIComponent(m[1])) : 'ROOT';
+      if (!parent) return missing();
+      if ([...b.folders.values()].some((f) => f.parent === parent && f.name.toLowerCase() === String(body.displayName).toLowerCase())) return fail(409, 'ErrorFolderExists', 'A folder with that name already exists.');
+      const id = `NEW${++seq}`;
+      b.folders.set(id, { id, name: body.displayName, parent });
+      return ok(folderBody(b, b.folders.get(id)!), 201);
+    }
+    if (method === 'DELETE' && (m = /^\/me\/mailFolders\/([^/]+)$/.exec(p))) {
+      const id = decodeURIComponent(m[1]);
+      log.push(`deleteFolder ${id}`);
+      if (idOf(id) === id && !b.folders.has(id)) return missing();
+      if (id.startsWith('ID-')) return fail(403, 'ErrorDeleteDistinguishedFolder', 'No.');
+      b.folders.get(id)!.parent = 'ID-deleteditems'; // Outlook keeps a deleted folder in Deleted Items
+      return { status: 204 };
+    }
     if (method === 'GET' && p === '/me/mailFolders') { log.push('folders'); return ok({ value: [...b.folders.values()].filter((f) => f.parent === 'ROOT').map((f) => folderBody(b, f)) }); }
     if (method === 'GET' && (m = /^\/me\/mailFolders\/([^/]+)$/.exec(p))) { const id = dest(decodeURIComponent(m[1])); const f = id ? b.folders.get(id) : undefined; return f ? ok(folderBody(b, f)) : missing(); }
     if (method === 'GET' && (m = /^\/me\/mailFolders\/([^/]+)\/childFolders$/.exec(p))) { const id = decodeURIComponent(m[1]); return ok({ value: [...b.folders.values()].filter((f) => f.parent === id).map((f) => folderBody(b, f)) }); }
@@ -85,6 +105,11 @@ function outlook(emails: string[] = [A]) {
       log.push('search');
       const term = (q.get('$search') ?? '').replace(/"/g, '').toLowerCase();
       return ok({ value: [...b.msgs.values()].filter((x) => x.subject.toLowerCase().includes(term)).slice(0, 25).map(raw) });
+    }
+    if (method === 'GET' && p === '/me/messages' && q.has('$filter') && /receivedDateTime eq/.test(q.get('$filter') ?? '')) {
+      log.push('where');
+      const f = /receivedDateTime eq (\S+) and from\/emailAddress\/address eq '(.*)'/.exec(q.get('$filter') ?? '');
+      return ok({ value: [...b.msgs.values()].filter((x) => f && x.received === f[1] && (x.from ?? 'anna@x.no') === f[2]).map(raw) });
     }
     if (method === 'GET' && p === '/me/messages' && q.has('$filter')) {
       const id = /conversationId eq '(.*)'/.exec(q.get('$filter') ?? '')?.[1];
@@ -123,7 +148,7 @@ function outlook(emails: string[] = [A]) {
       const x = b.msgs.get(id);
       if (!x) return missing();
       if (select === 'isDraft') { log.push(`isDraft ${id}`); return ok({ isDraft: !!x.draft }); }
-      if (select === 'internetMessageHeaders') return ok({ internetMessageHeaders: [] });
+      if (select === 'internetMessageHeaders') return flags.noHeaders ? fail(500, 'ErrorServerBusy', 'busy') : ok({ internetMessageHeaders: x.headers ?? [] });
       if (select.includes('bccRecipients')) return ok({ subject: x.subject, body: { contentType: 'text', content: x.body ?? '' }, toRecipients: people(x.to), ccRecipients: people(x.cc), bccRecipients: people(x.bcc), isDraft: !!x.draft, lastModifiedDateTime: x.modified ?? x.received });
       if (select.startsWith('body')) return ok({ body: { contentType: 'html', content: `<p>${x.body ?? 'Hei'}</p>` }, toRecipients: people(x.to), hasAttachments: !!x.attachments?.length });
       log.push(`get ${id}`);
@@ -186,7 +211,9 @@ function outlook(emails: string[] = [A]) {
     return new Response(a.status === 204 || a.status === 202 ? null : JSON.stringify(a.body ?? {}), { status: a.status });
   }) as typeof fetch;
 
-  return { f, log, flags, put, folder, ids, dropFolder: (email: string, id: string) => { box(email).folders.delete(id); }, drop: (email: string, id: string) => { box(email).msgs.delete(id); }, get: (email: string, id: string) => box(email).msgs.get(id) };
+  return { f, log, flags, put, folder, ids, dropFolder: (email: string, id: string) => { box(email).folders.delete(id); }, drop: (email: string, id: string) => { box(email).msgs.delete(id); },
+    /** Outlook itself moves a message to another folder (a rule, the junk filter): it gets a new id there and the inbox says it is gone. */
+    outlookMove: (email: string, id: string, to: string) => { const b = box(email); const x = b.msgs.get(id)!; b.msgs.delete(id); b.msgs.set(`${id}^`, { ...x, id: `${id}^`, folder: idOf(to) }); flags.removed.push(id); }, get: (email: string, id: string) => box(email).msgs.get(id) };
 }
 
 function make(w = outlook(), opts: { emails?: string[]; store?: Store; kv?: Map<string, string>; at?: number } = {}) {
@@ -196,7 +223,7 @@ function make(w = outlook(), opts: { emails?: string[]; store?: Store; kv?: Map<
   const timers: { fn: () => void; ms: number }[] = [];
   let t = opts.at ?? Date.parse('2026-10-05T10:00:00Z');
   const c = createController({
-    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    store, fetch: w.f, serverUrl: SERVER, now: () => t, sleep: async () => {}, presortMs: 150, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     kv: { get: (k) => kv.get(k) ?? null, set: (k, v) => void kv.set(k, v), del: (k) => void kv.delete(k) },
   });
   const runTimers = async () => { while (timers.length) { const x = timers.shift()!; x.fn(); await new Promise((r) => setTimeout(r, 5)); } };
@@ -525,6 +552,7 @@ test('when Outlook will not move a message it stays where it was, the folder is 
   made.advance(7_000);
   await c.sync(); await c.sync(); await c.sync(); // refused three times: that will not change
   assert.match(c.getState().toast!.text, /Outlook would not move a message, so it stays where it was/);
+  assert.equal(c.getState().toast!.fail, true, 'a failure offers the problem report');
   await until(() => c.getState().folder!.items.some((x) => x.id === 'x1'), 'the folder to be read again');
   assert.equal(c.getState().waiting, 0);
 });
@@ -1125,4 +1153,384 @@ test('the screen is told how far it is while mail is deleted, and a second go wh
   await Promise.all([first, second]);
   assert.ok(seen.includes('Emptying Junk 0/90') && seen.includes('Emptying Junk 40/90') && seen.includes('Emptying Junk 90/90'), seen.join(' | '));
   assert.equal(w.log.filter((l) => l.startsWith('permanent')).length, 90, 'each message once');
+});
+
+// ---- blocking a sender, and tidying by itself ---------------------------------------------------------------------------------------------------
+
+const OLD = '2026-09-10T10:00:00Z';   // 25 days before the pretend clock
+const NEW = '2026-10-04T10:00:00Z';   // a day before it
+const inbox = (w: ReturnType<typeof outlook>, id: string, from: string, received = NEW, extra: Partial<Msg> = {}) => w.put(A, 'inbox', { id, from, subject: `Tilbud ${id}`, received, ...extra });
+const blockKeys = (c: Made['c']) => c.getState().blocked;
+const inboxIds = (c: Made['c']) => c.getState().mail.map((m) => m.id).sort();
+
+test('blocking a sender moves their mail to Junk at once, with an Undo, and keeps them out of the icon number by sorting them as promotions', async () => {
+  const w = outlook();
+  inbox(w, 'b1', 'spam@x.no'); inbox(w, 'b2', 'Spam@X.no'); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.blockSender('spam@x.no');
+  assert.deepEqual(inboxIds(c), ['o1'], 'both leave the inbox at once');
+  assert.equal(c.getState().toast!.text, 'Blocked spam@x.no. 2 messages moved to Junk.');
+  assert.deepEqual(blockKeys(c), ['spam@x.no']);
+  assert.equal(c.getState().overrides['spam@x.no'], 'promo');
+  assert.deepEqual(await made.store.getMeta('blocked'), ['spam@x.no'], 'kept on the phone');
+  assert.equal(w.log.some((l) => l.startsWith('move b')), false, 'Outlook has not heard yet');
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'junkemail'), ['b1~', 'b2~']);
+  assert.deepEqual(w.ids(A, 'inbox'), ['o1']);
+});
+
+test('Undo of a block brings the mail back and lifts the block', async () => {
+  const w = outlook(); inbox(w, 'b1', 'spam@x.no'); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.blockSender('spam@x.no');
+  c.getState().toast!.undo!();
+  await until(() => inboxIds(c).includes('b1'), 'the mail to come back');
+  assert.deepEqual(blockKeys(c), []);
+  assert.deepEqual(c.getState().overrides, {});
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'junkemail'), [], 'and Outlook never heard of it');
+});
+
+test('blocking a company covers every address and sub-domain of it, never a shared mail provider, and flagged mail is left alone', async () => {
+  const w = outlook();
+  inbox(w, 'c1', 'a@acme.com'); inbox(w, 'c2', 'news@mail.acme.com'); inbox(w, 'c3', 'b@acme.com', NEW, { flagged: true }); inbox(w, 'g1', 'x@gmail.com');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.blockSender('a@acme.com', 'company');
+  assert.deepEqual(blockKeys(c), ['@acme.com']);
+  assert.deepEqual(inboxIds(c), ['c3', 'g1'], 'the flagged one stays');
+  await c.blockSender('x@gmail.com', 'company');
+  assert.deepEqual(blockKeys(c), ['@acme.com', 'x@gmail.com'], 'gmail.com is blocked as that one address only');
+  assert.deepEqual(inboxIds(c), ['c3']);
+});
+
+test('mail from a blocked sender that arrives later goes to Junk when Post is open, and what you brought back stays', async () => {
+  const w = outlook(); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.blockSender('spam@x.no');
+  inbox(w, 'n1', 'spam@x.no');
+  await settle(made);
+  await c.sync(); await c.sortInBackground(); await c.autoTidy();
+  await until(() => !inboxIds(c).includes('n1'), 'the new one to be moved');
+  assert.deepEqual(inboxIds(c), ['o1'], 'the new one is moved at once');
+  assert.match(c.getState().toast!.text, /^Moved 1 message from a blocked sender to Junk$/);
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'junkemail'), ['n1~']);
+  // brought back on purpose: Not junk
+  await c.openFolder({ kind: 'junk' });
+  await c.moveTo(c.getState().folder!.items, { to: 'inbox', name: 'Inbox' });
+  await settle(made);
+  await c.sync(); await c.sortInBackground(); await c.autoTidy(); await tick(50);
+  assert.equal(inboxIds(c).length, 2, 'it is in the inbox again');
+  await settle(made);
+  assert.equal(w.ids(A, 'junkemail').length, 0, 'and it is not moved to Junk again');
+});
+
+test('unblocking forgets the block and the tab choice that came with it, but not a tab choice made since', async () => {
+  const w = outlook(); inbox(w, 'b1', 'spam@x.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.blockSender('spam@x.no');
+  await c.unblock('spam@x.no');
+  assert.deepEqual(blockKeys(c), []); assert.deepEqual(c.getState().overrides, {});
+  await c.blockSender('spam@x.no');
+  await c.moveSender('spam@x.no', 'update');
+  await c.unblock('spam@x.no');
+  assert.equal(c.getState().overrides['spam@x.no'], 'update', 'a tab you chose since stays');
+});
+
+const promos = (w: ReturnType<typeof outlook>) => {
+  inbox(w, 'p-old', 'shop@x.no', OLD); inbox(w, 'p-new', 'shop@x.no', NEW); inbox(w, 'p-flag', 'shop@x.no', OLD, { flagged: true }); inbox(w, 'h-old', 'anna@y.no', OLD);
+};
+
+test('with auto clean-up on, promotions older than the chosen days are archived by themselves, with an Undo, and nothing else is touched', async () => {
+  const w = outlook(); promos(w);
+  const made = make(w); const { c } = made;
+  await c.init(); await c.moveSender('shop@x.no', 'promo'); await c.sync(); await c.sortInBackground(); await settle(made);
+  await c.autoTidy();
+  assert.equal(inboxIds(c).length, 4, 'off by default: nothing moves');
+  c.setSettings({ autoClean: 7 });
+  await until(() => !inboxIds(c).includes('p-old'), 'the old promotion to be archived');
+  assert.deepEqual(inboxIds(c), ['h-old', 'p-flag', 'p-new'], 'the new one, the flagged one and the person stay');
+  assert.equal(c.getState().toast!.text, 'Archived 1 old promotion');
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'archive'), ['p-old~']);
+});
+
+test('Undo of an automatic clean-up keeps the mail: it is not archived again at the next sync', async () => {
+  const w = outlook(); promos(w);
+  const made = make(w); const { c } = made;
+  await c.init(); await c.moveSender('shop@x.no', 'promo'); await c.sync(); await c.sortInBackground(); await settle(made);
+  c.setSettings({ autoClean: 7 });
+  await until(() => !inboxIds(c).includes('p-old'), 'the old promotion to be archived');
+  c.getState().toast!.undo!();
+  await until(() => inboxIds(c).includes('p-old'), 'the mail to come back');
+  await settle(made);
+  await c.sync(); await c.sortInBackground(); await c.autoTidy(); await tick(100); await settle(made);
+  assert.ok(c.getState().mail.every((m) => m.sig !== undefined), 'everything has been sorted again, so it could have been archived');
+  assert.ok(inboxIds(c).includes('p-old'), 'still in the inbox');
+  assert.deepEqual(w.ids(A, 'archive'), []);
+});
+
+test('mail whose sorting is only a first guess is never archived by itself', async () => {
+  const w = outlook(); promos(w);
+  const made = make(w); const { c } = made;
+  w.flags.noHeaders = true;
+  await c.init(); await c.moveSender('shop@x.no', 'promo'); await c.sync(); await c.sortInBackground();
+  assert.ok(c.getState().mail.some((m) => m.sig === undefined), 'the header marks have not been read');
+  await settle(made);
+  c.setSettings({ autoClean: 7 });
+  await tick(50);
+  assert.equal(inboxIds(c).length, 4, 'nothing moved');
+});
+
+test('the choices of auto clean-up are 3, 7, 14 and 30 days, and anything else is read as off', async () => {
+  const { loadSettings } = await import('./settings.ts');
+  for (const d of [0, 3, 7, 14, 30]) assert.equal(loadSettings({ autoClean: d }).autoClean, d);
+  for (const bad of [5, -1, 'x', null, 7.5]) assert.equal(loadSettings({ autoClean: bad }).autoClean, 0);
+  assert.equal(loadSettings({}).autoClean, 0, 'off unless you turn it on');
+});
+
+// ---- mute a conversation ---------------------------------------------------------------------------------------------------------------
+const mutedKeys = (c: Made['c']) => c.getState().muted.map((x) => x.key);
+const mailOf = (c: Made['c'], id: string) => c.getState().mail.find((m) => m.id === id)!;
+
+test('muting a conversation archives what is in the inbox of it at once, with an Undo, and keeps it on the phone', async () => {
+  const w = outlook();
+  inbox(w, 'm1', 'anna@x.no', NEW, { conversationId: 'cc', subject: 'Re: Middag' }); inbox(w, 'm2', 'per@x.no', OLD, { conversationId: 'cc', subject: 'Middag' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  assert.deepEqual(inboxIds(c), ['o1'], 'both leave the inbox at once');
+  assert.equal(c.getState().toast!.text, 'Muted “Middag”. 2 messages archived.');
+  assert.equal(c.getState().muted.length, 1);
+  assert.deepEqual((await made.store.getMeta<{ key: string; subject: string }[]>('muted'))?.map((x) => x.subject), ['Middag'], 'kept on the phone');
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'archive'), ['m1~', 'm2~']);
+  assert.deepEqual(w.ids(A, 'inbox'), ['o1']);
+});
+
+test('Undo of a mute brings the mail back and lifts the mute', async () => {
+  const w = outlook(); inbox(w, 'm1', 'anna@x.no', NEW, { conversationId: 'cc' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  c.getState().toast!.undo!();
+  await until(() => inboxIds(c).includes('m1'), 'the mail to come back');
+  assert.deepEqual(mutedKeys(c), []);
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'archive'), [], 'and Outlook never heard of it');
+});
+
+test('a reply that arrives later in a muted conversation is archived when Post is open, flagged mail and what you brought back stay', async () => {
+  const w = outlook(); inbox(w, 'm1', 'anna@x.no', OLD, { conversationId: 'cc' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  await settle(made);
+  inbox(w, 'n1', 'anna@x.no', NEW, { conversationId: 'cc' });
+  await c.sync(); await c.sortInBackground(); await c.autoTidy();
+  await until(() => !inboxIds(c).includes('n1'), 'the reply to be archived');
+  assert.match(c.getState().toast!.text, /^Archived 1 message from a muted conversation$/);
+  await settle(made);
+  assert.deepEqual(w.ids(A, 'archive').sort(), ['m1~', 'n1~']);
+  // flagged: left alone
+  inbox(w, 'f1', 'anna@x.no', NEW, { conversationId: 'cc', flagged: true });
+  await c.sync(); await c.sortInBackground(); await c.autoTidy(); await tick(50);
+  assert.deepEqual(inboxIds(c), ['f1', 'o1']);
+  // brought back on purpose: it stays
+  await c.openFolder({ kind: 'archive' });
+  await c.moveTo(c.getState().folder!.items.filter((m) => m.id.startsWith('n1')), { to: 'inbox', name: 'Inbox' });
+  await settle(made);
+  await c.sync(); await c.sortInBackground(); await c.autoTidy(); await tick(50);
+  assert.equal(inboxIds(c).length, 3, 'it is in the inbox again');
+  await settle(made);
+  assert.equal(w.ids(A, 'archive').filter((id) => id.startsWith('n1')).length, 0, 'and it is not archived again');
+});
+
+test('unmuting forgets the mute with an Undo, and a message without a conversation cannot be muted', async () => {
+  const w = outlook(); inbox(w, 'm1', 'anna@x.no', NEW, { conversationId: 'cc' }); inbox(w, 'o1', 'anna@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  await c.muteConversation(mailOf(c, 'm1'));
+  await c.unmute(mutedKeys(c)[0]);
+  assert.deepEqual(mutedKeys(c), []);
+  c.getState().toast!.undo!();
+  await until(() => mutedKeys(c).length === 1, 'the mute to come back');
+  await c.muteConversation({ ...mailOf(c, 'o1'), conversationId: '' });
+  assert.equal(mutedKeys(c).length, 1, 'nothing to mute without a conversation id');
+});
+
+// ---- where did my mail go? ------------------------------------------------------------------------------------------------------------------
+const leftOf = (c: Made['c']) => c.getState().left;
+
+test('the record says why mail left the inbox: archive, blocked sender, muted conversation, each in its own words', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' }); inbox(w, 'b1', 'spam@x.no', NEW, { subject: 'Tilbud b1' }); inbox(w, 'm1', 'per@x.no', NEW, { conversationId: 'cc', subject: 'Middag' }); inbox(w, 'o1', 'ola@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  assert.deepEqual(leftOf(c), [], 'nothing before anything has happened');
+  await c.archive([mailOf(c, 'a1')]);
+  await c.blockSender('spam@x.no');
+  await c.muteConversation(mailOf(c, 'm1'));
+  const why = Object.fromEntries(leftOf(c).map((e) => [e.subject, e.why]));
+  assert.deepEqual(why, { Hei: 'archive', 'Tilbud b1': 'blocked', Middag: 'muted' });
+  assert.deepEqual((await made.store.getMeta<unknown[]>('leftlog'))?.length, 3, 'kept on the phone');
+});
+
+test('mail that Outlook took away is told as Outlook\'s doing', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' }); inbox(w, 'o1', 'ola@y.no', NEW, { subject: 'Ola' });
+  const f = w.f;
+  let removeNext = false;
+  w.f = (async (url: string, init?: RequestInit) => {
+    if (removeNext && /delta/.test(String(url))) { removeNext = false; return new Response(JSON.stringify({ value: [{ id: 'o1', '@removed': { reason: 'deleted' } }], '@odata.deltaLink': 'https://graph/delta?d=99' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+    return f(url, init);
+  }) as typeof w.f;
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  assert.deepEqual(inboxIds(c), ['a1', 'o1']);
+  removeNext = true;
+  await c.sync();
+  assert.deepEqual(inboxIds(c), ['a1']);
+  assert.deepEqual(leftOf(c).map((e) => [e.subject, e.why]), [['Ola', 'outlook']]);
+});
+
+test('signing an account out does not fill the record with its mail', async () => {
+  const w = outlook([A, W]);
+  w.put(W, 'inbox', { id: 'w1', from: 'x@w.no', subject: 'Jobb', received: NEW });
+  const made = make(w, { emails: [A, W] }); const { c } = made;
+  await c.init(); await c.sync();
+  assert.ok(inboxIds(c).includes('w1'));
+  await c.removeAccount(W);
+  assert.equal(inboxIds(c).includes('w1'), false);
+  assert.deepEqual(leftOf(c), []);
+});
+
+test('mail that Outlook moved is traced: the record says which folder it is in now', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' }); inbox(w, 'o1', 'ola@y.no', NEW, { subject: 'Tilbud!' });
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  w.outlookMove(A, 'o1', 'junkemail');
+  await c.sync();
+  await until(() => leftOf(c).some((e) => !!e.where), 'the record to say where it went');
+  const e = leftOf(c).find((x) => x.subject === 'Tilbud!')!;
+  assert.equal(e.why, 'outlook');
+  assert.deepEqual([e.where!.kind, e.where!.name], ['junk', 'Junk']);
+  assert.match(leftLine(e), /^Outlook moved it to Junk /);
+  assert.equal((await made.store.getMeta<{ where?: unknown }[]>('leftlog'))?.some((x) => !!x.where), true, 'and it is kept');
+  assert.match(c.getState().toast?.text ?? '', /“Tilbud!” is now in Junk: Outlook moved it, not Post/, 'and one line says so at once');
+});
+
+test('mail Outlook deleted for good has no folder to point at, and the record stays plain', async () => {
+  const w = outlook();
+  inbox(w, 'o1', 'ola@y.no', NEW, { subject: 'Borte' });
+  inbox(w, 'a1', 'anna@x.no', NEW);
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  w.drop(A, 'o1'); // gone, nowhere (the delta of the pretend Outlook cannot say removed, so the first sync below reads everything again)
+  w.outlookMove(A, 'o1', 'inbox'); w.drop(A, 'o1^');
+  await c.sync(); await c.sync();
+  assert.ok(leftOf(c).every((e) => !e.where));
+});
+
+test('a message that moves tab while you look at its tab is told in one line, and Undo puts the sender back in Primary', async () => {
+  const w = outlook();
+  inbox(w, 'a1', 'anna@x.no', NEW, { subject: 'Hei' });
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  c.setView('person');
+  w.flags.noHeaders = true;
+  inbox(w, 'n2', 'news@shop.no', NEW, { subject: 'Ukens nyheter', headers: [{ name: 'List-Unsubscribe', value: '<https://u>' }] });
+  await c.sync();
+  assert.equal(c.getState().mail.find((x) => x.id === 'n2')!.kind, 'person', 'shown in Primary while its marks cannot be read');
+  w.flags.noHeaders = false;
+  await c.sortInBackground();
+  const t = c.getState().toast;
+  assert.ok(t, 'a toast says it');
+  assert.equal(t!.text, '“Ukens nyheter” moved to Updates');
+  t!.undo!();
+  await until(() => c.getState().overrides['news@shop.no'] === 'person', 'the sender to go back to Primary');
+  assert.equal(c.getState().mail.find((x) => x.id === 'n2')!.kind, 'person');
+});
+
+// ---- making folders ----------------------------------------------------------------------------------------------------------------------------
+const mineIn = (c: Made['c']) => c.getState().folders.filter((f) => f.kind === 'other').map((f) => `${f.depth}:${f.where ? `${f.where} / ` : ''}${f.name}`);
+
+test('a new folder is made at Outlook, shows in the list at once, and the toast says so', async () => {
+  const w = outlook(); inbox(w, 'o1', 'ola@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const r = await c.createFolder(A, '  Kunder  ');
+  assert.ok(r.ok);
+  assert.deepEqual(mineIn(c), ['0:Kunder']);
+  assert.equal(c.getState().toast!.text, 'Made folder “Kunder”');
+  assert.ok(w.log.includes('createFolder ROOT Kunder'), 'the name is trimmed');
+});
+
+test('a subfolder is made inside one of your folders, or inside Inbox', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const r = await c.createFolder(A, 'Acme', 'K');
+  assert.ok(r.ok && r.folder.depth === 1 && r.folder.where === 'Kunder');
+  const i = await c.createFolder(A, 'Privat', 'inbox');
+  assert.ok(i.ok);
+  assert.deepEqual(mineIn(c).sort(), ['0:Inbox / Privat', '0:Kunder', '1:Kunder / Acme']);
+});
+
+test('a folder of your own is deleted at Outlook, leaves the list, and never one of the standard folders', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder'); w.folder(A, 'J', 'Junk');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  assert.deepEqual(mineIn(c), ['0:Junk', '0:Kunder']);
+  const r = await c.deleteFolder(A, 'J');
+  assert.deepEqual(r, { ok: true });
+  assert.ok(w.log.includes('deleteFolder J'));
+  assert.deepEqual(mineIn(c), ['0:Kunder'], 'the copy in Deleted Items is not one of your folders');
+  assert.equal(c.getState().toast!.text, 'Deleted folder “Junk”');
+  const std = await c.deleteFolder(A, 'ID-junkemail');
+  assert.equal(std.ok, false);
+  assert.ok(!w.log.includes('deleteFolder ID-junkemail'), 'a standard folder is never asked to be deleted');
+});
+
+test('a folder that Outlook will not delete says so and stays in the list', async () => {
+  const w = outlook(); w.folder(A, 'ID-fake', 'Kunder');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const r = await c.deleteFolder(A, 'ID-fake');
+  assert.equal(r.ok, false);
+  assert.deepEqual(mineIn(c), ['0:Kunder']);
+});
+
+test('a name that is empty, or already taken there, or refused, says why and makes nothing', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const empty = await c.createFolder(A, '   ');
+  assert.deepEqual(empty, { ok: false, error: 'Give the folder a name.' });
+  const dup = await c.createFolder(A, 'kunder');
+  assert.deepEqual(dup, { ok: false, error: 'There is already a folder called “kunder” there.' });
+  w.flags.createStatus = 403;
+  const no = await c.createFolder(A, 'Ny');
+  assert.deepEqual(no, { ok: false, error: 'Outlook did not allow Post to make a folder.' });
+  assert.equal(c.getState().toast, null);
+  assert.deepEqual(mineIn(c), ['0:Kunder']);
+});
+
+test('Move to, New folder: the folder is made and the messages go into it with one toast and an Undo', async () => {
+  const w = outlook(); inbox(w, 'o1', 'ola@y.no'); inbox(w, 'o2', 'per@y.no');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync();
+  const items = c.getState().mail.filter((m) => m.id === 'o1');
+  const r = await c.moveToNewFolder(items, A, 'Prosjekt');
+  assert.ok(r.ok);
+  assert.equal(c.getState().toast!.text, 'Moved to Prosjekt');
+  assert.deepEqual(inboxIds(c), ['o2']);
+  await settle(made);
+  assert.deepEqual(w.ids(A, (r as { folder: { id: string } }).folder.id), ['o1~']);
 });

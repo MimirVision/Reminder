@@ -30,7 +30,7 @@ export function toMail(account: string, r: RawMessage, ctx: ClassifyContext, pre
     ...(inf ? { inf } : {}),
   };
   const c = verdict(base, ctx);
-  return { ...base, kind: c.kind, why: c.why, snoozedUntil: prev?.snoozedUntil ?? null };
+  return { ...base, kind: c.kind, why: c.why };
 }
 
 /** When the meaning of the saved header marks changes (CLASSIFIER_VERSION), forget them so every message is asked about again. */
@@ -169,7 +169,7 @@ export async function enrichHeaders(p: {
       else failed.add(m.key);
     });
 
-    // Re-read each message just before writing: a read, a snooze or a flag set meanwhile must not be overwritten with an old copy.
+    // Re-read each message just before writing: a read or a flag set meanwhile must not be overwritten with an old copy.
     const ctx = p.ctx();
     const fresh: Mail[] = [];
     for (const a of answers) {

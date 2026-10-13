@@ -2,6 +2,7 @@
    written as overrides under [data-look="calm"]. Colours come from CSS variables set on .post by themeVars(); shape and type are the
    --r-* and --font* variables below, so the two looks differ in a few lines and every screen follows. */
 :root { color-scheme: light dark; }
+.post { color-scheme: light; } .post.dark { color-scheme: dark; } /* the app's own theme, not the system's, decides the colour of the native bits (scrollbars, selects) */
 html, body { margin: 0; height: 100%; background: var(--bg, #F2F3F5); overscroll-behavior: none; }
 .post { --bg:#F2F3F5; --card:#fff; --ink:#1E2430; --mu:#5B6472; --ln:#E4E7EC; --ac:#C8431F; --on:#fff; --at:#C8431F; --tint:#FBEAE4; --ti:#8F2F14; --ok:#1F7A4D; --bad:#B3261E; --wb:#FFF0CC; --wi:#6B4A00;
   --gl: rgba(255,255,255,.76); --ge: rgba(255,255,255,.9); --pill: rgba(255,255,255,.8); --sh: 0 8px 28px rgba(30,36,48,.13), 0 1px 3px rgba(30,36,48,.08);
@@ -67,10 +68,11 @@ button.find::after { content: ''; position: absolute; inset: -3px 0; } /* the se
 .card { margin: 0 16px; background: var(--card); border-radius: var(--r-card); overflow: hidden; }
 .sw-row { position: relative; overflow: hidden; border-top: var(--hair) solid var(--ln); }
 .card > .sw-row:first-child { border-top: 0; }
-.row { --py: 12px; --av: 42px; position: relative; display: flex; gap: 12px; padding: var(--py) 16px var(--py) 28px; background: var(--card); width: 100%; text-align: left; border: 0; }
+.row { --py: 12px; --av: 42px; --rb: var(--card); position: relative; display: flex; gap: 12px; padding: var(--py) 16px var(--py) 18px; background: var(--card); width: 100%; text-align: left; border: 0; }
 .row.compact { --py: 8px; --av: 38px; } .row.compact .pv { -webkit-line-clamp: 1; }
 .row.roomy { --py: 16px; --av: 46px; }
-.dot { position: absolute; left: 12px; top: calc(var(--py) + var(--av) / 2 - 3px); width: 8px; height: 8px; border-radius: 4px; background: var(--ac); }
+/* The unread dot sits on the corner of the avatar (a ring in the row's own colour cuts it out), so the left edge stays calm. */
+.dot { position: absolute; left: calc(18px + var(--av) - 11px); top: calc(var(--py) - 3px); width: 12px; height: 12px; border-radius: 6px; background: var(--ac); box-shadow: 0 0 0 2.5px var(--rb); z-index: 1; }
 .avw { position: relative; flex: none; margin-top: 1px; }
 /* Every sender has a tint of their own (the hue is theirs, how pale or deep it is comes from themeVars, and is checked for contrast): people are easy to tell apart at a glance. */
 .av { width: var(--av, 44px); height: var(--av, 44px); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: calc(var(--av, 44px) * .34); font-weight: 600; letter-spacing: .01em; flex: none;
@@ -327,6 +329,39 @@ textarea.field { height: auto; min-height: 120px; padding: 12px 16px; resize: ve
 .sk-l { display: block; height: 13px; border-radius: 6px; margin: 4px 0; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .av.sk, .sk-l { animation: none; } }
+/* ---- polish 2: one easing for everything that enters, springier sheets, direction when you change tab, calmer press feedback ---- */
+.post { --ease-out: cubic-bezier(.22, 1, .36, 1); }
+.scroll { overflow-x: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  .pg { animation-duration: .3s; animation-timing-function: var(--ease-out); }
+  .scrim { animation: fade .24s ease; }
+  .sheet { animation: slidein .36s var(--ease-out); }
+  @keyframes slidein { from { transform: translateY(46px); opacity: 0; } }
+  .post.wide .sheet { animation: pop .24s var(--ease-out); }
+  .toast { animation: toastin .34s var(--ease-out); }
+  @keyframes toastin { from { transform: translateY(16px) scale(.97); opacity: 0; } }
+  .bar.sel { animation: barin .3s var(--ease-out); }
+  @keyframes barin { from { transform: translateY(14px); opacity: 0; } }
+  .bn, .cleanbar { animation: bnin .28s var(--ease-out); }
+  @keyframes bnin { from { transform: translateY(-6px); opacity: 0; } }
+  .vwrap.slide-next { animation: vfwd .3s var(--ease-out); }
+  .vwrap.slide-prev { animation: vback .3s var(--ease-out); }
+  @keyframes vfwd { from { opacity: 0; transform: translateX(32px); } }
+  @keyframes vback { from { opacity: 0; transform: translateX(-32px); } }
+  .tcard.top { animation: cardin .3s var(--ease-out); }
+  @keyframes cardin { from { transform: scale(.95) translateY(10px); opacity: .5; } }
+  .swipe-fg.settle { transition: transform .3s var(--ease-out); }
+  .pill, .tab, .sb-it, .row, .it { transition: background-color .18s ease, color .18s ease, box-shadow .18s ease, transform .12s ease; }
+  .sw { transition: background .2s ease; } .sw::after { transition: transform .26s var(--ease-out); }
+  .pill .n, .bdg { transition: transform .2s var(--ease-out), opacity .2s ease; }
+  .row .dot { transition: transform .2s var(--ease-out), opacity .2s ease; }
+  .prog i { transition: width .35s var(--ease-out); }
+  .sw-row { transition: max-height .26s var(--ease-out), opacity .18s ease; }
+  .row.active { transition: background-color .2s ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scrim, .sheet, .toast, .viewer, .post.wide .sheet { animation: none; }
+}
 .tstamp { position: absolute; top: 20px; padding: 6px 14px; border-radius: 12px; font: 700 15px var(--font-h); letter-spacing: .04em; text-transform: uppercase; border: 2px solid currentColor; opacity: 0; pointer-events: none; }
 .tstamp.r { left: 20px; color: var(--ink); transform: rotate(-8deg); } .tstamp.l { right: 20px; color: var(--at); transform: rotate(8deg); }
 
@@ -361,7 +396,7 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post.wide { max-width: none; box-shadow: none; }
 .post.wide .pg { animation: none; }
 .dsk { position: absolute; inset: 0; display: flex; background: var(--bg); }
-.sb { width: 248px; flex: none; background: var(--card); border-right: 1px solid var(--ln); display: flex; flex-direction: column; padding: 18px 12px 12px; overflow-y: auto; }
+.sb { width: var(--sbw, 248px); flex: none; background: var(--card); border-right: 1px solid var(--ln); display: flex; flex-direction: column; padding: 18px 12px 12px; overflow-y: auto; }
 .sb-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 16px; font: 700 22px var(--font-h); letter-spacing: -.02em; }
 .sb-mark { width: 34px; height: 34px; border-radius: 10px; background: #1E2430; display: flex; align-items: center; justify-content: center; }
 .sb-compose { flex: none; height: 42px; width: 100%; font-size: 14.5px; margin-bottom: 14px; box-shadow: none; }
@@ -376,7 +411,22 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .sb-h { font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--mu); margin: 20px 12px 6px; }
 .sb-sp { flex: 1; min-height: 16px; }
 .sb-sync { margin: 6px 12px 0; font-size: 12px; color: var(--mu); }
-.dsk-list { width: 392px; flex: none; position: relative; border-right: 1px solid var(--ln); }
+.dsk-list { width: max(300px, min(var(--listw, 392px), calc(100vw - var(--sbw, 248px) - 380px))); flex: none; position: relative; border-right: 1px solid var(--ln); }
+/* the dividers between the panes: a zero-width slot in the row with a wider grab strip across it */
+.dsk-split { width: 0; flex: none; position: relative; z-index: 6; }
+.dsk-split i { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: col-resize; }
+.dsk-split i::after { content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px; background: transparent; transition: background-color .15s ease; }
+.dsk-split i:hover::after, .dsk-split i.on::after { background: color-mix(in srgb, var(--ac) 55%, transparent); }
+body.resizing { cursor: col-resize; user-select: none; } body.resizing * { cursor: col-resize !important; }
+/* icons only: a sidebar pulled narrow, or a window under 1100 px */
+.dsk.mini .sb { padding: 14px 8px 10px; }
+.dsk.mini .sb-brand { justify-content: center; padding: 2px 0 14px; } .dsk.mini .sb-brand b { display: none; }
+.dsk.mini .sb-compose { font-size: 0; gap: 0; padding: 0; }
+.dsk.mini .sb-it { font-size: 0; gap: 0; justify-content: center; padding: 0 !important; position: relative; }
+.dsk.mini .sb-t, .dsk.mini .sb-it kbd, .dsk.mini .sb-sync, .dsk.mini .sb-hrow button { display: none; }
+.dsk.mini .sb-h { font-size: 0; margin: 12px 8px 6px; height: 1px; background: var(--ln); }
+.dsk.mini .sb-n { position: absolute; top: 3px; right: 4px; margin: 0; font-size: 10px; line-height: 1; }
+.dsk.mini .sb-it.drop-on { box-shadow: inset 0 0 0 2px var(--ac); }
 .dsk-main { flex: 1; min-width: 0; position: relative; }
 .dsk-full { flex: 1; min-width: 0; position: relative; }
 .dsk-full .pg { align-items: center; }
@@ -394,6 +444,15 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .tool .ic { color: var(--mu); }
 .tool.icon { width: 36px; padding: 0; justify-content: center; } .tool.icon .ic { color: var(--ink); }
 .tool.opt .tl { display: none; } .tool.opt { width: 36px; padding: 0; justify-content: center; }
+/* a narrow reading pane (a window under about 1220 px): icons only, and the less used buttons wait in More */
+@media (max-width: 1219px) {
+  .tools .tool:not(.opt):not(.icon) { font-size: 0; gap: 0; width: 36px; padding: 0; justify-content: center; }
+  .tools .tool .ic { color: var(--ink); }
+  .dsk-main .pg > .nav { padding: 9px 10px; gap: 2px; }
+  .dsk-main .nav .pos { display: none; }
+  .tsep { margin: 0 2px; }
+}
+@media (max-width: 1019px) { .tools .tool.opt[title="Forward"] { display: none; } .dsk-main .nav .btn { width: 34px; } }
 @media (min-width: 1480px) { .tool.opt .tl { display: inline; } .tool.opt { width: auto; padding: 0 10px; } }
 .tsep { width: 1px; height: 20px; background: var(--ln); margin: 0 6px; flex: none; }
 .dsk-list .pg { background: var(--bg); }
@@ -481,7 +540,7 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .hd .sub { margin: 4px 0 0; }
 .it.fr { min-height: 54px; }
 .it.fr.nested { padding-left: calc(16px + var(--d, 0) * 22px); }
-.it.fr .cnt { font-size: 14.5px; font-weight: 700; color: var(--at); }
+.it.fr .cnt { font-size: 14.5px; font-weight: 700; color: var(--ink); }
 .it.fr .cnt.mu { color: var(--mu); font-weight: 600; }
 .it.fr .v .ic { color: var(--mu); }
 .tg.dr { color: var(--at); border-color: color-mix(in srgb, var(--at) 38%, var(--ln)); }
@@ -526,9 +585,9 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post[data-look="calm"] .sec { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; padding: 14px 16px 6px; }
 .post[data-look="calm"] .sec + .card { margin: 0; border-radius: 0; border-block: var(--hair) solid var(--ln); }
 .post[data-look="calm"] .sw-row { border-top: 0; }
-.post[data-look="calm"] .row::after { content: ''; position: absolute; left: calc(28px + var(--av) + 12px); right: 0; bottom: 0; border-bottom: var(--hair) solid var(--ln); }
+.post[data-look="calm"] .row::after { content: ''; position: absolute; left: calc(18px + var(--av) + 12px); right: 0; bottom: 0; border-bottom: var(--hair) solid var(--ln); }
 .post[data-look="calm"] .sw-row:last-child .row::after { display: none; }
-.post[data-look="calm"] .dot { left: 10px; }
+
 .post[data-look="calm"] .who { font-size: 16px; }
 .post[data-look="calm"] .sj { font-size: 15px; }
 .post[data-look="calm"] .pv { font-size: 14px; }
@@ -569,3 +628,161 @@ kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 
 .post[data-look="calm"] .it.fr .cnt { color: var(--mu); font-weight: 400; }
 .post[data-look="calm"] .tg.dr { border-color: transparent; background: var(--tint); color: var(--ti); }
 .post.wide[data-look="calm"] .sb-h.sub { text-transform: none; }
+
+/* One sender's row in Transactions, Updates and Promotions: a tap opens it up to show their conversations, a little indented under it. */
+.row.digest .dchev { margin-left: auto; flex: none; color: var(--mu); display: inline-flex; transition: transform .2s ease; }
+.row.digest .dchev.on { transform: rotate(90deg); }
+.dkids { background: color-mix(in srgb, var(--bg) 55%, var(--card)); box-shadow: inset 3px 0 0 var(--ln); }
+.dkids > .sw-row:first-child { border-top: var(--hair) solid var(--ln); }
+@media (prefers-reduced-motion: no-preference) { .dkids { animation: dkin .22s var(--ease-out); } @keyframes dkin { from { opacity: 0; transform: translateY(-6px); } } }
+@media (prefers-reduced-motion: reduce) { .row.digest .dchev { transition: none; } }
+
+/* Subscriptions page: the sender's two small lines sit tight under the name. */
+.it.subrow { align-items: flex-start; padding-top: 10px; padding-bottom: 10px; }
+.it.subrow .v { align-self: center; }
+.it.subrow .rw small { overflow-wrap: anywhere; }
+
+/* The trash can at the side of a row: delete without opening. On a phone it is always there, small and faint so it does not compete with the mail (the touch target stays 44 px). On a computer a small pill of Archive, Mark unread and Delete shows when the pointer is over the row, as in Outlook, and the time makes room for it. */
+.swipe-fg.has-trash .row { padding-right: 58px; }
+.rowacts { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; }
+.rowacts .ra.x { display: none; }
+.rowtrash { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--mu); border-radius: 12px; opacity: .5; }
+.rowtrash .ic { width: 17px; height: 17px; }
+.rowtrash:active { background: color-mix(in srgb, var(--bad) 14%, var(--card)); color: var(--bad); opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .swipe-fg.has-trash .row { padding-right: 16px; }
+  .rowacts { top: 8px; transform: none; right: 10px; height: 34px; padding: 0 3px; border-radius: 17px; background: var(--card); box-shadow: 0 1px 6px rgba(0,0,0,.14), inset 0 0 0 1px var(--ln); opacity: 0; transition: opacity .12s ease; }
+  .rowacts .ra.x { display: grid; }
+  .swipe-fg:hover .rowacts, .rowacts:focus-within { opacity: 1; }
+  .rowacts .ra { width: 36px; height: 30px; border-radius: 15px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink); opacity: 1; transition: background .12s ease, color .12s ease; }
+  .rowacts .rowtrash .ic { width: 18px; height: 18px; }
+  .rowacts .ra:hover { background: color-mix(in srgb, var(--ink) 9%, var(--card)); }
+  .rowacts .rowtrash:hover { background: color-mix(in srgb, var(--bad) 14%, var(--card)); color: var(--bad); }
+  .swipe-fg:hover .tm, .swipe-fg:has(.rowacts:focus-within) .tm { opacity: 0; }
+  .tm { transition: opacity .12s ease; }
+}
+
+/* New folder: the small buttons beside a heading. */
+.lbl.lblrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lbl.lblrow .link { display: inline-flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; font-size: 13.5px; font-weight: 600; min-height: 44px; margin: -10px 0; }
+.sb-hrow { display: flex; align-items: center; justify-content: space-between; }
+.sb-plus { display: grid; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; color: var(--mu); border-radius: 6px; }
+.sb-plus:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); color: var(--ink); }
+
+/* Dragging mail: the folders it may be dropped on light up (a mouse), and the strip of folders a long press brings in (a touch screen). */
+.sb-it.drop-on { background: color-mix(in srgb, var(--ac) 16%, var(--card)); box-shadow: inset 0 0 0 2px var(--ac); color: var(--ink); }
+body.dragging-mail .sb-it > * { pointer-events: none; }
+.swipe-fg { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.swipe-fg.held { background: color-mix(in srgb, var(--ac) 12%, var(--card)); box-shadow: 0 10px 28px rgba(0,0,0,.28); z-index: 4; }
+.carry { position: absolute; z-index: 6; left: 10px; right: 10px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); border-radius: var(--r-bar); padding: 10px 6px 10px 12px; background: var(--gl); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6); border: 1px solid var(--ge); box-shadow: var(--sh); }
+.carry-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 8px 8px 0; font-size: 13.5px; }
+.carry-h .link { min-height: 32px; font-weight: 600; }
+.carry-chips { display: flex; flex-wrap: wrap; gap: 8px; max-height: 38vh; overflow-y: auto; padding: 2px 8px 4px 0; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.carry-chips::-webkit-scrollbar { display: none; }
+.cchip { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 46px; max-width: 100%; padding: 6px 14px; border-radius: 16px; border: 1px solid var(--ln); background: var(--card); color: var(--ink); font-size: 14.5px; font-weight: 600; text-align: left; }
+.cchip small { display: block; font-size: 11px; font-weight: 500; color: var(--mu); }
+.cchip.over { background: var(--ac); color: var(--on); border-color: var(--ac); transform: scale(1.04); }
+.cchip.over small { color: inherit; opacity: .85; }
+
+/* ---- UI polish: calmer colour, a fade under the floating bar, gentler motion ---- */
+/* Orange is for what you can do (compose, Triage, the main button) and for the unread dot; counts are plain ink so they stop shouting. */
+.un .n { color: var(--ink); }
+.un.on .n { color: var(--bg); }
+.pill .n { color: var(--ink); }
+.pills[aria-label="Mail categories"] .pill .n { background: var(--ink); color: var(--bg); }
+.bdg { background: var(--ink); color: var(--bg); }
+.sb-n { color: var(--ink); }
+.row.active { --rb: color-mix(in srgb, var(--ac) 9%, var(--card)); }
+.swipe-fg.held .dot { box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ac) 12%, var(--card)); }
+.post[data-look="calm"] .pills[aria-label="Mail categories"] .pill.on .n { background: var(--ink); color: var(--bg); }
+/* Mail no longer shows through the floating bar: the list fades into the page colour underneath it. */
+.pg:has(> .tabs)::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(env(safe-area-inset-bottom, 0px) + 104px); background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 62%, var(--bg)); pointer-events: none; z-index: 4; }
+.post[data-look="calm"] .pg:has(> .tabs)::after { display: none; }
+.post.wide .pg:has(> .tabs)::after { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  /* a row that goes (archive, delete) slides a little the way it leaves while the list closes up */
+  .sw-row { transition: max-height .24s cubic-bezier(.4, 0, .2, 1), opacity .18s ease, border-top-width .24s ease; }
+  .sw-row.leaving .swipe-fg { transition: transform .22s cubic-bezier(.4, 0, .2, 1); transform: translateX(-28px); }
+  /* Calm: the line under the tab you are on draws itself in instead of jumping */
+  .post[data-look="calm"] .pill.on::before { transform-origin: left; animation: ulin .22s var(--ease-out); }
+  @keyframes ulin { from { transform: scaleX(0); opacity: .4; } }
+  .pill, .tab { transition: background-color .2s ease, color .2s ease, box-shadow .2s ease, transform .12s ease; }
+}
+
+/* the "Learn more" at the end of a note: a plain link with a 44 px reach */
+.note .more-hint { display: inline; position: relative; border: 0; background: transparent; padding: 0; color: var(--at); font: inherit; font-weight: 600; }
+.note .more-hint::after { content: ''; position: absolute; inset: -14px -8px; }
+
+/* reader: recipients and the full date open under the sender when asked for */
+.mh .s .det-btn { display: inline-flex; align-items: center; gap: 2px; position: relative; border: 0; background: transparent; padding: 0; color: var(--mu); font: inherit; }
+.mh .s .det-btn::after { content: ''; position: absolute; inset: -14px -8px; }
+.det { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 6px 0 2px; font-size: 12.5px; line-height: 1.4; color: var(--mu); }
+.det dt { font-weight: 600; color: var(--ink); } .det dd { margin: 0; overflow-wrap: anywhere; }
+/* a phone shows several files as one row of tiles you swipe through, not a tall list */
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) { display: flex; gap: 8px; overflow-x: auto; background: transparent; padding: 0 0 2px; scrollbar-width: none; scroll-snap-type: x proximity; border-radius: 0; margin: 12px 0 0; padding-inline: 12px; scroll-padding-inline: 12px; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2))::-webkit-scrollbar { display: none; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file { flex: none; width: 210px; border: 0; background: var(--bg); border-radius: 12px; scroll-snap-align: start; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file .fc { display: none; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file.more-files, .post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .file.warn-row { width: 150px; }
+.mh:has(.det) { align-items: flex-start; }
+.post:not(.wide) .files:not(.out):has(.file:nth-child(2)) .fn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mh .s:has(.det-btn) { overflow: visible; white-space: normal; }
+
+/* the More menu: its rows come in groups (reply, organise, senders, delete) with a little air between them */
+.sheet .card + .card { margin-top: 12px; }
+.sheet .card:empty { display: none; }
+
+/* Triage: the next-line and the four buttons sit at the bottom whatever the card's height, so the thumb always finds them in the same place */
+.stack + .nx { margin-top: auto; }
+
+.empty .eico { width: 68px; height: 68px; border-radius: 22px; background: var(--tint); color: var(--ti); display: grid; place-items: center; margin: 0 auto 16px; }
+
+/* A shorter top: the sync line is slimmer, the Unread filter sits inside the search bar (and in the sync line once the search has scrolled away), and the tab row tucks away while you read down the list. */
+.sync-row { margin-top: 0; }
+.sync-row .sync { height: 30px; }
+.fold > div { position: relative; }
+.fold:not(.min) > div { overflow: visible; }
+.fold .un { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); height: 30px; padding: 0 10px; font-size: 12.5px; background: var(--bg); box-shadow: none; z-index: 2; }
+.fold .un.on { background: var(--ink); }
+.post.wide .fold .un { right: 24px; }
+.find { padding-right: 96px; }
+.tabsfold.min { pointer-events: none; }
+.fold .un::after { content: ''; position: absolute; inset: -7px -6px; }
+.tabsfold { grid-template-columns: minmax(0, 1fr); } .tabsfold > div { min-width: 0; }
+
+/* ---- right-click menu and quick actions (Ctrl/Cmd+K) on a computer ---- */
+.cm { position: fixed; z-index: 70; min-width: 210px; padding: 6px; border-radius: 12px; background: var(--card); border: 1px solid var(--ln); box-shadow: 0 12px 40px rgba(0,0,0,.2); }
+.cm-it { display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 14px; font-weight: 500; text-align: left; }
+.cm-it .ic { color: var(--mu); } .cm-it.bad, .cm-it.bad .ic { color: var(--bad); }
+.cm-it:hover, .cm-it:focus-visible { background: var(--tint); color: var(--ti); outline: 0; } .cm-it:hover .ic { color: var(--ti); }
+.cm-sep { height: 1px; margin: 5px 6px; background: var(--ln); }
+.pal-bg { position: fixed; inset: 0; z-index: 80; background: rgba(20,24,34,.38); display: flex; justify-content: center; align-items: flex-start; padding-top: min(14vh, 120px); }
+.pal { width: min(600px, calc(100vw - 32px)); max-height: min(70vh, 560px); display: flex; flex-direction: column; border-radius: 14px; background: var(--card); border: 1px solid var(--ln); box-shadow: 0 18px 60px rgba(0,0,0,.3); overflow: hidden; }
+.pal-in { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 54px; flex: none; border-bottom: 1px solid var(--ln); color: var(--mu); }
+.pal-in input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; color: var(--ink); height: 100%; }
+.pal-list { overflow-y: auto; padding: 6px; }
+.pal-h { padding: 10px 12px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); }
+.pal-it { display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 14.5px; font-weight: 500; text-align: left; }
+.pal-it .ic { color: var(--mu); } .pal-it small { margin-left: auto; color: var(--mu); font-size: 12.5px; }
+.pal-it.on { background: var(--tint); color: var(--ti); } .pal-it.on .ic { color: var(--ti); }
+.pal-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-none { margin: 0; padding: 18px 12px; color: var(--mu); font-size: 14px; }
+
+/* ---- computer: thin quiet scrollbars, and Settings with a section list instead of one long phone column ---- */
+.post.wide, .post.wide * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 28%, transparent) transparent; }
+.post.wide ::-webkit-scrollbar { width: 10px; height: 10px; }
+.post.wide ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ink) 26%, transparent); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+.post.wide ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink) 45%, transparent); background-clip: content-box; }
+.post.wide ::-webkit-scrollbar-track { background: transparent; }
+/* the whole settings page scrolls at the edge of the window, under a bar that stays */
+.dsk-set .pg { overflow-y: auto; display: block; }
+.dsk-set .pg > .nav { position: sticky; top: 0; z-index: 5; background: var(--bg); margin: 0 auto; max-width: 720px; width: 100%; }
+.dsk-set .pg > .ttl, .dsk-set .pg > .set-grid, .dsk-set .pg > .scroll { margin-left: auto; margin-right: auto; max-width: 720px; width: 100%; }
+.dsk-set .pg:has(> .set-grid) > .nav, .dsk-set .pg:has(> .set-grid) > .ttl, .dsk-set .pg > .set-grid { max-width: 960px; }
+.dsk-set .pg > .scroll, .dsk-set .set-grid > .scroll { overflow: visible; padding-bottom: 60px; }
+.set-grid { display: grid; grid-template-columns: 200px minmax(0, 720px); gap: 32px; align-items: start; }
+.set-nav { position: sticky; top: 64px; display: flex; flex-direction: column; gap: 2px; padding: 8px 0 0 12px; }
+.set-link { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font-size: 14px; font-weight: 600; text-align: left; }
+.set-link .ic { color: var(--mu); }
+.set-link:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.lbl[id^="set-"] { scroll-margin-top: 64px; }

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { folderKey, type Controller } from '../core/controller.ts';
+import { folderKey, mailCounts, type Controller } from '../core/controller.ts';
 import { themeVars } from '../core/settings.ts';
 import { Compose } from './Compose.tsx';
 import { FolderList, FoldersScreen } from './Folders.tsx';
@@ -12,18 +12,23 @@ import { AccountsSheet } from './Accounts.tsx';
 import { ErrorBoundary } from './Crash.tsx';
 import { Connecting, Login, SignedInElsewhere, SignInFailed, WaitingForMicrosoft, cleanUrl, readCallback } from './signin.tsx';
 import { Desktop } from './Desktop.tsx';
-import { Ctx, go, targetOfRoute, useDark, useRoute, useS, useWide } from './ctx.tsx';
+import { Ctx, go, targetOfRoute, useC, useDark, useRoute, useS, useWide } from './ctx.tsx';
 import { Mark } from './ui.tsx';
+import { healthInput } from './Health.tsx';
+import { copyText } from './recover.ts';
+import { healthReport } from '../core/health.ts';
 
 function Toasts() {
   const s = useS();
+  const c = useC();
+  const [copied, setCopied] = useState<number | null>(null);
   const route = useRoute();
   const t = s.toast;
   if (!t) return null;
   // On the triage screen the buttons are at the bottom, so the message goes to the top instead of covering them.
   return (
     <div className={`toast-dock${route.name === 'triage' ? ' top' : ''}`} aria-live="polite">
-      <div className="toast" key={t.id} role="status"><span>{t.text}</span>{t.undo && <button className="undo" onClick={() => { const u = t.undo!; u(); }}>Undo</button>}</div>
+      <div className="toast" key={t.id} role="status"><span>{t.text}</span>{t.undo && <button className="undo" onClick={() => { const u = t.undo!; u(); }}>Undo</button>}{t.fail && <button className="undo" onClick={() => { void copyText(healthReport(healthInput(c, s, Date.now()))).then((ok) => setCopied(ok ? t.id : null)); }}>{copied === t.id ? 'Copied' : 'Copy report'}</button>}</div>
     </div>
   );
 }
@@ -40,6 +45,10 @@ function Shell() {
   const [adding, setAdding] = useState<{ hint?: string } | null>(null);
   const ctl = useCtl();
   const handled = useRef(false);
+
+  // The tab's title carries what is waiting in Primary (all mailboxes), like the number on the icon, so new mail shows from another tab.
+  const waiting = s.ready && s.accounts.length ? mailCounts({ mail: s.mail, accountFilter: null, settings: s.settings }, Date.now()).byKind.person.unread : 0;
+  useEffect(() => { document.title = waiting > 0 ? `(${waiting > 99 ? '99+' : waiting}) Post` : 'Post'; }, [waiting]);
 
   // Coming back from Microsoft's sign-in page: finish it. Works in whichever window Microsoft sent us to.
   useEffect(() => {

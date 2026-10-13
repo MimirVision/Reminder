@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { folderKey, mailCounts, type Draft, type FolderTarget, type State } from '../core/controller.ts';
 import { dayGroup } from '../core/format.ts';
-import { FOLDER_ICON, FOLDER_NAME, placeActions, STANDARD_KINDS, type Way } from '../core/folders.ts';
+import { DELETE_WAY, FOLDER_ICON, FOLDER_NAME, placeActions, STANDARD_KINDS, type Way } from '../core/folders.ts';
 import type { Route } from '../core/route.ts';
 import { mailKey, type FolderKind, type Mail } from '../core/types.ts';
-import { Banner, Icon, Sheet } from './ui.tsx';
+import { Banner, EmptyIcon, Hint, Icon, Sheet } from './ui.tsx';
 import { folderTitle, go, labelOf, openMail, resolveAccount, routeOfFolder, useC, useNow, useRoute } from './ctx.tsx';
 import { Row, Skeleton, StatusBanners, SwipeRow } from './Inbox.tsx';
 import { MoveSheet, moveWay } from './Move.tsx';
+import { NewFolderSheet } from './NewFolder.tsx';
+import { DropButton, useCarry } from './Carry.tsx';
 import { Tabs } from './Tabs.tsx';
 
 // The Folders tab (what Outlook has besides the inbox), the list of one folder, and the folders in the sidebar of the computer layout.
@@ -57,6 +59,8 @@ export function FoldersScreen({ s }: { s: State }) {
   const scope = many ? s.accountFilter : null;
   const mailboxes = s.accounts.filter((a) => !a.needsSignIn && (!scope || a.email === scope));
   const mine = (email: string) => s.folders.filter((f) => f.account === email && f.kind === 'other');
+  const [making, setMaking] = useState<{ account: string } | null>(null);
+  const head = (title: string, email: string) => <div className="lbl lblrow"><span>{title}</span><button className="link" aria-label={`New folder in ${title}`} onClick={() => setMaking({ account: email })}><Icon n="plus" size={14} />New folder</button></div>;
   return (
     <div className="pg">
       <header className="hd">
@@ -79,21 +83,22 @@ export function FoldersScreen({ s }: { s: State }) {
           if (!own.length) {
             if (s.foldersLoading) return <div key={a.email}><div className="lbl">{title}</div><p className="note" role="status">Reading your folders…</p></div>;
             if (s.foldersError) return null; // the banner above says so
-            return <div key={a.email}><div className="lbl">{title}</div><p className="note">None yet. Folders you make in Outlook show up here.</p></div>;
+            return <div key={a.email}>{head(title, a.email)}<p className="note">None yet. Make one here, or in Outlook, and it shows up in both.</p></div>;
           }
           return (
             <div key={a.email}>
-              <div className="lbl">{title}</div>
+              {head(title, a.email)}
               <div className="card">
                 {own.map((f) => <FolderRow key={f.id} icon="folder" name={f.name} n={f.unread} depth={f.depth} where={f.depth === 0 && f.where ? `in ${f.where}` : undefined} onClick={() => go(routeOfFolder({ kind: 'other', account: a.email, id: f.id }))} />)}
               </div>
             </div>
           );
         })}
-        <p className="note">Outlook keeps these folders, so Post reads them when you open one and needs a connection to do it. Moving, archiving and deleting here work the same as in the inbox, with the same Undo.</p>
+        <Hint short="Outlook keeps these folders; Post needs a connection to open one.">Outlook keeps these folders, so Post reads them when you open one and needs a connection to do it. Moving, archiving and deleting here work the same as in the inbox, with the same Undo.</Hint>
       </div>
       <Tabs at="folders" s={s} />
       <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>
+      {making && <NewFolderSheet s={s} account={making.account} onClose={() => setMaking(null)} />}
     </div>
   );
 }
@@ -125,12 +130,15 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState(false);
   const [erase, setErase] = useState<'all' | 'picked' | null>(null);
+  const [submaking, setSubmaking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const cr = useCarry(s, () => exit());
   const sentinel = useRef<HTMLDivElement>(null);
   const sentSeen = useRef(s.sent);
   const { pull, bind } = usePull(() => void c.refreshFolder());
 
   useEffect(() => { void c.loadFolders(); void c.openFolder(target); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setSelecting(false); setPicked(new Set()); setErase(null); setMoving(false); }, [key]); // another folder: nothing stays picked
+  useEffect(() => { setSelecting(false); setPicked(new Set()); setErase(null); setMoving(false); setDeleting(false); }, [key]); // another folder: nothing stays picked
 
   // Coming back to Post, or back online, shows what Outlook has now (a folder read a moment ago is not read again).
   useEffect(() => {
@@ -178,6 +186,26 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const chosen = items.filter((m) => picked.has(m.key));
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const exit = () => { setSelecting(false); setPicked(new Set()); };
+  // What a row carries when it is lifted or dragged: itself, or, while picking, everything picked (and the row it is held on).
+  // With a mouse: Ctrl/Cmd+click picks a row and Shift+click a stretch, without pressing Select first. Esc lets go of the choice.
+  const lastPick = useRef<string | null>(null);
+  const modClick = (e: React.MouseEvent) => {
+    if (!(e.ctrlKey || e.metaKey || e.shiftKey) || !(typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches)) return;
+    const mk = (e.target as HTMLElement).closest('[data-mk]')?.getAttribute('data-mk');
+    const m = mk ? items.find((x) => x.key === mk) : undefined;
+    if (!m) return;
+    e.preventDefault(); e.stopPropagation(); setSelecting(true);
+    const from = lastPick.current ? items.findIndex((x) => x.key === lastPick.current) : -1, to = items.indexOf(m);
+    if (e.shiftKey && from >= 0) setPicked((p) => { const n = new Set(p); for (let i = Math.min(from, to); i <= Math.max(from, to); i++) n.add(items[i].key); return n; });
+    else toggle(m.key);
+    lastPick.current = m.key;
+  };
+  useEffect(() => {
+    if (!selecting) return;
+    const on = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.sheet')) exit(); };
+    window.addEventListener('keydown', on); return () => window.removeEventListener('keydown', on);
+  }, [selecting]); // eslint-disable-line react-hooks/exhaustive-deps
+  const carry = (m: Mail) => { const rows = selecting ? (picked.has(m.key) ? chosen : [...chosen, m]) : [m]; return { items: rows, rows: rows.length }; };
   const leave = (rows: Mail[], then: () => void) => {
     setLeaving((p) => new Set([...p, ...rows.map((m) => m.key)]));
     setTimeout(() => { then(); setLeaving((p) => { const n = new Set(p); rows.forEach((m) => n.delete(m.key)); return n; }); }, 200);
@@ -204,6 +232,8 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
         <div style={{ minWidth: 0 }}><h1 className="h1" style={{ overflowWrap: 'anywhere' }}>{title}</h1>{sub && <p className="sub" style={{ marginTop: 4 }}>{sub}</p>}</div>
         <div className="r">
           {items.length > 0 && <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>}
+          {target.kind === 'other' && info && <button className="btn" aria-label="New subfolder here" title="New subfolder here" onClick={() => setSubmaking(true)}><Icon n="plus" /></button>}
+          {target.kind === 'other' && info && <button className="btn" aria-label="Delete this folder" title="Delete this folder" onClick={() => setDeleting(true)}><Icon n="trash" /></button>}
           <button className="btn" aria-label="Update now" onClick={() => void c.refreshFolder()}><Icon n="refresh" /></button>
         </div>
       </header>
@@ -238,11 +268,11 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
         {groups.map((g) => (
           <section key={g.name}>
             <div className="sec">{g.name}</div>
-            <div className="card">
+            <div className="card" onClickCapture={modClick} onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}>
               {g.items.map((m) => {
                 const w = placeActions(m.fk ?? target.kind).swipe;
                 return (
-                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
+                  <SwipeRow key={m.key} leaving={leaving.has(m.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onDragged={() => { if (selecting) exit(); }} onTrash={placeActions(m.fk ?? target.kind).canDelete ? () => act(m, DELETE_WAY) : undefined} drag={target.kind === 'drafts' ? undefined : () => carry(m)} onLift={target.kind === 'drafts' ? undefined : () => { const d = carry(m); cr.begin(d.items, d.rows); }} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={w.right.label} leftLabel={w.left.label} rightIcon={w.right.icon} leftIcon={w.left.icon} onRight={() => act(m, w.right)} onLeft={() => act(m, w.left)}>
                     <Row m={m} s={s} tag={false} selecting={selecting} selected={picked.has(m.key)} active={m.key === open} onToggle={() => toggle(m.key)} onOpen={() => openMail(m)} />
                   </SwipeRow>
                 );
@@ -251,7 +281,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
           </section>
         ))}
         {v?.more && <div ref={sentinel}>{v.paging ? <p className="note" role="status" style={{ textAlign: 'center', margin: '16px 0' }}>Reading more…</p> : <button className="more" onClick={() => void c.moreInFolder()}>Show more</button>}</div>}
-        {v && v.state === 'ready' && !items.length && !unsent && <div className="empty"><span className="big">{EMPTY[target.kind][0]}</span>{EMPTY[target.kind][1]}</div>}
+        {v && v.state === 'ready' && !items.length && !unsent && <div className="empty"><EmptyIcon n={FOLDER_ICON[target.kind] ?? 'folder'} /><span className="big">{EMPTY[target.kind][0]}</span>{EMPTY[target.kind][1]}</div>}
         {v && failedNow && (
           <div className="empty">
             <span className="big">{noNet ? 'No connection' : `Could not open ${title}`}</span>
@@ -260,7 +290,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
           </div>
         )}
       </div>
-      {selecting ? (
+      {selecting && !cr.active ? (
         <div className="bar sel" role="toolbar" aria-label="Actions for the selected messages">
           <button className="ib" aria-label="Select all" onClick={() => setPicked(new Set(items.map((m) => m.key)))}><Icon n="select" /></button>
           {place.primary
@@ -272,11 +302,21 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
             ? <button className="ib" aria-label="Delete" disabled={!chosen.length || busy} onClick={() => { const rows = chosen; exit(); leave(rows, () => void c.trash(rows, rows.length)); }}><Icon n="trash" /></button>
             : <button className="ib bad" aria-label="Delete for good" disabled={!chosen.length || busy} onClick={() => setErase('picked')}><Icon n="trash" /></button>}
         </div>
-      ) : (
+      ) : cr.active ? cr.strip : (
         <>
           {!pane && <Tabs at="folders" s={s} />}
           {!pane && <button className="fab" aria-label="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={26} /></button>}
         </>
+      )}
+      {cr.sheet}
+      {submaking && info && <NewFolderSheet s={s} account={info.account} parent={info.depth <= 1 ? info.id : undefined} onClose={() => setSubmaking(false)} />}
+      {deleting && info && (
+        <DeleteFolderSheet
+          name={info.name} total={info.total}
+          inside={(() => { const i = s.folders.indexOf(info); let n = 0; for (let j = i + 1; j < s.folders.length && s.folders[j].account === info.account && s.folders[j].kind === 'other' && s.folders[j].depth > info.depth; j++) n++; return n; })()}
+          onClose={() => setDeleting(false)}
+          onGo={async () => { const r = await c.deleteFolder(info.account, info.id); if (r.ok) { setDeleting(false); if (!pane) go({ name: 'folders' }); else go({ name: 'inbox' }); } return r.ok ? '' : r.error; }}
+        />
       )}
       {moving && chosen.length > 0 && <MoveSheet s={s} items={chosen} rows={chosen.length} onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
       {erase && (
@@ -287,6 +327,26 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
         />
       )}
     </div>
+  );
+}
+
+/** The question before a folder of your own is deleted: it says what goes with it, and that the folder is deleted in Outlook itself. */
+function DeleteFolderSheet({ name, total, inside, onClose, onGo }: { name: string; total: number; inside: number; onClose: () => void; onGo: () => Promise<string> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const mail = `${total} message${total === 1 ? '' : 's'}`;
+  return (
+    <Sheet title={`Delete the folder “${name}”?`} onClose={onClose}>
+      <p className="note" style={{ margin: '2px 8px 12px' }}>
+        The folder is deleted in Outlook itself, so it goes from your other devices too. {total > 0 ? `The ${mail} in it go${total === 1 ? 'es' : ''} with it` : 'It is empty'}{inside > 0 ? `, and so do the ${inside} folder${inside === 1 ? '' : 's'} inside it` : ''}.
+        {' '}Outlook puts it in Deleted Items first, where you can still find it there.
+      </p>
+      {error && <p className="note" role="alert" style={{ color: 'var(--bad)' }}>{error}</p>}
+      <div className="card">
+        <button className="it danger" disabled={busy} onClick={async () => { setBusy(true); setError(''); const e = await onGo(); setBusy(false); if (e) setError(e); }}><span className="ico"><Icon n="trash" /></span>{busy ? 'Deleting…' : 'Delete folder'}</button>
+        <button className="it" disabled={busy} onClick={onClose}><span className="ico"><Icon n="x" /></span>Keep it</button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -317,6 +377,7 @@ function EraseSheet({ what, onClose, onGo }: { what: { title: string; count: num
 export function SidebarFolders({ s, active }: { s: State; active: string | null }) {
   const c = useC();
   const now = useNow();
+  const [making, setMaking] = useState(false);
   useEffect(() => {
     void c.loadFolders();
     const on = () => { if (document.visibilityState === 'visible') void c.loadFolders(); };
@@ -330,14 +391,15 @@ export function SidebarFolders({ s, active }: { s: State; active: string | null 
   const item = (target: FolderTarget, icon: string, text: string, n: number, depth = 0, drafts = false) => {
     const k = folderKey(target);
     return (
-      <button key={k} className={`sb-it${active === k ? ' on' : ''}`} style={depth ? { paddingLeft: 12 + depth * 16 } : undefined} aria-current={active === k ? 'page' : undefined} title={text} onClick={() => go(routeOfFolder(target))}>
+      <DropButton key={k} s={s} dest={{ kind: target.kind, id: target.kind === 'other' ? target.id ?? '' : '', name: text, account: target.account }} className={`sb-it${active === k ? ' on' : ''}`} style={depth ? { paddingLeft: 12 + depth * 16 } : undefined} aria-current={active === k ? 'page' : undefined} title={text} onClick={() => go(routeOfFolder(target))}>
         <Icon n={icon} size={20} /><span className="sb-t">{text}</span>{n > 0 && <span className={`sb-n${drafts ? ' mu' : ''}`}>{n > 99 ? '99+' : n}</span>}
-      </button>
+      </DropButton>
     );
   };
   return (
     <>
-      <div className="sb-h">Folders</div>
+      <div className="sb-h sb-hrow"><span>Folders</span><button className="sb-plus" aria-label="New folder" title="New folder" onClick={() => setMaking(true)}><Icon n="plus" size={16} /></button></div>
+      {making && <NewFolderSheet s={s} account={scope ?? undefined} onClose={() => setMaking(false)} />}
       <nav className="sb-nav" aria-label="Folders">
         {STANDARD_KINDS.filter((kind) => kind !== 'inbox').map((kind) => item({ kind, ...(scope ? { account: scope } : {}) }, FOLDER_ICON[kind], FOLDER_NAME[kind], countOf(s, kind, scope, now), 0, kind === 'drafts'))}
       </nav>

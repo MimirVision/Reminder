@@ -3,10 +3,12 @@ import { mailCounts, type State } from '../core/controller.ts';
 import { ACCENTS, ACCOUNT_COLOURS, LOOKS, accountColour, lookChange, type Settings as Cfg } from '../core/settings.ts';
 import { sortingReport } from '../core/report.ts';
 import { asKind, KINDS, KIND_TAB, type Kind } from '../core/types.ts';
-import { Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
-import { go, useC, useNow } from './ctx.tsx';
+import { Hint, Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
+import { go, useC, useNow, useWide } from './ctx.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { Health, dotOf, useHealthLine } from './Health.tsx';
+import { Gone } from './Gone.tsx';
+import { Subscriptions, useSubscriptionsLine } from './Subscriptions.tsx';
 
 declare const __BUILD__: string;
 
@@ -24,7 +26,7 @@ function Pick<T extends string>({ icon, label, value, options, onChange }: { ico
 }
 
 const SWIPE: [Cfg['swipeRight'], string][] = [['archive', 'Archive'], ['read', 'Mark read'], ['flag', 'Flag'], ['delete', 'Delete']];
-const SWIPE_L: [Cfg['swipeLeft'], string][] = [['snooze', 'Snooze'], ['flag', 'Flag'], ['delete', 'Delete'], ['read', 'Mark read']];
+const SWIPE_L: [Cfg['swipeLeft'], string][] = [['flag', 'Flag'], ['delete', 'Delete'], ['read', 'Mark read']];
 
 /** Which settings page an address means. The phone layout and the computer layout both ask here, so a new page only needs adding once. */
 export function SettingsPage({ s, page, account }: { s: State; page: string; account?: string }) {
@@ -33,6 +35,8 @@ export function SettingsPage({ s, page, account }: { s: State; page: string; acc
     case 'hours': return <Hours s={s} email={account ?? ''} />;
     case 'appearance': return <Appearance s={s} />;
     case 'sorting': return <Sorting s={s} />;
+    case 'subscriptions': return <Subscriptions s={s} />;
+    case 'gone': return <Gone s={s} />;
     case 'health': return <Health s={s} />;
     default: return <Settings s={s} />;
   }
@@ -44,55 +48,65 @@ export function Settings({ s }: { s: State }) {
   const a = ACCENTS.find((x) => x.id === s.settings.accent) ?? ACCENTS[0];
   const alertsLine = s.alertsOn ? 'On' : 'Off';
   const health = useHealthLine(s);
+  const subsLine = useSubscriptionsLine(s);
+  const wide = useWide();
+  const jump = (id: string) => () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const sections: [string, string, string][] = [['alerts', 'bell', 'Alerts'], ['sorting', 'sliders', 'Sorting'], ['conversations', 'reply', 'Conversations'], ['privacy', 'lock', 'Privacy'], ['writing', 'edit', 'Writing'], ['appearance', 'eye', 'Appearance'], ['device', 'pulse', wide ? 'This computer' : 'This device']];
   return (
     <div className="pg">
       <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
       <div className="ttl"><h1 className="h1">Settings</h1></div>
+      <div className={wide ? 'set-grid' : 'set-one'}>
+      {wide && <nav className="set-nav" aria-label="Settings sections">{sections.map(([id, icon, text]) => <button key={id} type="button" className="set-link" onClick={jump(`set-${id}`)}><Icon n={icon} size={18} />{text}</button>)}</nav>}
       <div className="scroll">
-        <div className="lbl">Alerts</div>
+        <div className="lbl" id="set-alerts">Alerts</div>
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'alerts' })}><span className="ico"><Icon n="bell" /></span>Icon number & alerts<span className="v"><i className={`ok-dot${s.alertsOn ? '' : ' bad-dot'}`} />{alertsLine}<Icon n="chev" /></span></button>
         </div>
-        <div className="lbl">Sorting</div>
+        <div className="lbl" id="set-sorting">Sorting</div>
         <div className="card">
-          <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{Object.keys(s.overrides).length ? `${Object.keys(s.overrides).length} rule${Object.keys(s.overrides).length > 1 ? 's' : ''}` : 'Automatic'}<Icon n="chev" /></span></button>
+          <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{sortingLine(s)}<Icon n="chev" /></span></button>
+          <button className="it" onClick={() => go({ name: 'settings', page: 'subscriptions' })}><span className="ico"><Icon n="mail" /></span>Subscriptions<span className="v">{subsLine}<Icon n="chev" /></span></button>
         </div>
-        <div className="lbl">Conversations</div>
+        <div className="lbl" id="set-conversations">Conversations</div>
         <div className="card">
           <div className="it"><span className="ico"><Icon n="reply" /></span>Group replies together<Switch on={s.settings.threads} onChange={(v) => set({ threads: v })} label="Group replies together" /></div>
+          <div className="it"><span className="ico"><Icon n="inbox" /></span>One row per sender<Switch on={s.settings.digest} onChange={(v) => set({ digest: v })} label="One row per sender" /></div>
         </div>
-        <p className="note">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. Nothing is hidden: every message is still there.</p>
-        <div className="lbl">Swipe</div>
+        <Hint short="Replies are grouped into one row; one company's mail can share a row.">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. In Transactions, Updates and Promotions all of one sender's mail is one row too: tap it to see the conversations, swipe it to archive them all at once. Nothing is hidden: every message is still there.</Hint>
+        {!wide && <><div className="lbl">Swipe</div>
         <div className="card">
           <Pick icon="archive" label="Swipe right" value={s.settings.swipeRight} options={SWIPE} onChange={(v) => set({ swipeRight: v })} />
-          <Pick icon="clock" label="Swipe left" value={s.settings.swipeLeft} options={SWIPE_L} onChange={(v) => set({ swipeLeft: v })} />
-        </div>
-        <div className="lbl">Privacy</div>
+          <Pick icon="flag" label="Swipe left" value={s.settings.swipeLeft} options={SWIPE_L} onChange={(v) => set({ swipeLeft: v })} />
+        </div></>}
+        <div className="lbl" id="set-privacy">Privacy</div>
         <div className="card">
           <div className="it">Block remote images<Switch on={s.settings.blockImages} onChange={(v) => set({ blockImages: v })} label="Block remote images" /></div>
           <div className="it">Send read receipts<span className="v">Never</span></div>
           <div className="it">Add “Sent from Post”<span className="v">Never</span></div>
         </div>
         <p className="note">Remote images are how senders see that you opened a mail. They stay blocked until you tap Load once.</p>
-        <div className="lbl">Writing</div>
+        <div className="lbl" id="set-writing">Writing</div>
         <div className="card">
           <Pick label="Undo send" value={String(s.settings.undoSend)} options={[['0', 'Off'], ['5', '5 seconds'], ['10', '10 seconds'], ['20', '20 seconds'], ['30', '30 seconds']]} onChange={(v) => set({ undoSend: Number(v) })} />
           <div className="it" style={{ alignItems: 'flex-start', flexDirection: 'column', padding: '12px 16px' }}>Signature<textarea className="field" aria-label="Signature" rows={2} placeholder="None" value={s.settings.signature} onChange={(e) => set({ signature: e.target.value })} style={{ minHeight: 64, marginTop: 6 }} /></div>
         </div>
-        <p className="note">Undo works while Post is on screen. If you leave Post, what is waiting is sent right away, so it never gets stuck on a phone that has put Post to sleep.</p>
-        <div className="lbl">Appearance</div>
+        <Hint short="Undo works only while Post is on screen.">Undo works while Post is on screen. If you leave Post, what is waiting is sent right away, so it never gets stuck on a phone that has put Post to sleep.</Hint>
+        <div className="lbl" id="set-appearance">Appearance</div>
         <div className="card">
           <Pick label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => set(lookChange(s.settings, v))} />
           <button className="it" onClick={() => go({ name: 'settings', page: 'appearance' })}>Accent colour<span className="v"><i className="swatch" style={{ background: a.light }} />{a.name}<Icon n="chev" /></span></button>
-          <Pick label="Theme" value={s.settings.theme} options={[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => set({ theme: v })} />
+          <Pick label="Theme" value={s.settings.theme} options={[['system', wide ? 'Match system' : 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => set({ theme: v })} />
           <Pick label="Row size" value={s.settings.rowSize} options={[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]} onChange={(v) => set({ rowSize: v })} />
         </div>
-        <div className="lbl">This device</div>
+        <div className="lbl" id="set-device">{wide ? 'This computer' : 'This device'}</div>
         <div className="card">
+          <button className="it" onClick={() => go({ name: 'settings', page: 'gone' })}><span className="ico"><Icon n="search" /></span>Where did my mail go?<span className="v">{s.left.length ? `${s.left.length} noted` : 'Nothing yet'}<Icon n="chev" /></span></button>
           <button className="it" onClick={() => go({ name: 'settings', page: 'health' })}><span className="ico"><Icon n="pulse" /></span>Health<span className="v"><i className={dotOf(health.level)} />{health.text}<Icon n="chev" /></span></button>
           <ForgetRow />
         </div>
         <p className="note">Version {typeof __BUILD__ === 'string' ? __BUILD__ : 'dev'}</p>
+      </div>
       </div>
     </div>
   );
@@ -108,6 +122,7 @@ function ForgetRow() {
 
 export function Appearance({ s }: { s: State }) {
   const c = useC();
+  const wide = useWide();
   const emails = s.accounts.map((a) => a.email);
   return (
     <div className="pg">
@@ -116,15 +131,15 @@ export function Appearance({ s }: { s: State }) {
       <div className="scroll">
         <div className="lbl">Look</div>
         <div className="panel" style={{ marginTop: 0 }}><Seg label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => c.setSettings(lookChange(s.settings, v))} /></div>
-        <p className="note">Refined is warm, with rounded cards. Calm is plain and quiet, close to the apps that come with the phone. The same mail, the same buttons: only how it looks changes.</p>
+        <Hint short="Refined is warm; Calm is plain, like the iPhone's own apps.">Refined is warm, with rounded cards. Calm is plain and quiet, close to the apps that come with the phone. The same mail, the same buttons: only how it looks changes.</Hint>
         <div className="lbl">Accent colour</div>
         <div className="card"><div className="accent-grid" role="radiogroup" aria-label="Accent colour">
           {ACCENTS.map((a) => <button key={a.id} role="radio" aria-checked={s.settings.accent === a.id} className={`accent${s.settings.accent === a.id ? ' on' : ''}`} onClick={() => c.setSettings({ accent: a.id })}><i style={{ background: a.light }} />{a.name}</button>)}
         </div></div>
         <div className="lbl">Theme</div>
-        <div className="panel" style={{ marginTop: 0 }}><Seg label="Theme" value={s.settings.theme} options={[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => c.setSettings({ theme: v })} /></div>
-        <div className="card" style={{ marginTop: 10 }}><div className="it">Pure black in dark mode<Switch on={s.settings.pureBlack} onChange={(v) => c.setSettings({ pureBlack: v })} label="Pure black" /></div></div>
-        <p className="note">Pure black saves battery on iPhones with an OLED screen.</p>
+        <div className="panel" style={{ marginTop: 0 }}><Seg label="Theme" value={s.settings.theme} options={[['system', wide ? 'Match system' : wide ? 'Match system' : 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => c.setSettings({ theme: v })} /></div>
+        {!wide && <><div className="card" style={{ marginTop: 10 }}><div className="it">Pure black in dark mode<Switch on={s.settings.pureBlack} onChange={(v) => c.setSettings({ pureBlack: v })} label="Pure black" /></div></div>
+        <p className="note">Pure black saves battery on iPhones with an OLED screen.</p></>}
         <div className="lbl">Row size</div>
         <div className="panel" style={{ marginTop: 0 }}><Seg label="Row size" value={s.settings.rowSize} options={[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]} onChange={(v) => c.setSettings({ rowSize: v })} /></div>
         {s.accounts.length > 1 && (
@@ -143,12 +158,19 @@ export function Appearance({ s }: { s: State }) {
 }
 
 /** How the inbox is sorted: the four tabs and what is in them, the rules you made by moving a sender, and a report for improving the rules. */
+/** What the Settings row for sorting says: how many rules you made and how many senders are blocked. */
+function sortingLine(s: State): string {
+  const rules = Object.keys(s.overrides).filter((k) => !s.blocked.includes(k)).length;
+  const parts = [rules ? `${rules} rule${rules > 1 ? 's' : ''}` : '', s.blocked.length ? `${s.blocked.length} blocked` : '', s.muted.length ? `${s.muted.length} muted` : ''].filter(Boolean);
+  return parts.join(', ') || 'Automatic';
+}
+
 export function Sorting({ s }: { s: State }) {
   const c = useC();
   const now = useNow();
   // The sorting is about messages, so this page counts messages even when the list groups them into conversations.
   const counts = mailCounts({ mail: s.mail, accountFilter: null, settings: { ...s.settings, threads: false } }, now);
-  const rules = Object.entries(s.overrides).sort((a, b) => a[0].localeCompare(b[0]));
+  const rules = Object.entries(s.overrides).filter(([key]) => !s.blocked.includes(key)).sort((a, b) => a[0].localeCompare(b[0])); // a blocked sender is listed under Blocked senders
   const [report, setReport] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const copy = async () => {
@@ -161,7 +183,7 @@ export function Sorting({ s }: { s: State }) {
       <div className="nav"><button className="back" onClick={() => go({ name: 'settings', page: '' })}><Icon n="back" />Settings</button></div>
       <div className="ttl"><h1 className="h1">Sorting</h1></div>
       <div className="scroll">
-        <p className="note" style={{ marginTop: 8 }}>Post puts each message in one of four tabs, like iOS Mail. It looks at who sent it, what the subject says, and the hidden marks that bulk mail carries. Nothing is ever hidden: All shows everything, and a message it is unsure about stays in Primary.</p>
+        <Hint short="Four tabs, sorted by sender, subject and bulk-mail marks. Nothing is hidden." style={{ marginTop: 8 }}>Post puts each message in one of four tabs, like iOS Mail. It looks at who sent it, what the subject says, and the hidden marks that bulk mail carries. Nothing is ever hidden: All shows everything, and a message it is unsure about stays in Primary.</Hint>
         <div className="lbl">In your inbox now</div>
         <div className="card">
           {KINDS.map((k) => <div key={k} className="it"><span className="ico"><Icon n={KIND_ICON[k]} /></span>{KIND_TAB[k]}<span className="v">{counts.byKind[k].total}{counts.byKind[k].unread ? ` · ${counts.byKind[k].unread} unread` : ''}</span></div>)}
@@ -184,6 +206,37 @@ export function Sorting({ s }: { s: State }) {
             ))}
           </div>
         ) : <p className="note" style={{ marginTop: 0 }}>No rules yet. When a message is in the wrong tab, open it, tap Why, and move it: one tap fixes that sender from then on.</p>}
+        <div className="lbl">Blocked senders</div>
+        {s.blocked.length ? (
+          <div className="card">
+            {s.blocked.map((key) => (
+              <div key={key} className="it rule">
+                <span className="ico"><Icon n="ban" /></span>
+                <span className="rw">{key.startsWith('@') ? key.slice(1) : key}<small>{key.startsWith('@') ? 'Everything from this company' : 'This sender only'}</small></span>
+                <button className="btn plain" style={{ width: 'auto', height: 44, padding: '0 12px' }} aria-label={`Unblock ${key.startsWith('@') ? key.slice(1) : key}`} onClick={() => void c.unblock(key)}>Unblock</button>
+              </div>
+            ))}
+          </div>
+        ) : <p className="note" style={{ marginTop: 0 }}>Nobody is blocked. Open a message, tap More, then Block sender: their mail goes to Junk from then on.</p>}
+        <Hint short="Blocked mail goes to Junk while Post is open.">Blocked mail is moved to Junk, never deleted, whenever Post is open. While Post is closed it waits in your Outlook inbox until the next time you open Post. Mail you bring back from Junk stays where you put it.</Hint>
+        <div className="lbl">Muted conversations</div>
+        {s.muted.length ? (
+          <div className="card">
+            {s.muted.map((x) => (
+              <div key={x.key} className="it rule">
+                <span className="ico"><Icon n="bellOff" /></span>
+                <span className="rw">{x.subject}<small>New replies are archived</small></span>
+                <button className="btn plain" style={{ width: 'auto', height: 44, padding: '0 12px' }} aria-label={`Unmute ${x.subject}`} onClick={() => void c.unmute(x.key)}>Unmute</button>
+              </div>
+            ))}
+          </div>
+        ) : <p className="note" style={{ marginTop: 0 }}>No muted conversations. Open a message, tap More, then Mute conversation: it and its later replies go to Archive.</p>}
+        <Hint short="Muted mail goes to Archive while Post is open.">Mute works while Post is open. A reply that arrives while Post is closed may still give an alert and a number on the icon once; the next time you open Post it is archived. Muted mail is in Archive, never deleted. Mail you flag or bring back to the inbox stays.</Hint>
+        <div className="lbl">Clean up old promotions</div>
+        <div className="card">
+          <Pick label="Archive by itself" value={String(s.settings.autoClean)} options={[['0', 'Off'], ['3', 'After 3 days'], ['7', 'After 7 days'], ['14', 'After 14 days'], ['30', 'After 30 days']]} onChange={(v) => c.setSettings({ autoClean: Number(v) })} />
+        </div>
+        <Hint short="Old promotions are archived while Post is open, with an Undo.">Promotions older than this are archived while Post is open, with an Undo. Mail you flagged, mail Post has only guessed a tab for, and mail you brought back are left alone. Archived mail is still in Outlook, in Archive.</Hint>
         <p className="note">{s.serverSmart === false ? 'The icon number does not follow these tabs yet: your alert server still has the older code. See Settings, Alerts.' : 'The icon number follows these tabs too: when Alerts is set to Primary, mail from a sender you moved out of Primary does not count (people on your VIP list always do).'}</p>
         <div className="lbl">Help improve the sorting</div>
         <div className="card"><button className="it" onClick={() => void copy()}><span className="ico"><Icon n="copy" /></span>Copy sorting report</button></div>

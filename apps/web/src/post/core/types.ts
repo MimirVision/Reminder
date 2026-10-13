@@ -56,8 +56,6 @@ export interface Mail {
   sig?: string[];
   /** Outlook's own Focused/Other guess. Not used for sorting yet; kept for the sorting report. */
   inf?: 'focused' | 'other';
-  /** Hidden until this time (ISO). Snooze lives on this device. */
-  snoozedUntil?: string | null;
   // The rest is only set on mail read from a folder list (Sent, Drafts, Archive ...), which is never saved on the phone.
   /** Who it went to ("Anna Berg, Per +1"), for mail you sent or are writing. */
   to?: string;

@@ -4,6 +4,7 @@ import { FOLDER_NAME } from '../core/folders.ts';
 import { buildRoute, parseRoute, type Route } from '../core/route.ts';
 import { accountColour } from '../core/settings.ts';
 import type { Mail } from '../core/types.ts';
+import { openedFromSearch } from './searchKeep.ts';
 
 export const Ctx = createContext<Controller>(null as unknown as Controller);
 export const useC = () => useContext(Ctx);
@@ -15,7 +16,7 @@ export function useRoute(): Route {
   return parseRoute(hash);
 }
 /** Goes to a screen. `replace`: instead of this one, so Back skips it (what you just archived is not worth going back to). */
-export const go = (r: Route, opts: { replace?: boolean } = {}) => { if (opts.replace) location.replace(buildRoute(r)); else location.hash = buildRoute(r); };
+export const go = (r: Route, opts: { replace?: boolean } = {}) => { if (r.name !== 'search' && r.name !== 'message' && r.name !== 'compose') openedFromSearch(false); if (opts.replace) location.replace(buildRoute(r)); else location.hash = buildRoute(r); };
 export const back = (fallback: Route = { name: 'inbox' }) => { if (history.length > 1 && !(window as { __first?: boolean }).__first) history.back(); else go(fallback); };
 
 /** Opens a message: a draft goes to the editor (it is not read, it is finished), anything else to the reader. */
@@ -36,7 +37,7 @@ export const folderContext = (s: State, key: string | null): FolderView | null =
 export const folderTitle = (s: State, t: FolderTarget): string =>
   t.kind === 'other' ? s.folders.find((f) => f.account === t.account && f.id === t.id)?.name ?? 'Folder' : FOLDER_NAME[t.kind];
 
-/** Re-renders now and then so a snoozed message comes back on time without a reload. */
+/** Re-renders now and then, so times shown on screen (Today, Yesterday, ages) stay right without a reload. */
 export function useNow(ms = 30_000): number {
   const [n, setN] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setN(Date.now()), ms); return () => clearInterval(t); }, [ms]);
@@ -72,8 +73,8 @@ export function useMedia(query: string): boolean {
 
 /** True on a computer-sized window: the app shows a sidebar, the list and the reading pane side by side. */
 export const useWide = () => useMedia('(min-width: 900px)');
-/** True when the reading pane is wide enough for every action in a bar along its top; narrower, the pane keeps the floating bar of the phone. */
-export const useRoomyPane = () => useMedia('(min-width: 1220px)');
+/** True on every computer-sized window: the reading pane has its bar of actions along the top (icons only while the pane is narrow, see .tools in post.css). */
+export const useRoomyPane = () => useMedia('(min-width: 900px)');
 
 /** The mailbox an address in the URL means: a notification link carries the server's account id, the rest carry the address. */
 export const resolveAccount = (s: State, account: string) => s.accounts.find((a) => a.id === account || a.email === account)?.email ?? account;

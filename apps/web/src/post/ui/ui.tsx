@@ -1,6 +1,7 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { initials, senderHue } from '../core/format.ts';
 import type { Kind, Mail } from '../core/types.ts';
+import { useWide } from './ctx.tsx';
 
 const P: Record<string, string> = {
   back: 'm15 6-6 6 6 6',
@@ -21,6 +22,7 @@ const P: Record<string, string> = {
   reply: 'M9 7 4 12l5 5M4 12h9a7 7 0 0 1 7 7v1',
   replyAll: 'M7 7 2 12l5 5M12 7 7 12l5 5M7 12h6a7 7 0 0 1 7 7v1',
   forward: 'm15 7 5 5-5 5M20 12h-9a7 7 0 0 0-7 7v1',
+  bellOff: 'M6.5 6.5A6 6 0 0 1 18 8c0 3 .7 5 1.6 6.5M3 17h12M10.3 21a1.9 1.9 0 0 0 3.4 0M3 3l18 18',
   bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   paperclip: 'M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48',
@@ -115,3 +117,19 @@ export function Seg<T extends string>({ value, options, onChange, label }: { val
     </div>
   );
 }
+
+/** A note under a setting: one short line, and the whole explanation a tap away. */
+export function Hint({ short, style, children }: { short: string; style?: React.CSSProperties; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (useWide()) return <p className="note" style={style}>{children}</p>; // a computer has room: the whole note, no "Learn more"
+  return (
+    <p className="note" style={style}>
+      {open ? children : short}{' '}
+      <button type="button" className="more-hint" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Show less' : 'Learn more'}</button>
+    </p>
+  );
+}
+
+
+/** A round tinted icon above an empty screen's title: it says what the screen is for before you read a word. */
+export function EmptyIcon({ n }: { n: string }) { return <span className="eico" aria-hidden="true"><Icon n={n} size={30} /></span>; }
