@@ -1245,6 +1245,26 @@ export function createController(deps: Deps) {
       return { ok: true, folder };
     },
 
+    /**
+     * Deletes one of your own folders in Outlook (never a standard one such as Junk or Inbox). Outlook moves it, with what is in it, to Deleted Items.
+     * The caller has asked the person first. Answers with what to tell them when it did not work.
+     */
+    async deleteFolder(account: string, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+      const f = state.folders.find((x) => x.account === account && x.id === id);
+      if (!f || f.kind !== 'other') return { ok: false, error: 'Only folders you made yourself can be deleted. Outlook keeps its own folders.' };
+      const g = graphFor(account);
+      if (!g) return { ok: false, error: 'Sign in again to delete a folder.' };
+      try { await g.deleteFolder(id); } catch (e) {
+        note('folders', e);
+        return { ok: false, error: e instanceof GraphError && e.status === 0 ? 'No connection. The folder was not deleted.' : e instanceof GraphError && e.status === 403 ? 'Outlook did not allow Post to delete the folder.' : describe(e, 'Could not delete the folder.') };
+      }
+      set({ folders: state.folders.filter((x) => !(x.account === account && x.id === id)) });
+      if (state.folder?.target.kind === 'other' && state.folder.target.account === account && state.folder.target.id === id) set({ folder: null });
+      toast(`Deleted folder “${f.name}”`);
+      await api.loadFolders({ force: true }).catch(() => {});
+      return { ok: true };
+    },
+
     /** Makes a folder and moves the messages into it, as one step (Move to, New folder). */
     async moveToNewFolder(items: Mail[], account: string, name: string, parent: string | null = null, rows: number = items.length): Promise<{ ok: true; folder: FolderInfo } | { ok: false; error: string }> {
       const mine = items.filter((m) => m.account === account); // a folder belongs to one mailbox

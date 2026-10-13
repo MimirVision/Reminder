@@ -54,7 +54,9 @@ export function buildFolders(account: string, tree: FolderTree): FolderInfo[] {
   };
 
   const standard = STANDARD_KINDS.map((k) => [...raw.values()].find((f) => kindOfId.get(f.id) === k)).filter((f): f is RawFolder => !!f).map(info);
-  const own = [...raw.values()].filter((f) => !kindOfId.has(f.id));
+  // A folder that was deleted sits in Deleted Items until Outlook empties it: it is not one of your folders any more.
+  const inDeleted = (f: RawFolder) => above(f).some((p) => kindOfId.get(p.id) === 'deleted');
+  const own = [...raw.values()].filter((f) => !kindOfId.has(f.id) && !inDeleted(f));
   const kids = new Map<string, RawFolder[]>();
   for (const f of own) { const p = f.parentFolderId && own.some((x) => x.id === f.parentFolderId) ? f.parentFolderId : ''; kids.set(p, [...(kids.get(p) ?? []), f]); }
   const out: FolderInfo[] = [];
