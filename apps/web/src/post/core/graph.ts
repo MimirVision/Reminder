@@ -546,6 +546,14 @@ export function createGraph(deps: GraphDeps) {
       return (await request('POST', path, { displayName: name }, {}, { once: true })) as RawFolder;
     },
 
+    /**
+     * Deletes one of the person's own folders (never a standard one: the caller checks). Outlook takes the folder, and the mail and folders inside
+     * it, into Deleted Items. Asked once; a folder that is already gone counts as deleted.
+     */
+    async deleteFolder(id: string): Promise<void> {
+      try { await request('DELETE', `/me/mailFolders/${enc(id)}`, undefined, {}, { once: true }); } catch (e) { if (e instanceof GraphError && (e.status === 404 || e.status === 410)) return; throw e; }
+    },
+
     /** Where a message that left the inbox now is, found by who sent it and when it arrived (its id changes when Outlook moves it). Searches every folder. */
     async whereIs(address: string, receivedIso: string): Promise<{ id: string; parentFolderId: string }[]> {
       const a = address.replace(/'/g, "''");
