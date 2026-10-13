@@ -8,7 +8,7 @@ import { KIND_TAB, mailKey, type Mail } from '../core/types.ts';
 import { Compose } from './Compose.tsx';
 import { FolderList, SidebarFolders } from './Folders.tsx';
 import { Inbox } from './Inbox.tsx';
-import { searchKept } from './searchKeep.ts';
+import { openedFromSearch } from './searchKeep.ts';
 import { moveWay, MoveSheet } from './Move.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
@@ -137,7 +137,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
   const draftsOpen = route.name === 'compose' && route.mode === 'draft' && s.folder?.target.kind === 'drafts' ? s.folder.target : null;
   const folderPane = route.name === 'folder' ? targetOfRoute(route) : route.name === 'message' && view ? view.target : draftsOpen;
   // A message opened from a search leaves the search in the list, so the next result is a click away.
-  const searchPane = route.name === 'search' || (route.name === 'message' && !!searchKept());
+  const searchPane = route.name === 'search' || (route.name === 'message' && openedFromSearch());
   // Right-click on a message in the list (not in a search or Later: those keep the browser's own menu).
   const onMenu = (e: React.MouseEvent) => {
     if (searchPane || route.name === 'later') return;

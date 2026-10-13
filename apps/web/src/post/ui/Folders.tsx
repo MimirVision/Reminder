@@ -131,13 +131,14 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const [moving, setMoving] = useState(false);
   const [erase, setErase] = useState<'all' | 'picked' | null>(null);
   const [submaking, setSubmaking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const cr = useCarry(s, () => exit());
   const sentinel = useRef<HTMLDivElement>(null);
   const sentSeen = useRef(s.sent);
   const { pull, bind } = usePull(() => void c.refreshFolder());
 
   useEffect(() => { void c.loadFolders(); void c.openFolder(target); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setSelecting(false); setPicked(new Set()); setErase(null); setMoving(false); }, [key]); // another folder: nothing stays picked
+  useEffect(() => { setSelecting(false); setPicked(new Set()); setErase(null); setMoving(false); setDeleting(false); }, [key]); // another folder: nothing stays picked
 
   // Coming back to Post, or back online, shows what Outlook has now (a folder read a moment ago is not read again).
   useEffect(() => {
@@ -232,6 +233,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
         <div className="r">
           {items.length > 0 && <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>}
           {target.kind === 'other' && info && <button className="btn" aria-label="New subfolder here" title="New subfolder here" onClick={() => setSubmaking(true)}><Icon n="plus" /></button>}
+          {target.kind === 'other' && info && <button className="btn" aria-label="Delete this folder" title="Delete this folder" onClick={() => setDeleting(true)}><Icon n="trash" /></button>}
           <button className="btn" aria-label="Update now" onClick={() => void c.refreshFolder()}><Icon n="refresh" /></button>
         </div>
       </header>
@@ -308,6 +310,14 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
       )}
       {cr.sheet}
       {submaking && info && <NewFolderSheet s={s} account={info.account} parent={info.depth <= 1 ? info.id : undefined} onClose={() => setSubmaking(false)} />}
+      {deleting && info && (
+        <DeleteFolderSheet
+          name={info.name} total={info.total}
+          inside={(() => { const i = s.folders.indexOf(info); let n = 0; for (let j = i + 1; j < s.folders.length && s.folders[j].account === info.account && s.folders[j].kind === 'other' && s.folders[j].depth > info.depth; j++) n++; return n; })()}
+          onClose={() => setDeleting(false)}
+          onGo={async () => { const r = await c.deleteFolder(info.account, info.id); if (r.ok) { setDeleting(false); if (!pane) go({ name: 'folders' }); else go({ name: 'inbox' }); } return r.ok ? '' : r.error; }}
+        />
+      )}
       {moving && chosen.length > 0 && <MoveSheet s={s} items={chosen} rows={chosen.length} onClose={() => setMoving(false)} onMoved={() => { setMoving(false); exit(); }} />}
       {erase && (
         <EraseSheet
@@ -317,6 +327,26 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
         />
       )}
     </div>
+  );
+}
+
+/** The question before a folder of your own is deleted: it says what goes with it, and that the folder is deleted in Outlook itself. */
+function DeleteFolderSheet({ name, total, inside, onClose, onGo }: { name: string; total: number; inside: number; onClose: () => void; onGo: () => Promise<string> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const mail = `${total} message${total === 1 ? '' : 's'}`;
+  return (
+    <Sheet title={`Delete the folder “${name}”?`} onClose={onClose}>
+      <p className="note" style={{ margin: '2px 8px 12px' }}>
+        The folder is deleted in Outlook itself, so it goes from your other devices too. {total > 0 ? `The ${mail} in it go${total === 1 ? 'es' : ''} with it` : 'It is empty'}{inside > 0 ? `, and so do the ${inside} folder${inside === 1 ? '' : 's'} inside it` : ''}.
+        {' '}Outlook puts it in Deleted Items first, where you can still find it there.
+      </p>
+      {error && <p className="note" role="alert" style={{ color: 'var(--bad)' }}>{error}</p>}
+      <div className="card">
+        <button className="it danger" disabled={busy} onClick={async () => { setBusy(true); setError(''); const e = await onGo(); setBusy(false); if (e) setError(e); }}><span className="ico"><Icon n="trash" /></span>{busy ? 'Deleting…' : 'Delete folder'}</button>
+        <button className="it" disabled={busy} onClick={onClose}><span className="ico"><Icon n="x" /></span>Keep it</button>
+      </div>
+    </Sheet>
   );
 }
 

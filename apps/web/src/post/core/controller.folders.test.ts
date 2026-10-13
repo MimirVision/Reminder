@@ -77,6 +77,14 @@ function outlook(emails: string[] = [A]) {
       b.folders.set(id, { id, name: body.displayName, parent });
       return ok(folderBody(b, b.folders.get(id)!), 201);
     }
+    if (method === 'DELETE' && (m = /^\/me\/mailFolders\/([^/]+)$/.exec(p))) {
+      const id = decodeURIComponent(m[1]);
+      log.push(`deleteFolder ${id}`);
+      if (idOf(id) === id && !b.folders.has(id)) return missing();
+      if (id.startsWith('ID-')) return fail(403, 'ErrorDeleteDistinguishedFolder', 'No.');
+      b.folders.get(id)!.parent = 'ID-deleteditems'; // Outlook keeps a deleted folder in Deleted Items
+      return { status: 204 };
+    }
     if (method === 'GET' && p === '/me/mailFolders') { log.push('folders'); return ok({ value: [...b.folders.values()].filter((f) => f.parent === 'ROOT').map((f) => folderBody(b, f)) }); }
     if (method === 'GET' && (m = /^\/me\/mailFolders\/([^/]+)$/.exec(p))) { const id = dest(decodeURIComponent(m[1])); const f = id ? b.folders.get(id) : undefined; return f ? ok(folderBody(b, f)) : missing(); }
     if (method === 'GET' && (m = /^\/me\/mailFolders\/([^/]+)\/childFolders$/.exec(p))) { const id = decodeURIComponent(m[1]); return ok({ value: [...b.folders.values()].filter((f) => f.parent === id).map((f) => folderBody(b, f)) }); }
@@ -1473,6 +1481,30 @@ test('a subfolder is made inside one of your folders, or inside Inbox', async ()
   const i = await c.createFolder(A, 'Privat', 'inbox');
   assert.ok(i.ok);
   assert.deepEqual(mineIn(c).sort(), ['0:Inbox / Privat', '0:Kunder', '1:Kunder / Acme']);
+});
+
+test('a folder of your own is deleted at Outlook, leaves the list, and never one of the standard folders', async () => {
+  const w = outlook(); w.folder(A, 'K', 'Kunder'); w.folder(A, 'J', 'Junk');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  assert.deepEqual(mineIn(c), ['0:Junk', '0:Kunder']);
+  const r = await c.deleteFolder(A, 'J');
+  assert.deepEqual(r, { ok: true });
+  assert.ok(w.log.includes('deleteFolder J'));
+  assert.deepEqual(mineIn(c), ['0:Kunder'], 'the copy in Deleted Items is not one of your folders');
+  assert.equal(c.getState().toast!.text, 'Deleted folder “Junk”');
+  const std = await c.deleteFolder(A, 'ID-junkemail');
+  assert.equal(std.ok, false);
+  assert.ok(!w.log.includes('deleteFolder ID-junkemail'), 'a standard folder is never asked to be deleted');
+});
+
+test('a folder that Outlook will not delete says so and stays in the list', async () => {
+  const w = outlook(); w.folder(A, 'ID-fake', 'Kunder');
+  const made = make(w); const { c } = made;
+  await c.init(); await c.sync(); await c.loadFolders();
+  const r = await c.deleteFolder(A, 'ID-fake');
+  assert.equal(r.ok, false);
+  assert.deepEqual(mineIn(c), ['0:Kunder']);
 });
 
 test('a name that is empty, or already taken there, or refused, says why and makes nothing', async () => {
