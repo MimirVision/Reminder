@@ -1,17 +1,18 @@
 // Keyboard shortcuts for the computer layout, in the familiar mail-app letters. Pure, so the mapping is tested.
 
-export type ShortcutAction = 'next' | 'prev' | 'open' | 'archive' | 'delete' | 'reply' | 'replyAll' | 'compose' | 'search' | 'close' | 'unread' | 'flag' | 'help' | 'undo' | 'refresh';
+export type ShortcutAction = 'next' | 'prev' | 'open' | 'archive' | 'delete' | 'reply' | 'replyAll' | 'compose' | 'search' | 'close' | 'unread' | 'flag' | 'help' | 'undo' | 'refresh' | 'palette';
 
 export interface KeyInfo { key: string; ctrl?: boolean; meta?: boolean; alt?: boolean; shift?: boolean; typing?: boolean; sheetOpen?: boolean }
 
 export const SHORTCUT_HELP: [string, string][] = [
   ['j / ↓', 'Next message'], ['k / ↑', 'Previous message'], ['Enter / o', 'Open the first message'], ['e', 'Archive'], ['#  / Delete', 'Delete'],
   ['r', 'Reply'], ['a', 'Reply all'], ['c', 'Write a new message'], ['/', 'Search'], ['u / Esc', 'Back to the list'], ['Shift+U', 'Mark as unread'],
-  ['s', 'Flag'], ['Ctrl+Z', 'Undo'], ['g', 'Refresh'], ['?', 'Show this list'],
+  ['s', 'Flag'], ['Ctrl+K', 'Quick actions'], ['Ctrl+Z', 'Undo'], ['Shift/Ctrl+click', 'Pick several'], ['Right-click', 'Menu for a message'], ['g', 'Refresh'], ['?', 'Show this list'],
 ];
 
 /** What a key press means. Nothing while typing in a field, nothing with Ctrl/Cmd/Alt held (so the browser's own shortcuts keep working), except undo. */
 export function shortcutFor(k: KeyInfo): ShortcutAction | null {
+  if ((k.ctrl || k.meta) && !k.alt && !k.shift && k.key.toLowerCase() === 'k') return 'palette'; // works while typing too, like the browser's own search
   if (k.typing) return null;
   if ((k.ctrl || k.meta) && !k.alt && k.key.toLowerCase() === 'z' && !k.shift) return 'undo';
   if (k.ctrl || k.meta || k.alt) return null;

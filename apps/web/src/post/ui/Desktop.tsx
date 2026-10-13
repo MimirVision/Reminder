@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { folderKey, mailCounts, visibleThreads, type State, type View } from '../core/controller.ts';
 import { DELETE_WAY, placeActions } from '../core/folders.ts';
 import { accountColour } from '../core/settings.ts';
@@ -9,15 +9,26 @@ import { Compose } from './Compose.tsx';
 import { FolderList, SidebarFolders } from './Folders.tsx';
 import { Inbox } from './Inbox.tsx';
 import { openedFromSearch } from './searchKeep.ts';
-import { moveWay } from './Move.tsx';
+import { moveWay, MoveSheet } from './Move.tsx';
 import { Later, Search } from './SearchLater.tsx';
 import { Reader } from './Reader.tsx';
 import { Triage } from './Triage.tsx';
+import { Palette } from './Palette.tsx';
+import { RowMenu, type RowTarget } from './RowMenu.tsx';
+import { BlockSheet } from './SenderSheets.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { AccountsSheet } from './Accounts.tsx';
 import { Icon, KIND_ICON, Mark, Sheet } from './ui.tsx';
 import { DropButton } from './Carry.tsx';
-import { folderContext, folderTitle, go, openMail as openItem, resolveAccount, routeOfFolder, targetOfRoute, useC, useNow, useRoute } from './ctx.tsx';
+import { folderContext, folderTitle, go, openMail as openItem, resolveAccount, routeOfFolder, targetOfRoute, useC, useMedia, useNow, useRoute } from './ctx.tsx';
+
+/** The widths of the sidebar and the list, as dragged. Not saved until dragged: until then the sidebar is icons only in a window under 1100 px. */
+const PANES_KEY = 'post.panes';
+const SB_WIDE = 248, SB_MINI = 64, LIST_DEFAULT = 392, MAIN_MIN = 380;
+interface Panes { sb?: number; list?: number }
+function readPanes(): Panes {
+  try { const v = JSON.parse(localStorage.getItem(PANES_KEY) ?? '{}') as Panes; return { ...(typeof v.sb === 'number' ? { sb: v.sb } : {}), ...(typeof v.list === 'number' ? { list: v.list } : {}) }; } catch { return {}; }
+}
 
 /** The computer layout: a sidebar, the message list, and the reading pane side by side. The same screens as on the phone, just in panes. */
 export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void }) {
@@ -25,6 +36,33 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
   const route = useRoute();
   const now = useNow();
   const [help, setHelp] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; t: RowTarget } | null>(null);
+  const [menuSheet, setMenuSheet] = useState<{ kind: 'move' | 'block'; t: RowTarget } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const closePalette = useCallback(() => setPalette(false), []);
+  const [panes, setPanes] = useState<Panes>(readPanes);
+  const wideWindow = useMedia('(min-width: 1100px)');
+  useEffect(() => { try { localStorage.setItem(PANES_KEY, JSON.stringify(panes)); } catch { /* not saved: fine */ } }, [panes]);
+  const sbw = panes.sb ?? (wideWindow ? SB_WIDE : SB_MINI);
+  const mini = sbw < 130;
+  const sbEff = mini ? SB_MINI : sbw;
+  const listw = panes.list ?? LIST_DEFAULT;
+  // Dragging a divider: the sidebar snaps to icons only when pulled narrow; the list keeps room for the reading pane.
+  const split = (which: 'sb' | 'list') => (e: React.PointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const el = e.currentTarget, x0 = e.clientX, start = which === 'sb' ? sbEff : listw;
+    el.setPointerCapture(e.pointerId); el.classList.add('on'); document.body.classList.add('resizing');
+    const move = (ev: PointerEvent) => {
+      const raw = start + ev.clientX - x0;
+      if (which === 'sb') setPanes((p) => ({ ...p, sb: raw < 130 ? SB_MINI : Math.max(200, Math.min(360, raw)) }));
+      else setPanes((p) => ({ ...p, list: Math.max(300, Math.min(720, innerWidth - sbEff - MAIN_MIN, raw)) }));
+    };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); el.classList.remove('on'); document.body.classList.remove('resizing'); };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  };
+  const resetSplit = (which: 'sb' | 'list') => () => setPanes((p) => { const { [which]: _gone, ...rest } = p; return rest; });
 
   // What the list shows, and what the keys move through: a folder (when it is open, or holds the message that is), or the inbox (a row per conversation).
   const open = route.name === 'message' ? mailKey(resolveAccount(s, route.account), route.id) : null;
@@ -47,7 +85,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
       const t = e.target as HTMLElement | null;
       const typing = !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
       if (e.key === 'Enter' && t && /^(BUTTON|A)$/.test(t.tagName)) return;
-      const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet, .viewer') });
+      const a = shortcutFor({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, typing, sheetOpen: !!document.querySelector('.sheet, .viewer, .pal, .cm') });
       if (!a) return;
       switch (a) {
         case 'next': { const n = idx >= 0 ? at(idx + 1) ?? at(idx) : at(0); if (n) openItem(n); break; }
@@ -86,6 +124,7 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
         case 'undo': { const u = s.toast?.undo; if (!u) return; u(); break; }
         case 'refresh': void c.sync(); if (inFolder) void c.refreshFolder(); break;
         case 'help': setHelp(true); break;
+        case 'palette': setPalette((v) => !v); setMenu(null); break;
       }
       e.preventDefault();
     };
@@ -99,18 +138,38 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
   const folderPane = route.name === 'folder' ? targetOfRoute(route) : route.name === 'message' && view ? view.target : draftsOpen;
   // A message opened from a search leaves the search in the list, so the next result is a click away.
   const searchPane = route.name === 'search' || (route.name === 'message' && openedFromSearch());
+  // Right-click on a message in the list (not in a search or Later: those keep the browser's own menu).
+  const onMenu = (e: React.MouseEvent) => {
+    if (searchPane || route.name === 'later') return;
+    const mk = (e.target as HTMLElement).closest('[data-mk]')?.getAttribute('data-mk');
+    if (!mk) return;
+    let t: RowTarget | null = null;
+    if (folderPane) {
+      const m = s.folder?.key === folderKey(folderPane) ? s.folder.items.find((x) => x.key === mk) : undefined;
+      if (m) t = { items: [m], latest: m, rows: 1, place: m.fk ?? folderPane.kind, replyTo: m };
+    } else {
+      const th = list.find((x) => x.latest.key === mk);
+      if (th && !th.members) t = { items: th.items, latest: th.latest, rows: 1, place: null, replyTo: replyTarget(th.items) ?? th.latest };
+    }
+    if (!t) return;
+    e.preventDefault(); setPalette(false); setMenu({ x: e.clientX, y: e.clientY, t });
+  };
+  // What Ctrl+K moves: the open message or conversation.
+  const palItems = current ? current.items : currentMail ? [currentMail] : [];
   return (
-    <div className="dsk">
+    <div className={`dsk${mini ? ' mini' : ''}`} style={{ '--sbw': `${sbEff}px`, '--listw': `${listw}px` } as React.CSSProperties}>
       <Sidebar s={s} onAdd={onAdd} onHelp={() => setHelp(true)} />
+      <div className="dsk-split" aria-hidden="true"><i title="Drag to resize · double-click to reset" onPointerDown={split('sb')} onDoubleClick={resetSplit('sb')} /></div>
       {full ? (
         <main className="dsk-full">
           {route.name === 'triage' ? <Triage s={s} /> : route.name === 'settings' ? <SettingsPage s={s} page={route.page} account={route.account} /> : null}
         </main>
       ) : (
         <>
-          <section className="dsk-list" aria-label="Messages">
+          <section className="dsk-list" aria-label="Messages" onContextMenu={onMenu}>
             {searchPane ? <Search s={s} q={route.name === 'search' ? route.q : ''} pane /> : folderPane ? <FolderList s={s} target={folderPane} pane /> : route.name === 'later' ? <Later s={s} pane /> : <Inbox s={s} pane />}
           </section>
+          <div className="dsk-split" aria-hidden="true"><i title="Drag to resize · double-click to reset" onPointerDown={split('list')} onDoubleClick={resetSplit('list')} /></div>
           <main className="dsk-main">
             {route.name === 'message' ? <Reader s={s} account={route.account} id={route.id} pane key={open ?? ''} />
               : route.name === 'compose' ? <Compose s={s} mode={route.mode} account={route.account} id={route.id} key={`${route.mode}|${route.account ?? ''}|${route.id ?? ''}`} />
@@ -118,6 +177,10 @@ export function Desktop({ s, onAdd }: { s: State; onAdd: (hint?: string) => void
           </main>
         </>
       )}
+      {menu && <RowMenu s={s} t={menu.t} x={menu.x} y={menu.y} onClose={closeMenu} onMove={() => setMenuSheet({ kind: 'move', t: menu.t })} onBlock={() => setMenuSheet({ kind: 'block', t: menu.t })} />}
+      {menuSheet?.kind === 'move' && <MoveSheet s={s} items={menuSheet.t.items} rows={menuSheet.t.rows} inbox={menuSheet.t.place === null} onClose={() => setMenuSheet(null)} onMoved={() => setMenuSheet(null)} />}
+      {menuSheet?.kind === 'block' && <BlockSheet s={s} m={menuSheet.t.latest} onClose={() => setMenuSheet(null)} onBlocked={() => setMenuSheet(null)} />}
+      {palette && <Palette s={s} items={palItems} rows={1} here={inFolder ? currentMail?.fk ?? view?.target.kind ?? null : 'inbox'} onClose={closePalette} />}
       {route.name === 'accounts' && <AccountsSheet s={s} onAdd={onAdd} onClose={() => go({ name: 'inbox' })} />}
       {help && (
         <Sheet title="Keyboard shortcuts" onClose={() => setHelp(false)}>
@@ -143,17 +206,17 @@ function Sidebar({ s, onAdd, onHelp }: { s: State; onAdd: (hint?: string) => voi
       : route.name === 'compose' && route.mode === 'draft' && s.folder?.target.kind === 'drafts' ? s.folder.key : null;
   const inbox = !folder && (route.name === 'inbox' || route.name === 'folders' || route.name === 'message' || route.name === 'compose' || route.name === 'accounts');
   const nav = (active: boolean, icon: string, text: string, onClick: () => void, badge?: number) => (
-    <button className={`sb-it${active ? ' on' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon n={icon} size={20} />{text}{badge ? <span className="sb-n">{badge > 99 ? '99+' : badge}</span> : null}</button>
+    <button className={`sb-it${active ? ' on' : ''}`} title={text} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon n={icon} size={20} />{text}{badge ? <span className="sb-n">{badge > 99 ? '99+' : badge}</span> : null}</button>
   );
   // Dropping mail on a tab of the inbox puts it back in the inbox (from Archive, Junk or Deleted).
   const tab = (v: View, icon: string, text: string, n: number) => {
     const active = inbox && s.view === v;
-    return <DropButton key={v} s={s} dest={{ kind: 'inbox', id: '', name: 'Inbox' }} className={`sb-it${active ? ' on' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => { c.setView(v); go({ name: 'inbox' }); }}><Icon n={icon} size={20} />{text}{n ? <span className="sb-n">{n > 99 ? '99+' : n}</span> : null}</DropButton>;
+    return <DropButton key={v} s={s} dest={{ kind: 'inbox', id: '', name: 'Inbox' }} className={`sb-it${active ? ' on' : ''}`} title={text} aria-current={active ? 'page' : undefined} onClick={() => { c.setView(v); go({ name: 'inbox' }); }}><Icon n={icon} size={20} />{text}{n ? <span className="sb-n">{n > 99 ? '99+' : n}</span> : null}</DropButton>;
   };
   return (
     <aside className="sb" aria-label="Post">
       <div className="sb-brand"><span className="sb-mark"><Mark size={22} /></span><b>Post</b></div>
-      <button className="cta sb-compose" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={18} />New message</button>
+      <button className="cta sb-compose" title="New message" onClick={() => go({ name: 'compose', mode: 'new' })}><Icon n="edit" size={18} />New message</button>
       <nav className="sb-nav" aria-label="Inbox">
         {tab('person', KIND_ICON.person, KIND_TAB.person, counts.byKind.person.unread)}
         {tab('transaction', KIND_ICON.transaction, KIND_TAB.transaction, counts.byKind.transaction.unread)}

@@ -187,6 +187,24 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const exit = () => { setSelecting(false); setPicked(new Set()); };
   // What a row carries when it is lifted or dragged: itself, or, while picking, everything picked (and the row it is held on).
+  // With a mouse: Ctrl/Cmd+click picks a row and Shift+click a stretch, without pressing Select first. Esc lets go of the choice.
+  const lastPick = useRef<string | null>(null);
+  const modClick = (e: React.MouseEvent) => {
+    if (!(e.ctrlKey || e.metaKey || e.shiftKey) || !(typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches)) return;
+    const mk = (e.target as HTMLElement).closest('[data-mk]')?.getAttribute('data-mk');
+    const m = mk ? items.find((x) => x.key === mk) : undefined;
+    if (!m) return;
+    e.preventDefault(); e.stopPropagation(); setSelecting(true);
+    const from = lastPick.current ? items.findIndex((x) => x.key === lastPick.current) : -1, to = items.indexOf(m);
+    if (e.shiftKey && from >= 0) setPicked((p) => { const n = new Set(p); for (let i = Math.min(from, to); i <= Math.max(from, to); i++) n.add(items[i].key); return n; });
+    else toggle(m.key);
+    lastPick.current = m.key;
+  };
+  useEffect(() => {
+    if (!selecting) return;
+    const on = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.sheet')) exit(); };
+    window.addEventListener('keydown', on); return () => window.removeEventListener('keydown', on);
+  }, [selecting]); // eslint-disable-line react-hooks/exhaustive-deps
   const carry = (m: Mail) => { const rows = selecting ? (picked.has(m.key) ? chosen : [...chosen, m]) : [m]; return { items: rows, rows: rows.length }; };
   const leave = (rows: Mail[], then: () => void) => {
     setLeaving((p) => new Set([...p, ...rows.map((m) => m.key)]));
@@ -250,7 +268,7 @@ export function FolderList({ s, target, pane = false }: { s: State; target: Fold
         {groups.map((g) => (
           <section key={g.name}>
             <div className="sec">{g.name}</div>
-            <div className="card">
+            <div className="card" onClickCapture={modClick} onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}>
               {g.items.map((m) => {
                 const w = placeActions(m.fk ?? target.kind).swipe;
                 return (

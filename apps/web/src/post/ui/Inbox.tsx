@@ -123,7 +123,7 @@ export function Row({ m, thread, s, selecting, selected, onOpen, onToggle, activ
   const members = thread?.members;
   const others = members ? members.slice(1, 4).map((x) => x.latest.subject || '(no subject)').join(' · ') + (members.length > 4 ? ` · +${members.length - 4}` : '') : '';
   return (
-    <button type="button" className={`row ${s.settings.rowSize}${active ? ' active' : ''}${members ? ' digest' : ''}`} aria-current={active ? 'true' : undefined} aria-expanded={members && !selecting ? !!expanded : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${who}, ${m.subject}${members ? `, ${members.length} conversations, ${count} messages` : count > 1 ? `, ${count} messages` : ''}${unread ? ', unread' : ''}`}>
+    <button type="button" data-mk={m.key} className={`row ${s.settings.rowSize}${active ? ' active' : ''}${members ? ' digest' : ''}`} aria-current={active ? 'true' : undefined} aria-expanded={members && !selecting ? !!expanded : undefined} onClick={selecting ? onToggle : onOpen} aria-label={`${who}, ${m.subject}${members ? `, ${members.length} conversations, ${count} messages` : count > 1 ? `, ${count} messages` : ''}${unread ? ', unread' : ''}`}>
       {unread && !selecting && <span className="dot" />}
       {selecting && <span className={`chk${selected ? ' on' : ''}`} aria-hidden="true">{selected && <Icon n="check" size={14} />}</span>}
       {/* A message to several people shows the first one's initials: "Anna, Per +1" would otherwise make "A+". */}
@@ -208,6 +208,24 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   // How many rows of the list a choice is, for the toast: a sender's row stands for each of its conversations.
   const rowsOf = (ts: Thread[]) => ts.reduce((n, t) => n + (t.members?.length ?? 1), 0);
   const exit = () => { setSelecting(false); setPicked(new Set()); };
+  // With a mouse: Ctrl/Cmd+click picks a row and Shift+click picks a stretch, without pressing Select first. Esc lets go of the choice.
+  const lastPick = useRef<string | null>(null);
+  const modClick = (e: React.MouseEvent) => {
+    if (!(e.ctrlKey || e.metaKey || e.shiftKey) || !finePointer()) return;
+    const mk = (e.target as HTMLElement).closest('[data-mk]')?.getAttribute('data-mk');
+    const t = mk ? list.find((x) => x.latest.key === mk) : undefined;
+    if (!t || t.members) return;
+    e.preventDefault(); e.stopPropagation(); setSelecting(true);
+    const from = lastPick.current ? list.findIndex((x) => x.key === lastPick.current) : -1, to = list.indexOf(t);
+    if (e.shiftKey && from >= 0) setPicked((p) => { const n = new Set(p); for (let i = Math.min(from, to); i <= Math.max(from, to); i++) if (!list[i].members) n.add(list[i].key); return n; });
+    else toggle(t.key);
+    lastPick.current = t.key;
+  };
+  useEffect(() => {
+    if (!selecting) return;
+    const on = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.sheet')) exit(); };
+    window.addEventListener('keydown', on); return () => window.removeEventListener('keydown', on);
+  }, [selecting]); // eslint-disable-line react-hooks/exhaustive-deps
   // What a row carries when it is lifted or dragged: itself, or, while picking, everything picked (and the row it is held on).
   const carry = (t: Thread) => { const rows = selecting ? (picked.has(t.key) ? chosen : [...chosen, t]) : [t]; return { items: rows.flatMap((x) => x.items), rows: rowsOf(rows) }; };
   // A row leaving the list shrinks away first, then the action runs, so the list closes up smoothly instead of jumping.
@@ -262,7 +280,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
         {groups.map((g) => (
           <section key={g.name}>
             <div className="sec">{g.name}</div>
-            <div className="card">
+            <div className="card" onClickCapture={modClick} onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}>
               {g.items.map((t) => (
                 <Fragment key={t.key}>
                   <SwipeRow leaving={leaving.has(t.key)} disabled={selecting || cr.active} picking={selecting && !cr.active} onDragged={() => { if (selecting) exit(); }} onTrash={t.members ? undefined : () => act(t, 'delete')} onArchive={t.members ? undefined : () => act(t, 'archive')} onRead={t.members ? undefined : { unread: t.unread > 0, fn: () => act(t, 'read') }} drag={t.members && !selecting ? () => ({ items: t.items, rows: t.members?.length ?? 1 }) : () => carry(t)} onLift={t.members && !selecting ? undefined : () => { const d = carry(t); cr.begin(d.items, d.rows); }} onLiftMove={cr.move} onLiftEnd={cr.end} rightLabel={lab[s.settings.swipeRight]} leftLabel={lab[s.settings.swipeLeft]} rightIcon={ico[s.settings.swipeRight]} leftIcon={ico[s.settings.swipeLeft]} onRight={() => act(t, s.settings.swipeRight)} onLeft={() => act(t, s.settings.swipeLeft)}>

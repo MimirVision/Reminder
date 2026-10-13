@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { folderKey, type Controller } from '../core/controller.ts';
+import { folderKey, mailCounts, type Controller } from '../core/controller.ts';
 import { themeVars } from '../core/settings.ts';
 import { Compose } from './Compose.tsx';
 import { FolderList, FoldersScreen } from './Folders.tsx';
@@ -45,6 +45,10 @@ function Shell() {
   const [adding, setAdding] = useState<{ hint?: string } | null>(null);
   const ctl = useCtl();
   const handled = useRef(false);
+
+  // The tab's title carries what is waiting in Primary (all mailboxes), like the number on the icon, so new mail shows from another tab.
+  const waiting = s.ready && s.accounts.length ? mailCounts({ mail: s.mail, accountFilter: null, settings: s.settings }, Date.now()).byKind.person.unread : 0;
+  useEffect(() => { document.title = waiting > 0 ? `(${waiting > 99 ? '99+' : waiting}) Post` : 'Post'; }, [waiting]);
 
   // Coming back from Microsoft's sign-in page: finish it. Works in whichever window Microsoft sent us to.
   useEffect(() => {

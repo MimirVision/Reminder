@@ -35,3 +35,10 @@ test('with a sheet open only Escape does anything', () => {
 test('the help list covers every action a key can do', () => {
   assert.ok(SHORTCUT_HELP.length >= 12);
 });
+
+test('Ctrl/Cmd+K opens quick actions, even while typing and with a sheet open', () => {
+  assert.equal(shortcutFor({ key: 'k', ctrl: true }), 'palette');
+  assert.equal(shortcutFor({ key: 'K', meta: true, typing: true }), 'palette');
+  assert.equal(shortcutFor({ key: 'k', ctrl: true, shift: true }), null);
+  assert.equal(shortcutFor({ key: 'k' }), 'prev');
+});
