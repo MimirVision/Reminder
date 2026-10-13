@@ -73,8 +73,8 @@ export function useMedia(query: string): boolean {
 
 /** True on a computer-sized window: the app shows a sidebar, the list and the reading pane side by side. */
 export const useWide = () => useMedia('(min-width: 900px)');
-/** True when the reading pane is wide enough for every action in a bar along its top; narrower, the pane keeps the floating bar of the phone. */
-export const useRoomyPane = () => useMedia('(min-width: 1220px)');
+/** True on every computer-sized window: the reading pane has its bar of actions along the top (icons only while the pane is narrow, see .tools in post.css). */
+export const useRoomyPane = () => useMedia('(min-width: 900px)');
 
 /** The mailbox an address in the URL means: a notification link carries the server's account id, the rest carry the address. */
 export const resolveAccount = (s: State, account: string) => s.accounts.find((a) => a.id === account || a.email === account)?.email ?? account;
