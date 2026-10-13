@@ -2,6 +2,7 @@
    written as overrides under [data-look="calm"]. Colours come from CSS variables set on .post by themeVars(); shape and type are the
    --r-* and --font* variables below, so the two looks differ in a few lines and every screen follows. */
 :root { color-scheme: light dark; }
+.post { color-scheme: light; } .post.dark { color-scheme: dark; } /* the app's own theme, not the system's, decides the colour of the native bits (scrollbars, selects) */
 html, body { margin: 0; height: 100%; background: var(--bg, #F2F3F5); overscroll-behavior: none; }
 .post { --bg:#F2F3F5; --card:#fff; --ink:#1E2430; --mu:#5B6472; --ln:#E4E7EC; --ac:#C8431F; --on:#fff; --at:#C8431F; --tint:#FBEAE4; --ti:#8F2F14; --ok:#1F7A4D; --bad:#B3261E; --wb:#FFF0CC; --wi:#6B4A00;
   --gl: rgba(255,255,255,.76); --ge: rgba(255,255,255,.9); --pill: rgba(255,255,255,.8); --sh: 0 8px 28px rgba(30,36,48,.13), 0 1px 3px rgba(30,36,48,.08);
@@ -766,3 +767,22 @@ body.dragging-mail .sb-it > * { pointer-events: none; }
 .pal-it.on { background: var(--tint); color: var(--ti); } .pal-it.on .ic { color: var(--ti); }
 .pal-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-none { margin: 0; padding: 18px 12px; color: var(--mu); font-size: 14px; }
+
+/* ---- computer: thin quiet scrollbars, and Settings with a section list instead of one long phone column ---- */
+.post.wide, .post.wide * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 28%, transparent) transparent; }
+.post.wide ::-webkit-scrollbar { width: 10px; height: 10px; }
+.post.wide ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ink) 26%, transparent); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+.post.wide ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink) 45%, transparent); background-clip: content-box; }
+.post.wide ::-webkit-scrollbar-track { background: transparent; }
+/* the whole settings page scrolls at the edge of the window, under a bar that stays */
+.dsk-set .pg { overflow-y: auto; display: block; }
+.dsk-set .pg > .nav { position: sticky; top: 0; z-index: 5; background: var(--bg); margin: 0 auto; max-width: 720px; width: 100%; }
+.dsk-set .pg > .ttl, .dsk-set .pg > .set-grid, .dsk-set .pg > .scroll { margin-left: auto; margin-right: auto; max-width: 720px; width: 100%; }
+.dsk-set .pg:has(> .set-grid) > .nav, .dsk-set .pg:has(> .set-grid) > .ttl, .dsk-set .pg > .set-grid { max-width: 960px; }
+.dsk-set .pg > .scroll, .dsk-set .set-grid > .scroll { overflow: visible; padding-bottom: 60px; }
+.set-grid { display: grid; grid-template-columns: 200px minmax(0, 720px); gap: 32px; align-items: start; }
+.set-nav { position: sticky; top: 64px; display: flex; flex-direction: column; gap: 2px; padding: 8px 0 0 12px; }
+.set-link { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font-size: 14px; font-weight: 600; text-align: left; }
+.set-link .ic { color: var(--mu); }
+.set-link:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.lbl[id^="set-"] { scroll-margin-top: 64px; }

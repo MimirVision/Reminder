@@ -4,7 +4,7 @@ import { ACCENTS, ACCOUNT_COLOURS, LOOKS, accountColour, lookChange, type Settin
 import { sortingReport } from '../core/report.ts';
 import { asKind, KINDS, KIND_TAB, type Kind } from '../core/types.ts';
 import { Hint, Icon, KIND_ICON, Seg, Switch } from './ui.tsx';
-import { go, useC, useNow } from './ctx.tsx';
+import { go, useC, useNow, useWide } from './ctx.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { Health, dotOf, useHealthLine } from './Health.tsx';
 import { Gone } from './Gone.tsx';
@@ -49,58 +49,64 @@ export function Settings({ s }: { s: State }) {
   const alertsLine = s.alertsOn ? 'On' : 'Off';
   const health = useHealthLine(s);
   const subsLine = useSubscriptionsLine(s);
+  const wide = useWide();
+  const jump = (id: string) => () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const sections: [string, string, string][] = [['alerts', 'bell', 'Alerts'], ['sorting', 'sliders', 'Sorting'], ['conversations', 'reply', 'Conversations'], ['privacy', 'lock', 'Privacy'], ['writing', 'edit', 'Writing'], ['appearance', 'eye', 'Appearance'], ['device', 'pulse', wide ? 'This computer' : 'This device']];
   return (
     <div className="pg">
       <div className="nav"><button className="back" onClick={() => go({ name: 'inbox' })}><Icon n="back" />Inbox</button></div>
       <div className="ttl"><h1 className="h1">Settings</h1></div>
+      <div className={wide ? 'set-grid' : 'set-one'}>
+      {wide && <nav className="set-nav" aria-label="Settings sections">{sections.map(([id, icon, text]) => <button key={id} type="button" className="set-link" onClick={jump(`set-${id}`)}><Icon n={icon} size={18} />{text}</button>)}</nav>}
       <div className="scroll">
-        <div className="lbl">Alerts</div>
+        <div className="lbl" id="set-alerts">Alerts</div>
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'alerts' })}><span className="ico"><Icon n="bell" /></span>Icon number & alerts<span className="v"><i className={`ok-dot${s.alertsOn ? '' : ' bad-dot'}`} />{alertsLine}<Icon n="chev" /></span></button>
         </div>
-        <div className="lbl">Sorting</div>
+        <div className="lbl" id="set-sorting">Sorting</div>
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'sorting' })}><span className="ico"><Icon n="sliders" /></span>Tabs and rules<span className="v">{sortingLine(s)}<Icon n="chev" /></span></button>
           <button className="it" onClick={() => go({ name: 'settings', page: 'subscriptions' })}><span className="ico"><Icon n="mail" /></span>Subscriptions<span className="v">{subsLine}<Icon n="chev" /></span></button>
         </div>
-        <div className="lbl">Conversations</div>
+        <div className="lbl" id="set-conversations">Conversations</div>
         <div className="card">
           <div className="it"><span className="ico"><Icon n="reply" /></span>Group replies together<Switch on={s.settings.threads} onChange={(v) => set({ threads: v })} label="Group replies together" /></div>
           <div className="it"><span className="ico"><Icon n="inbox" /></span>One row per sender<Switch on={s.settings.digest} onChange={(v) => set({ digest: v })} label="One row per sender" /></div>
         </div>
         <Hint short="Replies are grouped into one row; one company's mail can share a row.">Messages that answer each other are one row in the list, and one conversation when you open it, with your own replies in it. In Transactions, Updates and Promotions all of one sender's mail is one row too: tap it to see the conversations, swipe it to archive them all at once. Nothing is hidden: every message is still there.</Hint>
-        <div className="lbl">Swipe</div>
+        {!wide && <><div className="lbl">Swipe</div>
         <div className="card">
           <Pick icon="archive" label="Swipe right" value={s.settings.swipeRight} options={SWIPE} onChange={(v) => set({ swipeRight: v })} />
           <Pick icon="flag" label="Swipe left" value={s.settings.swipeLeft} options={SWIPE_L} onChange={(v) => set({ swipeLeft: v })} />
-        </div>
-        <div className="lbl">Privacy</div>
+        </div></>}
+        <div className="lbl" id="set-privacy">Privacy</div>
         <div className="card">
           <div className="it">Block remote images<Switch on={s.settings.blockImages} onChange={(v) => set({ blockImages: v })} label="Block remote images" /></div>
           <div className="it">Send read receipts<span className="v">Never</span></div>
           <div className="it">Add “Sent from Post”<span className="v">Never</span></div>
         </div>
         <p className="note">Remote images are how senders see that you opened a mail. They stay blocked until you tap Load once.</p>
-        <div className="lbl">Writing</div>
+        <div className="lbl" id="set-writing">Writing</div>
         <div className="card">
           <Pick label="Undo send" value={String(s.settings.undoSend)} options={[['0', 'Off'], ['5', '5 seconds'], ['10', '10 seconds'], ['20', '20 seconds'], ['30', '30 seconds']]} onChange={(v) => set({ undoSend: Number(v) })} />
           <div className="it" style={{ alignItems: 'flex-start', flexDirection: 'column', padding: '12px 16px' }}>Signature<textarea className="field" aria-label="Signature" rows={2} placeholder="None" value={s.settings.signature} onChange={(e) => set({ signature: e.target.value })} style={{ minHeight: 64, marginTop: 6 }} /></div>
         </div>
         <Hint short="Undo works only while Post is on screen.">Undo works while Post is on screen. If you leave Post, what is waiting is sent right away, so it never gets stuck on a phone that has put Post to sleep.</Hint>
-        <div className="lbl">Appearance</div>
+        <div className="lbl" id="set-appearance">Appearance</div>
         <div className="card">
           <Pick label="Look" value={s.settings.look} options={LOOKS} onChange={(v) => set(lookChange(s.settings, v))} />
           <button className="it" onClick={() => go({ name: 'settings', page: 'appearance' })}>Accent colour<span className="v"><i className="swatch" style={{ background: a.light }} />{a.name}<Icon n="chev" /></span></button>
-          <Pick label="Theme" value={s.settings.theme} options={[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => set({ theme: v })} />
+          <Pick label="Theme" value={s.settings.theme} options={[['system', wide ? 'Match system' : 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => set({ theme: v })} />
           <Pick label="Row size" value={s.settings.rowSize} options={[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]} onChange={(v) => set({ rowSize: v })} />
         </div>
-        <div className="lbl">This device</div>
+        <div className="lbl" id="set-device">{wide ? 'This computer' : 'This device'}</div>
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'gone' })}><span className="ico"><Icon n="search" /></span>Where did my mail go?<span className="v">{s.left.length ? `${s.left.length} noted` : 'Nothing yet'}<Icon n="chev" /></span></button>
           <button className="it" onClick={() => go({ name: 'settings', page: 'health' })}><span className="ico"><Icon n="pulse" /></span>Health<span className="v"><i className={dotOf(health.level)} />{health.text}<Icon n="chev" /></span></button>
           <ForgetRow />
         </div>
         <p className="note">Version {typeof __BUILD__ === 'string' ? __BUILD__ : 'dev'}</p>
+      </div>
       </div>
     </div>
   );
@@ -116,6 +122,7 @@ function ForgetRow() {
 
 export function Appearance({ s }: { s: State }) {
   const c = useC();
+  const wide = useWide();
   const emails = s.accounts.map((a) => a.email);
   return (
     <div className="pg">
@@ -130,9 +137,9 @@ export function Appearance({ s }: { s: State }) {
           {ACCENTS.map((a) => <button key={a.id} role="radio" aria-checked={s.settings.accent === a.id} className={`accent${s.settings.accent === a.id ? ' on' : ''}`} onClick={() => c.setSettings({ accent: a.id })}><i style={{ background: a.light }} />{a.name}</button>)}
         </div></div>
         <div className="lbl">Theme</div>
-        <div className="panel" style={{ marginTop: 0 }}><Seg label="Theme" value={s.settings.theme} options={[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => c.setSettings({ theme: v })} /></div>
-        <div className="card" style={{ marginTop: 10 }}><div className="it">Pure black in dark mode<Switch on={s.settings.pureBlack} onChange={(v) => c.setSettings({ pureBlack: v })} label="Pure black" /></div></div>
-        <p className="note">Pure black saves battery on iPhones with an OLED screen.</p>
+        <div className="panel" style={{ marginTop: 0 }}><Seg label="Theme" value={s.settings.theme} options={[['system', wide ? 'Match system' : wide ? 'Match system' : 'Match phone'], ['light', 'Light'], ['dark', 'Dark']]} onChange={(v) => c.setSettings({ theme: v })} /></div>
+        {!wide && <><div className="card" style={{ marginTop: 10 }}><div className="it">Pure black in dark mode<Switch on={s.settings.pureBlack} onChange={(v) => c.setSettings({ pureBlack: v })} label="Pure black" /></div></div>
+        <p className="note">Pure black saves battery on iPhones with an OLED screen.</p></>}
         <div className="lbl">Row size</div>
         <div className="panel" style={{ marginTop: 0 }}><Seg label="Row size" value={s.settings.rowSize} options={[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]} onChange={(v) => c.setSettings({ rowSize: v })} /></div>
         {s.accounts.length > 1 && (
