@@ -16,6 +16,30 @@ function verdict(m: Pick<Mail, 'fromAddress' | 'fromName' | 'subject' | 'preview
   return classify({ fromAddress: m.fromAddress, fromName: m.fromName, subject: m.subject, preview: m.preview, signals: m.sig }, ctx);
 }
 
+const isPartial = (r: RawMessage) => !r.receivedDateTime;
+const EPOCH = new Date(0).toISOString();
+/** A saved row that came from a partial answer: no date, no sender, no subject. */
+export const isBlank = (m: Mail) => m.received === EPOCH || !m.received;
+
+/** What an update that carries only some fields says, laid over the saved message. */
+function fillFrom(r: RawMessage, prev: Mail): RawMessage {
+  return {
+    id: r.id, conversationId: r.conversationId ?? prev.conversationId, receivedDateTime: prev.received,
+    subject: r.subject ?? prev.subject,
+    from: r.from ?? { emailAddress: { name: prev.fromName, address: prev.fromAddress } },
+    bodyPreview: r.bodyPreview ?? prev.preview,
+    isRead: r.isRead ?? prev.isRead,
+    flag: r.flag ?? { flagStatus: prev.flagged ? 'flagged' : 'notFlagged' },
+    hasAttachments: r.hasAttachments ?? prev.hasAttachments,
+    inferenceClassification: r.inferenceClassification ?? prev.inf,
+  } as RawMessage;
+}
+
+/** The whole message from Outlook, or null when it is gone or cannot be read now. */
+async function fetchFull(graph: Graph, id: string): Promise<RawMessage | null> {
+  try { const g = await graph.getMessage(id); return g?.receivedDateTime ? g : null; } catch { return null; }
+}
+
 export function toMail(account: string, r: RawMessage, ctx: ClassifyContext, prev?: Mail): Mail {
   const inf: Mail['inf'] = r.inferenceClassification === 'focused' ? 'focused' : r.inferenceClassification === 'other' ? 'other' : undefined;
   const base = {
@@ -43,6 +67,21 @@ export async function ensureClassifierVersion(store: Store, account: string): Pr
   return stale.length > 0;
 }
 
+/** Rows saved earlier from a partial answer (no date, no sender) are replaced by the real message, or dropped when Outlook no longer has it. */
+export async function repairBlankRows(graph: Graph, store: Store, account: string): Promise<number> {
+  const bad = (await store.allMail()).filter((m) => m.account === account && m.folder === 'inbox' && isBlank(m));
+  if (!bad.length) return 0;
+  const drop: string[] = [];
+  for (const m of bad) {
+    let got: RawMessage | null = null, gone = false;
+    try { got = await graph.getMessage(m.id); } catch (e) { gone = e instanceof GraphError && (e.status === 404 || e.status === 410); }
+    if (got?.receivedDateTime) await store.putMail([{ ...toMail(account, got, {}, m), sig: m.sig } as Mail]);
+    else if (gone || (got && !got.subject && !got.from)) drop.push(m.key);
+  }
+  if (drop.length) await store.deleteMail(drop);
+  return bad.length;
+}
+
 export async function syncAccount(p: { graph: Graph; store: Store; account: string; ctx?: ClassifyContext; now?: () => Date }): Promise<SyncResult> {
   const { graph, store, account } = p;
   const ctx = p.ctx ?? {};
@@ -51,6 +90,7 @@ export async function syncAccount(p: { graph: Graph; store: Store; account: stri
   const result: SyncResult = { added: 0, changed: 0, removed: 0, resynced: false };
 
   await ensureClassifierVersion(store, account);
+  await repairBlankRows(graph, store, account);
   const pending = new Set((await store.allOps()).filter((o) => o.account === account).map((o) => mailKey(o.account, o.messageId)));
 
   async function run(startLink: string | undefined): Promise<void> {
@@ -70,7 +110,13 @@ export async function syncAccount(p: { graph: Graph; store: Store; account: stri
         if (r['@removed']) { removed.push(key); stored.delete(key); continue; }
         // The header marks may have been read since the snapshot above (that job runs alongside), so ask again for the ones we already have.
         const prev = stored.has(key) ? (await store.getMail(key)) ?? stored.get(key) : undefined;
-        const next = toMail(account, r, ctx, prev);
+        let full = r;
+        if (isPartial(r)) {
+          // Outlook can report a change as just the id and the changed fields. Never turn that into a row of its own (blank subject, 1970).
+          if (prev && !isBlank(prev)) full = fillFrom(r, prev);
+          else { const got = await fetchFull(graph, r.id); if (!got) continue; full = { ...got, isRead: r.isRead ?? got.isRead }; }
+        }
+        const next = toMail(account, full, ctx, prev);
         if (prev) result.changed++; else result.added++;
         stored.set(key, next);
         upserts.push(next);
