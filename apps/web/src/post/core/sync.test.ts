@@ -309,3 +309,32 @@ test('the start-over does not remove mail with an action still waiting', async (
   await syncAccount({ graph: fakeGraph([new GraphError(410, 'SyncStateNotFound', 'gone'), { value: [raw('1')], delta: 'D2' }]).g, store, account: 'a' });
   assert.deepEqual((await store.allMail()).map((m) => m.id).sort(), ['1', '2']);
 });
+
+test('a partial update (only id and isRead) keeps the saved subject, sender and date', async () => {
+  const store = memoryStore();
+  await syncAccount({ graph: fakeGraph([{ value: [raw('1')], delta: 'D1' }]).g, store, account: 'a' });
+  await syncAccount({ graph: fakeGraph([{ value: [{ id: '1', isRead: true } as RawMessage], delta: 'D2' }]).g, store, account: 'a' });
+  const m = (await store.allMail())[0];
+  assert.equal(m.subject, 's1'); assert.equal(m.received, '2026-10-01T10:00:00Z'); assert.equal(m.fromAddress, 'anna@x.no'); assert.equal(m.isRead, true);
+});
+
+test('a partial update for a message not saved is fetched in full, or skipped', async () => {
+  const store = memoryStore();
+  const { g } = fakeGraph([{ value: [{ id: 'new' } as RawMessage, { id: 'lost' } as RawMessage], delta: 'D1' }]);
+  (g as any).getMessage = async (id: string) => { if (id === 'lost') throw new Error('x'); return raw(id); };
+  await syncAccount({ graph: g, store, account: 'a' });
+  const all = await store.allMail();
+  assert.deepEqual(all.map((m) => m.id), ['new']); assert.equal(all[0].subject, 'snew');
+});
+
+test('rows saved earlier with no date are replaced or dropped', async () => {
+  const store = memoryStore();
+  await syncAccount({ graph: fakeGraph([{ value: [raw('1'), raw('2')], delta: 'D1' }]).g, store, account: 'a' });
+  const rows = await store.allMail();
+  await store.putMail(rows.map((m) => ({ ...m, received: new Date(0).toISOString(), subject: '', fromAddress: '' })));
+  const { g } = fakeGraph([{ value: [], delta: 'D2' }]);
+  (g as any).getMessage = async (id: string) => { if (id === '2') throw new GraphError(404, "x", "gone"); return raw(id); };
+  await syncAccount({ graph: g, store, account: 'a' });
+  const all = await store.allMail();
+  assert.deepEqual(all.map((m) => m.id), ['1']); assert.equal(all[0].subject, 's1');
+});
