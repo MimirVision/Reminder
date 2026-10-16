@@ -1,0 +1,122 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/* Ledger's design tokens. Light is the primary theme; dark mirrors it. Components use these names only. */
+@theme {
+  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-sunken: var(--c-sunken);
+  --color-hover: var(--c-hover);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-ink: var(--c-ink);
+  --color-ink-2: var(--c-ink-2);
+  --color-ink-3: var(--c-ink-3);
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-accent-ink: var(--c-accent-ink);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+  --color-info: var(--c-info);
+  --color-info-soft: var(--c-info-soft);
+
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --shadow-pop: 0 0 0 1px var(--c-line), 0 8px 24px -6px rgb(20 20 30 / 0.14), 0 2px 6px -2px rgb(20 20 30 / 0.08);
+  --shadow-panel: -1px 0 0 var(--c-line), -16px 0 40px -20px rgb(20 20 30 / 0.18);
+  --shadow-soft: 0 1px 2px rgb(20 20 30 / 0.05);
+
+  --animate-fade-in: fade-in 140ms ease-out;
+  --animate-pop-in: pop-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  --animate-slide-in: slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-toast-in: toast-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.98) } to { opacity: 1; transform: none } }
+@keyframes slide-in { from { transform: translateX(24px); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0 } to { transform: none; opacity: 1 } }
+
+:root {
+  --c-canvas: #f7f6f3;
+  --c-surface: #ffffff;
+  --c-sunken: #f1f0ec;
+  --c-hover: #f3f2ee;
+  --c-line: #e6e4de;
+  --c-line-strong: #d6d3cb;
+  --c-ink: #1d1d1f;
+  --c-ink-2: #55555c;
+  --c-ink-3: #7b7b83;
+  --c-accent: #4a55d1;
+  --c-accent-hover: #3d47bd;
+  --c-accent-soft: #eceefc;
+  --c-accent-ink: #3640a8;
+  --c-danger: #c4322b;
+  --c-danger-soft: #fcefee;
+  --c-warn: #a5630b;
+  --c-warn-soft: #fbf3e4;
+  --c-ok: #2c7a4b;
+  --c-ok-soft: #eaf5ee;
+  --c-info: #2f6db5;
+  --c-info-soft: #ecf3fb;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --c-canvas: #161618; --c-surface: #1e1e21; --c-sunken: #19191b; --c-hover: #26262a; --c-line: #2e2e33; --c-line-strong: #3b3b41;
+    --c-ink: #ececee; --c-ink-2: #b4b4bb; --c-ink-3: #8c8c94; --c-accent: #7c86f0; --c-accent-hover: #8d96f5; --c-accent-soft: #272a4a;
+    --c-accent-ink: #b3b9ff; --c-danger: #f0736b; --c-danger-soft: #3a2224; --c-warn: #e2a64a; --c-warn-soft: #36291a; --c-ok: #5fc58a;
+    --c-ok-soft: #1c3226; --c-info: #74a9ec; --c-info-soft: #1d2a3b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --c-canvas: #161618; --c-surface: #1e1e21; --c-sunken: #19191b; --c-hover: #26262a; --c-line: #2e2e33; --c-line-strong: #3b3b41;
+  --c-ink: #ececee; --c-ink-2: #b4b4bb; --c-ink-3: #8c8c94; --c-accent: #7c86f0; --c-accent-hover: #8d96f5; --c-accent-soft: #272a4a;
+  --c-accent-ink: #b3b9ff; --c-danger: #f0736b; --c-danger-soft: #3a2224; --c-warn: #e2a64a; --c-warn-soft: #36291a; --c-ok: #5fc58a;
+  --c-ok-soft: #1c3226; --c-info: #74a9ec; --c-info-soft: #1d2a3b;
+  color-scheme: dark;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--c-canvas);
+  color: var(--c-ink);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.45;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.tnum { font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; border-radius: 4px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+
+::selection { background: var(--c-accent-soft); }
+
+/* Quiet scrollbars that match the surfaces. */
+* { scrollbar-width: thin; scrollbar-color: var(--c-line-strong) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
+}
+
+/* Skeleton shimmer. */
+.skeleton { background: linear-gradient(90deg, var(--c-sunken) 0%, var(--c-hover) 50%, var(--c-sunken) 100%); background-size: 200% 100%; animation: shimmer 1.2s ease-in-out infinite; border-radius: 4px; }
+@keyframes shimmer { from { background-position: 100% 0 } to { background-position: -100% 0 } }
