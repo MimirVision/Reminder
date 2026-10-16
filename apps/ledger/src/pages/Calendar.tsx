@@ -1,5 +1,5 @@
 import { useMemo, useState, type DragEvent } from 'react';
-import { AlertTriangle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { FilterMenu } from '../components/FilterMenu';
 import { Page } from '../components/Shell';
 import { useUI } from '../components/ui-state';
@@ -147,16 +147,20 @@ export function Calendar() {
             return (
               <div key={d} {...dropProps(d)}
                 onDoubleClick={(e) => { if (e.target === e.currentTarget) ui.openNewTask({ dueDate: d }); }}
-                className={cn('relative flex min-w-0 flex-col gap-0.5 border-r border-b border-line p-1 [&:nth-child(7n)]:border-r-0',
+                className={cn('group/cell relative flex min-w-0 flex-col gap-0.5 border-r border-b border-line p-1 [&:nth-child(7n)]:border-r-0',
                   weekend && 'bg-canvas/50', outside && 'bg-canvas/70', d === today && 'bg-accent-soft/35', dropTarget === d && 'bg-accent-soft ring-2 ring-accent/40 ring-inset')}
                 aria-label={`${formatDayLong(d)}: ${list.length} task${list.length === 1 ? '' : 's'}`}
               >
-                {view === 'month' && (
-                  <div className="mb-0.5 flex items-center justify-between px-1">
+                <div className={cn('group/day flex items-center justify-between px-1', view === 'month' ? 'mb-0.5' : 'mb-1 justify-end')}>
+                  {view === 'month' && (
                     <span className={cn('tnum flex size-[22px] items-center justify-center rounded-full text-[12px]',
                       d === today ? 'bg-accent font-semibold text-white' : outside ? 'text-ink-3/60' : 'text-ink-2')}>{parts(d)[2]}</span>
-                  </div>
-                )}
+                  )}
+                  <button aria-label={`Add a task on ${formatDayLong(d)}`} onClick={() => ui.openNewTask({ dueDate: d })}
+                    className="flex size-[22px] items-center justify-center rounded-md text-ink-3 opacity-0 transition-opacity group-hover/cell:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
+                    <Plus className="size-3.5" />
+                  </button>
+                </div>
                 {shown.map((t) => <Chip key={t.id} task={t} today={today} compact={view === 'month'} stacked={view === 'week'} />)}
                 {(hidden > 0 || closed.length > 0) && (
                   <Popover trigger={
@@ -181,7 +185,7 @@ export function Calendar() {
         <span className="inline-flex items-center gap-1.5"><span className="h-3 w-1 rounded-sm bg-accent/70" /> Open</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-3 w-1 rounded-sm bg-warn" /> Waiting for client</span>
         <span className="inline-flex items-center gap-1.5"><Check className="size-3 text-ok" strokeWidth={3} /> Done</span>
-        <span className="ml-auto">Drag an open task to another day to reschedule it. This moves only that task, never its schedule. Double-click a day to add a task.</span>
+        <span className="ml-auto">Drag an open task to another day to reschedule it (only that task; its schedule is unchanged). Use + on a day to add a task there.</span>
       </div>
     </Page>
   );

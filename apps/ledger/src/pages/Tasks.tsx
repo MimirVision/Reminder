@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ChevronDown, ListChecks, Plus, Search, X } from 'lucide-react';
+import { ArrowUpDown, CalendarClock, Check, ChevronDown, Clock, ListChecks, Plus, Search, X } from 'lucide-react';
+import { QuickAdd } from '../components/QuickAdd';
+import { useTaskActions, type GroupBy } from '../components/TaskTable';
+import { DatePicker } from '../ui/datepicker';
+import { formatDayShort } from '../lib/format';
+import type { ISODate } from '../lib/dates';
 import { FilterMenu } from '../components/FilterMenu';
 import { Page } from '../components/Shell';
 import { TaskTable } from '../components/TaskTable';
@@ -25,6 +30,11 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 
 const same = (a: TaskFilter, b: TaskFilter) => filterToQuery(a) === filterToQuery(b);
 
+const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
+  { value: 'none', label: 'No grouping' }, { value: 'day', label: 'Due day' }, { value: 'client', label: 'Client' }, { value: 'status', label: 'Status' },
+];
+const readGroup = (): GroupBy => { try { return (localStorage.getItem('ledger-group') as GroupBy) || 'none'; } catch { return 'none'; } };
+
 export function Tasks() {
   const { snap, today, clientById } = useStore();
   const ui = useUI();
@@ -32,6 +42,12 @@ export function Tasks() {
   const initial = () => (query.get('view') ? viewFilter(query.get('view')!) : query.toString() ? queryToFilter(query) : viewFilter('open'));
   const [f, setF] = useState<TaskFilter>(initial);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [groupBy, setGroupByState] = useState<GroupBy>(readGroup);
+  const setGroupBy = (g: GroupBy) => { setGroupByState(g); try { localStorage.setItem('ledger-group', g); } catch { /* ignore */ } };
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const anchor = useRef<string | null>(null);
+  const { run } = useStore();
+  const actions = useTaskActions();
 
   // Follow links into this page (from the dashboard metrics, for example).
   const qs = query.toString();
@@ -56,6 +72,32 @@ export function Tasks() {
 
   const tasks = useMemo(() => applyFilter(snap.occurrences, f, today, clientById), [snap.occurrences, f, today, clientById]);
   const activeView = SAVED_VIEWS.find((v) => same(viewFilter(v.id), f));
+  // Selection follows the list: anything filtered away is no longer selected.
+  useEffect(() => {
+    setSelected((s) => { const ids = new Set(tasks.map((t) => t.id)); const n = new Set([...s].filter((id) => ids.has(id))); return n.size === s.size ? s : n; });
+  }, [tasks]);
+  const selection = {
+    selected,
+    toggle: (id: string, range: boolean) => setSelected((s) => {
+      const n = new Set(s);
+      if (range && anchor.current) {
+        const ids = tasks.map((t) => t.id);
+        const [a, b] = [ids.indexOf(anchor.current), ids.indexOf(id)].sort((x, y) => x - y);
+        if (a >= 0) { ids.slice(a, b + 1).forEach((x) => n.add(x)); return n; }
+      }
+      anchor.current = id;
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    }),
+    toggleAll: (ids: string[]) => setSelected((s) => (ids.every((id) => s.has(id)) ? new Set() : new Set(ids))),
+  };
+  const picked = tasks.filter((t) => selected.has(t.id));
+  const bulk = (label: string, patch: (id: string) => Parameters<typeof run>[0]) => {
+    const ids = picked.map((t) => t.id);
+    void run(async (r) => { for (const id of ids) await patch(id)(r); return ids.length; }, { success: (n) => `${n} task${n === 1 ? '' : 's'} ${label}` })
+      .then(() => setSelected(new Set()));
+  };
+  const bulkMove = (d: ISODate) => bulk(`moved to ${formatDayShort(d)}`, (id) => (r) => r.updateOccurrence(id, { dueDate: d }));
   const patch = (p: Partial<TaskFilter>) => setF((x) => ({ ...x, ...p }));
   const clientOptions = useMemo(() => [...snap.clients].sort((a, b) => a.name.localeCompare(b.name))
     .map((c) => ({ value: c.id, label: c.name, hint: c.status === 'archived' ? 'Archived' : undefined })), [snap.clients]);
@@ -102,20 +144,39 @@ export function Tasks() {
         )}
         <div className="ml-auto flex items-center gap-2">
           <span className="tnum text-[12.5px] text-ink-3" aria-live="polite">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span>
-          <Menu align="end" label="Sort" trigger={<Button size="sm" variant="ghost"><ArrowUpDown /> {SORT_OPTIONS.find((o) => o.value === f.sort)?.label}</Button>}>
+          <Menu align="end" label="Sort and group" trigger={<Button size="sm" variant="ghost"><ArrowUpDown /> {SORT_OPTIONS.find((o) => o.value === f.sort)?.label}{groupBy !== 'none' && ` · grouped by ${({ day: 'day', client: 'client', status: 'status' } as const)[groupBy]}`}</Button>}>
             <MenuLabel>Sort by</MenuLabel>
             <MenuRadio value={f.sort} onChange={(sort) => patch({ sort })} options={SORT_OPTIONS} />
+            <MenuLabel>Group by</MenuLabel>
+            <MenuRadio value={groupBy} onChange={setGroupBy} options={GROUP_OPTIONS} />
           </Menu>
         </div>
       </div>
 
+      <QuickAdd className="mb-3" />
       <div className="overflow-clip rounded-lg border border-line bg-surface">
-        {tasks.length ? <TaskTable tasks={tasks} /> : (
+        {tasks.length ? <TaskTable tasks={tasks} groupBy={groupBy} selection={selection} /> : (
           <EmptyState icon={ListChecks} title={isFiltered(f) ? 'No tasks match these filters' : activeView?.id === 'overdue' ? 'Nothing overdue' : 'No tasks here'}
             body={isFiltered(f) ? 'Try removing a filter or searching for something else.' : 'Tasks you add, and tasks created by recurring schedules, appear here.'}
             action={isFiltered(f) ? <Button size="sm" onClick={() => setF(viewFilter('open'))}>Show all open tasks</Button> : <Button size="sm" variant="primary" onClick={() => ui.openNewTask()}><Plus /> New task</Button>} />
         )}
       </div>
+      <p className="mt-2 hidden text-[11.5px] text-ink-3 md:block">
+        Keyboard: ↑↓ move · Enter open · D done · W waiting · T tomorrow · X select (Shift for a range) · / search · N new task
+      </p>
+
+      {picked.length > 0 && (
+        <div role="toolbar" aria-label="Selected tasks" className="sticky bottom-4 z-20 mx-auto mt-4 flex w-fit animate-toast-in items-center gap-1 rounded-xl bg-ink py-1.5 pr-1.5 pl-4 text-[13px] text-canvas shadow-pop">
+          <span className="tnum mr-2 font-medium">{picked.length} selected</span>
+          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulk('marked done', (id) => (r) => r.updateOccurrence(id, { status: 'done' }))}><Check className="size-4" /> Done</button>
+          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulk('set to waiting', (id) => (r) => r.updateOccurrence(id, { status: 'waiting' }))}><Clock className="size-4" /> Waiting</button>
+          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulkMove(actions.tomorrow)}><CalendarClock className="size-4" /> Tomorrow</button>
+          <DatePicker value={null} today={today} onChange={bulkMove} trigger={
+            <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10">Move to… <ChevronDown className="size-3.5" /></button>
+          } />
+          <button aria-label="Clear selection" className="ml-1 inline-flex size-8 items-center justify-center rounded-lg hover:bg-white/10" onClick={() => setSelected(new Set())}><X className="size-4" /></button>
+        </div>
+      )}
     </Page>
   );
 }

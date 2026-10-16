@@ -1,52 +1,112 @@
-import { memo } from 'react';
-import { Check, Repeat } from 'lucide-react';
-import type { ISODate } from '../lib/dates';
+import { memo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { CalendarClock, Check, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun } from 'lucide-react';
+import { addDays, weekday, type ISODate } from '../lib/dates';
+import { formatDayShort, formatDue } from '../lib/format';
+import { STATUS_LABEL } from '../lib/labels';
 import { periodLabel } from '../lib/recurrence';
-import type { Client, Occurrence } from '../lib/types';
+import type { Client, Occurrence, TaskStatus } from '../lib/types';
 import { isOpen } from '../lib/types';
 import { useStore } from '../data/store';
 import { DueDate, PriorityLabel, StatusPicker, Tag } from '../ui/badges';
 import { cn } from '../ui/cn';
 import { DatePicker } from '../ui/datepicker';
+import { Menu, MenuItem, MenuSeparator } from '../ui/overlay';
 import { useUI } from './ui-state';
 
+export type GroupBy = 'none' | 'day' | 'client' | 'status';
+
+const nextMonday = (today: ISODate) => addDays(today, ((1 - weekday(today) + 7) % 7) || 7);
+
+/** The quick moves people make all day, shared by the row menu and the keyboard. */
+export function useTaskActions() {
+  const { patchOccurrence, today } = useStore();
+  return {
+    toggleDone: (t: Occurrence) => patchOccurrence(t.id, { status: t.status === 'done' ? 'todo' : 'done' }, t.status === 'done' ? 'Reopened' : `Done: ${t.title}`),
+    waiting: (t: Occurrence) => patchOccurrence(t.id, { status: t.status === 'waiting' ? 'todo' : 'waiting' }, t.status === 'waiting' ? 'No longer waiting' : 'Waiting for client'),
+    moveTo: (t: Occurrence, d: ISODate) => (d === t.dueDate ? Promise.resolve(true) : patchOccurrence(t.id, { dueDate: d }, `Moved to ${formatDue(d, today).toLowerCase()}`)),
+    tomorrow: addDays(today, 1),
+    nextMonday: nextMonday(today),
+    nextWeek: addDays(today, 7),
+  };
+}
+
 export function CompleteToggle({ task }: { task: Occurrence }) {
-  const { patchOccurrence } = useStore();
-  const done = task.status === 'done';
+  const { toggleDone } = useTaskActions();
+  const [completing, setCompleting] = useState(false);
+  const done = task.status === 'done' || completing;
   return (
     <button
-      aria-label={done ? `Reopen “${task.title}”` : `Mark “${task.title}” done`}
-      aria-pressed={done}
-      onClick={(e) => { e.stopPropagation(); void patchOccurrence(task.id, { status: done ? 'todo' : 'done' }, done ? 'Reopened' : 'Marked done'); }}
+      aria-label={task.status === 'done' ? `Reopen “${task.title}”` : `Mark “${task.title}” done`}
+      aria-pressed={task.status === 'done'}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (task.status === 'done') { void toggleDone(task); return; }
+        // A short moment to see the tick before the row leaves an open-tasks list.
+        setCompleting(true);
+        window.setTimeout(() => { void toggleDone(task).finally(() => setCompleting(false)); }, 280);
+      }}
       className={cn(
-        'group/check flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors',
-        done ? 'border-ok bg-ok text-white' : task.status === 'cancelled' ? 'border-line-strong border-dashed' : 'border-line-strong hover:border-ok hover:bg-ok-soft',
+        'group/check flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] transition-[background-color,border-color,transform] duration-150',
+        done ? 'scale-110 border-ok bg-ok text-white' : task.status === 'cancelled' ? 'border-dashed border-line-strong' : 'border-line-strong hover:border-ok hover:bg-ok-soft',
       )}
     >
-      <Check className={cn('size-3', done ? 'opacity-100' : 'text-ok opacity-0 group-hover/check:opacity-100')} strokeWidth={3} />
+      <Check className={cn('size-3 transition-opacity', done ? 'opacity-100' : 'text-ok opacity-0 group-hover/check:opacity-100')} strokeWidth={3} />
     </button>
   );
 }
 
-const Row = memo(function Row({ task, client, today, showClient, selected }: { task: Occurrence; client: Client | undefined; today: ISODate; showClient: boolean; selected: boolean }) {
+function RowMenu({ task }: { task: Occurrence }) {
+  const ui = useUI();
+  const a = useTaskActions();
+  const open = isOpen(task.status);
+  return (
+    <Menu align="end" label={`Actions for “${task.title}”`} trigger={
+      <button onClick={(e) => e.stopPropagation()} aria-label={`Actions for “${task.title}”`}
+        className="flex size-7 items-center justify-center rounded-md text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunken hover:text-ink data-[state=open]:opacity-100 max-sm:opacity-100">
+        <MoreHorizontal className="size-4" />
+      </button>
+    }>
+      <MenuItem shortcut="D" onSelect={() => void a.toggleDone(task)}>{task.status === 'done' ? <><RotateCcw /> Reopen</> : <><Check /> Mark done</>}</MenuItem>
+      {open && <MenuItem shortcut="W" onSelect={() => void a.waiting(task)}><Clock /> {task.status === 'waiting' ? 'No longer waiting' : 'Waiting for client'}</MenuItem>}
+      {open && <>
+        <MenuSeparator />
+        <MenuItem shortcut="T" onSelect={() => void a.moveTo(task, a.tomorrow)}><Sun /> Tomorrow</MenuItem>
+        <MenuItem onSelect={() => void a.moveTo(task, a.nextMonday)}><CalendarClock /> Next Monday · {formatDayShort(a.nextMonday)}</MenuItem>
+        <MenuItem onSelect={() => void a.moveTo(task, addDays(task.dueDate < a.tomorrow ? a.tomorrow : task.dueDate, 7))}><CalendarClock /> One week later</MenuItem>
+      </>}
+      <MenuSeparator />
+      <MenuItem shortcut="↵" onSelect={() => ui.openTask(task.id)}><CornerDownLeft /> Open details</MenuItem>
+    </Menu>
+  );
+}
+
+const Row = memo(function Row({ task, client, today, showClient, current, checked, onCheck }: {
+  task: Occurrence; client: Client | undefined; today: ISODate; showClient: boolean; current: boolean;
+  checked?: boolean; onCheck?: (id: string, range: boolean) => void;
+}) {
   const ui = useUI();
   const { patchOccurrence } = useStore();
   const open = isOpen(task.status);
   return (
     <tr
-      onClick={() => ui.openTask(task.id)}
-      data-selected={selected || undefined}
-      className="group h-[38px] cursor-default border-b border-line last:border-b-0 hover:bg-hover/70 data-[selected]:bg-accent-soft/60"
+      tabIndex={0}
+      data-task={task.id}
+      onClick={(e) => { if (onCheck && (e.metaKey || e.ctrlKey || e.shiftKey)) { onCheck(task.id, e.shiftKey); return; } ui.openTask(task.id); }}
+      data-selected={current || checked || undefined}
+      aria-selected={checked}
+      className="group h-[38px] cursor-default border-b border-line last:border-b-0 outline-none hover:bg-hover/70 focus-visible:bg-accent-soft/40 focus-visible:shadow-[inset_2px_0_0_var(--c-accent)] data-[selected]:bg-accent-soft/60"
     >
-      <td className="w-9 pl-3"><CompleteToggle task={task} /></td>
+      {onCheck && (
+        <td className="w-8 pl-3" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" tabIndex={-1} aria-label={`Select “${task.title}”`} checked={!!checked}
+            onChange={(e) => onCheck(task.id, (e.nativeEvent as MouseEvent).shiftKey)}
+            className={cn('size-3.5 accent-[var(--c-accent)] transition-opacity', checked ? 'opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100')} />
+        </td>
+      )}
+      <td className={cn('w-9', onCheck ? 'pl-1' : 'pl-3')}><CompleteToggle task={task} /></td>
       <td className="max-w-0 py-1.5 pr-3">
         <div className="flex min-w-0 items-center gap-2">
-          <button
-            className={cn('truncate text-left text-[13px] focus-visible:underline', !open && 'text-ink-3', task.status === 'cancelled' && 'line-through')}
-            onClick={(e) => { e.stopPropagation(); ui.openTask(task.id); }}
-          >
-            {task.title}
-          </button>
+          <span className={cn('truncate text-[13px]', !open && 'text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
           {task.periodKey && (
             <span className="hidden shrink-0 items-center gap-1 text-[11.5px] text-ink-3 sm:inline-flex" title="From a recurring schedule">
               <Repeat className="size-3" />{periodLabel(task.periodKey)}
@@ -65,38 +125,115 @@ const Row = memo(function Row({ task, client, today, showClient, selected }: { t
           value={task.dueDate}
           today={today}
           onChange={(d) => { if (d !== task.dueDate) void patchOccurrence(task.id, { dueDate: d }, 'Due date changed'); }}
-          trigger={<button aria-label={`Due ${task.dueDate}. Change due date`} className="-mx-1.5 rounded px-1.5 py-0.5 hover:bg-sunken"><DueDate date={task.dueDate} today={today} open={open} /></button>}
+          trigger={<button tabIndex={-1} aria-label={`Due ${task.dueDate}. Change due date`} className="-mx-1.5 rounded px-1.5 py-0.5 hover:bg-sunken"><DueDate date={task.dueDate} today={today} open={open} /></button>}
         />
       </td>
       <td className="hidden w-20 pr-3 sm:table-cell"><PriorityLabel priority={task.priority} compact /></td>
-      <td className="hidden w-32 pr-3 sm:table-cell" onClick={(e) => e.stopPropagation()}>
+      <td className="hidden w-32 pr-1 sm:table-cell" onClick={(e) => e.stopPropagation()}>
         <StatusPicker status={task.status} onChange={(s) => void patchOccurrence(task.id, { status: s }, 'Status updated')} />
       </td>
+      <td className="w-9 pr-2" onClick={(e) => e.stopPropagation()}><RowMenu task={task} /></td>
     </tr>
   );
 });
 
-export function TaskTable({ tasks, showClient = true, header = true, limit }: { tasks: Occurrence[]; showClient?: boolean; header?: boolean; limit?: number }) {
+const STATUS_ORDER: TaskStatus[] = ['in_progress', 'todo', 'waiting', 'done', 'cancelled'];
+
+function groupTasks(tasks: Occurrence[], by: GroupBy, today: ISODate, clientById: Map<string, Client>): { key: string; label: ReactNode; tasks: Occurrence[] }[] {
+  if (by === 'none') return [{ key: 'all', label: null, tasks }];
+  const map = new Map<string, Occurrence[]>();
+  const keyOf = (t: Occurrence) => by === 'client' ? t.clientId
+    : by === 'status' ? t.status
+    : isOpen(t.status) && t.dueDate < today ? 'overdue' : t.dueDate;
+  for (const t of tasks) {
+    const k = keyOf(t);
+    const list = map.get(k) ?? [];
+    list.push(t);
+    map.set(k, list);
+  }
+  const keys = [...map.keys()];
+  if (by === 'client') keys.sort((a, b) => (clientById.get(a)?.name ?? '').localeCompare(clientById.get(b)?.name ?? ''));
+  else if (by === 'status') keys.sort((a, b) => STATUS_ORDER.indexOf(a as TaskStatus) - STATUS_ORDER.indexOf(b as TaskStatus));
+  else keys.sort((a, b) => (a === 'overdue' ? -1 : b === 'overdue' ? 1 : a.localeCompare(b)));
+  return keys.map((k) => ({
+    key: k,
+    tasks: map.get(k)!,
+    label: by === 'client' ? clientById.get(k)?.name ?? 'Unknown client'
+      : by === 'status' ? STATUS_LABEL[k as TaskStatus]
+      : k === 'overdue' ? <span className="text-danger">Overdue</span>
+      : <>{formatDue(k, today)}{k > addDays(today, 1) && <span className="ml-1.5 font-normal text-ink-3">{formatDayShort(k)}</span>}</>,
+  }));
+}
+
+/** Arrow keys move between rows; Enter opens; D done, W waiting, T tomorrow; X selects (where selection is on). */
+function useRowKeys(tasks: Occurrence[], onCheck?: (id: string, range: boolean) => void) {
+  const ui = useUI();
+  const a = useTaskActions();
+  return (e: KeyboardEvent<HTMLTableSectionElement>) => {
+    const row = (e.target as HTMLElement).closest<HTMLTableRowElement>('tr[data-task]');
+    if (!row || e.target !== row || e.metaKey || e.ctrlKey || e.altKey) return;
+    const task = tasks.find((t) => t.id === row.dataset.task);
+    if (!task) return;
+    const rows = [...row.closest('table')!.querySelectorAll<HTMLTableRowElement>('tr[data-task]')];
+    const i = rows.indexOf(row);
+    const key = e.key.toLowerCase();
+    if (e.key === 'ArrowDown' || key === 'j') { e.preventDefault(); rows[Math.min(rows.length - 1, i + 1)]?.focus(); }
+    else if (e.key === 'ArrowUp' || key === 'k') { e.preventDefault(); rows[Math.max(0, i - 1)]?.focus(); }
+    else if (e.key === 'Enter') { e.preventDefault(); ui.openTask(task.id); }
+    else if (key === 'd') { e.preventDefault(); (rows[i + 1] ?? rows[i - 1])?.focus(); void a.toggleDone(task); }
+    else if (key === 'w' && isOpen(task.status)) { e.preventDefault(); void a.waiting(task); }
+    else if (key === 't' && isOpen(task.status)) { e.preventDefault(); void a.moveTo(task, a.tomorrow); }
+    else if (key === 'x' && onCheck) { e.preventDefault(); onCheck(task.id, e.shiftKey); }
+  };
+}
+
+export function TaskTable({ tasks, showClient = true, header = true, limit, groupBy = 'none', selection }: {
+  tasks: Occurrence[]; showClient?: boolean; header?: boolean; limit?: number; groupBy?: GroupBy;
+  selection?: { selected: Set<string>; toggle: (id: string, range: boolean) => void; toggleAll: (ids: string[]) => void };
+}) {
   const { clientById, today } = useStore();
   const ui = useUI();
   const shown = limit ? tasks.slice(0, limit) : tasks;
+  const groups = groupTasks(shown, groupBy, today, clientById);
+  const onKey = useRowKeys(shown, selection?.toggle);
+  const cols = 6 + (showClient ? 1 : 0) + (selection ? 1 : 0);
+  const allChecked = !!selection && shown.length > 0 && shown.every((t) => selection.selected.has(t.id));
   return (
     <table className="w-full table-fixed border-collapse">
       {header && (
         <thead>
           <tr className="sticky top-[52px] z-10 h-8 border-b border-line bg-surface text-left text-[11.5px] font-medium text-ink-3 [&>th]:bg-surface">
-            <th className="w-9 pl-3"><span className="sr-only">Done</span></th>
+            {selection && (
+              <th className="w-8 pl-3">
+                <input type="checkbox" aria-label="Select all" checked={allChecked} onChange={() => selection.toggleAll(shown.map((t) => t.id))}
+                  className={cn('size-3.5 accent-[var(--c-accent)]', !allChecked && selection.selected.size === 0 && 'opacity-50 hover:opacity-100')} />
+              </th>
+            )}
+            <th className={cn('w-9', selection ? 'pl-1' : 'pl-3')}><span className="sr-only">Done</span></th>
             <th className="pr-3 font-medium">Task</th>
             {showClient && <th className="hidden w-[24%] pr-3 font-medium md:table-cell">Client</th>}
             <th className="w-36 pr-3 font-medium">Due</th>
             <th className="hidden w-20 pr-3 font-medium sm:table-cell">Priority</th>
-            <th className="hidden w-32 pr-3 font-medium sm:table-cell">Status</th>
+            <th className="hidden w-32 pr-1 font-medium sm:table-cell">Status</th>
+            <th className="w-9 pr-2"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
       )}
-      <tbody>
-        {shown.map((t) => <Row key={t.id} task={t} client={clientById.get(t.clientId)} today={today} showClient={showClient} selected={ui.taskId === t.id} />)}
-      </tbody>
+      {groups.map((g, gi) => (
+        <tbody key={g.key} onKeyDown={onKey}>
+          {g.label !== null && (
+            <tr className={cn('h-8 border-b border-line bg-canvas/60', gi > 0 && 'border-t')}>
+              <th colSpan={cols} scope="rowgroup" className="pl-4 text-left text-[12px] font-semibold text-ink-2">
+                {g.label}<span className="ml-2 font-normal text-ink-3">{g.tasks.length}</span>
+              </th>
+            </tr>
+          )}
+          {g.tasks.map((t) => (
+            <Row key={t.id} task={t} client={clientById.get(t.clientId)} today={today} showClient={showClient} current={ui.taskId === t.id}
+              checked={selection?.selected.has(t.id)} onCheck={selection?.toggle} />
+          ))}
+        </tbody>
+      ))}
     </table>
   );
 }
