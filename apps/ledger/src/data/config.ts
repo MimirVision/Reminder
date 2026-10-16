@@ -1,5 +1,10 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+/** Built as a single self-contained page for claude.ai (npm run build:artifact): memory routing, copy instead of download. */
+export const IS_ARTIFACT = import.meta.env.VITE_TARGET === 'artifact';
+/** The theme when none is chosen: the hosted page follows the viewer's own theme. */
+export const DEFAULT_THEME = IS_ARTIFACT ? 'system' : 'light';
+
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 

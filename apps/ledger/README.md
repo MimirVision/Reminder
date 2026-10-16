@@ -145,6 +145,12 @@ npm run build:sql     # regenerate supabase/ledger.sql from the migrations
 Date handling is tested across month ends, leap years (2024, 2028, 2100, 2000), ISO week-years and the 2026
 daylight-saving changes in Europe/Oslo. Due dates are plain calendar dates, so they can't shift with time zones.
 
+## Hosted demo page
+
+`npm run build:artifact` builds the whole app into one self-contained file, `dist-artifact/ledger.html`, in demo
+mode. That is the version published as a private page on claude.ai. There the route is kept in memory (the page can't
+change its own address) and backup/CSV export copy to the clipboard instead of downloading.
+
 ## Deployment
 
 Ledger is a static single-page app. Its own Cloudflare Worker:

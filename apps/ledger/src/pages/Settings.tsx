@@ -5,7 +5,8 @@ import { useStore } from '../data/store';
 import { parseBackup, toBackup } from '../data/repo';
 import { buildSeed } from '../data/seed';
 import { DemoRepo } from '../data/demoRepo';
-import { supabase, setDemoChoice, supabaseConfigured } from '../data/config';
+import { DEFAULT_THEME, IS_ARTIFACT, supabase, setDemoChoice, supabaseConfigured } from '../data/config';
+import { useToast } from '../ui/toast';
 import { formatTimestamp, setLocale } from '../lib/format';
 import { STATUS_LABEL, TYPE_LABEL, PRIORITY_LABEL } from '../lib/labels';
 import type { WorkspaceSettings } from '../lib/types';
@@ -43,6 +44,15 @@ const csvCell = (v: unknown) => {
 
 export function Settings({ email }: { email?: string | null }) {
   const { snap, repo, run, lastGeneration, today, clientById, reload } = useStore();
+  const toast = useToast();
+  // The hosted page can't start downloads, so there the export goes to the clipboard instead.
+  const save = (name: string, text: string, type: string) => {
+    if (!IS_ARTIFACT) return download(name, text, type);
+    navigator.clipboard.writeText(text).then(
+      () => toast.show(`Copied to the clipboard. Paste it into a file named ${name} to keep it.`),
+      () => toast.show('Your browser didn’t allow copying. Run Ledger from the repository to download files.', { tone: 'error' }),
+    );
+  };
   const s = snap.workspace.settings;
   const [name, setName] = useState(s.displayName ?? '');
   const [wsName, setWsName] = useState(snap.workspace.name);
@@ -55,14 +65,14 @@ export function Settings({ email }: { email?: string | null }) {
   const stamp = today;
   const empty = snap.clients.length === 0 && snap.occurrences.length === 0;
 
-  const exportJson = () => download(`ledger-backup-${stamp}.json`, JSON.stringify(toBackup(snap), null, 2), 'application/json');
+  const exportJson = () => save(`ledger-backup-${stamp}.json`, JSON.stringify(toBackup(snap), null, 2), 'application/json');
   const exportCsv = () => {
     const head = ['Client', 'Reference', 'Task', 'Period', 'Due date', 'Status', 'Priority', 'Type', 'Tags', 'Completed at', 'Notes'];
     const rows = [...snap.occurrences].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((o) => {
       const c = clientById.get(o.clientId);
       return [c?.name, c?.reference, o.title, o.periodKey ?? '', o.dueDate, STATUS_LABEL[o.status], PRIORITY_LABEL[o.priority], TYPE_LABEL[o.taskType], o.tags.join(' '), o.completedAt ?? '', o.description];
     });
-    download(`ledger-tasks-${stamp}.csv`, '﻿' + [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n'), 'text/csv');
+    save(`ledger-tasks-${stamp}.csv`, '﻿' + [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n'), 'text/csv');
   };
   const restore = async (f: File) => {
     let backup;
@@ -115,15 +125,15 @@ export function Settings({ email }: { email?: string | null }) {
             onBlur={(e) => { const n = Math.max(0, Math.min(366, Math.round(Number(e.target.value) || 0))); if (n !== (s.defaultLeadDays ?? 21)) void saveSettings({ defaultLeadDays: n }); }} />}
         </Field>
         <Field label="Theme">
-          {() => <div><Segmented label="Theme" value={s.theme ?? 'light'} onChange={(v) => void saveSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>}
+          {() => <div><Segmented label="Theme" value={s.theme ?? DEFAULT_THEME} onChange={(v) => void saveSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>}
         </Field>
         <p className="text-[12px] text-ink-3">Reminders are shown inside Ledger (Home, overdue and due-today lists). Browser notifications are not used, so nothing depends on them.</p>
       </Section>
 
       <Section title="Backup and export" description="Export regularly. The JSON backup holds everything needed to restore this workspace.">
         <div className="flex flex-wrap gap-2">
-          <Button onClick={exportJson}><Download /> Download backup (JSON)</Button>
-          <Button onClick={exportCsv}><Download /> Export tasks (CSV)</Button>
+          <Button onClick={exportJson}><Download /> {IS_ARTIFACT ? 'Copy backup (JSON)' : 'Download backup (JSON)'}</Button>
+          <Button onClick={exportCsv}><Download /> {IS_ARTIFACT ? 'Copy tasks (CSV)' : 'Export tasks (CSV)'}</Button>
         </div>
         <div>
           <input ref={file} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void restore(f); }} />

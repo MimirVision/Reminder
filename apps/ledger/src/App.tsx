@@ -6,7 +6,7 @@ import { Shell } from './components/Shell';
 import { NewTaskDialog } from './components/TaskForms';
 import { TaskPanel } from './components/TaskPanel';
 import { UIProvider } from './components/ui-state';
-import { supabase, wantsDemo } from './data/config';
+import { DEFAULT_THEME, supabase, wantsDemo } from './data/config';
 import { DemoRepo } from './data/demoRepo';
 import type { Repo } from './data/repo';
 import { StoreProvider, useStore } from './data/store';
@@ -26,7 +26,7 @@ import { PageSkeleton } from './ui/states';
 import { ToastProvider } from './ui/toast';
 
 function applyTheme(theme: string | undefined) {
-  const t = theme ?? 'light';
+  const t = theme ?? DEFAULT_THEME;
   if (t === 'system') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = t;
   try { localStorage.setItem('ledger-theme', t); } catch { /* ignore */ }
