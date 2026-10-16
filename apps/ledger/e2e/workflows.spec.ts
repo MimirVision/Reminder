@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const metric = (page: Page, label: string) => page.getByRole('link', { name: new RegExp(label) }).first();
+const metric = (page: Page, label: string) => page.getByRole('navigation', { name: 'Summary' }).getByRole('link', { name: new RegExp(label) });
 const count = async (page: Page, label: string) => Number((await metric(page, label).locator('span.tnum').textContent())?.trim());
 
 test('the dashboard shows what needs attention and its numbers lead to the matching tasks', async ({ page }) => {
@@ -105,7 +105,7 @@ test('missing tasks explain why they were flagged and can be resolved', async ({
   await page.getByRole('tab', { name: /Reviewed/ }).click();
   await expect(page.getByText('Exception recorded: Handled by previous accountant')).toBeVisible();
   await page.goto('/');
-  expect(await count(page, 'Missing tasks')).toBe(before - 2);
+  expect(await count(page, 'Missing')).toBe(before - 2);
 });
 
 test('the calendar and the list show the same tasks, and the keyboard reaches everything', async ({ page }) => {

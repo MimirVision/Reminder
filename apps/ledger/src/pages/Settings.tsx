@@ -21,7 +21,7 @@ function Section({ title, description, children }: { title: string; description?
         <h2 className="text-[13.5px] font-semibold">{title}</h2>
         {description && <p className="mt-1 text-[12.5px] text-ink-3">{description}</p>}
       </div>
-      <div className="flex max-w-xl flex-col gap-4">{children}</div>
+      <div className="flex max-w-md flex-col gap-4">{children}</div>
     </section>
   );
 }
@@ -99,7 +99,7 @@ export function Settings({ email }: { email?: string | null }) {
         <Field label="Time zone">
           {(p) => (
             <Select {...p} value={snap.workspace.timezone} onChange={(e) => void run((r) => r.updateWorkspace({ timezone: e.target.value }), { generate: true, success: 'Time zone saved' })}>
-              {ZONES.map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+              {(ZONES.includes(snap.workspace.timezone) ? ZONES : [snap.workspace.timezone, ...ZONES]).map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
             </Select>
           )}
         </Field>
@@ -120,9 +120,14 @@ export function Settings({ email }: { email?: string | null }) {
         <Field label="Calendar opens in">
           {() => <div><Segmented label="Default calendar view" value={s.defaultCalendarView ?? 'month'} onChange={(v) => void saveSettings({ defaultCalendarView: v })} options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }]} /></div>}
         </Field>
-        <Field label="New schedules create tasks" hint="days before they are due. Each schedule can override this.">
-          {(p) => <Input {...p} className="w-24" type="number" min={0} max={366} defaultValue={s.defaultLeadDays ?? 21}
-            onBlur={(e) => { const n = Math.max(0, Math.min(366, Math.round(Number(e.target.value) || 0))); if (n !== (s.defaultLeadDays ?? 21)) void saveSettings({ defaultLeadDays: n }); }} />}
+        <Field label="New schedules create tasks" hint="Each schedule can override this.">
+          {(p) => (
+            <div className="flex items-center gap-2">
+              <div className="w-20"><Input {...p} type="number" min={0} max={366} defaultValue={s.defaultLeadDays ?? 21}
+                onBlur={(e) => { const n = Math.max(0, Math.min(366, Math.round(Number(e.target.value) || 0))); if (n !== (s.defaultLeadDays ?? 21)) void saveSettings({ defaultLeadDays: n }); }} /></div>
+              <span className="text-[13px] text-ink-2">days before they are due</span>
+            </div>
+          )}
         </Field>
         <Field label="Theme">
           {() => <div><Segmented label="Theme" value={s.theme ?? DEFAULT_THEME} onChange={(v) => void saveSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>}

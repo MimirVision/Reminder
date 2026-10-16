@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Building2, Plus, Search } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, Building2, Plus, Search } from 'lucide-react';
 import { Page } from '../components/Shell';
 import { ClientDialog } from '../components/TaskForms';
 import { useStore } from '../data/store';
@@ -57,7 +57,7 @@ export function Clients() {
 
   const header = (key: Sort, label: string, cls = '') => (
     <th className={cn('pr-3 font-medium', cls)} aria-sort={sort.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
-      <button className={cn('inline-flex items-center gap-1 hover:text-ink', sort.key === key && 'text-ink')}
+      <button className={cn('inline-flex items-center gap-1 hover:text-ink', cls.includes('text-right') && 'flex-row-reverse', sort.key === key && 'text-ink')}
         onClick={() => setSort((s) => ({ key, dir: s.key === key ? (-s.dir as 1 | -1) : key === 'name' || key === 'next' ? 1 : -1 }))}>
         {label}{sort.key === key && (sort.dir === 1 ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
       </button>
@@ -76,23 +76,23 @@ export function Clients() {
         {archivedCount > 0 && <Checkbox checked={archived} onChange={setArchived} label={`Show archived (${archivedCount})`} />}
         <span className="tnum ml-auto text-[12.5px] text-ink-3">{rows.length} client{rows.length === 1 ? '' : 's'}</span>
       </div>
-      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-soft">
+      <div className="overflow-clip rounded-lg border border-line bg-surface">
         {rows.length ? (
           <table className="w-full table-fixed border-collapse">
             <thead>
-              <tr className="h-8 border-b border-line text-left text-[11.5px] text-ink-3">
+              <tr className="sticky top-[52px] z-10 h-8 border-b border-line bg-surface text-left text-[11.5px] text-ink-3">
                 {header('name', 'Client', 'pl-4')}
-                {header('open', 'Open', 'w-20')}
-                {header('overdue', 'Overdue', 'w-24')}
-                {header('next', 'Next deadline', 'w-36 hidden sm:table-cell')}
-                <th className="hidden w-28 pr-4 font-medium md:table-cell">Schedules</th>
+                {header('open', 'Open', 'w-20 text-right')}
+                {header('overdue', 'Overdue', 'w-24 text-right')}
+                {header('next', 'Next deadline', 'w-44 pl-6 hidden sm:table-cell')}
+                <th className="hidden w-28 pr-4 text-right font-medium md:table-cell">Schedules</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((c) => {
                 const st = stats.get(c.id)!;
                 return (
-                  <tr key={c.id} className="h-11 cursor-default border-b border-line last:border-b-0 hover:bg-hover/70" onClick={() => navigate(`/clients/${c.id}`)}>
+                  <tr key={c.id} className="h-10 cursor-default border-b border-line last:border-b-0 hover:bg-hover/70" onClick={() => navigate(`/clients/${c.id}`)}>
                     <td className="max-w-0 pr-3 pl-4">
                       <div className="flex items-center gap-2">
                         <Link to={`/clients/${c.id}`} className="truncate text-[13px] font-medium hover:text-accent" onClick={(e) => e.stopPropagation()}>{c.name}</Link>
@@ -100,12 +100,14 @@ export function Clients() {
                         {c.status === 'archived' && <Pill>Archived</Pill>}
                       </div>
                     </td>
-                    <td className="tnum pr-3 text-[13px] text-ink-2">{st.open || <span className="text-ink-3">0</span>}</td>
-                    <td className="tnum pr-3 text-[13px]">{st.overdue ? <span className="font-medium text-danger">{st.overdue} overdue</span> : <span className="text-ink-3">—</span>}</td>
-                    <td className="tnum hidden pr-3 text-[12.5px] text-ink-2 sm:table-cell">
-                      {st.next ? <>{formatDue(st.next, today)}<span className="ml-1 text-ink-3">{diffDays(st.next, today) > 1 ? `· ${diffDays(st.next, today)}d` : ''}</span></> : <span className="text-ink-3">—</span>}
+                    <td className={cn('tnum pr-3 text-right text-[13px]', st.open ? 'text-ink' : 'text-ink-3')}>{st.open}</td>
+                    <td className="tnum pr-3 text-right text-[13px]">
+                      {st.overdue ? <span className="inline-flex items-center gap-1 font-medium text-danger"><AlertTriangle className="size-3.5" aria-label="Overdue" />{st.overdue}</span> : <span className="text-ink-3">0</span>}
                     </td>
-                    <td className="tnum hidden pr-4 text-[12.5px] text-ink-3 md:table-cell">{st.schedules} active</td>
+                    <td className="tnum hidden pr-3 pl-6 text-[12.5px] sm:table-cell">
+                      {st.next ? <span className={st.next === today ? 'font-medium text-accent-ink' : 'text-ink-2'}>{formatDue(st.next, today)}{diffDays(st.next, today) > 1 && <span className="text-ink-3"> · in {diffDays(st.next, today)}d</span>}</span> : <span className="text-ink-3">None</span>}
+                    </td>
+                    <td className={cn('tnum hidden pr-4 text-right text-[12.5px] md:table-cell', st.schedules ? 'text-ink-2' : 'text-ink-3')}>{st.schedules}</td>
                   </tr>
                 );
               })}

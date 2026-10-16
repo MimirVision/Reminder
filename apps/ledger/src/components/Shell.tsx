@@ -93,18 +93,19 @@ export function Shell({ children }: { children: ReactNode }) {
 const DrawerContext = createContext<() => void>(() => {});
 
 /** A screen: the compact top bar with its title, search and quick add, then the content. */
-export function Page({ title, subtitle, actions, children, wide }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode; wide?: boolean }) {
+export function Page({ title, docTitle, subtitle, actions, children, wide }: { title: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode; wide?: boolean }) {
   const openDrawer = useContext(DrawerContext);
   const ui = useUI();
   useEffect(() => {
-    if (typeof title === 'string') document.title = `${title} · Ledger`;
-  }, [title]);
+    const t = docTitle ?? (typeof title === 'string' ? title : null);
+    if (t) document.title = `${t} · Ledger`;
+  }, [title, docTitle]);
   return (
     <>
       <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-canvas/90 px-4 backdrop-blur-md md:px-6">
         <IconButton label="Open menu" className="-ml-1 lg:hidden" onClick={openDrawer}><MenuIcon /></IconButton>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{title}</h1>
+          <h1 className="truncate text-[14px] font-semibold tracking-[-0.01em]">{title}</h1>
         </div>
         {actions}
         <button
