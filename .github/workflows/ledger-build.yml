@@ -1,0 +1,29 @@
+# Builds Ledger, connected to the shared Supabase project, ready to drag onto https://app.netlify.com/drop.
+# Runs on every push that changes apps/ledger (and from Actions > "Build Ledger" > Run workflow once this file is on the
+# default branch). Download "ledger-dist" from the run page, unzip, drop the folder onto Netlify Drop.
+# Uses the VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY repository secrets when set, otherwise the project's public
+# URL and publishable key (already public in apps/web/wrangler.jsonc; access is enforced by row level security).
+name: Build Ledger
+on:
+  workflow_dispatch:
+  push:
+    paths: ['apps/ledger/**', '.github/workflows/ledger-build.yml']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/ledger } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: apps/ledger/package-lock.json }
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://krwrvktqcasvikorqcux.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_qRU9v0ZvO9Q2JLRZf6hhkw_fACbH_oB' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ledger-dist
+          path: apps/ledger/dist
+          if-no-files-found: error

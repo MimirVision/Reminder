@@ -153,15 +153,18 @@ change its own address) and backup/CSV export copy to the clipboard instead of d
 
 ## Deployment
 
-Ledger is a static single-page app. Its own Cloudflare Worker:
+Ledger gets its own site, separate from Home Memory's. Either:
 
-```bash
-VITE_SUPABASE_URL=… VITE_SUPABASE_ANON_KEY=… npm run build
-npx wrangler deploy
-```
+- **Netlify, connected to GitHub (recommended):** Add new site → Import an existing project → GitHub → `Reminder`.
+  Branch: the one with Ledger on it. **Base directory: `apps/ledger`** (Netlify then uses `apps/ledger/netlify.toml`).
+  Under Site configuration → Environment variables add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the same
+  values as Home Memory's site), then deploy. Every push redeploys it.
+- **Netlify Drop, no account linking:** every push that changes `apps/ledger` runs the "Build Ledger" GitHub Action.
+  Open the run, download **ledger-dist**, unzip it and drag the folder onto <https://app.netlify.com/drop>.
+- **Cloudflare:** build with the two variables set, then `npx wrangler deploy` (uses `wrangler.jsonc`, worker `ledger`).
 
-Any static host works if unknown paths serve `index.html`. `public/_headers` sets a strict Content Security Policy
-(only this site and `*.supabase.co`).
+`public/_redirects` sends unknown paths to `index.html`; `public/_headers` sets a strict Content Security Policy (only
+this site and `*.supabase.co`).
 
 ## Backup and restore
 

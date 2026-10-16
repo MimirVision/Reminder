@@ -1,0 +1,9 @@
+# Ledger's own Netlify site. In Netlify set the Base directory to apps/ledger; this file is then used instead of the
+# repository-root netlify.toml (which builds Home Memory and Post). Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in
+# Site configuration > Environment variables (the same values as Home Memory's site).
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
