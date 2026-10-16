@@ -151,20 +151,18 @@ daylight-saving changes in Europe/Oslo. Due dates are plain calendar dates, so t
 mode. That is the version published as a private page on claude.ai. There the route is kept in memory (the page can't
 change its own address) and backup/CSV export copy to the clipboard instead of downloading.
 
-## Deployment (Cloudflare, like Home Memory)
+## Deployment: at /ledger/ on the Home Memory site
 
-Ledger is its own Cloudflare Worker (`ledger`), separate from the `reminder` Worker that serves Home Memory and Post.
+Like Post at `/post/`, Ledger is served from the same Cloudflare Worker as Home Memory, at
+`https://<your reminder site>/ledger/`. Nothing needs setting up in Cloudflare:
 
-1. Cloudflare dashboard → **Workers & Pages → Create → Import a repository** → GitHub → `Reminder`.
-2. Branch: the one with Ledger on it. **Root directory: `apps/ledger`**. Build command: `npm run build`.
-   Deploy command: `npx wrangler deploy`.
-3. Deploy. Cloudflare gives you a `ledger.<your-subdomain>.workers.dev` address; every push to the branch redeploys.
-
-The Supabase URL and publishable key come from `.env.production` (both are public by design; RLS protects the data),
-so no build variables are needed. Unknown paths serve `index.html` (`not_found_handling` in `wrangler.jsonc`), and
-`public/_headers` sets a strict Content Security Policy (only this site and `*.supabase.co`).
-
-From a PC instead: `npm run build && npx wrangler deploy` inside `apps/ledger`.
+- `apps/web`'s `npm run build` runs `apps/web/scripts/add-ledger.mjs`, which builds `apps/ledger` with base `/ledger/` and
+  copies it to `dist/ledger/`. If that step fails, it prints a warning and Home Memory and Post still deploy.
+- Under `/ledger/` the route lives after the `#` (`/ledger/#/tasks`), so the Worker and Home Memory's service worker
+  need no Ledger routes. Home Memory's service worker ignores `/ledger/` (as it does `/post/`).
+- `apps/web/public/_headers` gives `/ledger/*` its own Content Security Policy (only this site and `*.supabase.co`).
+- The Supabase URL and publishable key come from `apps/ledger/.env.production` (public by design; RLS protects the data).
+- Ledger keeps its own sign-in (browser key `ledger-auth`); sign in once with the same account as Home Memory.
 
 ## Backup and restore
 

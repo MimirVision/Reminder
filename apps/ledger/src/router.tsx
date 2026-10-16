@@ -1,23 +1,46 @@
-// A small history-API router: Ledger has a handful of screens and needs nothing more. In the hosted single-page build
-// (IS_ARTIFACT) the page can't change its own URL, so the route is kept in memory instead.
+// A small router: Ledger has a handful of screens and needs nothing more. Three modes:
+// - served at its own address: normal paths (/tasks);
+// - served under /ledger/ on the Home Memory site: the route lives after the # (/ledger/#/tasks), so that site's server
+//   and service worker never need to know Ledger's pages;
+// - the hosted single-page build (IS_ARTIFACT): the page can't change its own URL, so the route is kept in memory.
 import { IS_ARTIFACT } from './data/config';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type AnchorHTMLAttributes, type ReactNode } from 'react';
 
 interface Route { path: string; query: URLSearchParams; navigate(to: string, opts?: { replace?: boolean }): void }
 const Ctx = createContext<Route | null>(null);
 
+const HASH = !IS_ARTIFACT && import.meta.env.BASE_URL !== '/';
+
+function fromHash(): { path: string; search: string } {
+  const h = location.hash.replace(/^#/, '') || '/';
+  const i = h.indexOf('?');
+  return i < 0 ? { path: h, search: '' } : { path: h.slice(0, i), search: h.slice(i) };
+}
+
+/** The href for an in-app path in the current mode. */
+export const hrefFor = (to: string) => (HASH ? `#${to}` : to);
+
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const [loc, setLoc] = useState(() => (IS_ARTIFACT ? { path: '/', search: '' } : { path: location.pathname, search: location.search }));
+  const [loc, setLoc] = useState(() => (IS_ARTIFACT ? { path: '/', search: '' } : HASH ? fromHash() : { path: location.pathname, search: location.search }));
   useEffect(() => {
     if (IS_ARTIFACT) return;
-    const on = () => setLoc({ path: location.pathname, search: location.search });
+    const on = () => setLoc(HASH ? fromHash() : { path: location.pathname, search: location.search });
+    if (HASH) window.addEventListener('hashchange', on);
     window.addEventListener('popstate', on);
-    return () => window.removeEventListener('popstate', on);
+    return () => { window.removeEventListener('popstate', on); window.removeEventListener('hashchange', on); };
   }, []);
   const navigate = useCallback((to: string, opts: { replace?: boolean } = {}) => {
     if (IS_ARTIFACT) {
       const u = new URL(to, 'https://ledger.local' + loc.path);
       if (u.pathname === loc.path && u.search === loc.search) return;
+      setLoc({ path: u.pathname, search: u.search });
+      if (!opts.replace && u.pathname !== loc.path) window.scrollTo(0, 0);
+      return;
+    }
+    if (HASH) {
+      const u = new URL(to, 'https://ledger.local' + loc.path);
+      if (u.pathname === loc.path && u.search === loc.search) return;
+      history[opts.replace ? 'replaceState' : 'pushState'](null, '', `#${u.pathname}${u.search}`);
       setLoc({ path: u.pathname, search: u.search });
       if (!opts.replace && u.pathname !== loc.path) window.scrollTo(0, 0);
       return;
@@ -55,7 +78,7 @@ export function Link({ to, children, onClick, ...rest }: AnchorHTMLAttributes<HT
   const { navigate } = useRoute();
   return (
     <a
-      href={to}
+      href={hrefFor(to)}
       onClick={(e) => {
         onClick?.(e);
         if (e.defaultPrevented) return;
