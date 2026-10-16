@@ -67,8 +67,8 @@ If you open the app before step 1, it shows a setup screen instead of failing.
 
 | Variable | Where | What |
 |---|---|---|
-| `VITE_SUPABASE_URL` | `.env.local`, build environment | Project URL. Public. |
-| `VITE_SUPABASE_ANON_KEY` | `.env.local`, build environment | Anon/publishable key. Public by design; access is enforced by row level security. |
+| `VITE_SUPABASE_URL` | `.env.local` (dev), `.env.production` (builds) | Project URL. Public. |
+| `VITE_SUPABASE_ANON_KEY` | `.env.local` (dev), `.env.production` (builds) | Anon/publishable key. Public by design; access is enforced by row level security. |
 
 No other secrets are needed. Nothing is sent to AI services or third parties.
 
@@ -151,20 +151,20 @@ daylight-saving changes in Europe/Oslo. Due dates are plain calendar dates, so t
 mode. That is the version published as a private page on claude.ai. There the route is kept in memory (the page can't
 change its own address) and backup/CSV export copy to the clipboard instead of downloading.
 
-## Deployment
+## Deployment (Cloudflare, like Home Memory)
 
-Ledger gets its own site, separate from Home Memory's. Either:
+Ledger is its own Cloudflare Worker (`ledger`), separate from the `reminder` Worker that serves Home Memory and Post.
 
-- **Netlify, connected to GitHub (recommended):** Add new site → Import an existing project → GitHub → `Reminder`.
-  Branch: the one with Ledger on it. **Base directory: `apps/ledger`** (Netlify then uses `apps/ledger/netlify.toml`).
-  Under Site configuration → Environment variables add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the same
-  values as Home Memory's site), then deploy. Every push redeploys it.
-- **Netlify Drop, no account linking:** every push that changes `apps/ledger` runs the "Build Ledger" GitHub Action.
-  Open the run, download **ledger-dist**, unzip it and drag the folder onto <https://app.netlify.com/drop>.
-- **Cloudflare:** build with the two variables set, then `npx wrangler deploy` (uses `wrangler.jsonc`, worker `ledger`).
+1. Cloudflare dashboard → **Workers & Pages → Create → Import a repository** → GitHub → `Reminder`.
+2. Branch: the one with Ledger on it. **Root directory: `apps/ledger`**. Build command: `npm run build`.
+   Deploy command: `npx wrangler deploy`.
+3. Deploy. Cloudflare gives you a `ledger.<your-subdomain>.workers.dev` address; every push to the branch redeploys.
 
-`public/_redirects` sends unknown paths to `index.html`; `public/_headers` sets a strict Content Security Policy (only
-this site and `*.supabase.co`).
+The Supabase URL and publishable key come from `.env.production` (both are public by design; RLS protects the data),
+so no build variables are needed. Unknown paths serve `index.html` (`not_found_handling` in `wrangler.jsonc`), and
+`public/_headers` sets a strict Content Security Policy (only this site and `*.supabase.co`).
+
+From a PC instead: `npm run build && npx wrangler deploy` inside `apps/ledger`.
 
 ## Backup and restore
 

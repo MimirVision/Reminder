@@ -1,6 +1,7 @@
 {
   // Ledger's own Cloudflare Worker (static assets only), separate from the "reminder" worker that serves Home Memory and Post.
-  // Build first with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY set (see .env.example), then: npx wrangler deploy
+  // Cloudflare (Workers & Pages > Create > Import a repository): root directory apps/ledger, build command `npm run build`,
+  // deploy command `npx wrangler deploy`. The Supabase settings come from .env.production.
   "name": "ledger",
   "compatibility_date": "2026-09-01",
   "assets": {
