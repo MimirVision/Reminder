@@ -15,3 +15,4 @@ principles, data model and roadmap.
 | `docs/REMINDERS.md` | Reminders on the iPhone without an app (Shortcuts + Calendar) |
 | `docs/CAPTURE.md` | Siri / Action button / share-sheet capture recipe |
 | `supabase` | Milestone 1: database schema, RLS and tests |
+| `apps/ledger` | **Ledger**, a separate accounting workspace (clients, recurring work, missing-task detection). Same Supabase project, its own `ledger_*` tables and setup file; see `apps/ledger/README.md` |
