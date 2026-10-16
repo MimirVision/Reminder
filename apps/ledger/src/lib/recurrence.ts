@@ -214,3 +214,19 @@ export function describeDueRule(rule: DueRule): string {
       return `${WEEKDAYS[rule.weekday - 1]}${adj}`;
   }
 }
+
+/** The due-date rule in a few words, for tables: "15th, month after", "31st, 5 months after", "Friday". */
+export function shortDueRule(rule: DueRule): string {
+  const wk = rule.adjust && rule.adjust !== 'none' ? ' (weekday)' : '';
+  switch (rule.kind) {
+    case 'month_offset': {
+      const day = rule.day === 'last' ? 'Last day' : ORD(rule.day);
+      if (rule.from === 'end') return `${day}, ${rule.months === 0 ? 'last month' : rule.months === 1 ? 'month after' : `${rule.months} months after`}${wk}`;
+      return `${day}, ${rule.months === 0 ? 'first month' : `${rule.months} months in`}${wk}`;
+    }
+    case 'days_after_end':
+      return `${rule.days} days after${wk}`;
+    case 'weekday':
+      return `${WEEKDAYS[rule.weekday - 1]}${wk}`;
+  }
+}

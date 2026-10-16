@@ -14,7 +14,7 @@ const STATUS_TONE: Record<TaskStatus, string> = {
   todo: 'text-ink-2', in_progress: 'text-info', waiting: 'text-warn', done: 'text-ok', cancelled: 'text-ink-3',
 };
 const STATUS_BG: Record<TaskStatus, string> = {
-  todo: 'bg-sunken', in_progress: 'bg-info-soft', waiting: 'bg-warn-soft', done: 'bg-ok-soft', cancelled: 'bg-sunken',
+  todo: 'bg-transparent', in_progress: 'bg-info-soft', waiting: 'bg-warn-soft', done: 'bg-ok-soft', cancelled: 'bg-sunken',
 };
 
 export function StatusBadge({ status, short }: { status: TaskStatus; short?: boolean }) {
@@ -49,8 +49,9 @@ export function StatusPicker({ status, onChange, short = true }: { status: TaskS
 }
 
 export function PriorityLabel({ priority, compact }: { priority: Priority; compact?: boolean }) {
+  if (priority === 'normal' && compact) return <span className="sr-only">Normal priority</span>;
   if (priority === 'normal' || priority === 'low') {
-    return <span className="text-[12.5px] text-ink-3">{compact ? (priority === 'low' ? 'Low' : '—') : PRIORITY_LABEL[priority]}</span>;
+    return <span className="text-[12.5px] text-ink-3">{PRIORITY_LABEL[priority]}</span>;
   }
   return (
     <span className={cn('inline-flex items-center gap-1 text-[12.5px] font-medium', priority === 'urgent' ? 'text-danger' : 'text-warn')}>
@@ -69,6 +70,7 @@ export function DueDate({ date, today, open }: { date: ISODate; today: ISODate; 
       overdue ? 'font-medium text-danger' : open && n === 0 ? 'font-medium text-accent-ink' : open ? 'text-ink-2' : 'text-ink-3')}>
       {overdue && <AlertTriangle className="size-3.5" aria-label="Overdue" />}
       {formatDue(date, today)}
+      {overdue && n < -1 && <span className="font-normal text-danger/70">· {-n}d</span>}
     </span>
   );
 }

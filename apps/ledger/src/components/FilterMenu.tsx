@@ -4,8 +4,10 @@ import { cn } from '../ui/cn';
 import { Popover } from '../ui/overlay';
 
 /** A filter chip that opens a searchable multi-select. */
-export function FilterMenu<T extends string>({ label, options, selected, onChange, searchable }: {
+export function FilterMenu<T extends string>({ label, options, selected, onChange, searchable, summary: named }: {
   label: string; options: { value: T; label: string; hint?: ReactNode }[]; selected: T[]; onChange: (v: T[]) => void; searchable?: boolean;
+  /** A name for the current selection when it has one (e.g. "Open" for to do + in progress + waiting). */
+  summary?: string;
 }) {
   const [q, setQ] = useState('');
   const shown = useMemo(() => {
@@ -13,7 +15,8 @@ export function FilterMenu<T extends string>({ label, options, selected, onChang
     return s ? options.filter((o) => o.label.toLowerCase().includes(s)) : options;
   }, [options, q]);
   const active = selected.length > 0;
-  const summary = !active ? label : selected.length === 1 ? options.find((o) => o.value === selected[0])?.label ?? label : `${label}: ${selected.length}`;
+  const summary = !active ? label : named ?? (selected.length === 1 ? options.find((o) => o.value === selected[0])?.label ?? label
+    : selected.length === 2 ? selected.map((v) => options.find((o) => o.value === v)?.label).join(', ') : `${label}: ${selected.length}`);
   const toggle = (v: T) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
   return (
     <Popover onOpenChange={() => setQ('')} trigger={

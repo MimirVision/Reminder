@@ -187,8 +187,8 @@ function Editor() {
               </Field>
             </section>
 
-            <section className="rounded-lg border border-line p-4">
-              <h3 className="mb-3 text-[12.5px] font-semibold text-ink">Repeats</h3>
+            <section className="border-t border-line pt-4">
+              <h3 className="mb-3 text-[11.5px] font-semibold tracking-wide text-ink-3 uppercase">Repeats</h3>
               {locked && <LockedHint />}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Frequency">
@@ -230,8 +230,8 @@ function Editor() {
               </div>
             </section>
 
-            <section className="rounded-lg border border-line p-4">
-              <h3 className="mb-3 text-[12.5px] font-semibold text-ink">Due date</h3>
+            <section className="border-t border-line pt-4">
+              <h3 className="mb-3 text-[11.5px] font-semibold tracking-wide text-ink-3 uppercase">Due date</h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Rule" className="sm:col-span-2">
                   {(p) => (
@@ -274,7 +274,8 @@ function Editor() {
               {!errors.rule && <p className="mt-3 text-[12px] text-ink-3">{describeDueRule(s.dueRule)}. Public holidays are not taken into account yet.</p>}
             </section>
 
-            <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <section className="grid grid-cols-1 gap-4 border-t border-line pt-4 sm:grid-cols-3">
+              <h3 className="text-[11.5px] font-semibold tracking-wide text-ink-3 uppercase sm:col-span-3 -mb-1">Creating tasks</h3>
               <Field label="Create the task" hint="days before it is due">
                 {(p) => <Input {...p} type="number" min={0} max={366} value={d.leadDays} onChange={(e) => set('leadDays', num(e.target.value, 0, 366))} />}
               </Field>
@@ -286,7 +287,7 @@ function Editor() {
               </Field>
             </section>
 
-            <section className="flex flex-col gap-3 rounded-lg bg-sunken p-4">
+            <section className="-mt-1 flex flex-col gap-3">
               <Checkbox checked={d.autoGenerate} onChange={(v) => set('autoGenerate', v)} label="Create tasks automatically"
                 description={d.autoGenerate ? 'Each period’s task is created on its own, in the database, even when Ledger is closed.' : 'Ledger only checks. Periods without a task you added appear under Missing Tasks.'} />
               {!existing && d.autoGenerate && backfillCount > 0 && (

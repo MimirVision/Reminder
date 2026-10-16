@@ -119,3 +119,12 @@ describe('periods', () => {
     expect(describeDueRule({ kind: 'days_after_end', days: 14 })).toBe('14 days after the period ends');
   });
 });
+
+describe('short due rule', () => {
+  it('fits in a table cell', async () => {
+    const { shortDueRule } = await import('./recurrence');
+    expect(shortDueRule({ kind: 'month_offset', from: 'end', months: 1, day: 15, adjust: 'next_business_day' })).toBe('15th, month after (weekday)');
+    expect(shortDueRule({ kind: 'month_offset', from: 'end', months: 5, day: 'last' })).toBe('Last day, 5 months after');
+    expect(shortDueRule({ kind: 'weekday', weekday: 5 })).toBe('Friday');
+  });
+});

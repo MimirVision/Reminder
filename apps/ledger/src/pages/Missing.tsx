@@ -74,9 +74,8 @@ export function Missing() {
 
   return (
     <Page title="Missing Tasks">
-      <p className="mb-4 max-w-3xl text-[13px] text-ink-2">
-        Ledger compares what each active schedule says should exist by today with the tasks that do. Nothing here is created or dismissed automatically;
-        each item says why it was flagged, and you decide.
+      <p className="mb-4 text-[12.5px] text-ink-3">
+        Periods that an active schedule expects by today but that have no task. Nothing here is created or dismissed for you.
       </p>
       <div role="tablist" className="mb-3 flex gap-1 border-b border-line">
         {tabs.map((t) => (
@@ -101,7 +100,7 @@ export function Missing() {
         <span className="tnum ml-auto text-[12.5px] text-ink-3">{items.length} item{items.length === 1 ? '' : 's'}</span>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-soft">
+      <div className="overflow-clip rounded-lg border border-line bg-surface">
         {items.length === 0 ? (
           <EmptyState icon={tab === 'review' ? CheckCircle2 : SearchCheck}
             title={tab === 'review' ? 'Nothing missing' : tab === 'upcoming' ? 'No upcoming expectations' : 'No decisions recorded'}
@@ -112,30 +111,29 @@ export function Missing() {
               const st = STATE[i.state];
               const client = clientById.get(i.clientId);
               return (
-                <li key={i.id} id={`exp-${i.id}`} className={cn('flex items-start gap-3 px-3 py-3', focus === i.id && 'bg-accent-soft/50')}>
+                <li key={i.id} id={`exp-${i.id}`} className={cn('flex items-start gap-3 px-4 py-3', focus === i.id && 'bg-accent-soft/50')}>
                   {tab === 'review' && (
-                    <input type="checkbox" aria-label={`Select ${i.title}, ${i.periodName}`} className="mt-1 size-4 accent-[var(--c-accent)]" checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
+                    <input type="checkbox" aria-label={`Select ${i.title}, ${i.periodName}`} className="mt-[3px] size-4 shrink-0 accent-[var(--c-accent)]" checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
                   )}
-                  <st.icon className={cn('mt-0.5 size-4 shrink-0', { warn: 'text-warn', danger: 'text-danger', neutral: 'text-ink-3', ok: 'text-ok', info: 'text-info' }[st.tone])} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="text-[13px] font-medium">{i.title}</span>
-                      <span className="text-[13px] text-ink-2">{i.periodName}</span>
-                      <Pill tone={st.tone}>{st.label}</Pill>
+                      <span className="text-[13px] text-ink-2" title={`Period ${formatDate(i.period.start)} – ${formatDate(i.period.end)}`}>{i.periodName}</span>
+                      {(tab !== 'review' || i.state === 'generation_failure') && <Pill tone={st.tone}><st.icon />{st.label}</Pill>}
                     </div>
-                    <div className="mt-0.5 text-[12.5px] text-ink-3">
-                      {client?.name} · expected due {formatDate(i.period.due)} · period {formatDate(i.period.start)} – {formatDate(i.period.end)}
-                    </div>
-                    <p className="mt-1 text-[12.5px] text-ink-2">{i.reason}</p>
+                    <p className="mt-0.5 text-[12.5px] text-ink-3">{i.reason}</p>
+                  </div>
+                  <div className="hidden w-48 shrink-0 text-right md:block">
+                    <div className="truncate text-[12.5px] text-ink-2">{client?.name}</div>
+                    <div className="tnum text-[12px] text-ink-3">Due {formatDate(i.period.due)}</div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {tab === 'review' && <Button size="sm" onClick={() => void generate([i])}><FilePlus2 /> Create task</Button>}
+                    {tab === 'review' && <>
+                      <Button size="sm" onClick={() => void generate([i])}><FilePlus2 /> Create task</Button>
+                      <Button size="sm" variant="ghost" onClick={() => void review([i], 'reviewed')}><CheckCircle2 /> Reviewed</Button>
+                    </>}
                     <Menu align="end" label="More actions" trigger={<IconButton label="More actions" size="sm"><MoreHorizontal /></IconButton>}>
-                      {tab === 'review' && <>
-                        <MenuItem onSelect={() => void review([i], 'reviewed')}><CheckCircle2 /> Mark as reviewed</MenuItem>
-                        <MenuItem onSelect={() => { setNote(''); setExceptionFor([i]); }}><ShieldCheck /> Record an exception…</MenuItem>
-                        <MenuSeparator />
-                      </>}
+                      {tab === 'review' && <><MenuItem onSelect={() => { setNote(''); setExceptionFor([i]); }}><ShieldCheck /> Record an exception…</MenuItem><MenuSeparator /></>}
                       {tab === 'upcoming' && <><MenuItem onSelect={() => void generate([i])}><FilePlus2 /> Create it now</MenuItem><MenuSeparator /></>}
                       {tab === 'resolved' && <><MenuItem onSelect={() => void reopen(i)}><RotateCcw /> Review again</MenuItem><MenuSeparator /></>}
                       <MenuItem onSelect={() => ui.openSchedule({ mode: 'edit', id: i.scheduleId })}>Open schedule</MenuItem>

@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { AlertTriangle, ArrowRight, CalendarCheck, CheckCircle2, Plus, SearchCheck, Sun } from 'lucide-react';
+import { ArrowRight, CalendarCheck, CheckCircle2, Plus, SearchCheck, Sun } from 'lucide-react';
 import { useUI } from '../components/ui-state';
 import { Page } from '../components/Shell';
 import { TaskTable } from '../components/TaskTable';
@@ -16,29 +16,30 @@ import { QuietLine } from '../ui/states';
 
 const UPCOMING_DAYS = 14;
 
-function Metric({ label, value, to, tone, icon: Icon, hint }: { label: string; value: number; to: string; tone: 'danger' | 'accent' | 'neutral' | 'warn'; icon: typeof Sun; hint: string }) {
+/** One cell of the summary bar: a number that is also a link to the matching list. */
+function Metric({ label, value, to, tone, hint }: { label: string; value: number; to: string; tone: 'danger' | 'accent' | 'neutral' | 'warn'; hint: string }) {
   const tones = { danger: 'text-danger', accent: 'text-accent-ink', neutral: 'text-ink', warn: 'text-warn' };
   return (
-    <Link to={to} className="group flex flex-col gap-1 rounded-lg border border-line bg-surface px-4 py-3 shadow-soft transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-pop focus-visible:shadow-pop">
-      <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink-3">
-        <Icon className={cn('size-3.5', value > 0 ? tones[tone] : 'text-ink-3')} />{label}
-        <ArrowRight className="ml-auto size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+    <Link to={to} className="group flex min-w-0 flex-col gap-0.5 px-4 py-3 transition-colors hover:bg-hover/60 focus-visible:bg-hover/60 focus-visible:outline-offset-[-2px]">
+      <span className="flex items-baseline gap-2">
+        <span className={cn('tnum text-[22px] leading-none font-semibold tracking-[-0.02em]', value > 0 ? tones[tone] : 'text-ink-3')}>{value}</span>
+        <span className="text-[13px] font-medium text-ink">{label}</span>
+        <ArrowRight className="ml-auto size-3.5 shrink-0 self-center text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
       </span>
-      <span className={cn('tnum text-[24px] leading-tight font-semibold tracking-[-0.02em]', value > 0 ? tones[tone] : 'text-ink-3')}>{value}</span>
-      <span className="text-[11.5px] text-ink-3">{hint}</span>
+      <span className="truncate text-[12px] text-ink-3">{hint}</span>
     </Link>
   );
 }
 
-function Section({ title, count, action, children, id }: { title: string; count?: number; action?: ReactNode; children: ReactNode; id: string }) {
+function Section({ title, count, action, children, id, tone }: { title: string; count?: number; action?: ReactNode; children: ReactNode; id: string; tone?: 'danger' }) {
   return (
-    <section aria-labelledby={id} className="mb-8">
-      <div className="mb-2 flex items-baseline gap-2 px-1">
-        <h2 id={id} className="text-[13.5px] font-semibold">{title}</h2>
+    <section aria-labelledby={id} className="mb-7">
+      <div className="mb-2 flex h-6 items-center gap-2 px-0.5">
+        <h2 id={id} className={cn('text-[13px] font-semibold', tone === 'danger' && count ? 'text-danger' : 'text-ink')}>{title}</h2>
         {count !== undefined && <span className="tnum text-[12.5px] text-ink-3">{count}</span>}
         <div className="ml-auto">{action}</div>
       </div>
-      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-soft">{children}</div>
+      <div className="overflow-clip rounded-lg border border-line bg-surface">{children}</div>
     </section>
   );
 }
@@ -58,9 +59,9 @@ export function Home() {
 
   return (
     <Page title="Home">
-      <div className="mb-6 flex flex-wrap items-end gap-4">
+      <div className="mb-5 flex flex-wrap items-end gap-4">
         <div className="min-w-0 flex-1">
-          <h2 className="text-[22px] leading-tight font-semibold tracking-[-0.02em]">{greeting()}{name ? `, ${name}` : ''}</h2>
+          <h2 className="text-[20px] leading-tight font-semibold tracking-[-0.02em]">{greeting()}{name ? `, ${name}` : ''}</h2>
           <p className="mt-1 text-[13px] text-ink-3">
             {formatDayLong(today)}
             {completedToday > 0 && <> · {completedToday} done today</>}
@@ -69,26 +70,26 @@ export function Home() {
         </div>
       </div>
 
-      <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Metric label="Overdue" value={overdue.length} to="/tasks?view=overdue" tone="danger" icon={AlertTriangle} hint={overdue.length ? `Oldest ${diffDays(today, overdue[0].dueDate)} days` : 'Nothing late'} />
-        <Metric label="Due today" value={dueToday.length} to="/tasks?view=today" tone="accent" icon={Sun} hint={dueToday.length ? `${dueToday.filter((t) => t.priority === 'urgent' || t.priority === 'high').length} high priority` : 'Clear day'} />
-        <Metric label={`Next ${UPCOMING_DAYS} days`} value={upcoming.length} to={`/tasks?status=todo,in_progress,waiting&due=next_14`} tone="neutral" icon={CalendarCheck} hint={upcoming.length ? `Next: ${formatDate(upcoming[0].dueDate)}` : 'Nothing scheduled'} />
-        <Metric label="Missing tasks" value={review.length} to="/missing" tone="warn" icon={SearchCheck} hint={review.length ? 'Expected but not found' : 'All periods accounted for'} />
-      </div>
+      <nav aria-label="Summary" className="mb-8 grid grid-cols-2 divide-line overflow-clip rounded-lg border border-line bg-surface max-lg:[&>*:nth-child(-n+2)]:border-b max-lg:[&>*:nth-child(odd)]:border-r lg:grid-cols-4 lg:divide-x">
+        <Metric label="Overdue" value={overdue.length} to="/tasks?view=overdue" tone="danger" hint={overdue.length ? `Oldest is ${diffDays(today, overdue[0].dueDate)} days late` : 'Nothing late'} />
+        <Metric label="Due today" value={dueToday.length} to="/tasks?view=today" tone="accent" hint={dueToday.length ? `${dueToday.filter((t) => t.priority === 'urgent' || t.priority === 'high').length} high priority` : 'Clear day'} />
+        <Metric label={`Next ${UPCOMING_DAYS} days`} value={upcoming.length} to={`/tasks?status=todo,in_progress,waiting&due=next_14`} tone="neutral" hint={upcoming.length ? `Next on ${formatDate(upcoming[0].dueDate)}` : 'Nothing scheduled'} />
+        <Metric label="Missing" value={review.length} to="/missing" tone="warn" hint={review.length ? 'Expected tasks not found' : 'All periods accounted for'} />
+      </nav>
 
-      <Section id="h-overdue" title="Overdue" count={overdue.length || undefined}
+      <Section id="h-overdue" tone="danger" title="Overdue" count={overdue.length || undefined}
         action={overdue.length > 8 && <Link to="/tasks?view=overdue" className="text-[12.5px] text-accent hover:underline">See all {overdue.length}</Link>}>
-        {overdue.length ? <TaskTable tasks={overdue} limit={8} /> : <QuietLine icon={CheckCircle2}>Nothing overdue. Everything due so far is done or rescheduled.</QuietLine>}
+        {overdue.length ? <TaskTable tasks={overdue} limit={8} header={false} /> : <QuietLine icon={CheckCircle2}>Nothing overdue. Everything due so far is done or rescheduled.</QuietLine>}
       </Section>
 
       <Section id="h-today" title="Today" count={dueToday.length || undefined}
         action={<Button size="sm" variant="ghost" onClick={() => ui.openNewTask({ dueDate: today })}><Plus /> Add for today</Button>}>
-        {dueToday.length ? <TaskTable tasks={dueToday} /> : <QuietLine icon={Sun}>Nothing due today.{upcoming[0] && <> Next up: {upcoming[0].title}, {formatDate(upcoming[0].dueDate)}.</>}</QuietLine>}
+        {dueToday.length ? <TaskTable tasks={dueToday} header={false} /> : <QuietLine icon={Sun}>Nothing due today.{upcoming[0] && <> Next up: {upcoming[0].title}, {formatDate(upcoming[0].dueDate)}.</>}</QuietLine>}
       </Section>
 
       <Section id="h-upcoming" title="Upcoming deadlines" count={upcoming.length || undefined}
         action={<Link to="/calendar" className="text-[12.5px] text-accent hover:underline">Open calendar</Link>}>
-        {upcoming.length ? <TaskTable tasks={upcoming} limit={12} /> : <QuietLine icon={CalendarCheck}>No deadlines in the next {UPCOMING_DAYS} days.</QuietLine>}
+        {upcoming.length ? <TaskTable tasks={upcoming} limit={12} header={false} /> : <QuietLine icon={CalendarCheck}>No deadlines in the next {UPCOMING_DAYS} days.</QuietLine>}
         {upcoming.length > 12 && (
           <button onClick={() => navigate('/tasks?status=todo,in_progress,waiting&due=next_14')} className="w-full border-t border-line py-2 text-[12.5px] text-ink-3 hover:bg-hover hover:text-ink">
             Show all {upcoming.length}

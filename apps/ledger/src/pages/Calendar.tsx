@@ -1,5 +1,5 @@
 import { useMemo, useState, type DragEvent } from 'react';
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Repeat } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { FilterMenu } from '../components/FilterMenu';
 import { Page } from '../components/Shell';
 import { useUI } from '../components/ui-state';
@@ -16,7 +16,7 @@ import { Popover } from '../ui/overlay';
 
 type View = 'month' | 'week';
 
-function Chip({ task, today, compact }: { task: Occurrence; today: ISODate; compact?: boolean }) {
+function Chip({ task, today, compact, stacked }: { task: Occurrence; today: ISODate; compact?: boolean; stacked?: boolean }) {
   const ui = useUI();
   const { clientById } = useStore();
   const open = isOpen(task.status);
@@ -31,7 +31,8 @@ function Chip({ task, today, compact }: { task: Occurrence; today: ISODate; comp
       title={`${task.title} · ${client} · ${state}`}
       aria-label={`${task.title}, ${client}, ${state}. Open task`}
       className={cn(
-        'group flex w-full min-w-0 items-center gap-1.5 rounded-[5px] border-l-2 px-1.5 text-left text-[12px] leading-[20px] transition-colors',
+        'group flex w-full min-w-0 gap-1.5 rounded-[5px] border-l-2 px-1.5 text-left text-[12px] transition-colors',
+        stacked ? 'items-start py-1 leading-[16px]' : 'items-center leading-[20px]',
         overdue ? 'border-danger bg-danger-soft text-danger hover:brightness-[0.98]'
           : !open ? 'border-transparent text-ink-3 hover:bg-hover'
           : task.status === 'waiting' ? 'border-warn bg-sunken text-ink hover:bg-hover'
@@ -39,11 +40,18 @@ function Chip({ task, today, compact }: { task: Occurrence; today: ISODate; comp
         open && 'cursor-grab active:cursor-grabbing',
       )}
     >
-      {overdue ? <AlertTriangle className="size-3 shrink-0" /> : task.status === 'done' ? <Check className="size-3 shrink-0 text-ok" strokeWidth={3} /> : task.periodKey ? <Repeat className="size-3 shrink-0 text-ink-3" /> : null}
-      <span className={cn('min-w-0 flex-1 truncate', task.status === 'cancelled' && 'line-through', task.status === 'done' && 'line-through decoration-ink-3/50')}>
-        {task.title}
-        {!compact && <span className={cn('ml-1', overdue ? 'text-danger/75' : 'text-ink-3')}>{client}</span>}
-      </span>
+      {overdue ? <AlertTriangle className={cn('size-3 shrink-0', stacked && 'mt-0.5')} /> : task.status === 'done' ? <Check className={cn('size-3 shrink-0 text-ok', stacked && 'mt-0.5')} strokeWidth={3} /> : null}
+      {stacked ? (
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className={cn('line-clamp-2 font-medium', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+          <span className={cn('truncate text-[11.5px]', overdue ? 'text-danger/75' : 'text-ink-3')}>{client}</span>
+        </span>
+      ) : (
+        <span className={cn('min-w-0 flex-1 truncate', task.status === 'cancelled' && 'line-through', task.status === 'done' && 'line-through decoration-ink-3/50')}>
+          {task.title}
+          {!compact && <span className={cn('ml-1', overdue ? 'text-danger/75' : 'text-ink-3')}>{client}</span>}
+        </span>
+      )}
     </button>
   );
 }
@@ -58,7 +66,7 @@ export function Calendar() {
   const [view, setView] = useState<View>((query.get('view') as View) || snap.workspace.settings.defaultCalendarView || 'month');
   const [cursor, setCursor] = useState<ISODate>(query.get('date') ?? today);
   const [clients, setClients] = useState<string[]>([]);
-  const [statuses, setStatuses] = useState<TaskStatus[]>(['todo', 'in_progress', 'waiting', 'done']);
+  const [statuses, setStatuses] = useState<TaskStatus[]>([]);
   const [types, setTypes] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<ISODate | null>(null);
 
@@ -117,25 +125,30 @@ export function Calendar() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-soft">
+      <div className="overflow-clip rounded-lg border border-line bg-surface">
         <div className="grid grid-cols-7 border-b border-line">
           {days.slice(0, 7).map((d) => (
             <div key={d} className="px-2 py-1.5 text-[11.5px] font-medium text-ink-3">
-              {formatWeekdayShort(d)}{view === 'week' && <span className={cn('tnum ml-1.5', d === today ? 'text-accent' : 'text-ink-2')}>{parts(d)[2]}</span>}
+              {formatWeekdayShort(d)}{view === 'week' && <span className={cn('tnum ml-1.5', d === today ? 'rounded-full bg-accent px-1.5 py-px font-semibold text-white' : 'text-ink-2')}>{parts(d)[2]}</span>}
             </div>
           ))}
         </div>
-        <div className={cn('grid grid-cols-7', view === 'month' ? 'auto-rows-[minmax(112px,1fr)]' : 'min-h-[60vh]')}>
+        <div className={cn('grid grid-cols-7', view === 'month' ? 'auto-rows-[minmax(132px,1fr)]' : 'min-h-[60vh]')}>
           {days.map((d, i) => {
             const list = byDay.get(d) ?? [];
+            const openList = list.filter((t) => isOpen(t.status));
+            const closed = list.filter((t) => !isOpen(t.status));
             const outside = view === 'month' && parts(d)[1] !== month;
-            const shown = view === 'month' ? list.slice(0, list.length > MAX ? MAX - 1 : MAX) : list;
+            // Open work gets the room; finished work is always folded into the one summary line below it.
+            const shown = view === 'month' ? openList.slice(0, openList.length > MAX ? MAX - 1 : MAX) : openList;
+            const hidden = openList.length - shown.length;
+            const closedWord = closed.every((t) => t.status === 'done') ? 'done' : 'closed';
             const weekend = i % 7 >= 5;
             return (
               <div key={d} {...dropProps(d)}
                 onDoubleClick={(e) => { if (e.target === e.currentTarget) ui.openNewTask({ dueDate: d }); }}
                 className={cn('relative flex min-w-0 flex-col gap-0.5 border-r border-b border-line p-1 [&:nth-child(7n)]:border-r-0',
-                  weekend && 'bg-canvas/50', outside && 'bg-canvas/70', dropTarget === d && 'bg-accent-soft ring-2 ring-accent/40 ring-inset')}
+                  weekend && 'bg-canvas/50', outside && 'bg-canvas/70', d === today && 'bg-accent-soft/35', dropTarget === d && 'bg-accent-soft ring-2 ring-accent/40 ring-inset')}
                 aria-label={`${formatDayLong(d)}: ${list.length} task${list.length === 1 ? '' : 's'}`}
               >
                 {view === 'month' && (
@@ -144,9 +157,14 @@ export function Calendar() {
                       d === today ? 'bg-accent font-semibold text-white' : outside ? 'text-ink-3/60' : 'text-ink-2')}>{parts(d)[2]}</span>
                   </div>
                 )}
-                {shown.map((t) => <Chip key={t.id} task={t} today={today} compact={view === 'month'} />)}
-                {view === 'month' && list.length > shown.length && (
-                  <Popover trigger={<button className="rounded px-1.5 text-left text-[11.5px] font-medium text-ink-3 hover:bg-hover hover:text-ink">+{list.length - shown.length} more</button>}>
+                {shown.map((t) => <Chip key={t.id} task={t} today={today} compact={view === 'month'} stacked={view === 'week'} />)}
+                {(hidden > 0 || closed.length > 0) && (
+                  <Popover trigger={
+                    <button className="flex h-5 items-center gap-1 rounded px-1.5 text-left text-[11.5px] font-medium text-ink-3 hover:bg-hover hover:text-ink">
+                      {hidden > 0 ? `+${hidden} more` : <><Check className="size-3 text-ok" strokeWidth={3} />{closed.length} {closedWord}</>}
+                      {hidden > 0 && closed.length > 0 && <span className="font-normal">· {closed.length} {closedWord}</span>}
+                    </button>
+                  }>
                     <div className="w-72 p-2">
                       <div className="mb-1.5 px-1 text-[12.5px] font-semibold">{formatDayLong(d)}</div>
                       <div className="flex max-h-80 flex-col gap-0.5 overflow-y-auto">{list.map((t) => <Chip key={t.id} task={t} today={today} />)}</div>

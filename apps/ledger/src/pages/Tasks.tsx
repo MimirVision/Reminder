@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ListChecks, Plus, Search, X } from 'lucide-react';
+import { ArrowUpDown, ChevronDown, ListChecks, Plus, Search, X } from 'lucide-react';
 import { FilterMenu } from '../components/FilterMenu';
 import { Page } from '../components/Shell';
 import { TaskTable } from '../components/TaskTable';
@@ -85,12 +85,14 @@ export function Tasks() {
           {f.search && <button aria-label="Clear search" onClick={() => patch({ search: '' })} className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-ink-3 hover:text-ink"><X className="size-3.5" /></button>}
         </div>
         <FilterMenu label="Client" searchable options={clientOptions} selected={f.clients} onChange={(clients) => patch({ clients })} />
-        <FilterMenu label="Status" options={TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))} selected={f.statuses} onChange={(statuses) => patch({ statuses })} />
+        <FilterMenu label="Status" options={TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))} selected={f.statuses} onChange={(statuses) => patch({ statuses })}
+          summary={f.statuses.length === 3 && ['todo', 'in_progress', 'waiting'].every((s) => f.statuses.includes(s as never)) ? 'Open' : undefined} />
         <FilterMenu label="Priority" options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} selected={f.priorities} onChange={(priorities) => patch({ priorities })} />
         <FilterMenu label="Type" options={TASK_TYPES.map((t) => ({ value: t, label: TYPE_LABEL[t] }))} selected={f.types} onChange={(types) => patch({ types })} />
         <Menu label="Due date filter" trigger={
           <button className={cn('inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px]', f.due !== 'any' ? 'border-accent/40 bg-accent-soft text-accent-ink' : 'border-line-strong bg-surface text-ink-2 hover:bg-hover')}>
             {f.due === 'any' ? 'Due date' : DUE_OPTIONS.find((o) => o.value === f.due)?.label}
+            <ChevronDown className="size-3.5 opacity-70" />
           </button>
         }>
           <MenuRadio value={f.due} onChange={(due) => patch({ due })} options={DUE_OPTIONS} />
@@ -107,7 +109,7 @@ export function Tasks() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-soft">
+      <div className="overflow-clip rounded-lg border border-line bg-surface">
         {tasks.length ? <TaskTable tasks={tasks} /> : (
           <EmptyState icon={ListChecks} title={isFiltered(f) ? 'No tasks match these filters' : activeView?.id === 'overdue' ? 'Nothing overdue' : 'No tasks here'}
             body={isFiltered(f) ? 'Try removing a filter or searching for something else.' : 'Tasks you add, and tasks created by recurring schedules, appear here.'}

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X } from 'lucide-react';
+import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDate, formatDayLong, formatTimestamp, relativeDue } from '../lib/format';
 import { PRIORITY_LABEL, TYPE_LABEL } from '../lib/labels';
 import { describeRecurrence, periodLabel } from '../lib/recurrence';
 import { PRIORITIES, TASK_TYPES, isOpen, type Occurrence } from '../lib/types';
-import { DueDate, StatusPicker } from '../ui/badges';
+import { StatusPicker } from '../ui/badges';
+import { cn } from '../ui/cn';
 import { Button, IconButton } from '../ui/button';
 import { DatePicker } from '../ui/datepicker';
 import { Input, Select, Textarea } from '../ui/field';
@@ -76,6 +77,9 @@ function TaskDetail({ task }: { task: Occurrence }) {
       <div className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-4">
         <StatusPicker status={task.status} short={false} onChange={(s) => void patchOccurrence(task.id, { status: s }, 'Status updated')} />
         <div className="flex-1" />
+        {isOpen(task.status)
+          ? <Button size="sm" variant="primary" onClick={() => void patchOccurrence(task.id, { status: 'done' }, 'Marked done')}><Check /> Mark done</Button>
+          : <Button size="sm" onClick={() => void patchOccurrence(task.id, { status: 'todo' }, 'Reopened')}><RotateCcw /> Reopen</Button>}
         <Menu align="end" label="More actions" trigger={<IconButton label="More actions"><MoreHorizontal /></IconButton>}>
           {task.scheduleId ? (
             <MenuItem onSelect={() => setConfirm('cancel')} disabled={task.status === 'cancelled'}><CircleSlash /> Cancel this occurrence</MenuItem>
@@ -113,8 +117,11 @@ function TaskDetail({ task }: { task: Occurrence }) {
                   <span className="tnum">{formatDayLong(task.dueDate)}</span>
                 </button>
               } />
-              {isOpen(task.status) && <DueDate date={task.dueDate} today={today} open />}
-              {isOpen(task.status) && <span className="text-[12px] text-ink-3">({relativeDue(task.dueDate, today)})</span>}
+              {isOpen(task.status) && (
+                <span className={cn('text-[12.5px]', task.dueDate < today ? 'font-medium text-danger' : task.dueDate === today ? 'font-medium text-accent-ink' : 'text-ink-3')}>
+                  {relativeDue(task.dueDate, today).replace(/^./, (c) => c.toUpperCase())}
+                </span>
+              )}
             </div>
             {moved && (
               <div className="mt-1.5 flex items-center gap-2 text-[12px] text-ink-3">

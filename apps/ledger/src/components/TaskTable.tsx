@@ -36,7 +36,7 @@ const Row = memo(function Row({ task, client, today, showClient, selected }: { t
     <tr
       onClick={() => ui.openTask(task.id)}
       data-selected={selected || undefined}
-      className="group h-10 cursor-default border-b border-line last:border-b-0 hover:bg-hover/70 data-[selected]:bg-accent-soft/60"
+      className="group h-[38px] cursor-default border-b border-line last:border-b-0 hover:bg-hover/70 data-[selected]:bg-accent-soft/60"
     >
       <td className="w-9 pl-3"><CompleteToggle task={task} /></td>
       <td className="max-w-0 py-1.5 pr-3">
@@ -60,7 +60,7 @@ const Row = memo(function Row({ task, client, today, showClient, selected }: { t
           <span className="block truncate text-[12.5px] text-ink-2">{client?.name ?? 'Unknown client'}</span>
         </td>
       )}
-      <td className="w-32 pr-3" onClick={(e) => e.stopPropagation()}>
+      <td className="w-36 pr-3" onClick={(e) => e.stopPropagation()}>
         <DatePicker
           value={task.dueDate}
           today={today}
@@ -68,7 +68,7 @@ const Row = memo(function Row({ task, client, today, showClient, selected }: { t
           trigger={<button aria-label={`Due ${task.dueDate}. Change due date`} className="-mx-1.5 rounded px-1.5 py-0.5 hover:bg-sunken"><DueDate date={task.dueDate} today={today} open={open} /></button>}
         />
       </td>
-      <td className="hidden w-24 pr-3 sm:table-cell"><PriorityLabel priority={task.priority} compact /></td>
+      <td className="hidden w-20 pr-3 sm:table-cell"><PriorityLabel priority={task.priority} compact /></td>
       <td className="hidden w-32 pr-3 sm:table-cell" onClick={(e) => e.stopPropagation()}>
         <StatusPicker status={task.status} onChange={(s) => void patchOccurrence(task.id, { status: s }, 'Status updated')} />
       </td>
@@ -84,12 +84,12 @@ export function TaskTable({ tasks, showClient = true, header = true, limit }: { 
     <table className="w-full table-fixed border-collapse">
       {header && (
         <thead>
-          <tr className="h-8 border-b border-line text-left text-[11.5px] font-medium text-ink-3">
+          <tr className="sticky top-[52px] z-10 h-8 border-b border-line bg-surface text-left text-[11.5px] font-medium text-ink-3 [&>th]:bg-surface">
             <th className="w-9 pl-3"><span className="sr-only">Done</span></th>
             <th className="pr-3 font-medium">Task</th>
             {showClient && <th className="hidden w-[24%] pr-3 font-medium md:table-cell">Client</th>}
-            <th className="w-32 pr-3 font-medium">Due</th>
-            <th className="hidden w-24 pr-3 font-medium sm:table-cell">Priority</th>
+            <th className="w-36 pr-3 font-medium">Due</th>
+            <th className="hidden w-20 pr-3 font-medium sm:table-cell">Priority</th>
             <th className="hidden w-32 pr-3 font-medium sm:table-cell">Status</th>
           </tr>
         </thead>
