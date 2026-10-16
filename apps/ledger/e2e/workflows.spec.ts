@@ -41,8 +41,8 @@ test('a one-off task can be created, completed and is still there after a reload
 test('rescheduling one occurrence changes only that task, and history records it', async ({ page }) => {
   await page.goto('/tasks?view=overdue');
   const row = page.locator('tbody tr').filter({ hasText: 'Monthly bookkeeping' }).first();
-  const title = await row.locator('td').nth(1).locator('button').first().textContent();
-  await row.locator('td').nth(1).locator('button').first().click();
+  const title = await row.locator('td').nth(2).locator('span').first().textContent();
+  await row.locator('td').nth(2).click();
   const panel = page.getByRole('dialog');
   await expect(panel.getByLabel('Title')).toHaveValue(title!);
   await panel.getByRole('button', { name: /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/ }).first().click();
@@ -120,4 +120,42 @@ test('the calendar and the list show the same tasks, and the keyboard reaches ev
   await expect(page.getByRole('heading', { level: 2, name: 'Nordvik Snekkeri AS' })).toBeVisible();
   await page.keyboard.press('n');
   await expect(page.getByRole('dialog', { name: 'New task' })).toBeVisible();
+});
+
+test('quick add turns one line into a task, and the keyboard completes it', async ({ page }) => {
+  await page.goto('/tasks');
+  const box = page.getByRole('combobox', { name: 'Quick add a task' });
+  await box.fill('Call about holiday pay @nordv');
+  await expect(page.getByRole('option', { name: /Nordvik Snekkeri AS/ })).toBeVisible();
+  await page.keyboard.press('Enter'); // picks the suggested client
+  await box.pressSequentially('tomorrow !high #payroll');
+  await expect(page.getByRole('button', { name: /Nordvik Snekkeri AS/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Tomorrow' }).first()).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(/Added for Nordvik Snekkeri AS, due tomorrow/)).toBeVisible();
+  await expect(box).toHaveValue('');
+
+  await page.getByLabel('Search tasks').fill('holiday pay');
+  const row = page.locator('tbody tr[data-task]');
+  await expect(row).toHaveCount(1);
+  await expect(row.getByText('Nordvik Snekkeri AS')).toBeVisible();
+  await expect(row.getByText('High')).toBeVisible();
+  await row.focus();
+  await page.keyboard.press('d');
+  await expect(row).toHaveCount(0);
+  await expect(page.getByText(/Done: Call about holiday pay/)).toBeVisible();
+});
+
+test('several tasks can be selected and moved at once', async ({ page }) => {
+  await page.goto('/tasks?view=overdue');
+  const rows = page.locator('tbody tr[data-task]');
+  const before = await rows.count();
+  await rows.nth(0).focus();
+  await page.keyboard.press('x');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('x');
+  await expect(page.getByText('2 selected')).toBeVisible();
+  await page.getByRole('toolbar', { name: 'Selected tasks' }).getByRole('button', { name: 'Tomorrow' }).click();
+  await expect(page.getByText('2 tasks moved to')).toBeVisible();
+  await expect(rows).toHaveCount(before - 2);
 });

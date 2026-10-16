@@ -1,16 +1,15 @@
-import { useMemo, type ReactNode } from 'react';
-import { ArrowRight, CalendarCheck, CheckCircle2, Plus, SearchCheck, Sun } from 'lucide-react';
-import { useUI } from '../components/ui-state';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ArrowRight, CalendarCheck, CheckCircle2, ChevronDown, SearchCheck, Sun } from 'lucide-react';
+import { QuickAdd } from '../components/QuickAdd';
 import { Page } from '../components/Shell';
 import { TaskTable } from '../components/TaskTable';
 import { useStore } from '../data/store';
-import { addDays, diffDays } from '../lib/dates';
+import { addDays, diffDays, localISODate } from '../lib/dates';
 import { formatDate, formatDayLong, greeting } from '../lib/format';
 import { needsReview } from '../lib/missing';
 import { sortTasks } from '../lib/filters';
 import { isOpen } from '../lib/types';
 import { Link, useRoute } from '../router';
-import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
 import { QuietLine } from '../ui/states';
 
@@ -46,14 +45,20 @@ function Section({ title, count, action, children, id, tone }: { title: string; 
 
 export function Home() {
   const { snap, today, clientById, expected, scheduleById } = useStore();
-  const ui = useUI();
   const { navigate } = useRoute();
   const open = useMemo(() => snap.occurrences.filter((o) => isOpen(o.status)), [snap.occurrences]);
   const overdue = useMemo(() => sortTasks(open.filter((o) => o.dueDate < today), 'due', clientById), [open, today, clientById]);
   const dueToday = useMemo(() => sortTasks(open.filter((o) => o.dueDate === today), 'priority', clientById), [open, today, clientById]);
   const upcoming = useMemo(() => sortTasks(open.filter((o) => o.dueDate > today && o.dueDate <= addDays(today, UPCOMING_DAYS)), 'due', clientById), [open, today, clientById]);
   const review = needsReview(expected);
-  const completedToday = snap.occurrences.filter((o) => o.completedAt && o.completedAt.slice(0, 10) === today).length;
+  // Finished today (by local date), including work that was due earlier: it all counts towards today.
+  const doneToday = useMemo(() => snap.occurrences
+    .filter((o) => o.status === 'done' && o.completedAt && localISODate(new Date(o.completedAt)) === today)
+    .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? '')), [snap.occurrences, today]);
+  const completedToday = doneToday.length;
+  const plannedToday = dueToday.length + doneToday.length;
+  const [showAllOverdue, setShowAllOverdue] = useState(false);
+  const [showDone, setShowDone] = useState(false);
   const name = snap.workspace.settings.displayName?.trim();
   const waiting = open.filter((o) => o.status === 'waiting').length;
 
@@ -69,6 +74,7 @@ export function Home() {
           </p>
         </div>
       </div>
+      <QuickAdd className="mb-5" dueDate={today} />
 
       <nav aria-label="Summary" className="mb-8 grid grid-cols-2 divide-line overflow-clip rounded-lg border border-line bg-surface max-lg:[&>*:nth-child(-n+2)]:border-b max-lg:[&>*:nth-child(odd)]:border-r lg:grid-cols-4 lg:divide-x">
         <Metric label="Overdue" value={overdue.length} to="/tasks?view=overdue" tone="danger" hint={overdue.length ? `Oldest is ${diffDays(today, overdue[0].dueDate)} days late` : 'Nothing late'} />
@@ -77,19 +83,42 @@ export function Home() {
         <Metric label="Missing" value={review.length} to="/missing" tone="warn" hint={review.length ? 'Expected tasks not found' : 'All periods accounted for'} />
       </nav>
 
-      <Section id="h-overdue" tone="danger" title="Overdue" count={overdue.length || undefined}
-        action={overdue.length > 8 && <Link to="/tasks?view=overdue" className="text-[12.5px] text-accent hover:underline">See all {overdue.length}</Link>}>
-        {overdue.length ? <TaskTable tasks={overdue} limit={8} header={false} /> : <QuietLine icon={CheckCircle2}>Nothing overdue. Everything due so far is done or rescheduled.</QuietLine>}
+      <Section id="h-today" title="Today" count={dueToday.length || undefined}
+        action={plannedToday > 0 && (
+          <div className="flex items-center gap-2.5 text-[12px] text-ink-3" aria-label={`${completedToday} of ${plannedToday} done today`}>
+            <span className="tnum">{completedToday} of {plannedToday} done</span>
+            <span className="h-1.5 w-28 overflow-hidden rounded-full bg-sunken" aria-hidden>
+              <span className="block h-full rounded-full bg-ok transition-[width] duration-500" style={{ width: `${Math.round((completedToday / plannedToday) * 100)}%` }} />
+            </span>
+          </div>
+        )}>
+        {dueToday.length ? <TaskTable tasks={dueToday} header={false} />
+          : <QuietLine icon={completedToday ? CheckCircle2 : Sun}>{completedToday ? 'Everything due today is done.' : 'Nothing due today.'}{upcoming[0] && <> Next up: {upcoming[0].title}, {formatDate(upcoming[0].dueDate)}.</>}</QuietLine>}
+        {doneToday.length > 0 && (
+          <>
+            <button onClick={() => setShowDone((v) => !v)} aria-expanded={showDone}
+              className="flex w-full items-center gap-2 border-t border-line px-3 py-2 text-left text-[12.5px] text-ink-3 hover:bg-hover/60 hover:text-ink">
+              <CheckCircle2 className="size-3.5 text-ok" /> {doneToday.length} finished today
+              <ChevronDown className={cn('ml-auto size-3.5 transition-transform', showDone && 'rotate-180')} />
+            </button>
+            {showDone && <div className="border-t border-line"><TaskTable tasks={doneToday} header={false} /></div>}
+          </>
+        )}
       </Section>
 
-      <Section id="h-today" title="Today" count={dueToday.length || undefined}
-        action={<Button size="sm" variant="ghost" onClick={() => ui.openNewTask({ dueDate: today })}><Plus /> Add for today</Button>}>
-        {dueToday.length ? <TaskTable tasks={dueToday} header={false} /> : <QuietLine icon={Sun}>Nothing due today.{upcoming[0] && <> Next up: {upcoming[0].title}, {formatDate(upcoming[0].dueDate)}.</>}</QuietLine>}
+      <Section id="h-overdue" tone="danger" title="Overdue" count={overdue.length || undefined}
+        action={overdue.length > 0 && <Link to="/tasks?view=overdue" className="text-[12.5px] text-accent hover:underline">Open in My Tasks</Link>}>
+        {overdue.length ? <TaskTable tasks={overdue} limit={showAllOverdue ? undefined : 5} header={false} /> : <QuietLine icon={CheckCircle2}>Nothing overdue. Everything due so far is done or rescheduled.</QuietLine>}
+        {overdue.length > 5 && (
+          <button onClick={() => setShowAllOverdue((v) => !v)} className="w-full border-t border-line py-2 text-[12.5px] text-ink-3 hover:bg-hover hover:text-ink">
+            {showAllOverdue ? 'Show fewer' : `Show all ${overdue.length}`}
+          </button>
+        )}
       </Section>
 
       <Section id="h-upcoming" title="Upcoming deadlines" count={upcoming.length || undefined}
         action={<Link to="/calendar" className="text-[12.5px] text-accent hover:underline">Open calendar</Link>}>
-        {upcoming.length ? <TaskTable tasks={upcoming} limit={12} header={false} /> : <QuietLine icon={CalendarCheck}>No deadlines in the next {UPCOMING_DAYS} days.</QuietLine>}
+        {upcoming.length ? <TaskTable tasks={upcoming} limit={12} header={false} groupBy="day" /> : <QuietLine icon={CalendarCheck}>No deadlines in the next {UPCOMING_DAYS} days.</QuietLine>}
         {upcoming.length > 12 && (
           <button onClick={() => navigate('/tasks?status=todo,in_progress,waiting&due=next_14')} className="w-full border-t border-line py-2 text-[12.5px] text-ink-3 hover:bg-hover hover:text-ink">
             Show all {upcoming.length}

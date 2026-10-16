@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { parseQuickAdd } from '../lib/quickadd';
 import { CalendarDays } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDayLong } from '../lib/format';
@@ -12,7 +13,7 @@ import { useUI } from './ui-state';
 
 export function NewTaskDialog() {
   const ui = useUI();
-  const { snap, today, run } = useStore();
+  const { snap, today, run, clientById } = useStore();
   const open = ui.newTask !== null;
   const clients = snap.clients.filter((c) => c.status === 'active').sort((a, b) => a.name.localeCompare(b.name));
   const [title, setTitle] = useState('');
@@ -27,41 +28,57 @@ export function NewTaskDialog() {
 
   useEffect(() => {
     if (!open) return;
-    setTitle(''); setNotes(''); setTags(''); setPriority('normal'); setType('follow_up'); setTried(false);
+    setTitle(ui.newTask?.title ?? ''); setNotes(''); setTags(''); setPriority('normal'); setType('follow_up'); setTried(false);
     setClientId(ui.newTask?.clientId ?? '');
     setDue(ui.newTask?.dueDate ?? today);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const errors = { title: !title.trim() ? 'Give the task a title.' : null, client: !clientId ? 'Choose a client.' : null };
-  const submit = async () => {
+  // The title understands the quick-add shorthand too (@client, fri, !high, #tag); recognised parts fill the fields.
+  const parsed = parseQuickAdd(title, snap.clients, today);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const effective = { clientId: parsed.clientId ?? clientId, due: parsed.due ?? due, priority: parsed.priority ?? priority };
+  const errors = { title: !parsed.title ? 'Give the task a title.' : null, client: !effective.clientId ? 'Choose a client.' : null };
+  const submit = async (another = false) => {
     setTried(true);
     if (errors.title || errors.client) return;
     setBusy(true);
     const created = await run((r) => r.createOccurrence({
-      clientId, scheduleId: null, title: title.trim(), description: notes, taskType: type, periodKey: null, periodStart: null, periodEnd: null,
-      dueDate: due, scheduledDueDate: null, status: 'todo', priority,
-      tags: [...new Set(tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean))],
-    }), { success: 'Task created' });
+      clientId: effective.clientId, scheduleId: null, title: parsed.title, description: notes, taskType: type, periodKey: null, periodStart: null, periodEnd: null,
+      dueDate: effective.due, scheduledDueDate: null, status: 'todo', priority: effective.priority,
+      tags: [...new Set([...parsed.tags, ...tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)])],
+    }), { success: another ? 'Task created. Add the next one.' : 'Task created' });
     setBusy(false);
-    if (created) ui.closeNewTask();
+    if (!created) return;
+    if (another) {
+      // Keep client, date and type for a run of similar tasks; clear the rest.
+      setClientId(effective.clientId); setDue(effective.due); setTitle(''); setNotes(''); setTags(''); setTried(false);
+      titleRef.current?.focus();
+    } else ui.closeNewTask();
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && ui.closeNewTask()} title="New task" description="A one-off task. For work that repeats, add a recurring schedule instead."
       footer={<>
-        <span className="mr-auto hidden text-[12px] text-ink-3 sm:block">Ctrl + Enter to save</span>
+        <span className="mr-auto hidden text-[12px] text-ink-3 sm:block">Enter to create · Shift+Enter to add another</span>
         <Button onClick={ui.closeNewTask}>Cancel</Button>
-        <Button variant="primary" loading={busy} onClick={submit}>Create task</Button>
+        <Button onClick={() => void submit(true)} disabled={busy}>Create &amp; add another</Button>
+        <Button variant="primary" loading={busy} onClick={() => void submit()}>Create task</Button>
       </>}>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void submit(); } }}>
-        <Field label="Title" error={tried ? errors.title : null}>
-          {(p) => <Input {...p} value={title} maxLength={200} placeholder="e.g. Chase missing receipts for October" onChange={(e) => setTitle(e.target.value)} />}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || (e.target as HTMLElement).tagName === 'TEXTAREA' && !(e.ctrlKey || e.metaKey)) return;
+          e.preventDefault(); void submit(e.shiftKey);
+        }}>
+        <Field label="Title" error={tried ? errors.title : null}
+          hint={parsed.clientId || parsed.due || parsed.priority || parsed.tags.length
+            ? <span className="text-accent-ink">Will use: {[parsed.clientId && clientById.get(parsed.clientId)?.name, parsed.due && formatDayLong(parsed.due), parsed.priority && `${PRIORITY_LABEL[parsed.priority]} priority`, ...parsed.tags.map((t) => `#${t}`)].filter(Boolean).join(' · ')}</span>
+            : 'Tip: type @client, a date like fri or 15.11, !high or #tag right in the title.'}>
+          {(p) => <Input {...p} ref={titleRef} value={title} maxLength={200} placeholder="e.g. Chase missing receipts @nordvik fri" onChange={(e) => setTitle(e.target.value)} />}
         </Field>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Client" error={tried ? errors.client : null}>
             {(p) => (
-              <Select {...p} value={clientId} onChange={(e) => setClientId(e.target.value)}>
+              <Select {...p} value={effective.clientId} disabled={!!parsed.clientId} onChange={(e) => setClientId(e.target.value)}>
                 <option value="" disabled>Choose a client…</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
@@ -69,15 +86,15 @@ export function NewTaskDialog() {
           </Field>
           <Field label="Due date">
             {(p) => (
-              <DatePicker value={due} today={today} onChange={setDue} trigger={
+              <DatePicker value={effective.due} today={today} onChange={setDue} trigger={
                 <button {...p} type="button" className="flex h-8 items-center gap-2 rounded-md border border-line-strong bg-surface px-2.5 text-left text-[13px] hover:bg-hover">
-                  <CalendarDays className="size-4 text-ink-3" /><span className="tnum truncate">{formatDayLong(due)}</span>
+                  <CalendarDays className="size-4 text-ink-3" /><span className="tnum truncate">{formatDayLong(effective.due)}</span>
                 </button>
               } />
             )}
           </Field>
           <Field label="Priority">
-            {(p) => <Select {...p} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>{PRIORITIES.map((x) => <option key={x} value={x}>{PRIORITY_LABEL[x]}</option>)}</Select>}
+            {(p) => <Select {...p} value={effective.priority} disabled={!!parsed.priority} onChange={(e) => setPriority(e.target.value as Priority)}>{PRIORITIES.map((x) => <option key={x} value={x}>{PRIORITY_LABEL[x]}</option>)}</Select>}
           </Field>
           <Field label="Type">
             {(p) => <Select {...p} value={type} onChange={(e) => setType(e.target.value as TaskType)}>{TASK_TYPES.map((x) => <option key={x} value={x}>{TYPE_LABEL[x]}</option>)}</Select>}

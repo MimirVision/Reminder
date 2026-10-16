@@ -19,7 +19,14 @@ demo data; only add real client information where your employer allows it, and k
 | Missing Tasks | Expected vs actual, per schedule and period, with the reason each item was flagged. Create the task, mark as reviewed, or record an exception. |
 | Settings | Name, time zone, date format, defaults, theme (light, dark, system), JSON backup, CSV export, restore, data status, erase. |
 
-Keyboard: `Ctrl/⌘ K` search and jump anywhere, `N` new task, `/` focuses the task search, arrows/Enter in menus and date pickers, `Esc` closes panels.
+**Adding work fast.** Type one line in the quick-add bar (Home, My Tasks, a client's page) or in `Ctrl/⌘ K`:
+`Chase receipts @nordvik fri !high #receipts` → client, due date, priority and tag are recognised and shown as chips
+before you press Enter. Dates: `today`, `tomorrow`/`i morgen`, weekdays (`fri`, `fredag`), `next week`, `in 3 days`,
+`15.11`, `15 nov`, `eom`. Priority: `!` high, `!!` urgent. The New task dialog understands the same shorthand and has
+*Create & add another* (Shift+Enter) for a run of similar tasks.
+
+Keyboard: `Ctrl/⌘ K` search, jump or create; `N` new task; `/` task search. In task lists: `↑↓` move, `Enter` open,
+`D` done, `W` waiting for client, `T` move to tomorrow, `X` select (Shift for a range) for bulk done/waiting/move.
 
 ## How it fits next to Home Memory and Post
 

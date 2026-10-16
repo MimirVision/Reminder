@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X } from 'lucide-react';
 import { useStore } from '../data/store';
+import { addDays, weekday } from '../lib/dates';
 import { formatDate, formatDayLong, formatTimestamp, relativeDue } from '../lib/format';
 import { PRIORITY_LABEL, TYPE_LABEL } from '../lib/labels';
 import { describeRecurrence, periodLabel } from '../lib/recurrence';
@@ -123,6 +124,16 @@ function TaskDetail({ task }: { task: Occurrence }) {
                 </span>
               )}
             </div>
+            {isOpen(task.status) && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {([['Today', today], ['Tomorrow', addDays(today, 1)], ['Next Monday', addDays(today, ((1 - weekday(today) + 7) % 7) || 7)], ['+1 week', addDays(task.dueDate < today ? today : task.dueDate, 7)]] as const).map(([label, d]) => (
+                  <button key={label} disabled={d === task.dueDate} onClick={() => void patchOccurrence(task.id, { dueDate: d }, `Due ${formatDate(d)}`)}
+                    className="h-6 rounded-md border border-line px-2 text-[12px] text-ink-2 hover:border-line-strong hover:bg-hover hover:text-ink disabled:opacity-40">
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {moved && (
               <div className="mt-1.5 flex items-center gap-2 text-[12px] text-ink-3">
                 Moved from {formatDate(task.scheduledDueDate!)}. The schedule is unchanged.

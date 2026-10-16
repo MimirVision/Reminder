@@ -4,7 +4,7 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import type { ISODate } from '../lib/dates';
 import type { Schedule } from '../lib/types';
 
-export interface NewTaskDefaults { clientId?: string; dueDate?: ISODate }
+export interface NewTaskDefaults { clientId?: string; dueDate?: ISODate; title?: string }
 export type ScheduleEditor = { mode: 'new'; clientId?: string; from?: Schedule } | { mode: 'edit'; id: string } | null;
 
 interface UI {

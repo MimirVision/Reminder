@@ -4,6 +4,7 @@ import { ActivityList } from '../components/ActivityList';
 import { Page } from '../components/Shell';
 import { ClientDialog } from '../components/TaskForms';
 import { TaskTable } from '../components/TaskTable';
+import { QuickAdd } from '../components/QuickAdd';
 import { useUI } from '../components/ui-state';
 import { useStore } from '../data/store';
 import { formatDue } from '../lib/format';
@@ -114,6 +115,7 @@ export function ClientDetail({ id }: { id: string }) {
         ))}
       </div>
 
+      {tab === 'open' && !archived && <QuickAdd className="mb-3" clientId={id} />}
       {tab === 'open' && (
         <div className="overflow-clip rounded-lg border border-line bg-surface">
           {open.length ? <TaskTable tasks={open} showClient={false} /> : <EmptyState compact icon={CheckCircle2} title="No open tasks" body={!archived ? 'Add a task, or a schedule for recurring work.' : undefined} />}

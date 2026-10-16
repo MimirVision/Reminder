@@ -3,6 +3,7 @@ import { Dialog as D } from 'radix-ui';
 import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDue } from '../lib/format';
+import { parseQuickAdd } from '../lib/quickadd';
 import { isOpen } from '../lib/types';
 import { useRoute } from '../router';
 import { cn } from '../ui/cn';
@@ -14,7 +15,7 @@ interface Item { id: string; label: string; hint?: string; icon: typeof Home; gr
 export function CommandPalette() {
   const ui = useUI();
   const { navigate } = useRoute();
-  const { snap, clientById, today } = useStore();
+  const { snap, clientById, today, run } = useStore();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
 
@@ -46,6 +47,16 @@ export function CommandPalette() {
     ];
     const s = q.trim().toLowerCase();
     if (!s) return base;
+    // Typing a task straight into search: offer to create it (with the quick-add shorthand).
+    const draft = parseQuickAdd(q, snap.clients, today);
+    const create: Item[] = draft.title && draft.clientId ? [{
+      id: 'create', label: `Create “${draft.title}”`, icon: Plus, group: 'Create',
+      hint: `${clientById.get(draft.clientId)?.name} · ${formatDue(draft.due ?? today, today)}`,
+      run: () => void run((r) => r.createOccurrence({
+        clientId: draft.clientId!, scheduleId: null, title: draft.title, description: '', taskType: 'follow_up', periodKey: null, periodStart: null,
+        periodEnd: null, dueDate: draft.due ?? today, scheduledDueDate: null, status: 'todo', priority: draft.priority ?? 'normal', tags: draft.tags,
+      }), { success: 'Task created' }),
+    }] : [{ id: 'create', label: `New task “${draft.title || q.trim()}”…`, icon: Plus, group: 'Create', hint: 'add @client to create it right away', run: () => ui.openNewTask({ title: q.trim() }) }];
     const words = s.split(/\s+/);
     const hit = (t: string) => words.every((w) => t.toLowerCase().includes(w));
     const out = base.filter((i) => hit(i.label));
@@ -57,8 +68,8 @@ export function CommandPalette() {
     const tasks = snap.occurrences.filter((o) => hit(`${o.title} ${clientById.get(o.clientId)?.name ?? ''} ${o.tags.join(' ')}`))
       .sort((a, b) => Number(isOpen(b.status)) - Number(isOpen(a.status)) || a.dueDate.localeCompare(b.dueDate)).slice(0, 30);
     for (const o of tasks) out.push({ id: o.id, label: o.title, hint: `${clientById.get(o.clientId)?.name ?? ''} · ${formatDue(o.dueDate, today)}${isOpen(o.status) ? '' : ' · closed'}`, icon: ListChecks, group: 'Tasks', run: () => ui.openTask(o.id) });
-    return out.slice(0, 60);
-  }, [q, snap, clientById, today, navigate, ui]);
+    return [...out.slice(0, 59), ...create];
+  }, [q, snap, clientById, today, navigate, ui, run]);
 
   const pick = (i: Item | undefined) => { if (!i) return; ui.setPalette(false); i.run(); };
   let lastGroup = '';
