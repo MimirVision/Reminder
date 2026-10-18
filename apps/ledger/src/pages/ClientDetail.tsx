@@ -51,18 +51,18 @@ export function ClientDetail({ id }: { id: string }) {
   ];
 
   return (
-    <Page docTitle={client.name} title={
+    <Page title={client.name} hideTitle crumb={
       <span className="flex min-w-0 items-center gap-1.5">
         <Link to="/clients" className="text-ink-3 hover:text-ink">Clients</Link>
         <ChevronRight className="size-3.5 shrink-0 text-ink-3" />
-        <span className="truncate">{client.name}</span>
+        <span className="truncate font-medium text-ink-2">{client.name}</span>
       </span>
     }>
       <div className="mb-5 flex flex-wrap items-start gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-[20px] leading-tight font-semibold tracking-[-0.02em]">{client.name}</h2>
-            {client.reference && <span className="tnum text-[13px] text-ink-3">{client.reference}</span>}
+            <h1 className="text-[24px] leading-tight font-semibold tracking-[-0.02em]">{client.name}</h1>
+            {client.reference && <span className="num text-[13px] text-ink-3">{client.reference}</span>}
             {archived && <Pill>Archived</Pill>}
           </div>
           <p className="tnum mt-1 flex flex-wrap items-center gap-x-2 text-[12.5px] text-ink-3">
@@ -113,7 +113,7 @@ export function ClientDetail({ id }: { id: string }) {
       </div>
 
       {tab === 'open' && (
-        <div className="overflow-clip rounded-lg border border-line bg-surface">
+        <div className="overflow-clip rounded-xl border border-line bg-surface">
           {open.length || !archived
             ? <TaskTable tasks={open} showClient={false} addRow={archived ? undefined : { clientId: id }} groupBy="day" />
             : <EmptyState compact icon={CheckCircle2} title="No open tasks" />}
@@ -121,7 +121,7 @@ export function ClientDetail({ id }: { id: string }) {
       )}
       {tab === 'recurring' && <ScheduleList schedules={schedules} showClient={false} emptyAction={!archived ? () => ui.openSchedule({ mode: 'new', clientId: id }) : undefined} />}
       {tab === 'completed' && (
-        <div className="overflow-clip rounded-lg border border-line bg-surface">
+        <div className="overflow-clip rounded-xl border border-line bg-surface">
           {done.length ? <TaskTable tasks={done} showClient={false} /> : <EmptyState compact icon={ListChecks} title="Nothing completed yet" />}
         </div>
       )}

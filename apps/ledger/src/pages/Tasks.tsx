@@ -109,16 +109,18 @@ export function Tasks() {
     [snap.occurrences, today, clientById]);
 
   return (
-    <Page title="My Tasks" wide>
-      <div role="tablist" aria-label="Saved views" className="-mx-1 mb-4 flex gap-1 overflow-x-auto px-1 pb-1">
+    <Page title="My Tasks" wide titleExtra={
+      <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ value: 'list', label: 'List' }, { value: 'board', label: 'Board' }]} />
+    }>
+      <div role="tablist" aria-label="Saved views" className="-mx-4 mb-4 flex gap-6 overflow-x-auto border-b border-line px-4 md:-mx-8 md:px-8">
         {SAVED_VIEWS.map((v) => (
           <button key={v.id} role="tab" aria-selected={activeView?.id === v.id} onClick={() => setF(viewFilter(v.id))}
             className={cn(
-              'flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors',
-              activeView?.id === v.id ? 'bg-surface font-medium text-ink shadow-soft ring-1 ring-line' : 'text-ink-2 hover:bg-hover hover:text-ink',
+              '-mb-px flex shrink-0 items-center gap-1.5 border-b-2 pt-1 pb-2.5 text-[13.5px] transition-colors',
+              activeView?.id === v.id ? 'border-accent font-semibold text-ink' : 'border-transparent text-ink-2 hover:border-line-strong hover:text-ink',
             )}>
             {v.name}
-            <span className={cn('tnum text-[11.5px]', v.id === 'overdue' && viewCounts[v.id] ? 'text-danger' : 'text-ink-3')}>{viewCounts[v.id]}</span>
+            <span className={cn('num text-[11.5px]', v.id === 'overdue' && viewCounts[v.id] ? 'text-danger' : 'text-ink-3')}>{viewCounts[v.id]}</span>
           </button>
         ))}
       </div>
@@ -127,7 +129,7 @@ export function Tasks() {
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-3" />
           <input ref={searchRef} value={f.search} onChange={(e) => patch({ search: e.target.value })} placeholder="Search tasks, clients, tags…" aria-label="Search tasks"
-            className="h-7 w-full rounded-md border border-line-strong bg-surface pr-7 pl-8 text-[12.5px] placeholder:text-ink-3 focus:border-accent focus:ring-3 focus:ring-accent/15 focus:outline-none" />
+            className="h-8 w-full rounded-lg border border-line bg-surface pr-7 pl-8 text-[13px] placeholder:text-ink-3 focus:border-accent focus:ring-3 focus:ring-accent/15 focus:outline-none" />
           {f.search && <button aria-label="Clear search" onClick={() => patch({ search: '' })} className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-ink-3 hover:text-ink"><X className="size-3.5" /></button>}
         </div>
         <FilterMenu label="Client" searchable options={clientOptions} selected={f.clients} onChange={(clients) => patch({ clients })} />
@@ -147,7 +149,6 @@ export function Tasks() {
           <Button size="sm" variant="ghost" onClick={() => setF({ ...BLANK_FILTER })}><X /> Clear</Button>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ value: 'list', label: 'List' }, { value: 'board', label: 'Board' }]} />
           <span className="tnum text-[12.5px] text-ink-3" aria-live="polite">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span>
           <Menu align="end" label="Sort and group" trigger={<Button size="sm" variant="ghost"><ArrowUpDown /> {SORT_OPTIONS.find((o) => o.value === f.sort)?.label}{groupBy !== 'none' && ` · grouped by ${({ day: 'day', client: 'client', status: 'status' } as const)[groupBy]}`}</Button>}>
             <MenuLabel>Sort by</MenuLabel>
@@ -158,7 +159,7 @@ export function Tasks() {
         </div>
       </div>
 
-      {layout === 'board' ? <TaskBoard tasks={tasks} /> : <div className="overflow-clip rounded-lg border border-line bg-surface">
+      {layout === 'board' ? <TaskBoard tasks={tasks} /> : <div className="overflow-clip rounded-xl border border-line bg-surface">
         {tasks.length ? <TaskTable tasks={tasks} groupBy={groupBy} selection={selection} addRow={{}} /> : (
           <EmptyState icon={ListChecks} title={isFiltered(f) ? 'No tasks match these filters' : activeView?.id === 'overdue' ? 'Nothing overdue' : 'No tasks here'}
             body={isFiltered(f) ? 'Try removing a filter or searching for something else.' : 'Tasks you add, and tasks created by recurring schedules, appear here.'}

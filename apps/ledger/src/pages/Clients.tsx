@@ -76,7 +76,7 @@ export function Clients() {
         {archivedCount > 0 && <Checkbox checked={archived} onChange={setArchived} label={`Show archived (${archivedCount})`} />}
         <span className="tnum ml-auto text-[12.5px] text-ink-3">{rows.length} client{rows.length === 1 ? '' : 's'}</span>
       </div>
-      <div className="overflow-clip rounded-lg border border-line bg-surface">
+      <div className="overflow-clip rounded-xl border border-line bg-surface">
         {rows.length ? (
           <table className="w-full table-fixed border-collapse">
             <thead>

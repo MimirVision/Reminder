@@ -125,7 +125,7 @@ export function Calendar() {
         </div>
       </div>
 
-      <div className="overflow-clip rounded-lg border border-line bg-surface">
+      <div className="overflow-clip rounded-xl border border-line bg-surface">
         <div className="grid grid-cols-7 border-b border-line">
           {days.slice(0, 7).map((d) => (
             <div key={d} className="px-2 py-1.5 text-[11.5px] font-medium text-ink-3">

@@ -79,10 +79,12 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
 
   return (
     <div className={cn(variant === 'box'
-      ? cn('rounded-lg border bg-surface transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line hover:border-line-strong')
+      ? cn('rounded-xl border bg-surface shadow-soft transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line-strong hover:border-ink-3/50')
       : cn('transition-colors', hasText ? 'bg-accent-soft/30' : 'hover:bg-hover/50'), className)}>
-      <div className={cn('relative flex items-center gap-2', variant === 'box' ? 'px-3' : 'pr-3 pl-[15px]')}>
-        <Plus className={cn('size-4 shrink-0', hasText ? 'text-accent' : 'text-ink-3')} />
+      <div className={cn('relative flex items-center', variant === 'box' ? 'gap-2.5 px-3.5' : 'gap-2 pr-3 pl-[15px]')}>
+        {variant === 'box'
+          ? <span className="flex size-[22px] shrink-0 items-center justify-center rounded-[7px] bg-accent-soft text-accent"><Plus className="size-3.5" strokeWidth={2.5} /></span>
+          : <Plus className={cn('size-4 shrink-0', hasText ? 'text-accent' : 'text-ink-3')} />}
         <input
           ref={input}
           autoFocus={autoFocus}
@@ -102,7 +104,7 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
           role="combobox"
           aria-expanded={suggestions.length > 0}
           aria-controls="quickadd-clients"
-          className={cn('min-w-0 flex-1 bg-transparent placeholder:text-ink-3 focus:outline-none', variant === 'box' ? 'h-10 text-[13.5px]' : 'h-[36px] text-[13px] placeholder:text-ink-3/90')}
+          className={cn('min-w-0 flex-1 bg-transparent placeholder:text-ink-3 focus:outline-none', variant === 'box' ? 'h-[50px] text-[14.5px]' : 'h-[36px] text-[13px] placeholder:text-ink-3/90')}
         />
         {hasText && (
           <button onClick={() => void submit()} disabled={busy}

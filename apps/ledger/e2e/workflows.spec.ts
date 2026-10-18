@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const metric = (page: Page, label: string) => page.getByRole('navigation', { name: 'Summary' }).getByRole('link', { name: new RegExp(label) });
+const metric = (page: Page, label: string) => page.getByRole('navigation', { name: 'Summary' }).getByRole('link', { name: new RegExp(label, 'i') });
 const count = async (page: Page, label: string) => Number((await metric(page, label).locator('span.tnum').textContent())?.trim());
 
 test('the dashboard shows what needs attention and its numbers lead to the matching tasks', async ({ page }) => {
@@ -117,7 +117,7 @@ test('the calendar and the list show the same tasks, and the keyboard reaches ev
   await page.getByRole('combobox', { name: 'Search' }).fill('Nordvik');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/clients\/client-1$/);
-  await expect(page.getByRole('heading', { level: 2, name: 'Nordvik Snekkeri AS' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Nordvik Snekkeri AS' })).toBeVisible();
   await page.keyboard.press('n');
   await expect(page.getByRole('dialog', { name: 'New task' })).toBeVisible();
 });
@@ -166,7 +166,7 @@ test('board view moves work between statuses by dragging', async ({ page }) => {
   const todo = page.getByRole('region', { name: 'To do' });
   const waiting = page.getByRole('region', { name: 'Waiting for client' });
   const card = todo.locator('[draggable=true]').first();
-  const title = (await card.locator('span.font-medium').first().textContent())!;
+  const title = (await card.locator('span.font-semibold').first().textContent())!;
   const before = await waiting.locator('[draggable=true]').count();
   await card.dragTo(waiting);
   await expect(waiting.locator('[draggable=true]')).toHaveCount(before + 1);
@@ -177,7 +177,7 @@ test('board view moves work between statuses by dragging', async ({ page }) => {
 
 test('a client page adds tasks for that client and can be pinned to the sidebar', async ({ page }) => {
   await page.goto('/clients/client-4');
-  await expect(page.getByRole('heading', { level: 2, name: 'Lysaker Design ENK' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Lysaker Design ENK' })).toBeVisible();
   const add = page.getByRole('combobox', { name: 'Quick add a task' }).first();
   await add.fill('Send VAT questions tomorrow');
   await page.keyboard.press('Enter');
