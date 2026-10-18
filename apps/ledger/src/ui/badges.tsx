@@ -14,13 +14,13 @@ const STATUS_TONE: Record<TaskStatus, string> = {
   todo: 'text-ink-2', in_progress: 'text-info', waiting: 'text-warn', done: 'text-ok', cancelled: 'text-ink-3',
 };
 const STATUS_BG: Record<TaskStatus, string> = {
-  todo: 'bg-transparent', in_progress: 'bg-info-soft', waiting: 'bg-warn-soft', done: 'bg-ok-soft', cancelled: 'bg-sunken',
+  todo: 'bg-sunken', in_progress: 'bg-info-soft', waiting: 'bg-warn-soft', done: 'bg-ok-soft', cancelled: 'bg-sunken',
 };
 
 export function StatusBadge({ status, short }: { status: TaskStatus; short?: boolean }) {
   const Icon = STATUS_ICON[status];
   return (
-    <span className={cn('inline-flex h-[22px] items-center gap-1.5 rounded-full pr-2 pl-1.5 text-[12px] font-medium whitespace-nowrap', STATUS_BG[status], STATUS_TONE[status])}>
+    <span className={cn('inline-flex h-[22px] items-center gap-1.5 rounded-full pr-2.5 pl-1.5 text-[12px] font-medium whitespace-nowrap', STATUS_BG[status], STATUS_TONE[status])}>
       <Icon className="size-3.5" strokeWidth={2.2} />
       {short ? STATUS_SHORT[status] : STATUS_LABEL[status]}
     </span>
@@ -66,7 +66,7 @@ export function DueDate({ date, today, open }: { date: ISODate; today: ISODate; 
   const n = diffDays(date, today);
   const overdue = open && n < 0;
   return (
-    <span className={cn('tnum inline-flex items-center gap-1 text-[12.5px] whitespace-nowrap',
+    <span className={cn('num inline-flex items-center gap-1 text-[12.5px] whitespace-nowrap',
       overdue ? 'font-medium text-danger' : open && n === 0 ? 'font-medium text-accent-ink' : open ? 'text-ink-2' : 'text-ink-3')}>
       {overdue && <AlertTriangle className="size-3.5" aria-label="Overdue" />}
       {formatDue(date, today)}

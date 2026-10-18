@@ -100,7 +100,7 @@ export function Missing() {
         <span className="tnum ml-auto text-[12.5px] text-ink-3">{items.length} item{items.length === 1 ? '' : 's'}</span>
       </div>
 
-      <div className="overflow-clip rounded-lg border border-line bg-surface">
+      <div className="overflow-clip rounded-xl border border-line bg-surface">
         {items.length === 0 ? (
           <EmptyState icon={tab === 'review' ? CheckCircle2 : SearchCheck}
             title={tab === 'review' ? 'Nothing missing' : tab === 'upcoming' ? 'No upcoming expectations' : 'No decisions recorded'}

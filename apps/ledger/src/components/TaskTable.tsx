@@ -1,11 +1,13 @@
 import { memo, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { CalendarClock, Check, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun } from 'lucide-react';
+import type { NewTaskDefaults } from './ui-state';
+import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun } from 'lucide-react';
+import { QuickAdd } from './QuickAdd';
 import { addDays, weekday, type ISODate } from '../lib/dates';
 import { formatDayShort, formatDue } from '../lib/format';
-import { STATUS_LABEL } from '../lib/labels';
+import { PRIORITY_LABEL, STATUS_LABEL } from '../lib/labels';
 import { periodLabel } from '../lib/recurrence';
 import type { Client, Occurrence, TaskStatus } from '../lib/types';
-import { isOpen } from '../lib/types';
+import { isOpen, PRIORITIES } from '../lib/types';
 import { useStore } from '../data/store';
 import { DueDate, PriorityLabel, StatusPicker, Tag } from '../ui/badges';
 import { cn } from '../ui/cn';
@@ -80,8 +82,8 @@ function RowMenu({ task }: { task: Occurrence }) {
   );
 }
 
-const Row = memo(function Row({ task, client, today, showClient, current, checked, onCheck }: {
-  task: Occurrence; client: Client | undefined; today: ISODate; showClient: boolean; current: boolean;
+const Row = memo(function Row({ task, client, today, showClient, stacked, current, checked, onCheck }: {
+  task: Occurrence; client: Client | undefined; today: ISODate; showClient: boolean; stacked?: boolean; current: boolean;
   checked?: boolean; onCheck?: (id: string, range: boolean) => void;
 }) {
   const ui = useUI();
@@ -94,7 +96,7 @@ const Row = memo(function Row({ task, client, today, showClient, current, checke
       onClick={(e) => { if (onCheck && (e.metaKey || e.ctrlKey || e.shiftKey)) { onCheck(task.id, e.shiftKey); return; } ui.openTask(task.id); }}
       data-selected={current || checked || undefined}
       aria-selected={checked}
-      className="group h-[38px] cursor-default border-b border-line last:border-b-0 outline-none hover:bg-hover/70 focus-visible:bg-accent-soft/40 focus-visible:shadow-[inset_2px_0_0_var(--c-accent)] data-[selected]:bg-accent-soft/60"
+      className={cn('group cursor-default', stacked ? 'h-[52px]' : 'h-[42px]', 'border-b border-line/70 last:border-b-0 outline-none hover:bg-hover/70 focus-visible:bg-accent-soft/40 focus-visible:shadow-[inset_2px_0_0_var(--c-accent)] data-[selected]:bg-accent-soft/60')}
     >
       {onCheck && (
         <td className="w-8 pl-3" onClick={(e) => e.stopPropagation()}>
@@ -105,22 +107,27 @@ const Row = memo(function Row({ task, client, today, showClient, current, checke
       )}
       <td className={cn('w-9', onCheck ? 'pl-1' : 'pl-3')}><CompleteToggle task={task} /></td>
       <td className="max-w-0 py-1.5 pr-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={cn('truncate text-[13px]', !open && 'text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+        {stacked ? (
+          <div className="flex min-w-0 flex-col">
+            <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+            <span className="truncate text-[12px] text-ink-3">{[showClient && client?.name, task.periodKey && periodLabel(task.periodKey)].filter(Boolean).join(' · ')}</span>
+          </div>
+        ) : <div className="flex min-w-0 items-center gap-2">
+          <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
           {task.periodKey && (
             <span className="hidden shrink-0 items-center gap-1 text-[11.5px] text-ink-3 sm:inline-flex" title="From a recurring schedule">
               <Repeat className="size-3" />{periodLabel(task.periodKey)}
             </span>
           )}
           <span className="hidden gap-1 xl:flex">{task.tags.slice(0, 2).map((t) => <Tag key={t}>{t}</Tag>)}</span>
-        </div>
+        </div>}
       </td>
-      {showClient && (
+      {showClient && !stacked && (
         <td className="hidden w-[24%] max-w-0 pr-3 md:table-cell">
-          <span className="block truncate text-[12.5px] text-ink-2">{client?.name ?? 'Unknown client'}</span>
+          <span className="block truncate text-[13px] text-ink-2">{client?.name ?? 'Unknown client'}</span>
         </td>
       )}
-      <td className="w-36 pr-3" onClick={(e) => e.stopPropagation()}>
+      <td className="w-40 pr-3" onClick={(e) => e.stopPropagation()}>
         <DatePicker
           value={task.dueDate}
           today={today}
@@ -128,7 +135,15 @@ const Row = memo(function Row({ task, client, today, showClient, current, checke
           trigger={<button tabIndex={-1} aria-label={`Due ${task.dueDate}. Change due date`} className="-mx-1.5 rounded px-1.5 py-0.5 hover:bg-sunken"><DueDate date={task.dueDate} today={today} open={open} /></button>}
         />
       </td>
-      <td className="hidden w-20 pr-3 sm:table-cell"><PriorityLabel priority={task.priority} compact /></td>
+      <td className="hidden w-20 pr-3 sm:table-cell" onClick={(e) => e.stopPropagation()}>
+        <Menu label={`Priority: ${PRIORITY_LABEL[task.priority]}. Change priority`} trigger={
+          <button tabIndex={-1} className="-mx-1.5 flex h-6 min-w-10 items-center rounded px-1.5 hover:bg-sunken">
+            {task.priority === 'normal' ? <span className="text-[12px] text-ink-3/0 group-hover:text-ink-3">Set</span> : <PriorityLabel priority={task.priority} compact />}
+          </button>
+        }>
+          {PRIORITIES.map((p) => <MenuItem key={p} onSelect={() => p !== task.priority && void patchOccurrence(task.id, { priority: p }, `Priority: ${PRIORITY_LABEL[p]}`)}><PriorityLabel priority={p} /></MenuItem>)}
+        </Menu>
+      </td>
       <td className="hidden w-32 pr-1 sm:table-cell" onClick={(e) => e.stopPropagation()}>
         <StatusPicker status={task.status} onChange={(s) => void patchOccurrence(task.id, { status: s }, 'Status updated')} />
       </td>
@@ -139,8 +154,12 @@ const Row = memo(function Row({ task, client, today, showClient, current, checke
 
 const STATUS_ORDER: TaskStatus[] = ['in_progress', 'todo', 'waiting', 'done', 'cancelled'];
 
-function groupTasks(tasks: Occurrence[], by: GroupBy, today: ISODate, clientById: Map<string, Client>): { key: string; label: ReactNode; tasks: Occurrence[] }[] {
-  if (by === 'none') return [{ key: 'all', label: null, tasks }];
+interface Group { key: string; label: ReactNode; dot?: string; tasks: Occurrence[]; adds: (NewTaskDefaults & { status?: TaskStatus }) | null }
+
+const STATUS_DOT: Record<TaskStatus, string> = { todo: 'bg-ink-3/60', in_progress: 'bg-accent', waiting: 'bg-warn', done: 'bg-ok', cancelled: 'bg-line-strong' };
+
+function groupTasks(tasks: Occurrence[], by: GroupBy, today: ISODate, clientById: Map<string, Client>): Group[] {
+  if (by === 'none') return [{ key: 'all', label: null, tasks, adds: {} }];
   const map = new Map<string, Occurrence[]>();
   const keyOf = (t: Occurrence) => by === 'client' ? t.clientId
     : by === 'status' ? t.status
@@ -158,10 +177,15 @@ function groupTasks(tasks: Occurrence[], by: GroupBy, today: ISODate, clientById
   return keys.map((k) => ({
     key: k,
     tasks: map.get(k)!,
+    dot: by === 'status' ? STATUS_DOT[k as TaskStatus] : by === 'day' ? (k === 'overdue' ? 'bg-danger' : k === today ? 'bg-accent' : 'bg-ink-3/50') : undefined,
+    // What a task added inside this group gets: its client, its day, or its status.
+    adds: by === 'client' ? { clientId: k }
+      : by === 'status' ? (isOpen(k as TaskStatus) ? { status: k as TaskStatus } : null)
+      : { dueDate: k === 'overdue' ? today : k },
     label: by === 'client' ? clientById.get(k)?.name ?? 'Unknown client'
       : by === 'status' ? STATUS_LABEL[k as TaskStatus]
       : k === 'overdue' ? <span className="text-danger">Overdue</span>
-      : <>{formatDue(k, today)}{k > addDays(today, 1) && <span className="ml-1.5 font-normal text-ink-3">{formatDayShort(k)}</span>}</>,
+      : <>{formatDue(k, today)}{k <= addDays(today, 1) && <span className="ml-1.5 font-normal text-ink-3">{formatDayShort(k)}</span>}</>,
   }));
 }
 
@@ -187,8 +211,12 @@ function useRowKeys(tasks: Occurrence[], onCheck?: (id: string, range: boolean) 
   };
 }
 
-export function TaskTable({ tasks, showClient = true, header = true, limit, groupBy = 'none', selection }: {
-  tasks: Occurrence[]; showClient?: boolean; header?: boolean; limit?: number; groupBy?: GroupBy;
+export function TaskTable({ tasks, showClient = true, stacked, header = true, limit, groupBy = 'none', selection, addRow, collapsible = true }: {
+  tasks: Occurrence[]; showClient?: boolean;
+  /** Client and period under the title instead of in their own column, for narrow cards. */
+  stacked?: boolean; header?: boolean; limit?: number; groupBy?: GroupBy;
+  /** Show an "Add task" row at the top of each group, pre-filled with these defaults plus the group's own. */
+  addRow?: NewTaskDefaults; collapsible?: boolean;
   selection?: { selected: Set<string>; toggle: (id: string, range: boolean) => void; toggleAll: (ids: string[]) => void };
 }) {
   const { clientById, today } = useStore();
@@ -196,13 +224,16 @@ export function TaskTable({ tasks, showClient = true, header = true, limit, grou
   const shown = limit ? tasks.slice(0, limit) : tasks;
   const groups = groupTasks(shown, groupBy, today, clientById);
   const onKey = useRowKeys(shown, selection?.toggle);
-  const cols = 6 + (showClient ? 1 : 0) + (selection ? 1 : 0);
+  const cols = 6 + (showClient && !stacked ? 1 : 0) + (selection ? 1 : 0);
   const allChecked = !!selection && shown.length > 0 && shown.every((t) => selection.selected.has(t.id));
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const fold = (k: string) => setFolded((f) => { const n = new Set(f); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   return (
     <table className="w-full table-fixed border-collapse">
-      {header && (
-        <thead>
-          <tr className="sticky top-[52px] z-10 h-8 border-b border-line bg-surface text-left text-[11.5px] font-medium text-ink-3 [&>th]:bg-surface">
+      {/* Always rendered: a fixed-layout table takes its column widths from this first row. Without headers it is zero-height and only read by screen readers. */}
+      {(
+        <thead className={header ? undefined : '[&_tr]:!h-0 [&_tr]:!border-0 [&_th]:!p-0 [&_th>*]:sr-only'}>
+          <tr className={cn('h-8 border-b border-line bg-surface text-left text-[11.5px] font-medium text-ink-3 [&>th]:bg-surface', header && 'sticky top-[52px] z-10')}>
             {selection && (
               <th className="w-8 pl-3">
                 <input type="checkbox" aria-label="Select all" checked={allChecked} onChange={() => selection.toggleAll(shown.map((t) => t.id))}
@@ -210,11 +241,11 @@ export function TaskTable({ tasks, showClient = true, header = true, limit, grou
               </th>
             )}
             <th className={cn('w-9', selection ? 'pl-1' : 'pl-3')}><span className="sr-only">Done</span></th>
-            <th className="pr-3 font-medium">Task</th>
-            {showClient && <th className="hidden w-[24%] pr-3 font-medium md:table-cell">Client</th>}
-            <th className="w-36 pr-3 font-medium">Due</th>
-            <th className="hidden w-20 pr-3 font-medium sm:table-cell">Priority</th>
-            <th className="hidden w-32 pr-1 font-medium sm:table-cell">Status</th>
+            <th className="pr-3 font-medium"><span>Task</span></th>
+            {showClient && !stacked && <th className="hidden w-[24%] pr-3 font-medium md:table-cell"><span>Client</span></th>}
+            <th className="w-40 pr-3 font-medium"><span>Due</span></th>
+            <th className="hidden w-20 pr-3 font-medium sm:table-cell"><span>Priority</span></th>
+            <th className="hidden w-32 pr-1 font-medium sm:table-cell"><span>Status</span></th>
             <th className="w-9 pr-2"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
@@ -222,14 +253,27 @@ export function TaskTable({ tasks, showClient = true, header = true, limit, grou
       {groups.map((g, gi) => (
         <tbody key={g.key} onKeyDown={onKey}>
           {g.label !== null && (
-            <tr className={cn('h-8 border-b border-line bg-canvas/60', gi > 0 && 'border-t')}>
-              <th colSpan={cols} scope="rowgroup" className="pl-4 text-left text-[12px] font-semibold text-ink-2">
-                {g.label}<span className="ml-2 font-normal text-ink-3">{g.tasks.length}</span>
+            <tr className={cn('h-10 border-b border-line bg-surface', gi > 0 && 'border-t-[6px] border-t-canvas')}>
+              <th colSpan={cols} scope="rowgroup" className="p-0 text-left text-[13px] font-semibold text-ink">
+                {collapsible ? (
+                  <button onClick={() => fold(g.key)} aria-expanded={!folded.has(g.key)} className="flex h-10 w-full items-center gap-2 pl-2.5 text-left hover:bg-hover/50">
+                    <ChevronRight className={cn('size-3.5 text-ink-3 transition-transform', !folded.has(g.key) && 'rotate-90')} />
+                    {g.dot && <span className={cn('size-2 rounded-full', g.dot)} aria-hidden />}
+                    {g.label}<span className="num font-normal text-ink-3">{g.tasks.length}</span>
+                  </button>
+                ) : <span className="flex items-center gap-2 pl-4">{g.dot && <span className={cn('size-2 rounded-full', g.dot)} aria-hidden />}{g.label}<span className="num font-normal text-ink-3">{g.tasks.length}</span></span>}
               </th>
             </tr>
           )}
-          {g.tasks.map((t) => (
-            <Row key={t.id} task={t} client={clientById.get(t.clientId)} today={today} showClient={showClient} current={ui.taskId === t.id}
+          {addRow && g.adds && !folded.has(g.key) && (
+            <tr className="border-b border-line">
+              <td colSpan={cols} className="p-0">
+                <QuickAdd variant="row" clientId={g.adds.clientId ?? addRow.clientId} dueDate={g.adds.dueDate ?? addRow.dueDate} status={g.adds.status} />
+              </td>
+            </tr>
+          )}
+          {!folded.has(g.key) && g.tasks.map((t) => (
+            <Row key={t.id} task={t} client={clientById.get(t.clientId)} today={today} showClient={showClient} stacked={stacked} current={ui.taskId === t.id}
               checked={selection?.selected.has(t.id)} onCheck={selection?.toggle} />
           ))}
         </tbody>

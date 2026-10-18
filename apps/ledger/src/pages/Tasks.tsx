@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, CalendarClock, Check, ChevronDown, Clock, ListChecks, Plus, Search, X } from 'lucide-react';
-import { QuickAdd } from '../components/QuickAdd';
 import { useTaskActions, type GroupBy } from '../components/TaskTable';
+import { TaskBoard } from '../components/TaskBoard';
+import { Segmented } from '../ui/field';
 import { DatePicker } from '../ui/datepicker';
 import { formatDayShort } from '../lib/format';
 import type { ISODate } from '../lib/dates';
@@ -33,7 +34,8 @@ const same = (a: TaskFilter, b: TaskFilter) => filterToQuery(a) === filterToQuer
 const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: 'none', label: 'No grouping' }, { value: 'day', label: 'Due day' }, { value: 'client', label: 'Client' }, { value: 'status', label: 'Status' },
 ];
-const readGroup = (): GroupBy => { try { return (localStorage.getItem('ledger-group') as GroupBy) || 'none'; } catch { return 'none'; } };
+// Grouped by due day unless the person chose otherwise: Overdue, Today, Tomorrow… matches how the day is planned.
+const readGroup = (): GroupBy => { try { return (localStorage.getItem('ledger-group') as GroupBy) || 'day'; } catch { return 'day'; } };
 
 export function Tasks() {
   const { snap, today, clientById } = useStore();
@@ -43,6 +45,8 @@ export function Tasks() {
   const [f, setF] = useState<TaskFilter>(initial);
   const searchRef = useRef<HTMLInputElement>(null);
   const [groupBy, setGroupByState] = useState<GroupBy>(readGroup);
+  const [layout, setLayoutState] = useState<'list' | 'board'>(() => { try { return localStorage.getItem('ledger-layout') === 'board' ? 'board' : 'list'; } catch { return 'list'; } });
+  const setLayout = (l: 'list' | 'board') => { setLayoutState(l); try { localStorage.setItem('ledger-layout', l); } catch { /* ignore */ } };
   const setGroupBy = (g: GroupBy) => { setGroupByState(g); try { localStorage.setItem('ledger-group', g); } catch { /* ignore */ } };
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<string | null>(null);
@@ -105,16 +109,18 @@ export function Tasks() {
     [snap.occurrences, today, clientById]);
 
   return (
-    <Page title="My Tasks" wide>
-      <div role="tablist" aria-label="Saved views" className="-mx-1 mb-4 flex gap-1 overflow-x-auto px-1 pb-1">
+    <Page title="My Tasks" wide titleExtra={
+      <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ value: 'list', label: 'List' }, { value: 'board', label: 'Board' }]} />
+    }>
+      <div role="tablist" aria-label="Saved views" className="-mx-4 mb-4 flex gap-6 overflow-x-auto border-b border-line px-4 md:-mx-8 md:px-8">
         {SAVED_VIEWS.map((v) => (
           <button key={v.id} role="tab" aria-selected={activeView?.id === v.id} onClick={() => setF(viewFilter(v.id))}
             className={cn(
-              'flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors',
-              activeView?.id === v.id ? 'bg-surface font-medium text-ink shadow-soft ring-1 ring-line' : 'text-ink-2 hover:bg-hover hover:text-ink',
+              '-mb-px flex shrink-0 items-center gap-1.5 border-b-2 pt-1 pb-2.5 text-[13.5px] transition-colors',
+              activeView?.id === v.id ? 'border-accent font-semibold text-ink' : 'border-transparent text-ink-2 hover:border-line-strong hover:text-ink',
             )}>
             {v.name}
-            <span className={cn('tnum text-[11.5px]', v.id === 'overdue' && viewCounts[v.id] ? 'text-danger' : 'text-ink-3')}>{viewCounts[v.id]}</span>
+            <span className={cn('num text-[11.5px]', v.id === 'overdue' && viewCounts[v.id] ? 'text-danger' : 'text-ink-3')}>{viewCounts[v.id]}</span>
           </button>
         ))}
       </div>
@@ -123,7 +129,7 @@ export function Tasks() {
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-3" />
           <input ref={searchRef} value={f.search} onChange={(e) => patch({ search: e.target.value })} placeholder="Search tasks, clients, tags…" aria-label="Search tasks"
-            className="h-7 w-full rounded-md border border-line-strong bg-surface pr-7 pl-8 text-[12.5px] placeholder:text-ink-3 focus:border-accent focus:ring-3 focus:ring-accent/15 focus:outline-none" />
+            className="h-8 w-full rounded-lg border border-line bg-surface pr-7 pl-8 text-[13px] placeholder:text-ink-3 focus:border-accent focus:ring-3 focus:ring-accent/15 focus:outline-none" />
           {f.search && <button aria-label="Clear search" onClick={() => patch({ search: '' })} className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-ink-3 hover:text-ink"><X className="size-3.5" /></button>}
         </div>
         <FilterMenu label="Client" searchable options={clientOptions} selected={f.clients} onChange={(clients) => patch({ clients })} />
@@ -153,19 +159,18 @@ export function Tasks() {
         </div>
       </div>
 
-      <QuickAdd className="mb-3" />
-      <div className="overflow-clip rounded-lg border border-line bg-surface">
-        {tasks.length ? <TaskTable tasks={tasks} groupBy={groupBy} selection={selection} /> : (
+      {layout === 'board' ? <TaskBoard tasks={tasks} /> : <div className="overflow-clip rounded-xl border border-line bg-surface">
+        {tasks.length ? <TaskTable tasks={tasks} groupBy={groupBy} selection={selection} addRow={{}} /> : (
           <EmptyState icon={ListChecks} title={isFiltered(f) ? 'No tasks match these filters' : activeView?.id === 'overdue' ? 'Nothing overdue' : 'No tasks here'}
             body={isFiltered(f) ? 'Try removing a filter or searching for something else.' : 'Tasks you add, and tasks created by recurring schedules, appear here.'}
             action={isFiltered(f) ? <Button size="sm" onClick={() => setF(viewFilter('open'))}>Show all open tasks</Button> : <Button size="sm" variant="primary" onClick={() => ui.openNewTask()}><Plus /> New task</Button>} />
         )}
-      </div>
-      <p className="mt-2 hidden text-[11.5px] text-ink-3 md:block">
+      </div>}
+      <p className={cn('mt-2 hidden text-[11.5px] text-ink-3', layout === 'list' && 'md:block')}>
         Keyboard: ↑↓ move · Enter open · D done · W waiting · T tomorrow · X select (Shift for a range) · / search · N new task
       </p>
 
-      {picked.length > 0 && (
+      {layout === 'list' && picked.length > 0 && (
         <div role="toolbar" aria-label="Selected tasks" className="sticky bottom-4 z-20 mx-auto mt-4 flex w-fit animate-toast-in items-center gap-1 rounded-xl bg-ink py-1.5 pr-1.5 pl-4 text-[13px] text-canvas shadow-pop">
           <span className="tnum mr-2 font-medium">{picked.length} selected</span>
           <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulk('marked done', (id) => (r) => r.updateOccurrence(id, { status: 'done' }))}><Check className="size-4" /> Done</button>

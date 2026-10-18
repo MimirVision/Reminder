@@ -7,7 +7,8 @@ import type { ISODate } from '../lib/dates';
 import { formatDue } from '../lib/format';
 import { PRIORITY_LABEL } from '../lib/labels';
 import { parseQuickAdd } from '../lib/quickadd';
-import { PRIORITIES, type Priority } from '../lib/types';
+import { PRIORITIES, type Priority, type TaskStatus } from '../lib/types';
+import { Popover as P } from 'radix-ui';
 import { cn } from '../ui/cn';
 import { DatePicker } from '../ui/datepicker';
 import { Menu, MenuItem, Popover } from '../ui/overlay';
@@ -16,8 +17,10 @@ import { useUI } from './ui-state';
 
 const chip = 'inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[12px] transition-colors [&_svg]:size-3.5';
 
-export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, placeholder, autoFocus, className }: {
-  clientId?: string; dueDate?: ISODate; placeholder?: string; autoFocus?: boolean; className?: string;
+export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 'todo', placeholder, autoFocus, className, variant = 'box' }: {
+  clientId?: string; dueDate?: ISODate; status?: TaskStatus; placeholder?: string; autoFocus?: boolean; className?: string;
+  /** 'box' stands alone; 'row' sits inside a list as its first row, like ClickUp's "+ Add task". */
+  variant?: 'box' | 'row';
 }) {
   const { snap, today, clientById, run } = useStore();
   const ui = useUI();
@@ -61,7 +64,7 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, placehold
     setBusy(true);
     const created = await run((r) => r.createOccurrence({
       clientId, scheduleId: null, title: parsed.title, description: '', taskType: 'follow_up', periodKey: null, periodStart: null, periodEnd: null,
-      dueDate: due, scheduledDueDate: null, status: 'todo', priority, tags: parsed.tags,
+      dueDate: due, scheduledDueDate: null, status, priority, tags: parsed.tags,
     }), { quiet: false });
     setBusy(false);
     if (created) {
@@ -75,9 +78,13 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, placehold
   const hasText = text.trim().length > 0;
 
   return (
-    <div className={cn('rounded-lg border bg-surface transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line hover:border-line-strong', className)}>
-      <div className="relative flex items-center gap-2 px-3">
-        <Plus className={cn('size-4 shrink-0', hasText ? 'text-accent' : 'text-ink-3')} />
+    <div className={cn(variant === 'box'
+      ? cn('rounded-xl border bg-surface shadow-soft transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line-strong hover:border-ink-3/50')
+      : cn('transition-colors', hasText ? 'bg-accent-soft/30' : 'hover:bg-hover/50'), className)}>
+      <div className={cn('relative flex items-center', variant === 'box' ? 'gap-2.5 px-3.5' : 'gap-2 pr-3 pl-[15px]')}>
+        {variant === 'box'
+          ? <span className="flex size-[22px] shrink-0 items-center justify-center rounded-[7px] bg-accent-soft text-accent"><Plus className="size-3.5" strokeWidth={2.5} /></span>
+          : <Plus className={cn('size-4 shrink-0', hasText ? 'text-accent' : 'text-ink-3')} />}
         <input
           ref={input}
           autoFocus={autoFocus}
@@ -92,12 +99,12 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, placehold
             if (e.key === 'Enter') { e.preventDefault(); void submit(); }
             if (e.key === 'Escape') { if (hasText) { e.stopPropagation(); reset(); } else input.current?.blur(); }
           }}
-          placeholder={placeholder ?? (fixedClient ? 'Add a task… e.g. “Send year-end questions fri !high”' : 'Add a task… e.g. “Chase receipts @nordvik fri !high #receipts”')}
+          placeholder={placeholder ?? (variant === 'row' ? 'Add task' : fixedClient ? 'Add a task… e.g. “Send year-end questions fri !high”' : 'Add a task… e.g. “Chase receipts @nordvik fri !high #receipts”')}
           aria-label="Quick add a task"
           role="combobox"
           aria-expanded={suggestions.length > 0}
           aria-controls="quickadd-clients"
-          className="h-10 min-w-0 flex-1 bg-transparent text-[13.5px] placeholder:text-ink-3 focus:outline-none"
+          className={cn('min-w-0 flex-1 bg-transparent placeholder:text-ink-3 focus:outline-none', variant === 'box' ? 'h-[50px] text-[14.5px]' : 'h-[36px] text-[13px] placeholder:text-ink-3/90')}
         />
         {hasText && (
           <button onClick={() => void submit()} disabled={busy}
@@ -105,8 +112,13 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, placehold
             Add <CornerDownLeft className="size-3.5" />
           </button>
         )}
-        {suggestions.length > 0 && (
-          <ul id="quickadd-clients" role="listbox" className="absolute top-full left-8 z-30 mt-1 w-72 animate-pop-in rounded-lg bg-surface p-1 shadow-pop">
+        {/* Floats in a portal, anchored to the input, so a short table can't clip it. Focus stays in the input. */}
+        <P.Root open={suggestions.length > 0}>
+          <P.Anchor className="absolute bottom-0 left-8" />
+          <P.Portal>
+            <P.Content align="start" sideOffset={4} onOpenAutoFocus={(e) => e.preventDefault()} onCloseAutoFocus={(e) => e.preventDefault()}
+              className="z-50 w-72 animate-pop-in rounded-lg bg-surface p-1 shadow-pop">
+          <ul id="quickadd-clients" role="listbox">
             {suggestions.map((c, i) => (
               <li key={c.id} role="option" aria-selected={i === pick}>
                 <button onMouseDown={(e) => { e.preventDefault(); complete(c.id); }} onMouseMove={() => setPick(i)}
@@ -118,7 +130,9 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, placehold
               </li>
             ))}
           </ul>
-        )}
+            </P.Content>
+          </P.Portal>
+        </P.Root>
       </div>
 
       {(hasText || tried) && (

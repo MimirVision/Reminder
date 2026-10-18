@@ -39,7 +39,7 @@ export function ScheduleList({ schedules, showClient = true, emptyAction }: { sc
     else groups.push([showClient ? s.clientId : '', [s]]);
   }
   return (
-    <div className="overflow-clip rounded-lg border border-line bg-surface">
+    <div className="overflow-clip rounded-xl border border-line bg-surface">
       <table className="w-full table-fixed border-collapse">
         <thead>
           <tr className="sticky top-[52px] z-10 h-8 border-b border-line bg-surface text-left text-[11.5px] text-ink-3">
