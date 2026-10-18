@@ -11,7 +11,7 @@ test('the dashboard shows what needs attention and its numbers lead to the match
   await metric(page, 'Overdue').click();
   await expect(page).toHaveURL(/\/tasks\?view=overdue/);
   await expect(page.getByRole('tab', { name: /Overdue/, selected: true })).toBeVisible();
-  await expect(page.locator('tbody tr')).toHaveCount(overdue);
+  await expect(page.locator('tbody tr[data-task]')).toHaveCount(overdue);
 });
 
 test('a one-off task can be created, completed and is still there after a reload', async ({ page }) => {
@@ -27,20 +27,20 @@ test('a one-off task can be created, completed and is still there after a reload
   await expect(page.getByText('Task created')).toBeVisible();
 
   await page.getByLabel('Search tasks').fill('E2E: request');
-  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await expect(page.locator('tbody tr[data-task]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Mark “E2E: request bank statements” done' }).click();
-  await expect(page.locator('tbody tr')).toHaveCount(0); // the "All open tasks" filter hides done tasks
+  await expect(page.locator('tbody tr[data-task]')).toHaveCount(0); // the "All open tasks" filter hides done tasks
 
   await page.reload();
   await page.getByRole('tab', { name: /Completed recently/ }).click();
   await page.getByLabel('Search tasks').fill('E2E: request');
-  await expect(page.locator('tbody tr')).toHaveCount(1);
-  await expect(page.locator('tbody tr').first().getByText('Done')).toBeVisible();
+  await expect(page.locator('tbody tr[data-task]')).toHaveCount(1);
+  await expect(page.locator('tbody tr[data-task]').first().getByText('Done')).toBeVisible();
 });
 
 test('rescheduling one occurrence changes only that task, and history records it', async ({ page }) => {
   await page.goto('/tasks?view=overdue');
-  const row = page.locator('tbody tr').filter({ hasText: 'Monthly bookkeeping' }).first();
+  const row = page.locator('tbody tr[data-task]').filter({ hasText: 'Monthly bookkeeping' }).first();
   const title = await row.locator('td').nth(2).locator('span').first().textContent();
   await row.locator('td').nth(2).click();
   const panel = page.getByRole('dialog');
@@ -53,7 +53,7 @@ test('rescheduling one occurrence changes only that task, and history records it
   await page.keyboard.press('Escape');
   // No longer overdue.
   await page.reload();
-  const overdueAfter = await page.locator('tbody tr').count();
+  const overdueAfter = await page.locator('tbody tr[data-task]').count();
   await page.goto('/');
   expect(await count(page, 'Overdue')).toBe(overdueAfter);
 });
@@ -74,7 +74,7 @@ test('a new schedule previews its occurrences, generates once, and reloading nev
   const countTasks = async () => {
     await page.goto('/tasks?view=open');
     await page.getByLabel('Search tasks').fill('E2E quarterly review');
-    return page.locator('tbody tr').count();
+    return page.locator('tbody tr[data-task]').count();
   };
   const first = await countTasks();
   expect(first).toBeGreaterThan(0);
@@ -124,7 +124,7 @@ test('the calendar and the list show the same tasks, and the keyboard reaches ev
 
 test('quick add turns one line into a task, and the keyboard completes it', async ({ page }) => {
   await page.goto('/tasks');
-  const box = page.getByRole('combobox', { name: 'Quick add a task' });
+  const box = page.getByRole('combobox', { name: 'Quick add a task' }).first();
   await box.fill('Call about holiday pay @nordv');
   await expect(page.getByRole('option', { name: /Nordvik Snekkeri AS/ })).toBeVisible();
   await page.keyboard.press('Enter'); // picks the suggested client
@@ -158,4 +158,32 @@ test('several tasks can be selected and moved at once', async ({ page }) => {
   await page.getByRole('toolbar', { name: 'Selected tasks' }).getByRole('button', { name: 'Tomorrow' }).click();
   await expect(page.getByText('2 tasks moved to')).toBeVisible();
   await expect(rows).toHaveCount(before - 2);
+});
+
+test('board view moves work between statuses by dragging', async ({ page }) => {
+  await page.goto('/tasks');
+  await page.getByRole('radio', { name: 'Board' }).click();
+  const todo = page.getByRole('region', { name: 'To do' });
+  const waiting = page.getByRole('region', { name: 'Waiting for client' });
+  const card = todo.locator('[draggable=true]').first();
+  const title = (await card.locator('span.font-medium').first().textContent())!;
+  const before = await waiting.locator('[draggable=true]').count();
+  await card.dragTo(waiting);
+  await expect(waiting.locator('[draggable=true]')).toHaveCount(before + 1);
+  await expect(page.getByText(`Waiting for client: ${title}`).first()).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('radio', { name: 'Board', checked: true })).toBeVisible();
+});
+
+test('a client page adds tasks for that client and can be pinned to the sidebar', async ({ page }) => {
+  await page.goto('/clients/client-4');
+  await expect(page.getByRole('heading', { level: 2, name: 'Lysaker Design ENK' })).toBeVisible();
+  const add = page.getByRole('combobox', { name: 'Quick add a task' }).first();
+  await add.fill('Send VAT questions tomorrow');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(/Added for Lysaker Design ENK, due tomorrow/)).toBeVisible();
+  await expect(page.locator('tbody tr[data-task]', { hasText: 'Send VAT questions' })).toHaveCount(1);
+  await page.getByRole('button', { name: 'More client actions' }).click();
+  await page.getByRole('menuitem', { name: 'Pin to sidebar' }).click();
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /Lysaker Design ENK/ })).toBeVisible();
 });

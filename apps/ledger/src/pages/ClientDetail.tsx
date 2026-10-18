@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Archive, CheckCircle2, ChevronRight, Edit3, ListChecks, MoreHorizontal, Plus, Repeat, RotateCcw, Trash2 } from 'lucide-react';
+import { Archive, CheckCircle2, ChevronRight, Edit3, ListChecks, MoreHorizontal, Pin, PinOff, Plus, Repeat, RotateCcw, Trash2 } from 'lucide-react';
 import { ActivityList } from '../components/ActivityList';
 import { Page } from '../components/Shell';
 import { ClientDialog } from '../components/TaskForms';
 import { TaskTable } from '../components/TaskTable';
-import { QuickAdd } from '../components/QuickAdd';
 import { useUI } from '../components/ui-state';
 import { useStore } from '../data/store';
 import { formatDue } from '../lib/format';
@@ -45,6 +44,7 @@ export function ClientDetail({ id }: { id: string }) {
     return <Page title="Client"><EmptyState icon={ListChecks} title="Client not found" body="It may have been deleted." action={<Button onClick={() => navigate('/clients')}>Back to clients</Button>} /></Page>;
   }
   const archived = client.status === 'archived';
+  const isPinned = (snap.workspace.settings.pinnedClients ?? []).includes(id);
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'open', label: 'Open tasks', count: open.length }, { id: 'recurring', label: 'Recurring', count: schedules.length },
     { id: 'completed', label: 'Completed', count: done.length }, { id: 'notes', label: 'Notes' }, { id: 'activity', label: 'Activity' },
@@ -65,7 +65,15 @@ export function ClientDetail({ id }: { id: string }) {
             {client.reference && <span className="tnum text-[13px] text-ink-3">{client.reference}</span>}
             {archived && <Pill>Archived</Pill>}
           </div>
-          {client.notes && <p className="mt-1 line-clamp-2 max-w-2xl text-[13px] text-ink-2">{client.notes}</p>}
+          <p className="tnum mt-1 flex flex-wrap items-center gap-x-2 text-[12.5px] text-ink-3">
+            <span><span className="font-medium text-ink">{stats?.open ?? 0}</span> open</span>
+            <span aria-hidden>·</span>
+            <span className={stats?.overdue ? 'font-medium text-danger' : ''}>{stats?.overdue ?? 0} overdue</span>
+            <span aria-hidden>·</span>
+            <span>Next deadline <span className={stats?.next === today ? 'font-medium text-accent-ink' : 'text-ink-2'}>{stats?.next ? formatDue(stats.next, today).toLowerCase() : 'none'}</span></span>
+            {missing.length > 0 && <><span aria-hidden>·</span><Link to={`/missing?client=${id}`} className="font-medium text-warn hover:underline">{missing.length} missing to review</Link></>}
+          </p>
+          {client.notes && <p className="mt-1.5 line-clamp-2 max-w-2xl text-[13px] text-ink-2">{client.notes}</p>}
         </div>
         <div className="flex items-center gap-2">
           {archived ? (
@@ -76,6 +84,13 @@ export function ClientDetail({ id }: { id: string }) {
           </>}
           <Menu align="end" label="More client actions" trigger={<IconButton label="More client actions"><MoreHorizontal /></IconButton>}>
             <MenuItem onSelect={() => setEditing(true)}><Edit3 /> Edit details</MenuItem>
+            {!archived && (
+              <MenuItem onSelect={() => {
+                const cur = snap.workspace.settings.pinnedClients ?? [];
+                const next = isPinned ? cur.filter((x) => x !== id) : [...cur, id];
+                void run((r) => r.updateWorkspace({ settings: { ...snap.workspace.settings, pinnedClients: next } }), { success: isPinned ? 'Removed from the sidebar' : 'Pinned to the sidebar' });
+              }}>{isPinned ? <><PinOff /> Unpin from sidebar</> : <><Pin /> Pin to sidebar</>}</MenuItem>
+            )}
             {!archived && <MenuItem onSelect={() => setConfirm('archive')}><Archive /> Archive client</MenuItem>}
             {tasks.length === 0 && schedules.length === 0 && <><MenuSeparator /><MenuItem danger onSelect={() => setConfirm('delete')}><Trash2 /> Delete client</MenuItem></>}
           </Menu>
@@ -87,24 +102,6 @@ export function ClientDetail({ id }: { id: string }) {
         </div>
       )}
 
-      <dl className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-4">
-        {[
-          ['Open tasks', String(stats?.open ?? 0), ''],
-          ['Overdue', String(stats?.overdue ?? 0), stats?.overdue ? 'text-danger' : ''],
-          ['Next deadline', stats?.next ? formatDue(stats.next, today) : 'None', stats?.next === today ? 'text-accent-ink' : ''],
-          ['Missing to review', String(missing.length), missing.length ? 'text-warn' : ''],
-        ].map(([k, v, cls]) => (
-          <div key={k} className="bg-surface px-4 py-3">
-            <dt className="text-[12px] text-ink-3">{k}</dt>
-            <dd className={cn('tnum mt-0.5 text-[17px] font-semibold tracking-[-0.01em]', cls)}>{v}</dd>
-          </div>
-        ))}
-      </dl>
-      {missing.length > 0 && (
-        <Link to={`/missing?client=${id}`} className="mb-6 flex items-center gap-2 rounded-lg border border-warn/30 bg-warn-soft px-4 py-2.5 text-[12.5px] text-warn hover:brightness-[0.98]">
-          {missing.length} expected recurring task{missing.length === 1 ? ' is' : 's are'} missing for this client. Review →
-        </Link>
-      )}
 
       <div role="tablist" className="mb-3 flex gap-1 border-b border-line">
         {tabs.map((t) => (
@@ -115,10 +112,11 @@ export function ClientDetail({ id }: { id: string }) {
         ))}
       </div>
 
-      {tab === 'open' && !archived && <QuickAdd className="mb-3" clientId={id} />}
       {tab === 'open' && (
         <div className="overflow-clip rounded-lg border border-line bg-surface">
-          {open.length ? <TaskTable tasks={open} showClient={false} /> : <EmptyState compact icon={CheckCircle2} title="No open tasks" body={!archived ? 'Add a task, or a schedule for recurring work.' : undefined} />}
+          {open.length || !archived
+            ? <TaskTable tasks={open} showClient={false} addRow={archived ? undefined : { clientId: id }} groupBy="day" />
+            : <EmptyState compact icon={CheckCircle2} title="No open tasks" />}
         </div>
       )}
       {tab === 'recurring' && <ScheduleList schedules={schedules} showClient={false} emptyAction={!archived ? () => ui.openSchedule({ mode: 'new', clientId: id }) : undefined} />}

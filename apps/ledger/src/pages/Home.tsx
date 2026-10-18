@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { ArrowRight, CalendarCheck, CheckCircle2, ChevronDown, SearchCheck, Sun } from 'lucide-react';
-import { QuickAdd } from '../components/QuickAdd';
 import { Page } from '../components/Shell';
 import { TaskTable } from '../components/TaskTable';
 import { useStore } from '../data/store';
@@ -74,7 +73,6 @@ export function Home() {
           </p>
         </div>
       </div>
-      <QuickAdd className="mb-5" dueDate={today} />
 
       <nav aria-label="Summary" className="mb-8 grid grid-cols-2 divide-line overflow-clip rounded-lg border border-line bg-surface max-lg:[&>*:nth-child(-n+2)]:border-b max-lg:[&>*:nth-child(odd)]:border-r lg:grid-cols-4 lg:divide-x">
         <Metric label="Overdue" value={overdue.length} to="/tasks?view=overdue" tone="danger" hint={overdue.length ? `Oldest is ${diffDays(today, overdue[0].dueDate)} days late` : 'Nothing late'} />
@@ -92,8 +90,8 @@ export function Home() {
             </span>
           </div>
         )}>
-        {dueToday.length ? <TaskTable tasks={dueToday} header={false} />
-          : <QuietLine icon={completedToday ? CheckCircle2 : Sun}>{completedToday ? 'Everything due today is done.' : 'Nothing due today.'}{upcoming[0] && <> Next up: {upcoming[0].title}, {formatDate(upcoming[0].dueDate)}.</>}</QuietLine>}
+        <TaskTable tasks={dueToday} header={false} addRow={{ dueDate: today }} />
+        {!dueToday.length && <QuietLine icon={completedToday ? CheckCircle2 : Sun}>{completedToday ? 'Everything due today is done.' : 'Nothing due today.'}{upcoming[0] && <> Next up: {upcoming[0].title}, {formatDate(upcoming[0].dueDate)}.</>}</QuietLine>}
         {doneToday.length > 0 && (
           <>
             <button onClick={() => setShowDone((v) => !v)} aria-expanded={showDone}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, CalendarClock, Check, ChevronDown, Clock, ListChecks, Plus, Search, X } from 'lucide-react';
-import { QuickAdd } from '../components/QuickAdd';
 import { useTaskActions, type GroupBy } from '../components/TaskTable';
+import { TaskBoard } from '../components/TaskBoard';
+import { Segmented } from '../ui/field';
 import { DatePicker } from '../ui/datepicker';
 import { formatDayShort } from '../lib/format';
 import type { ISODate } from '../lib/dates';
@@ -33,7 +34,8 @@ const same = (a: TaskFilter, b: TaskFilter) => filterToQuery(a) === filterToQuer
 const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: 'none', label: 'No grouping' }, { value: 'day', label: 'Due day' }, { value: 'client', label: 'Client' }, { value: 'status', label: 'Status' },
 ];
-const readGroup = (): GroupBy => { try { return (localStorage.getItem('ledger-group') as GroupBy) || 'none'; } catch { return 'none'; } };
+// Grouped by due day unless the person chose otherwise: Overdue, Today, Tomorrow… matches how the day is planned.
+const readGroup = (): GroupBy => { try { return (localStorage.getItem('ledger-group') as GroupBy) || 'day'; } catch { return 'day'; } };
 
 export function Tasks() {
   const { snap, today, clientById } = useStore();
@@ -43,6 +45,8 @@ export function Tasks() {
   const [f, setF] = useState<TaskFilter>(initial);
   const searchRef = useRef<HTMLInputElement>(null);
   const [groupBy, setGroupByState] = useState<GroupBy>(readGroup);
+  const [layout, setLayoutState] = useState<'list' | 'board'>(() => { try { return localStorage.getItem('ledger-layout') === 'board' ? 'board' : 'list'; } catch { return 'list'; } });
+  const setLayout = (l: 'list' | 'board') => { setLayoutState(l); try { localStorage.setItem('ledger-layout', l); } catch { /* ignore */ } };
   const setGroupBy = (g: GroupBy) => { setGroupByState(g); try { localStorage.setItem('ledger-group', g); } catch { /* ignore */ } };
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<string | null>(null);
@@ -143,6 +147,7 @@ export function Tasks() {
           <Button size="sm" variant="ghost" onClick={() => setF({ ...BLANK_FILTER })}><X /> Clear</Button>
         )}
         <div className="ml-auto flex items-center gap-2">
+          <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ value: 'list', label: 'List' }, { value: 'board', label: 'Board' }]} />
           <span className="tnum text-[12.5px] text-ink-3" aria-live="polite">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span>
           <Menu align="end" label="Sort and group" trigger={<Button size="sm" variant="ghost"><ArrowUpDown /> {SORT_OPTIONS.find((o) => o.value === f.sort)?.label}{groupBy !== 'none' && ` · grouped by ${({ day: 'day', client: 'client', status: 'status' } as const)[groupBy]}`}</Button>}>
             <MenuLabel>Sort by</MenuLabel>
@@ -153,19 +158,18 @@ export function Tasks() {
         </div>
       </div>
 
-      <QuickAdd className="mb-3" />
-      <div className="overflow-clip rounded-lg border border-line bg-surface">
-        {tasks.length ? <TaskTable tasks={tasks} groupBy={groupBy} selection={selection} /> : (
+      {layout === 'board' ? <TaskBoard tasks={tasks} /> : <div className="overflow-clip rounded-lg border border-line bg-surface">
+        {tasks.length ? <TaskTable tasks={tasks} groupBy={groupBy} selection={selection} addRow={{}} /> : (
           <EmptyState icon={ListChecks} title={isFiltered(f) ? 'No tasks match these filters' : activeView?.id === 'overdue' ? 'Nothing overdue' : 'No tasks here'}
             body={isFiltered(f) ? 'Try removing a filter or searching for something else.' : 'Tasks you add, and tasks created by recurring schedules, appear here.'}
             action={isFiltered(f) ? <Button size="sm" onClick={() => setF(viewFilter('open'))}>Show all open tasks</Button> : <Button size="sm" variant="primary" onClick={() => ui.openNewTask()}><Plus /> New task</Button>} />
         )}
-      </div>
-      <p className="mt-2 hidden text-[11.5px] text-ink-3 md:block">
+      </div>}
+      <p className={cn('mt-2 hidden text-[11.5px] text-ink-3', layout === 'list' && 'md:block')}>
         Keyboard: ↑↓ move · Enter open · D done · W waiting · T tomorrow · X select (Shift for a range) · / search · N new task
       </p>
 
-      {picked.length > 0 && (
+      {layout === 'list' && picked.length > 0 && (
         <div role="toolbar" aria-label="Selected tasks" className="sticky bottom-4 z-20 mx-auto mt-4 flex w-fit animate-toast-in items-center gap-1 rounded-xl bg-ink py-1.5 pr-1.5 pl-4 text-[13px] text-canvas shadow-pop">
           <span className="tnum mr-2 font-medium">{picked.length} selected</span>
           <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulk('marked done', (id) => (r) => r.updateOccurrence(id, { status: 'done' }))}><Check className="size-4" /> Done</button>

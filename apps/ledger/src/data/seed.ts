@@ -209,7 +209,7 @@ export function buildSeed(today: ISODate): Snapshot {
   activity.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return {
-    workspace: { id: ws, name: 'Demo workspace', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Oslo', settings: { displayName: '' } },
+    workspace: { id: ws, name: 'Demo workspace', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Oslo', settings: { displayName: '', pinnedClients: ['client-10', 'client-1', 'client-14'] } },
     clients, schedules, pauses, occurrences, reviews, activity,
     runs: [{ id: 'run-1', workspaceId: ws, trigger: 'app', startedAt: stamp, finishedAt: stamp, created: occurrences.length, errors: [] }],
   };

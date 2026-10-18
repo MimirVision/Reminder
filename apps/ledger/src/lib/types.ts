@@ -53,6 +53,8 @@ export interface WorkspaceSettings {
   defaultLeadDays?: number;
   defaultReminderDays?: number;
   theme?: 'light' | 'dark' | 'system';
+  /** Clients shown in the sidebar for one-click access. */
+  pinnedClients?: string[];
 }
 
 export interface Client {
