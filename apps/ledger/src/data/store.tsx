@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { todayIn, type ISODate } from '../lib/dates';
 import { setLocale } from '../lib/format';
 import { liveSchedules } from '../lib/generation';
+import { calendarOf, type HolidayCalendar } from '../lib/holidays';
 import { detectExpected, needsReview, type ExpectedItem } from '../lib/missing';
 import type { Client, Occurrence, Schedule, Snapshot, WorkspaceSettings } from '../lib/types';
 import { isNotInstalled } from './config';
@@ -23,6 +24,8 @@ interface Store {
   scheduleById: Map<string, Schedule>;
   expected: ExpectedItem[];
   reviewCount: number;
+  /** The holiday calendar due dates use: the workspace's choice, or none while the database is on an older ledger.sql. */
+  calendar: HolidayCalendar;
   lastGeneration: { at: string; created: number; error: string | null } | null;
   reload(): Promise<void>;
   /** Runs a change, shows its outcome, and refreshes. Returns false if it failed (the error is shown). */
@@ -125,7 +128,10 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
         if (o.id !== id) return o;
         before = o;
         const next = { ...o, ...patch };
-        if (patch.status) next.completedAt = patch.status === 'done' ? (o.completedAt ?? new Date().toISOString()) : null;
+        if (patch.status) {
+          next.completedAt = patch.status === 'done' ? (o.completedAt ?? new Date().toISOString()) : null;
+          next.waitingSince = patch.status === 'waiting' ? (o.status === 'waiting' ? o.waitingSince : new Date().toISOString()) : null;
+        }
         return next;
       }),
     }));
@@ -145,9 +151,10 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
 
   const clientById = useMemo(() => new Map(snap.clients.map((c) => [c.id, c])), [snap.clients]);
   const scheduleById = useMemo(() => new Map(snap.schedules.map((s) => [s.id, s])), [snap.schedules]);
+  const calendar: HolidayCalendar = repo.current ? calendarOf(snap.workspace.settings) : 'none';
   const expected = useMemo(
-    () => detectExpected({ ...snap, schedules: liveSchedules(snap.schedules, snap.clients) }, today),
-    [snap, today],
+    () => detectExpected({ ...snap, schedules: liveSchedules(snap.schedules, snap.clients), holidays: calendar }, today),
+    [snap, today, calendar],
   );
   const reviewCount = useMemo(() => needsReview(expected).length, [expected]);
   const lastGeneration = useMemo(() => {
@@ -169,7 +176,7 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
     return job;
   }, [repo, toast, reload]);
 
-  const value: Store = { repo, state, snap, today, clientById, scheduleById, expected, reviewCount, lastGeneration, reload: open, run, patchOccurrence, saveSettings };
+  const value: Store = { repo, state, snap, today, clientById, scheduleById, expected, reviewCount, calendar, lastGeneration, reload: open, run, patchOccurrence, saveSettings };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

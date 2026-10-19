@@ -4,7 +4,7 @@
 
 export type WidgetType =
   | 'greeting' | 'quickAdd' | 'today' | 'overdue' | 'upcoming' | 'week' | 'waiting' | 'missing'
-  | 'stats' | 'progress' | 'attention' | 'pinned' | 'activity' | 'notes' | 'deadlines' | 'calendar';
+  | 'stats' | 'progress' | 'attention' | 'pinned' | 'activity' | 'notes' | 'deadlines' | 'calendar' | 'documents';
 
 export interface WidgetItem {
   id: string;
@@ -50,6 +50,7 @@ export const WIDGETS: WidgetSpec[] = [
   { type: 'activity', name: 'Recent activity', description: 'What changed lately across all clients.', w: 4, h: 5, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'notes', name: 'Notepad', description: 'A scratchpad for the day. Saved as you type.', w: 4, h: 4, minW: 3, minH: 2, maxH: 10, single: true },
   { type: 'deadlines', name: 'Deadline radar', description: 'The next deadline for each kind of work: VAT, payroll, annual accounts…', w: 4, h: 4, minW: 3, minH: 3, maxH: 8, single: true },
+  { type: 'documents', name: 'Documents to collect', description: 'Everything you’ve requested from clients that hasn’t arrived yet, oldest first.', w: 4, h: 4, minW: 3, minH: 3, maxH: 10, single: true },
   { type: 'calendar', name: 'Month at a glance', description: 'A small calendar with the busy days marked.', w: 4, h: 5, minW: 3, minH: 4, maxH: 7, single: true },
 ];
 

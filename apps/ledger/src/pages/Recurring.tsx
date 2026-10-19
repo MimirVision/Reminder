@@ -14,14 +14,14 @@ import { cn } from '../ui/cn';
 import { EmptyState } from '../ui/states';
 
 export function ScheduleList({ schedules, showClient = true, emptyAction }: { schedules: Schedule[]; showClient?: boolean; emptyAction?: () => void }) {
-  const { snap, today, clientById } = useStore();
+  const { snap, today, clientById, calendar } = useStore();
   const ui = useUI();
   const info = useMemo(() => new Map(schedules.map((s) => {
     const pauses = snap.pauses.filter((p) => p.scheduleId === s.id);
-    const next = s.status === 'ended' ? undefined : upcomingPeriods(recurrenceOf(s), today, 6).find((p) => !isPausedOn(p.due, pauses));
+    const next = s.status === 'ended' ? undefined : upcomingPeriods(recurrenceOf(s, calendar), today, 6).find((p) => !isPausedOn(p.due, pauses));
     const tasks = snap.occurrences.filter((o) => o.scheduleId === s.id);
     return [s.id, { next, total: tasks.length, open: tasks.filter((o) => isOpen(o.status)).length }];
-  })), [schedules, snap.pauses, snap.occurrences, today]);
+  })), [schedules, snap.pauses, snap.occurrences, today, calendar]);
 
   if (!schedules.length) {
     return (

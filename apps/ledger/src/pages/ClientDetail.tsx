@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Archive, CheckCircle2, ChevronRight, Edit3, ListChecks, MoreHorizontal, Pin, PinOff, Plus, Repeat, RotateCcw, Trash2 } from 'lucide-react';
+import { Archive, CheckCircle2, ChevronRight, Edit3, ListChecks, Mail, MoreHorizontal, Phone, Pin, PinOff, Plus, Repeat, RotateCcw, Trash2, User } from 'lucide-react';
+import { ClientDocuments, outstanding } from '../components/ClientDocuments';
 import { ActivityList } from '../components/ActivityList';
 import { Page } from '../components/Shell';
 import { ClientDialog } from '../components/TaskForms';
@@ -20,10 +21,10 @@ import { EmptyState } from '../ui/states';
 import { useClientStats } from './Clients';
 import { ScheduleList } from './Recurring';
 
-type Tab = 'open' | 'recurring' | 'completed' | 'notes' | 'activity';
+type Tab = 'open' | 'recurring' | 'completed' | 'documents' | 'notes' | 'activity';
 
 export function ClientDetail({ id }: { id: string }) {
-  const { snap, clientById, run, expected, today } = useStore();
+  const { snap, clientById, run, expected, today, repo } = useStore();
   const ui = useUI();
   const { navigate } = useRoute();
   const client = clientById.get(id);
@@ -47,7 +48,9 @@ export function ClientDetail({ id }: { id: string }) {
   const isPinned = (snap.workspace.settings.pinnedClients ?? []).includes(id);
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'open', label: 'Open tasks', count: open.length }, { id: 'recurring', label: 'Recurring', count: schedules.length },
-    { id: 'completed', label: 'Completed', count: done.length }, { id: 'notes', label: 'Notes' }, { id: 'activity', label: 'Activity' },
+    { id: 'completed', label: 'Completed', count: done.length },
+    ...(repo.current ? [{ id: 'documents' as const, label: 'Documents', count: outstanding(client).length || undefined }] : []),
+    { id: 'notes', label: 'Notes' }, { id: 'activity', label: 'Activity' },
   ];
 
   return (
@@ -72,7 +75,15 @@ export function ClientDetail({ id }: { id: string }) {
             <span aria-hidden>·</span>
             <span>Next deadline <span className={stats?.next === today ? 'font-medium text-accent-ink' : 'text-ink-2'}>{stats?.next ? formatDue(stats.next, today).toLowerCase() : 'none'}</span></span>
             {missing.length > 0 && <><span aria-hidden>·</span><Link to={`/missing?client=${id}`} className="font-medium text-warn hover:underline">{missing.length} missing to review</Link></>}
+            {outstanding(client).length > 0 && <><span aria-hidden>·</span><button onClick={() => setTab('documents')} className="font-medium text-warn hover:underline">{outstanding(client).length} document{outstanding(client).length === 1 ? '' : 's'} outstanding</button></>}
           </p>
+          {(client.contactName || client.contactEmail || client.contactPhone) && (
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-ink-2">
+              {client.contactName && <span className="inline-flex items-center gap-1.5"><User className="size-3.5 text-ink-3" />{client.contactName}</span>}
+              {client.contactEmail && <a href={`mailto:${client.contactEmail}`} className="inline-flex items-center gap-1.5 text-accent hover:underline"><Mail className="size-3.5" />{client.contactEmail}</a>}
+              {client.contactPhone && <a href={`tel:${client.contactPhone.replace(/\s/g, '')}`} className="inline-flex items-center gap-1.5 text-accent hover:underline"><Phone className="size-3.5" /><span className="num">{client.contactPhone}</span></a>}
+            </p>
+          )}
           {client.notes && <p className="mt-1.5 line-clamp-2 max-w-2xl text-[13px] text-ink-2">{client.notes}</p>}
         </div>
         <div className="flex items-center gap-2">
@@ -125,6 +136,7 @@ export function ClientDetail({ id }: { id: string }) {
           {done.length ? <TaskTable tasks={done} showClient={false} /> : <EmptyState compact icon={ListChecks} title="Nothing completed yet" />}
         </div>
       )}
+      {tab === 'documents' && <ClientDocuments client={client} disabled={archived} />}
       {tab === 'notes' && (
         <div className="max-w-2xl">
           <Textarea aria-label="Client notes" rows={10} maxLength={10000} value={notes ?? client.notes} onChange={(e) => setNotes(e.target.value)}

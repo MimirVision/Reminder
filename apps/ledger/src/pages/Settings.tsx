@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { canPromptInstall, isInstalled, onInstallChange, promptInstall } from '../lib/install';
 import { CheckCircle2, Database, Download, LogOut, RefreshCw, RotateCcw, Trash2, Upload, AlertTriangle } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { Page } from '../components/Shell';
@@ -10,7 +11,9 @@ import { DEFAULT_THEME, IS_ARTIFACT, supabase, setDemoChoice, supabaseConfigured
 import { useToast } from '../ui/toast';
 import { formatTimestamp, setLocale } from '../lib/format';
 import { STATUS_LABEL, TYPE_LABEL, PRIORITY_LABEL } from '../lib/labels';
-import type { Accent, WorkspaceSettings } from '../lib/types';
+import { TASK_TYPES, type Accent, type TaskType, type WorkspaceSettings } from '../lib/types';
+import { calendarOf } from '../lib/holidays';
+import { ChecklistEditor, fromLines } from '../components/Checklist';
 import { Button } from '../ui/button';
 import { Field, Input, Segmented, Select } from '../ui/field';
 import { Confirm } from '../ui/overlay';
@@ -120,6 +123,12 @@ export function Settings({ email }: { email?: string | null }) {
             </Select>
           )}
         </Field>
+        <Field label="Public holidays" hint={repo.current
+          ? 'Schedules set to move off weekends also move off these days. Tasks already created keep their dates.'
+          : 'Available after the database update below.'}>
+          {() => <div><Segmented label="Public holidays" value={calendarOf(s)} onChange={(v) => void saveSettings({ holidays: v }, v === 'NO' ? 'Norwegian holidays are now non-working days' : 'Only weekends move due dates now')}
+            options={[{ value: 'NO', label: 'Norway' }, { value: 'none', label: 'None (weekends only)' }]} /></div>}
+        </Field>
       </Section>
 
       <Section title="Defaults">
@@ -136,6 +145,11 @@ export function Settings({ email }: { email?: string | null }) {
           )}
         </Field>
         <p className="text-[12px] text-ink-3">Reminders are shown inside Ledger (Home, overdue and due-today lists). Browser notifications are not used, so nothing depends on them.</p>
+      </Section>
+
+      <Section title="Checklist templates" description="Steps every new task of a type starts with. New schedules of that type start with them too, and each schedule can change its own.">
+        {repo.current ? <Templates value={s.checklistTemplates ?? {}} onSave={(checklistTemplates) => void saveSettings({ checklistTemplates }, 'Template saved')} />
+          : <p className="text-[12.5px] text-ink-3">Available after the database update below.</p>}
       </Section>
 
       <Section title="Appearance" description="How Ledger looks and feels. Saved to your workspace, so it follows you to other devices.">
@@ -163,6 +177,7 @@ export function Settings({ email }: { email?: string | null }) {
         <Field label="Open Ledger on">
           {() => <div><Segmented label="Start page" value={s.startPage ?? 'home'} onChange={(v) => void saveSettings({ startPage: v })} options={[{ value: 'home', label: 'Home' }, { value: 'tasks', label: 'My Tasks' }, { value: 'calendar', label: 'Calendar' }]} /></div>}
         </Field>
+        {!IS_ARTIFACT && <Field label="Install as an app">{() => <InstallApp />}</Field>}
         <Field label="Home dashboard" hint="Use Customize on Home to add, move and resize widgets.">
           {() => <div><Button size="sm" onClick={() => void saveSettings({ homeLayout: undefined }, 'Home reset to the default layout')}><RotateCcw /> Reset Home layout</Button></div>}
         </Field>
@@ -181,6 +196,7 @@ export function Settings({ email }: { email?: string | null }) {
       </Section>
 
       <Section title="Application and data status">
+        {repo.mode === 'supabase' && !repo.current && <DatabaseUpdate />}
         <dl className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 text-[13px]">
           <dt className="text-ink-3">Storage</dt>
           <dd className="flex items-center gap-1.5">
@@ -225,5 +241,58 @@ export function Settings({ email }: { email?: string | null }) {
         body="Replaces everything in this browser’s demo with fresh fictional data."
         onConfirm={async () => { (repo as DemoRepo).reset(today); await reload(); }} />
     </Page>
+  );
+}
+
+/** Shown while the database is on an older ledger.sql: which features wait for it, and how to run it. */
+export function DatabaseUpdate() {
+  return (
+    <div className="rounded-lg border border-warn/30 bg-warn-soft p-4 text-[12.5px] text-warn">
+      <p className="font-semibold">Database update available</p>
+      <p className="mt-1 text-ink-2">
+        Run <code className="num rounded bg-surface px-1">apps/ledger/supabase/ledger.sql</code> again in Supabase → SQL Editor to turn on checklists,
+        “waiting since”, client contacts and documents, and holiday-aware due dates. It only adds to Ledger’s own tables; Home Memory and Post
+        are not touched, and nothing you have is changed.
+      </p>
+    </div>
+  );
+}
+
+function Templates({ value, onSave }: { value: Partial<Record<TaskType, string[]>>; onSave: (v: Partial<Record<TaskType, string[]>>) => void }) {
+  const [type, setType] = useState<TaskType>('bookkeeping');
+  return (
+    <div className="flex flex-col gap-3">
+      <Select aria-label="Task type" value={type} onChange={(e) => setType(e.target.value as TaskType)}>
+        {TASK_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}{value[t]?.length ? ` (${value[t]!.length})` : ''}</option>)}
+      </Select>
+      <TemplateEditor key={type} lines={value[type]} label={`${TYPE_LABEL[type]} checklist`} onChange={(lines) => onSave({ ...value, [type]: lines })} />
+    </div>
+  );
+}
+
+function TemplateEditor({ lines, label, onChange }: { lines: string[] | undefined; label: string; onChange: (lines: string[]) => void }) {
+  // Items keep their ids while you edit; only the text is stored.
+  const [items, setItems] = useState(() => fromLines(lines));
+  return <ChecklistEditor template items={items} label={label} onChange={(next) => { setItems(next); onChange(next.map((i) => i.text)); }} />;
+}
+
+function InstallApp() {
+  const toast = useToast();
+  const [, force] = useState(0);
+  useEffect(() => onInstallChange(() => force((n) => n + 1)), []);
+  if (isInstalled()) return <p className="text-[12.5px] text-ok">Ledger is running as an installed app.</p>;
+  if (canPromptInstall()) {
+    return (
+      <div>
+        <Button size="sm" onClick={() => void promptInstall().then((ok) => ok && toast.show('Ledger is installed. Open it from your apps or home screen.'))}><Download /> Install Ledger</Button>
+        <p className="mt-1.5 text-[12px] text-ink-3">Opens in its own window, with its own icon. Your data stays in the same database.</p>
+      </div>
+    );
+  }
+  return (
+    <p className="text-[12.5px] text-ink-3">
+      On iPhone or iPad: Safari → Share → <span className="text-ink-2">Add to Home Screen</span>. On a computer: the install icon at the right of the address bar in Chrome or Edge.
+      The app opens in its own window and uses the same data.
+    </p>
   );
 }

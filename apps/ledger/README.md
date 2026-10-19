@@ -19,6 +19,15 @@ demo data; only add real client information where your employer allows it, and k
 | Missing Tasks | Expected vs actual, per schedule and period, with the reason each item was flagged. Create the task, mark as reviewed, or record an exception. |
 | Settings | Name, time zone, date format, defaults; appearance (theme, accent colour, density, start page, reset Home); JSON backup, CSV export, restore, data status, erase. |
 
+**Checklists.** A task can hold up to 50 steps, ticked as you go (`2/4` shows in lists and on the board). Settings →
+Checklist templates sets the steps each task type starts with; a schedule has its own checklist, copied unticked into
+every task it creates. **Waiting since** records when a task moved to *Waiting for client*, so Home can show how long
+you have been waiting. **Clients** have a contact person and a list of documents to collect (requested, received).
+**Your own views**: filter My Tasks, then *Save view*. **Public holidays**: with Norway chosen (the default),
+"move to the next/previous weekday" also skips Norwegian public holidays (Easter, Ascension, Whit Monday, 1 and 17 May,
+Christmas); the calendar shows them. **Install as an app** from Settings, or the browser's install button: Ledger then
+opens in its own window. The service worker caches only the app itself, never data.
+
 **Adding work fast.** Type one line in the quick-add bar (Home, My Tasks, a client's page) or in `Ctrl/⌘ K`:
 `Chase receipts @nordvik fri !high #receipts` → client, due date, priority and tag are recognised and shown as chips
 before you press Enter. Dates: `today`, `tomorrow`/`i morgen`, weekdays (`fri`, `fredag`), `next week`, `in 3 days`,
@@ -71,6 +80,13 @@ If you open the app before step 1, it shows a setup screen instead of failing.
 
 > Do not use `supabase db push` for Ledger from this repo: the CLI keeps one migration history per project, which
 > Home Memory may use too. Run `ledger.sql` in the SQL editor instead.
+
+### Updating the database
+
+When a new version adds to the database, Settings shows **Database update available**. Run `ledger.sql` again (same
+steps as above): it only adds columns and functions to Ledger's own tables and keeps everything you have. Until then the
+app keeps working and leaves the new features off. Version 3 adds checklists, "waiting since", client contacts and
+documents, and holiday-aware due dates.
 
 ### Environment variables
 
@@ -186,5 +202,5 @@ Like Post at `/post/`, Ledger is served from the same Cloudflare Worker as Home 
 
 ## Not in this version
 
-Holiday-aware due dates, notifications (in-app review is the safety net by design), multi-user workspaces, time
-tracking, billing and AI features. The due-rule format and workspace model leave room for the first three.
+Notifications (in-app review is the safety net by design), multi-user workspaces, time tracking, billing and AI
+features. The workspace model leaves room for the first two.

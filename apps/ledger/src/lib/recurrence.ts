@@ -5,6 +5,7 @@
 import {
   addDays, daysInMonth, diffDays, fromMonthIndex, fromParts, isoWeek, monthIndex, parts, startOfWeek, weekday, type ISODate,
 } from './dates';
+import { toBusinessDay, type HolidayCalendar } from './holidays';
 import type { Adjust, DueRule, Frequency, IntervalUnit, Pause, Recurrence, Schedule } from './types';
 
 export interface Period {
@@ -29,8 +30,9 @@ export function frequencyToUnit(f: Frequency, custom?: { unit: IntervalUnit; int
   }
 }
 
-export function recurrenceOf(s: Pick<Schedule, 'unit' | 'interval' | 'anchorMonth' | 'startDate' | 'endDate' | 'dueRule'>): Recurrence {
-  return { unit: s.unit, interval: s.interval, anchorMonth: s.anchorMonth, startDate: s.startDate, endDate: s.endDate, dueRule: s.dueRule };
+/** A schedule's recurrence; `holidays` is the workspace's calendar for business-day adjustment. */
+export function recurrenceOf(s: Pick<Schedule, 'unit' | 'interval' | 'anchorMonth' | 'startDate' | 'endDate' | 'dueRule'>, holidays: HolidayCalendar = 'none'): Recurrence {
+  return { unit: s.unit, interval: s.interval, anchorMonth: s.anchorMonth, startDate: s.startDate, endDate: s.endDate, dueRule: s.dueRule, holidays };
 }
 
 /** Problems with a recurrence, in words a person can act on. Empty when it is valid. */
@@ -66,25 +68,25 @@ export function validateDueRule(rule: DueRule, unit: IntervalUnit): string[] {
   }
 }
 
-function adjust(d: ISODate, a: Adjust | undefined): ISODate {
-  const wd = weekday(d);
-  if (a === 'next_business_day') return wd === 6 ? addDays(d, 2) : wd === 7 ? addDays(d, 1) : d;
-  if (a === 'previous_business_day') return wd === 6 ? addDays(d, -1) : wd === 7 ? addDays(d, -2) : d;
+function adjust(d: ISODate, a: Adjust | undefined, cal: HolidayCalendar): ISODate {
+  if (a === 'next_business_day') return toBusinessDay(d, 1, cal);
+  if (a === 'previous_business_day') return toBusinessDay(d, -1, cal);
   return d;
 }
 
-export function dueDateFor(rule: DueRule, start: ISODate, end: ISODate): ISODate {
+/** The due date of one period. With a holiday calendar, business-day adjustment also skips public holidays. */
+export function dueDateFor(rule: DueRule, start: ISODate, end: ISODate, cal: HolidayCalendar = 'none'): ISODate {
   switch (rule.kind) {
     case 'month_offset': {
       const [y, m] = parts(rule.from === 'start' ? start : end);
       const [ty, tm] = fromMonthIndex(monthIndex(y, m) + rule.months);
       const dim = daysInMonth(ty, tm);
-      return adjust(fromParts(ty, tm, rule.day === 'last' ? dim : Math.min(rule.day, dim)), rule.adjust);
+      return adjust(fromParts(ty, tm, rule.day === 'last' ? dim : Math.min(rule.day, dim)), rule.adjust, cal);
     }
     case 'days_after_end':
-      return adjust(addDays(end, rule.days), rule.adjust);
+      return adjust(addDays(end, rule.days), rule.adjust, cal);
     case 'weekday':
-      return adjust(addDays(start, mod(rule.weekday - weekday(start), 7)), rule.adjust);
+      return adjust(addDays(start, mod(rule.weekday - weekday(start), 7)), rule.adjust, cal);
   }
 }
 
@@ -122,7 +124,7 @@ export function listPeriods(r: Recurrence, through: ISODate): Period[] {
   const last = r.endDate && r.endDate < through ? r.endDate : through;
   let { start, end } = periodContaining(r, r.startDate);
   while (start <= last && out.length < MAX_PERIODS) {
-    out.push({ key: periodKey(r, start), start, end, due: dueDateFor(r.dueRule, start, end) });
+    out.push({ key: periodKey(r, start), start, end, due: dueDateFor(r.dueRule, start, end, r.holidays) });
     ({ start, end } = nextPeriod(r, start));
   }
   return out;
@@ -144,7 +146,7 @@ export function upcomingPeriods(r: Recurrence, from: ISODate, count: number): Pe
   let guard = 0;
   while (out.length < count && guard++ < MAX_PERIODS) {
     if (r.endDate && start > r.endDate) break;
-    const due = dueDateFor(r.dueRule, start, end);
+    const due = dueDateFor(r.dueRule, start, end, r.holidays);
     if (due >= from) out.push({ key: periodKey(r, start), start, end, due });
     ({ start, end } = nextPeriod(r, start));
   }
@@ -198,8 +200,8 @@ const ORD = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function describeDueRule(rule: DueRule): string {
-  const adj = rule.adjust === 'next_business_day' ? ', next business day if weekend'
-    : rule.adjust === 'previous_business_day' ? ', previous business day if weekend' : '';
+  const adj = rule.adjust === 'next_business_day' ? ', next business day if a weekend or holiday'
+    : rule.adjust === 'previous_business_day' ? ', previous business day if a weekend or holiday' : '';
   switch (rule.kind) {
     case 'month_offset': {
       const day = rule.day === 'last' ? 'Last day' : `${ORD(rule.day)}`;

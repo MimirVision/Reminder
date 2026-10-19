@@ -1,6 +1,6 @@
 // The widgets Home can show. Each one fills the cell the dashboard gives it and scrolls inside if it needs to.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, CalendarCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Pin, Sun, Users } from 'lucide-react';
+import { ArrowRight, CalendarCheck, FileText, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Pin, Sun, Users } from 'lucide-react';
 import { useStore } from '../../data/store';
 import { addDays, addMonths, diffDays, isoWeek, localISODate, monthGrid, parts, startOfMonth, startOfWeek, type ISODate } from '../../lib/dates';
 import { sortTasks } from '../../lib/filters';
@@ -200,8 +200,9 @@ export function WaitingWidget() {
   const { today, clientById } = useStore();
   const ui = useUI();
   const open = useOpenTasks();
-  // Most overdue first: what is furthest past its deadline is what to chase.
-  const waiting = useMemo(() => open.filter((o) => o.status === 'waiting').sort((a, b) => a.dueDate.localeCompare(b.dueDate)), [open]);
+  // Longest wait first (most overdue when that isn't known): what has sat with the client longest is what to chase.
+  const waiting = useMemo(() => open.filter((o) => o.status === 'waiting')
+    .sort((a, b) => (a.waitingSince ?? '9').localeCompare(b.waitingSince ?? '9') || a.dueDate.localeCompare(b.dueDate)), [open]);
   return (
     <Frame title="Waiting on clients" count={waiting.length} padded
       action={waiting.length > 0 && <Link to="/tasks?view=waiting" className={linkCls}>All</Link>}>
@@ -209,11 +210,13 @@ export function WaitingWidget() {
         <ul className="-mx-2 flex flex-col">
           {waiting.map((t) => {
             const late = diffDays(today, t.dueDate);
+            const waited = t.waitingSince ? Math.max(0, diffDays(today, localISODate(new Date(t.waitingSince)))) : null;
             return (
               <li key={t.id}>
                 <button onClick={() => ui.openTask(t.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-hover">
                   <span className="min-w-0 flex-1 truncate">{t.title} <span className="text-ink-3">· {clientById.get(t.clientId)?.name}</span></span>
-                  <span className={cn('num shrink-0 text-[12px]', late > 0 ? 'text-danger' : 'text-ink-3')} title={`Due ${formatDate(t.dueDate)}`}>{late > 0 ? `${late}d late` : formatDue(t.dueDate, today)}</span>
+                  {waited !== null && <span className="num shrink-0 text-[12px] text-warn" title={`Waiting since ${formatDate(localISODate(new Date(t.waitingSince!)))}`}>{waited}d</span>}
+                  <span className={cn('num w-14 shrink-0 text-right text-[12px]', late > 0 ? 'text-danger' : 'text-ink-3')} title={`Due ${formatDate(t.dueDate)}`}>{late > 0 ? `${late}d late` : formatDue(t.dueDate, today)}</span>
                 </button>
               </li>
             );
@@ -479,6 +482,33 @@ export function CalendarWidget() {
           );
         })}
       </div>
+    </Frame>
+  );
+}
+
+export function DocumentsWidget() {
+  const { snap, today, repo } = useStore();
+  const rows = useMemo(() => snap.clients.filter((c) => c.status === 'active')
+    .flatMap((c) => (c.documents ?? []).filter((d) => !d.received).map((d) => ({ c, d })))
+    .sort((a, b) => (a.d.requestedOn ?? '9').localeCompare(b.d.requestedOn ?? '9')), [snap.clients]);
+  return (
+    <Frame title="Documents to collect" count={rows.length || undefined}>
+      {!repo.current ? <QuietLine icon={FileText}>Available after the database update (Settings).</QuietLine>
+        : rows.length ? (
+          <ul className="divide-y divide-line/70">
+            {rows.map(({ c, d }) => {
+              const age = d.requestedOn ? Math.max(0, diffDays(today, d.requestedOn)) : null;
+              return (
+                <li key={`${c.id}-${d.id}`}>
+                  <Link to={`/clients/${c.id}`} className="flex items-center gap-3 px-[18px] py-2 hover:bg-hover/70">
+                    <span className="min-w-0 flex-1 truncate text-[13px]">{d.text} <span className="text-ink-3">· {c.name}</span></span>
+                    {age !== null && <span className={cn('num shrink-0 text-[12px]', age >= 7 ? 'text-warn' : 'text-ink-3')} title={`Requested ${formatDate(d.requestedOn!)}`}>{age}d</span>}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        ) : <QuietLine icon={FileText}>Nothing outstanding. Request documents from a client’s Documents tab.</QuietLine>}
     </Frame>
   );
 }

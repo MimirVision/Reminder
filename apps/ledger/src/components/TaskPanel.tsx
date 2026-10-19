@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X } from 'lucide-react';
 import { useStore } from '../data/store';
-import { addDays, weekday } from '../lib/dates';
+import { addDays, diffDays, localISODate, weekday, type ISODate } from '../lib/dates';
 import { formatDate, formatDayLong, formatTimestamp, relativeDue } from '../lib/format';
 import { PRIORITY_LABEL, TYPE_LABEL } from '../lib/labels';
 import { describeRecurrence, periodLabel } from '../lib/recurrence';
@@ -13,6 +13,7 @@ import { DatePicker } from '../ui/datepicker';
 import { Input, Select, Textarea } from '../ui/field';
 import { Confirm, Menu, MenuItem, Sheet, SheetClose } from '../ui/overlay';
 import { ActivityList } from './ActivityList';
+import { ChecklistEditor, progressOf } from './Checklist';
 import { useUI } from './ui-state';
 import { Link } from '../router';
 
@@ -37,6 +38,12 @@ function Gone() {
   );
 }
 
+/** "today", "1 day", "12 days": how long a task has been with the client. */
+export function waitedDays(since: string, today: ISODate): string {
+  const n = Math.max(0, diffDays(today, localISODate(new Date(since))));
+  return n === 0 ? 'since today' : `${n} day${n === 1 ? '' : 's'}`;
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[112px_1fr] items-center gap-3 py-1.5">
@@ -48,7 +55,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function TaskDetail({ task }: { task: Occurrence }) {
   const ui = useUI();
-  const { snap, today, clientById, scheduleById, patchOccurrence, run } = useStore();
+  const { snap, today, clientById, scheduleById, patchOccurrence, run, repo } = useStore();
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.description);
   const [tags, setTags] = useState(task.tags.join(', '));
@@ -173,8 +180,26 @@ function TaskDetail({ task }: { task: Occurrence }) {
               </div>
             </Row>
           )}
+          {task.status === 'waiting' && task.waitingSince && (
+            <Row label="Waiting since">
+              <span className="text-[13px] text-ink-2"><span className="num">{formatTimestamp(task.waitingSince)}</span>
+                <span className="text-ink-3"> · {waitedDays(task.waitingSince, today)}</span></span>
+            </Row>
+          )}
           {task.completedAt && <Row label="Completed"><span className="tnum text-[13px] text-ink-2">{formatTimestamp(task.completedAt)}</span></Row>}
         </div>
+
+        {repo.current && (
+          <div className="mt-5">
+            <ChecklistEditor items={task.checklist} onChange={(checklist) => void patchOccurrence(task.id, { checklist })} />
+            {isOpen(task.status) && progressOf(task.checklist).complete && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-ok-soft px-3 py-2 text-[12.5px] text-ok">
+                <Check className="size-4" /> Every step is ticked.
+                <button className="ml-auto font-medium underline-offset-2 hover:underline" onClick={() => void patchOccurrence(task.id, { status: 'done' }, 'Marked done')}>Mark the task done</button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-4">
           <label htmlFor="task-notes" className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Notes</label>

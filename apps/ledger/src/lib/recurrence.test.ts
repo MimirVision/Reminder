@@ -115,7 +115,7 @@ describe('periods', () => {
 
   it('describes rules', () => {
     expect(describeDueRule({ kind: 'month_offset', from: 'end', months: 1, day: 10, adjust: 'next_business_day' }))
-      .toBe('10th of the month after the period, next business day if weekend');
+      .toBe('10th of the month after the period, next business day if a weekend or holiday');
     expect(describeDueRule({ kind: 'days_after_end', days: 14 })).toBe('14 days after the period ends');
   });
 });

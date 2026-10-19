@@ -4,7 +4,7 @@
 import { addDays, addMonths, fromParts, parts, startOfMonth, type ISODate } from '../lib/dates';
 import { occurrenceFromPeriod, planGeneration } from '../lib/generation';
 import { createOn, frequencyToUnit, listPeriods, periodContaining, periodKey, recurrenceOf } from '../lib/recurrence';
-import type { Activity, Client, DueRule, Frequency, Occurrence, Priority, Schedule, Snapshot, TaskStatus, TaskType } from '../lib/types';
+import type { Activity, ChecklistItem, Client, ClientDocument, DueRule, Frequency, Occurrence, Priority, Schedule, Snapshot, TaskStatus, TaskType } from '../lib/types';
 
 function rng(seed: number) {
   return () => ((seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32);
@@ -32,6 +32,24 @@ const CLIENTS: [name: string, ref: string, notes: string][] = [
   ['Sjøgløtt Fisk AS', 'C-1019', 'Fish wholesaler. Moved to another accountant; kept for history.'],
   ['Dalsrud Maskin AS', 'C-1020', 'Machine rental. Quarterly management report for the bank.'],
 ];
+
+// Invented contact people; addresses use the reserved .example domain, so none of them can reach anyone.
+const CONTACTS: Record<number, [name: string, email: string]> = {
+  0: ['Kari Nordvik', 'kari@nordvik-snekkeri.example'], 1: ['Jonas Fjell', 'jonas@fjellbris.example'],
+  2: ['Ingrid Havdal', 'post@havbris.example'], 3: ['Mia Lysaker', 'mia@lysakerdesign.example'],
+  4: ['Ola Elvebakken', 'lonn@elvebakken.example'], 7: ['Per Brattli', 'okonomi@brattli.example'],
+  9: ['Siri Mørkved', 'siri@morkved.example'], 13: ['Erik Strand', 'erik@strandvik.example'],
+};
+
+const TEMPLATES: Partial<Record<TaskType, string[]>> = {
+  bookkeeping: ['Post receipts and invoices', 'Reconcile bank', 'Check open items', 'Send questions to the client'],
+  vat: ['Reconcile VAT accounts', 'Check reverse charge and exempt sales', 'Submit the return', 'Save the receipt'],
+  payroll: ['Check hours and changes', 'Run payroll', 'Send payslips'],
+  annual: ['Close the year', 'Draft annual accounts and notes', 'Tax return', 'Board approval and filing'],
+};
+
+const checklistOf = (items: string[] | undefined, prefix: string): ChecklistItem[] =>
+  (items ?? []).map((text, i) => ({ id: `${prefix}-${i + 1}`, text, done: false }));
 
 interface ScheduleSpec {
   client: number;
@@ -127,8 +145,19 @@ export function buildSeed(today: ISODate): Snapshot {
   const thisMonth = startOfMonth(today);
   const [ty] = parts(today);
 
+  const documents = (i: number): ClientDocument[] => {
+    const d = (id: string, text: string, received: boolean, ago: number): ClientDocument =>
+      ({ id, text, received, requestedOn: addDays(today, -ago - 5), receivedOn: received ? addDays(today, -ago) : null });
+    if (i === 13) return [d('doc-1', 'Opening balance from the previous accountant', false, 0), d('doc-2', 'Signed engagement letter', true, 12), d('doc-3', 'Bank feed authorisation', false, 0)];
+    if (i === 9) return [d('doc-1', 'Supplier invoices, September', false, 0), d('doc-2', 'Bank statements, September', true, 6)];
+    if (i === 1) return [d('doc-1', 'Cash register export, both locations', false, 0)];
+    if (i === 11) return [d('doc-1', 'Inventory count sheets', false, 0), d('doc-2', 'Price list for valuation', true, 3)];
+    return [];
+  };
   const clients: Client[] = CLIENTS.map(([name, reference, notes], i) => ({
-    id: `client-${i + 1}`, workspaceId: ws, name, reference, notes, status: i === 18 ? 'archived' : 'active', createdAt: stamp, updatedAt: stamp,
+    id: `client-${i + 1}`, workspaceId: ws, name, reference, notes, status: i === 18 ? 'archived' : 'active',
+    contactName: CONTACTS[i]?.[0] ?? '', contactEmail: CONTACTS[i]?.[1] ?? '', contactPhone: '', documents: documents(i),
+    createdAt: stamp, updatedAt: stamp,
   }));
 
   const schedules: Schedule[] = schedulesSpec().map((s, i) => {
@@ -141,7 +170,9 @@ export function buildSeed(today: ISODate): Snapshot {
       id: `schedule-${i + 1}`, workspaceId: ws, clientId: `client-${s.client + 1}`, title: s.title, description: s.description,
       taskType: s.type, frequency: s.frequency, unit, interval, anchorMonth: anchor, dueRule: s.rule,
       startDate, endDate: null, generateFrom, leadDays: s.lead, reminderDays: 3, autoGenerate: s.auto ?? true,
-      status: 'active', defaultPriority: s.priority ?? 'normal', createdAt: stamp, updatedAt: stamp,
+      status: 'active', defaultPriority: s.priority ?? 'normal',
+      checklist: checklistOf(s.title.startsWith('Payroll reporting') ? ['Submit the a-melding', 'Check the feedback'] : TEMPLATES[s.type], 'item'),
+      createdAt: stamp, updatedAt: stamp,
     };
   });
 
@@ -160,7 +191,7 @@ export function buildSeed(today: ISODate): Snapshot {
     occurrences.push(row);
     return row;
   };
-  for (const o of planGeneration(schedules, pauses, [], today)) {
+  for (const o of planGeneration(schedules, pauses, [], today, 'NO')) {
     const age = -(Date.parse(o.dueDate) - Date.parse(today)) / 86_400_000;
     let status: TaskStatus = 'todo';
     if (age > 45) status = r() < 0.995 ? 'done' : 'todo';
@@ -170,13 +201,18 @@ export function buildSeed(today: ISODate): Snapshot {
     // The client who left: everything up to their departure was finished.
     if (o.clientId === 'client-19' && o.dueDate < today) status = 'done';
     const completedAt = status === 'done' ? new Date(Date.parse(o.dueDate) - Math.floor(r() * 5) * 86_400_000 + 15 * 3_600_000).toISOString() : null;
-    add({ ...o, status, completedAt });
+    // Finished work has its checklist ticked; work in progress is part-way through it.
+    const ticked = status === 'done' ? o.checklist.length : status === 'todo' ? 0 : Math.floor(r() * o.checklist.length);
+    const checklist = o.checklist.map((it, i) => ({ ...it, done: i < ticked }));
+    const waitingSince = status === 'waiting' ? new Date(Date.parse(addDays(today, -1 - Math.floor(r() * 12))) + 10 * 3_600_000).toISOString() : null;
+    add({ ...o, status, completedAt, checklist, waitingSince });
   }
   // The check-only schedule: tasks were added by hand for every period except the latest one.
   const checkOnly = schedules.find((s) => !s.autoGenerate)!;
-  const due = listPeriods(recurrenceOf(checkOnly), today).filter((p) => createOn(p.due, checkOnly.leadDays) <= today);
+  const due = listPeriods(recurrenceOf(checkOnly, 'NO'), today).filter((p) => createOn(p.due, checkOnly.leadDays) <= today);
   for (const p of due.slice(0, -1)) {
-    add({ ...occurrenceFromPeriod(checkOnly, p), status: 'done', completedAt: new Date(Date.parse(p.due) - 2 * 86_400_000).toISOString() });
+    const o = occurrenceFromPeriod(checkOnly, p);
+    add({ ...o, status: 'done', completedAt: new Date(Date.parse(p.due) - 2 * 86_400_000).toISOString(), checklist: o.checklist.map((i) => ({ ...i, done: true })) });
   }
   // One task was moved by hand (a client asked for more time), another was skipped.
   const movable = occurrences.find((o) => o.status === 'todo' && o.dueDate > today && o.taskType === 'bookkeeping');
@@ -189,6 +225,10 @@ export function buildSeed(today: ISODate): Snapshot {
       clientId: `client-${client + 1}`, scheduleId: null, title, description: notes, taskType: type, periodKey: null, periodStart: null, periodEnd: null,
       dueDate: addDays(today, due), scheduledDueDate: null, status, priority, tags,
       completedAt: status === 'done' ? new Date(Date.parse(addDays(today, due))).toISOString() : null,
+      checklist: title.startsWith('Onboarding: get access')
+        ? [{ id: 'item-1', text: 'Send the authorisation form', done: true }, { id: 'item-2', text: 'Client signs at the bank', done: false }, { id: 'item-3', text: 'Test the feed', done: false }]
+        : [],
+      waitingSince: status === 'waiting' ? new Date(Date.parse(addDays(today, due - 3)) + 9 * 3_600_000).toISOString() : null,
     });
   }
 
@@ -209,7 +249,7 @@ export function buildSeed(today: ISODate): Snapshot {
   activity.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return {
-    workspace: { id: ws, name: 'Demo workspace', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Oslo', settings: { displayName: '', pinnedClients: ['client-10', 'client-1', 'client-14'] } },
+    workspace: { id: ws, name: 'Demo workspace', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Oslo', settings: { displayName: '', pinnedClients: ['client-10', 'client-1', 'client-14'], checklistTemplates: TEMPLATES } },
     clients, schedules, pauses, occurrences, reviews, activity,
     runs: [{ id: 'run-1', workspaceId: ws, trigger: 'app', startedAt: stamp, finishedAt: stamp, created: occurrences.length, errors: [] }],
   };

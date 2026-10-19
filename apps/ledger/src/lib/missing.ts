@@ -5,6 +5,7 @@ import { addDays, type ISODate } from './dates';
 import { formatDate } from './format';
 import { occurrenceKey, existingKeys } from './generation';
 import { createOn, isPausedOn, listPeriods, periodLabel, recurrenceOf, upcomingPeriods, type Period } from './recurrence';
+import type { HolidayCalendar } from './holidays';
 import type { GenerationRun, Occurrence, Pause, Review, Schedule } from './types';
 
 export type ExpectedState =
@@ -35,7 +36,7 @@ export interface ExpectedItem {
 export const NEEDS_REVIEW: ExpectedState[] = ['missing', 'generation_failure'];
 
 export function detectExpected(
-  input: { schedules: Schedule[]; pauses: Pause[]; occurrences: Occurrence[]; reviews: Review[]; runs: GenerationRun[] },
+  input: { schedules: Schedule[]; pauses: Pause[]; occurrences: Occurrence[]; reviews: Review[]; runs: GenerationRun[]; holidays?: HolidayCalendar },
   today: ISODate,
 ): ExpectedItem[] {
   const have = existingKeys(input.occurrences);
@@ -46,7 +47,7 @@ export function detectExpected(
 
   for (const s of input.schedules) {
     const pauses = input.pauses.filter((p) => p.scheduleId === s.id);
-    const rec = recurrenceOf(s);
+    const rec = recurrenceOf(s, input.holidays);
     const item = (period: Period, state: ExpectedState, reason: string, review: Review | null = null): ExpectedItem => ({
       id: occurrenceKey(s.id, period.key), scheduleId: s.id, clientId: s.clientId, title: s.title, period,
       periodName: periodLabel(period.key), state, reason, createOn: createOn(period.due, s.leadDays), review,

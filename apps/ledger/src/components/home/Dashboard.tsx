@@ -10,13 +10,13 @@ import { Confirm, Dialog, Menu, MenuItem, MenuLabel, MenuSeparator } from '../..
 import { EmptyState } from '../../ui/states';
 import {
   ActivityWidget, AttentionWidget, CalendarWidget, DeadlinesWidget, GreetingWidget, MissingWidget, NotesWidget, OverdueWidget, PinnedWidget,
-  ProgressWidget, QuickAddWidget, StatsWidget, TodayWidget, UpcomingWidget, WaitingWidget, WeekWidget, type WidgetProps,
+  ProgressWidget, QuickAddWidget, StatsWidget, TodayWidget, UpcomingWidget, WaitingWidget, WeekWidget, DocumentsWidget, type WidgetProps,
 } from './widgets';
 
 const RENDER: Record<WidgetType, (p: WidgetProps) => React.ReactNode> = {
   greeting: GreetingWidget, quickAdd: QuickAddWidget, today: TodayWidget, overdue: OverdueWidget, upcoming: UpcomingWidget,
   week: WeekWidget, waiting: WaitingWidget, missing: MissingWidget, stats: StatsWidget, progress: ProgressWidget,
-  attention: AttentionWidget, pinned: PinnedWidget, activity: ActivityWidget, notes: NotesWidget, deadlines: DeadlinesWidget, calendar: CalendarWidget,
+  attention: AttentionWidget, pinned: PinnedWidget, activity: ActivityWidget, notes: NotesWidget, deadlines: DeadlinesWidget, calendar: CalendarWidget, documents: DocumentsWidget,
 };
 
 const CONTENT_SIZED = new Set<WidgetType>(['greeting', 'quickAdd', 'stats']);

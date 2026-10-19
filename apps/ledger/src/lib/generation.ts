@@ -3,6 +3,7 @@
 // Both are idempotent: an occurrence is identified by (schedule, period), and an existing one is never touched.
 
 import { addDays, type ISODate } from './dates';
+import type { HolidayCalendar } from './holidays';
 import { createOn, isPausedOn, listPeriods, recurrenceOf, type Period } from './recurrence';
 import type { Client, Occurrence, Pause, Schedule } from './types';
 
@@ -21,10 +22,10 @@ export function existingKeys(occurrences: Pick<Occurrence, 'scheduleId' | 'perio
 }
 
 /** Periods of a schedule that the automatic generator is responsible for, as of `today`. */
-export function generatablePeriods(s: Schedule, pauses: Pause[], today: ISODate): Period[] {
+export function generatablePeriods(s: Schedule, pauses: Pause[], today: ISODate, holidays: HolidayCalendar = 'none'): Period[] {
   if (!s.autoGenerate) return [];
   const mine = pauses.filter((p) => p.scheduleId === s.id);
-  return listPeriods(recurrenceOf(s), addDays(today, s.leadDays))
+  return listPeriods(recurrenceOf(s, holidays), addDays(today, s.leadDays))
     .filter((p) => p.due >= s.generateFrom && p.due >= s.startDate && createOn(p.due, s.leadDays) <= today && !isPausedOn(p.due, mine));
 }
 
@@ -46,15 +47,18 @@ export function occurrenceFromPeriod(s: Schedule, p: Period): NewOccurrence {
     priority: s.defaultPriority,
     tags: [],
     completedAt: null,
+    // The schedule's checklist, all unticked.
+    checklist: (s.checklist ?? []).map((i) => ({ ...i, done: false })),
+    waitingSince: null,
   };
 }
 
 /** The occurrences to create so every schedule is up to date. Never includes one that already exists. */
-export function planGeneration(schedules: Schedule[], pauses: Pause[], occurrences: Occurrence[], today: ISODate): NewOccurrence[] {
+export function planGeneration(schedules: Schedule[], pauses: Pause[], occurrences: Occurrence[], today: ISODate, holidays: HolidayCalendar = 'none'): NewOccurrence[] {
   const have = existingKeys(occurrences);
   const out: NewOccurrence[] = [];
   for (const s of schedules) {
-    for (const p of generatablePeriods(s, pauses, today)) {
+    for (const p of generatablePeriods(s, pauses, today, holidays)) {
       const k = occurrenceKey(s.id, p.key);
       if (have.has(k)) continue;
       have.add(k);

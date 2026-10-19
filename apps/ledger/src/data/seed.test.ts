@@ -11,10 +11,10 @@ describe('demo seed', () => {
       expect(s.clients.length).toBeGreaterThanOrEqual(15);
       expect(s.clients.length).toBeLessThanOrEqual(25);
       // Fully generated already: nothing left to create.
-      expect(planGeneration(liveSchedules(s.schedules, s.clients), s.pauses, s.occurrences, today)).toEqual([]);
+      expect(planGeneration(liveSchedules(s.schedules, s.clients), s.pauses, s.occurrences, today, 'NO')).toEqual([]);
       const keys = s.occurrences.filter((o) => o.scheduleId).map((o) => `${o.scheduleId}|${o.periodKey}`);
       expect(new Set(keys).size).toBe(keys.length);
-      const items = detectExpected({ ...s, schedules: liveSchedules(s.schedules, s.clients) }, today);
+      const items = detectExpected({ ...s, schedules: liveSchedules(s.schedules, s.clients), holidays: 'NO' }, today);
       const review = needsReview(items);
       expect(review.length).toBeGreaterThanOrEqual(2);
       expect(review.length).toBeLessThanOrEqual(8);
@@ -41,5 +41,16 @@ describe('demo seed', () => {
     await expect(repo.deleteClient(withTasks.clientId)).rejects.toThrow(/Archive/);
     await repo.updateOccurrence(scheduled.id, { status: 'done' });
     expect((await repo.load()).occurrences.find((o) => o.id === scheduled.id)?.completedAt).not.toBeNull();
+  });
+});
+
+describe('backups from before v3', () => {
+  it('restore with empty checklists, contacts and documents', async () => {
+    const { parseBackup } = await import('./repo');
+    const b = parseBackup({ format: 'ledger-backup', version: 1, exportedAt: '', workspace: { name: 'W', timezone: 'Europe/Oslo', settings: {} },
+      clients: [{ id: 'c', name: 'Old AS' }], schedules: [{ id: 's' }], pauses: [], occurrences: [{ id: 'o', status: 'todo' }], reviews: [] });
+    expect(b.clients[0]).toMatchObject({ contactName: '', contactEmail: '', contactPhone: '', documents: [] });
+    expect(b.schedules[0].checklist).toEqual([]);
+    expect(b.occurrences[0]).toMatchObject({ checklist: [], waitingSince: null });
   });
 });

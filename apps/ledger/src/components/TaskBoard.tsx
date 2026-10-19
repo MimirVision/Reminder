@@ -8,6 +8,7 @@ import { periodLabel } from '../lib/recurrence';
 import { isOpen, type Occurrence, type TaskStatus } from '../lib/types';
 import { DueDate, PriorityLabel } from '../ui/badges';
 import { cn } from '../ui/cn';
+import { ChecklistBadge } from './Checklist';
 import { QuickAdd } from './QuickAdd';
 import { CompleteToggle } from './TaskTable';
 import { useUI } from './ui-state';
@@ -43,6 +44,7 @@ function Card({ task }: { task: Occurrence }) {
       <span className="truncate pl-[26px] text-[12.5px] text-ink-2">{clientById.get(task.clientId)?.name}</span>
       <div className="flex items-center gap-2 border-t border-line/70 pt-2">
         <DueDate date={task.dueDate} today={today} open={open} />
+        <ChecklistBadge items={task.checklist} />
         <span className="ml-auto"><PriorityLabel priority={task.priority} compact /></span>
       </div>
     </div>

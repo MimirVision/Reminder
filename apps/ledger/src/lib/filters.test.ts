@@ -9,7 +9,7 @@ const clients = new Map<string, Client>([
 ]);
 const t = (id: string, o: Partial<Occurrence>): Occurrence => ({
   id, workspaceId: 'w', clientId: 'a', scheduleId: null, title: id, description: '', taskType: 'other', periodKey: null, periodStart: null,
-  periodEnd: null, dueDate: today, scheduledDueDate: null, status: 'todo', priority: 'normal', tags: [], completedAt: null, createdAt: '', updatedAt: '', ...o,
+  periodEnd: null, dueDate: today, scheduledDueDate: null, status: 'todo', priority: 'normal', tags: [], completedAt: null, checklist: [], waitingSince: null, createdAt: '', updatedAt: '', ...o,
 });
 const tasks = [
   t('overdue', { dueDate: '2026-10-12', priority: 'high' }),

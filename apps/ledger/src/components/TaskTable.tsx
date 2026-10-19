@@ -1,6 +1,7 @@
 import { memo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { NewTaskDefaults } from './ui-state';
 import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun } from 'lucide-react';
+import { ChecklistBadge } from './Checklist';
 import { QuickAdd } from './QuickAdd';
 import { addDays, weekday, type ISODate } from '../lib/dates';
 import { formatDayShort, formatDue } from '../lib/format';
@@ -109,11 +110,15 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
       <td className="max-w-0 py-1.5 pr-3">
         {stacked ? (
           <div className="flex min-w-0 flex-col">
-            <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+              {open && <ChecklistBadge items={task.checklist} />}
+            </span>
             <span className="truncate text-[12px] text-ink-3">{[showClient && client?.name, task.periodKey && periodLabel(task.periodKey)].filter(Boolean).join(' · ')}</span>
           </div>
         ) : <div className="flex min-w-0 items-center gap-2">
           <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+          {open && <ChecklistBadge items={task.checklist} />}
           {task.periodKey && (
             <span className="hidden shrink-0 items-center gap-1 text-[11.5px] text-ink-3 sm:inline-flex" title="From a recurring schedule">
               <Repeat className="size-3" />{periodLabel(task.periodKey)}
