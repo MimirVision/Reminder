@@ -35,6 +35,7 @@ export function CommandPalette() {
     const go = (to: string) => () => navigate(to);
     const base: Item[] = [
       { id: 'new-task', label: 'New task', icon: Plus, group: 'Actions', run: () => ui.openNewTask() },
+      { id: 'new-multi', label: 'New task for several clients…', icon: Plus, group: 'Actions', run: () => ui.openNewTask({ multi: true }) },
       { id: 'new-schedule', label: 'New recurring schedule', icon: Repeat, group: 'Actions', run: () => ui.openSchedule({ mode: 'new' }) },
       { id: 'home', label: 'Home', icon: Home, group: 'Go to', run: go('/') },
       { id: 'tasks', label: 'My Tasks', icon: ListChecks, group: 'Go to', run: go('/tasks') },

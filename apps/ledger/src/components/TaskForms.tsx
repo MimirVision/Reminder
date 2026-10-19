@@ -10,6 +10,9 @@ import { DatePicker } from '../ui/datepicker';
 import { Field, Input, Select, Textarea } from '../ui/field';
 import { Dialog } from '../ui/overlay';
 import { fromLines } from './Checklist';
+import { ClientsPicker } from './ClientsPicker';
+import { useToast } from '../ui/toast';
+import { cn } from '../ui/cn';
 import { useUI } from './ui-state';
 
 export function NewTaskDialog() {
@@ -26,10 +29,15 @@ export function NewTaskDialog() {
   const [tags, setTags] = useState('');
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Several clients: the same task created once for each, as separate tasks with nothing linking them.
+  const [multi, setMulti] = useState(false);
+  const [many, setMany] = useState<string[]>([]);
+  const toast = useToast();
 
   useEffect(() => {
     if (!open) return;
     setTitle(ui.newTask?.title ?? ''); setNotes(''); setTags(''); setPriority('normal'); setType('follow_up'); setTried(false);
+    setMulti(!!ui.newTask?.multi); setMany([]);
     setClientId(ui.newTask?.clientId ?? '');
     setDue(ui.newTask?.dueDate ?? today);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -38,22 +46,38 @@ export function NewTaskDialog() {
   const parsed = parseQuickAdd(title, snap.clients, today);
   const titleRef = useRef<HTMLInputElement>(null);
   const effective = { clientId: parsed.clientId ?? clientId, due: parsed.due ?? due, priority: parsed.priority ?? priority };
-  const errors = { title: !parsed.title ? 'Give the task a title.' : null, client: !effective.clientId ? 'Choose a client.' : null };
+  // In several-clients mode an @client in the title adds that client to the ticked ones.
+  const targets = multi ? [...new Set([...many, ...(parsed.clientId ? [parsed.clientId] : [])])] : effective.clientId ? [effective.clientId] : [];
+  const errors = {
+    title: !parsed.title ? 'Give the task a title.' : null,
+    client: targets.length ? null : multi ? 'Tick at least one client.' : 'Choose a client.',
+  };
   const submit = async (another = false) => {
     setTried(true);
     if (errors.title || errors.client) return;
     setBusy(true);
-    const created = await run((r) => r.createOccurrence({
-      clientId: effective.clientId, scheduleId: null, title: parsed.title, description: notes, taskType: type, periodKey: null, periodStart: null, periodEnd: null,
-      dueDate: effective.due, scheduledDueDate: null, status: 'todo', priority: effective.priority,
+    const base = {
+      scheduleId: null, title: parsed.title, description: notes, taskType: type, periodKey: null, periodStart: null, periodEnd: null,
+      dueDate: effective.due, scheduledDueDate: null, status: 'todo' as const, priority: effective.priority,
       tags: [...new Set([...parsed.tags, ...tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)])],
-      checklist: fromLines(snap.workspace.settings.checklistTemplates?.[type]),
-    }), { success: another ? 'Task created. Add the next one.' : 'Task created' });
+    };
+    const n = targets.length;
+    const created = await run(async (r) => {
+      const ids: string[] = [];
+      // Each client gets its own task, with its own copy of the checklist.
+      for (const clientId of targets) ids.push((await r.createOccurrence({ ...base, clientId, checklist: fromLines(snap.workspace.settings.checklistTemplates?.[type]) })).id);
+      return ids;
+    }, { success: n === 1 ? (another ? 'Task created. Add the next one.' : 'Task created') : undefined });
     setBusy(false);
     if (!created) return;
+    if (n > 1) {
+      toast.show(`Created ${n} tasks: “${parsed.title}”`, {
+        undo: () => void run(async (r) => { for (const id of created) await r.deleteOccurrence(id); }, { success: `Removed the ${n} tasks` }),
+      });
+    }
     if (another) {
-      // Keep client, date and type for a run of similar tasks; clear the rest.
-      setClientId(effective.clientId); setDue(effective.due); setTitle(''); setNotes(''); setTags(''); setTried(false);
+      // Keep client(s), date and type for a run of similar tasks; clear the rest.
+      setClientId(effective.clientId); setMany(targets); setDue(effective.due); setTitle(''); setNotes(''); setTags(''); setTried(false);
       titleRef.current?.focus();
     } else ui.closeNewTask();
   };
@@ -61,10 +85,10 @@ export function NewTaskDialog() {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && ui.closeNewTask()} title="New task" description="A one-off task. For work that repeats, add a recurring schedule instead."
       footer={<>
-        <span className="mr-auto hidden text-[12px] text-ink-3 sm:block">Enter to create · Shift+Enter to add another</span>
+        <span className={cn('mr-auto hidden text-[12px] text-ink-3', !multi && 'sm:block')}>Enter to create · Shift+Enter to add another</span>
         <Button onClick={ui.closeNewTask}>Cancel</Button>
         <Button onClick={() => void submit(true)} disabled={busy}>Create &amp; add another</Button>
-        <Button variant="primary" loading={busy} onClick={() => void submit()}>Create task</Button>
+        <Button variant="primary" loading={busy} onClick={() => void submit()}>{targets.length > 1 ? `Create ${targets.length} tasks` : 'Create task'}</Button>
       </>}>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}
         onKeyDown={(e) => {
@@ -78,14 +102,23 @@ export function NewTaskDialog() {
           {(p) => <Input {...p} ref={titleRef} value={title} maxLength={200} placeholder="e.g. Chase missing receipts @nordvik fri" onChange={(e) => setTitle(e.target.value)} />}
         </Field>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Client" error={tried ? errors.client : null}>
-            {(p) => (
-              <Select {...p} value={effective.clientId} disabled={!!parsed.clientId} onChange={(e) => setClientId(e.target.value)}>
-                <option value="" disabled>Choose a client…</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </Select>
-            )}
-          </Field>
+          {multi ? (
+            <Field label="Clients" className="sm:col-span-2" error={tried ? errors.client : null}
+              hint={<button type="button" className="text-accent hover:underline" onClick={() => { setMulti(false); setClientId(targets[0] ?? ''); }}>Just one client</button>}>
+              {() => <ClientsPicker selected={targets} onChange={setMany}
+                onGroup={(g) => { if (g.type && type === 'follow_up') setType(g.type); }} />}
+            </Field>
+          ) : (
+            <Field label="Client" error={tried ? errors.client : null}
+              hint={<button type="button" className="text-accent hover:underline" onClick={() => { setMulti(true); setMany(effective.clientId ? [effective.clientId] : []); }}>Several clients…</button>}>
+              {(p) => (
+                <Select {...p} value={effective.clientId} disabled={!!parsed.clientId} onChange={(e) => setClientId(e.target.value)}>
+                  <option value="" disabled>Choose a client…</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+              )}
+            </Field>
+          )}
           <Field label="Due date">
             {(p) => (
               <DatePicker value={effective.due} today={today} onChange={setDue} trigger={

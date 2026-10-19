@@ -288,3 +288,26 @@ test('the calendar marks Norwegian public holidays', async ({ page }) => {
   await expect(page.getByText('Constitution Day')).toBeVisible();
   await expect(page.getByText('Ascension Day')).toBeVisible();
 });
+
+test('one task can be created for several clients at once, as separate tasks', async ({ page }) => {
+  await page.goto('/tasks');
+  await page.getByRole('banner').getByRole('button', { name: 'New task' }).click();
+  const d = page.getByRole('dialog', { name: 'New task' });
+  await d.getByLabel('Title').fill('Deliver VAT 12.10');
+  await d.getByRole('button', { name: 'Several clients…' }).click();
+  const vat = d.getByRole('button', { name: /^VAT clients/ });
+  const n = Number(await vat.locator('span.num').textContent());
+  expect(n).toBeGreaterThan(2);
+  await vat.click();
+  await expect(d.getByLabel('Type')).toHaveValue('vat');
+  await d.getByRole('button', { name: `Create ${n} tasks` }).click();
+  await expect(page.getByText(`Created ${n} tasks: “Deliver VAT”`)).toBeVisible();
+  await page.getByRole('textbox', { name: 'Search tasks' }).fill('Deliver VAT');
+  const rows = page.locator('tbody tr[data-task]');
+  await expect(rows).toHaveCount(n);
+  // Separate tasks: finishing one leaves the others open.
+  await rows.first().getByRole('button', { name: /Mark “Deliver VAT” done/ }).click();
+  await page.getByRole('tab', { name: /All open tasks/ }).click();
+  await page.getByRole('textbox', { name: 'Search tasks' }).fill('Deliver VAT');
+  await expect(rows).toHaveCount(n - 1);
+});
