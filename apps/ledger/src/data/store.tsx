@@ -38,7 +38,7 @@ interface Store {
 
 const EMPTY: Snapshot = {
   workspace: { id: '', name: '', timezone: 'Europe/Oslo', settings: {} },
-  clients: [], schedules: [], pauses: [], occurrences: [], reviews: [], activity: [], runs: [],
+  clients: [], schedules: [], pauses: [], occurrences: [], reviews: [], meetings: [], activity: [], runs: [],
 };
 
 const Ctx = createContext<Store | null>(null);

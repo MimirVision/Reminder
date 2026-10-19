@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Dialog as D } from 'radix-ui';
-import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings } from 'lucide-react';
+import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings, Users } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDue } from '../lib/format';
 import { parseQuickAdd } from '../lib/quickadd';
@@ -16,7 +16,7 @@ interface Item { id: string; label: string; hint?: string; icon: typeof Home; gr
 export function CommandPalette() {
   const ui = useUI();
   const { navigate } = useRoute();
-  const { snap, clientById, today, run } = useStore();
+  const { snap, clientById, today, run, repo } = useStore();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
 
@@ -35,6 +35,7 @@ export function CommandPalette() {
     const go = (to: string) => () => navigate(to);
     const base: Item[] = [
       { id: 'new-task', label: 'New task', icon: Plus, group: 'Actions', run: () => ui.openNewTask() },
+      ...(repo.meetings ? [{ id: 'new-meeting', label: 'New meeting', icon: Users, group: 'Actions', run: () => ui.openMeeting({ mode: 'new' }) }] : []),
       { id: 'new-multi', label: 'New task for several clients…', icon: Plus, group: 'Actions', run: () => ui.openNewTask({ multi: true }) },
       { id: 'new-schedule', label: 'New recurring schedule', icon: Repeat, group: 'Actions', run: () => ui.openSchedule({ mode: 'new' }) },
       { id: 'home', label: 'Home', icon: Home, group: 'Go to', run: go('/') },
@@ -73,7 +74,7 @@ export function CommandPalette() {
       .sort((a, b) => Number(isOpen(b.status)) - Number(isOpen(a.status)) || a.dueDate.localeCompare(b.dueDate)).slice(0, 30);
     for (const o of tasks) out.push({ id: o.id, label: o.title, hint: `${clientById.get(o.clientId)?.name ?? ''} · ${formatDue(o.dueDate, today)}${isOpen(o.status) ? '' : ' · closed'}`, icon: ListChecks, group: 'Tasks', run: () => ui.openTask(o.id) });
     return [...out.slice(0, 59), ...create];
-  }, [q, snap, clientById, today, navigate, ui, run]);
+  }, [q, snap, clientById, today, navigate, ui, run, repo]);
 
   const pick = (i: Item | undefined) => { if (!i) return; ui.setPalette(false); i.run(); };
   let lastGroup = '';

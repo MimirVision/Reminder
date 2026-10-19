@@ -1,5 +1,5 @@
 import type { ISODate } from '../lib/dates';
-import type { ChecklistItem, Client, Occurrence, Review, Schedule, Snapshot, Workspace } from '../lib/types';
+import type { ChecklistItem, Client, Meeting, Occurrence, Review, Schedule, Snapshot, Workspace } from '../lib/types';
 
 type ClientExtras = 'contactName' | 'contactEmail' | 'contactPhone' | 'documents';
 export type NewClient = Pick<Client, 'name' | 'reference' | 'notes'> & Partial<Pick<Client, 'status' | ClientExtras>>;
@@ -14,6 +14,9 @@ export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' |
 
 export type NewReview = Pick<Review, 'scheduleId' | 'periodKey' | 'status' | 'note'>;
 
+export type NewMeeting = Pick<Meeting, 'clientId' | 'title' | 'date' | 'start' | 'end' | 'location' | 'notes'>;
+export type MeetingPatch = Partial<NewMeeting>;
+
 /** A full export of a workspace. Restoring it recreates the same ids, so it is also the restore format. */
 export interface Backup {
   format: 'ledger-backup';
@@ -25,6 +28,8 @@ export interface Backup {
   pauses: Snapshot['pauses'];
   occurrences: Occurrence[];
   reviews: Review[];
+  /** Missing in backups made before meetings existed. */
+  meetings?: Meeting[];
   activity: Snapshot['activity'];
 }
 
@@ -39,6 +44,8 @@ export interface Repo {
    * and holiday-aware due dates are then off until the updated file is run. Known after load().
    */
   readonly current: boolean;
+  /** False while the database is older than 0004_ledger_meetings.sql: meetings are then off. */
+  readonly meetings: boolean;
   load(): Promise<Snapshot>;
   updateWorkspace(patch: Partial<Pick<Workspace, 'name' | 'timezone' | 'settings'>>): Promise<void>;
 
@@ -58,6 +65,10 @@ export interface Repo {
   createOccurrence(o: NewOccurrence): Promise<Occurrence>;
   updateOccurrence(id: string, patch: OccurrencePatch): Promise<void>;
   deleteOccurrence(id: string): Promise<void>;
+
+  createMeeting(m: NewMeeting): Promise<Meeting>;
+  updateMeeting(id: string, patch: MeetingPatch): Promise<void>;
+  deleteMeeting(id: string): Promise<void>;
 
   saveReview(r: NewReview): Promise<void>;
   deleteReview(id: string): Promise<void>;
@@ -106,6 +117,7 @@ export function withUuids(b: Backup): Backup {
     pauses: b.pauses.map((p) => ({ ...p, id: id(p.id), scheduleId: id(p.scheduleId) })),
     occurrences: b.occurrences.map((o) => ({ ...o, id: id(o.id), clientId: id(o.clientId), scheduleId: o.scheduleId && id(o.scheduleId) })),
     reviews: b.reviews.map((r) => ({ ...r, id: id(r.id), scheduleId: id(r.scheduleId) })),
+    meetings: (b.meetings ?? []).map((m) => ({ ...m, id: id(m.id), clientId: m.clientId && id(m.clientId) })),
     activity: [],
   };
 }
@@ -114,7 +126,7 @@ export function toBackup(s: import('../lib/types').Snapshot): Backup {
   return {
     format: 'ledger-backup', version: 1, exportedAt: new Date().toISOString(),
     workspace: { name: s.workspace.name, timezone: s.workspace.timezone, settings: s.workspace.settings },
-    clients: s.clients, schedules: s.schedules, pauses: s.pauses, occurrences: s.occurrences, reviews: s.reviews, activity: s.activity,
+    clients: s.clients, schedules: s.schedules, pauses: s.pauses, occurrences: s.occurrences, reviews: s.reviews, meetings: s.meetings, activity: s.activity,
   };
 }
 
@@ -143,5 +155,5 @@ export function parseBackup(raw: unknown): Backup {
     if (!Array.isArray(b[k])) throw new RepoError(`The backup is missing its ${k}.`);
   }
   // Backups made before checklists, contacts and documents existed restore with empty ones.
-  return upgradeRows({ activity: [], ...b } as Backup);
+  return upgradeRows({ activity: [], meetings: [], ...b } as Backup);
 }

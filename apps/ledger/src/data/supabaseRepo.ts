@@ -3,8 +3,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ISODate } from '../lib/dates';
-import type { Activity, Client, GenerationRun, Occurrence, Pause, Review, Schedule, Snapshot, Workspace } from '../lib/types';
-import type { Backup, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
+import type { Activity, Client, GenerationRun, Meeting, Occurrence, Pause, Review, Schedule, Snapshot, Workspace } from '../lib/types';
+import type { Backup, MeetingPatch, NewMeeting, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
 import { RepoError, withUuids } from './repo';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -27,6 +27,14 @@ const toOccurrence = (r: Row): Occurrence => ({
   taskType: r.task_type, periodKey: r.period_key, periodStart: r.period_start, periodEnd: r.period_end, dueDate: r.due_date,
   scheduledDueDate: r.scheduled_due_date, status: r.status, priority: r.priority, tags: r.tags ?? [], completedAt: r.completed_at,
   checklist: r.checklist ?? [], waitingSince: r.waiting_since ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
+});
+const hhmm = (t: string) => String(t ?? '').slice(0, 5);
+const toMeeting = (r: Row): Meeting => ({
+  id: r.id, workspaceId: r.workspace_id, clientId: r.client_id, title: r.title, date: r.meeting_date, start: hhmm(r.start_time), end: hhmm(r.end_time),
+  location: r.location ?? '', notes: r.notes ?? '', createdAt: r.created_at, updatedAt: r.updated_at,
+});
+const meetingRow = (m: Partial<NewMeeting>): Row => strip({
+  client_id: m.clientId, title: m.title, meeting_date: m.date, start_time: m.start, end_time: m.end, location: m.location, notes: m.notes,
 });
 const toReview = (r: Row): Review => ({ id: r.id, workspaceId: r.workspace_id, scheduleId: r.schedule_id, periodKey: r.period_key, status: r.status, note: r.note, createdAt: r.created_at, updatedAt: r.updated_at });
 const toActivity = (r: Row): Activity => ({ id: String(r.id), workspaceId: r.workspace_id, entity: r.entity, entityId: r.entity_id, clientId: r.client_id, action: r.action, details: r.details ?? {}, actorId: r.actor_id, createdAt: r.created_at });
@@ -64,6 +72,7 @@ function check<T>(res: { data: T; error: unknown }): T {
 export class SupabaseRepo implements Repo {
   readonly mode = 'supabase' as const;
   current = false;
+  meetings = false;
   private ws: Workspace | null = null;
   constructor(private sb: SupabaseClient) {}
 
@@ -93,16 +102,18 @@ export class SupabaseRepo implements Repo {
     // ledger_schema_version() exists once the v3 SQL has been run.
     const v = await this.sb.rpc('ledger_schema_version');
     this.current = !v.error && Number(v.data) >= 3;
-    const [clients, schedules, pauses, occurrences, reviews, activity, runs] = await Promise.all([
+    this.meetings = !v.error && Number(v.data) >= 4;
+    const [clients, schedules, pauses, occurrences, reviews, meetings, activity, runs] = await Promise.all([
       this.all('ledger_clients'), this.all('ledger_schedules'), this.all('ledger_schedule_pauses'), this.all('ledger_occurrences', 'due_date'),
       this.all('ledger_reviews'),
+      this.meetings ? this.all('ledger_meetings', 'meeting_date') : Promise.resolve([] as Row[]),
       this.sb.from('ledger_activity').select('*').order('created_at', { ascending: false }).limit(1000).then(check),
       this.sb.from('ledger_generation_runs').select('*').order('started_at', { ascending: false }).limit(20).then(check),
     ]);
     return {
       workspace: this.ws!,
       clients: clients.map(toClient), schedules: schedules.map(toSchedule), pauses: pauses.map(toPause),
-      occurrences: occurrences.map(toOccurrence), reviews: reviews.map(toReview),
+      occurrences: occurrences.map(toOccurrence), reviews: reviews.map(toReview), meetings: meetings.map(toMeeting),
       activity: (activity as Row[]).map(toActivity), runs: (runs as Row[]).map(toRun),
     };
   }
@@ -156,6 +167,18 @@ export class SupabaseRepo implements Repo {
     if (!(res as Row[]).length) throw new RepoError('Tasks from a schedule can’t be deleted. Mark it cancelled instead, so the period stays accounted for.');
   }
 
+  async createMeeting(m: NewMeeting): Promise<Meeting> {
+    if (!this.meetings) throw new RepoError('Meetings need the database update: run ledger.sql again (see Settings).');
+    return toMeeting(check(await this.sb.from('ledger_meetings').insert({ ...meetingRow(m), workspace_id: await this.workspaceId() }).select().single()) as Row);
+  }
+  async updateMeeting(id: string, patch: MeetingPatch) {
+    const res = check(await this.sb.from('ledger_meetings').update(meetingRow(patch)).eq('id', id).select('id'));
+    if (!(res as Row[]).length) throw new RepoError('That meeting no longer exists. Reload to see the latest.');
+  }
+  async deleteMeeting(id: string) {
+    check(await this.sb.from('ledger_meetings').delete().eq('id', id));
+  }
+
   async saveReview(r: NewReview) {
     check(await this.sb.from('ledger_reviews').upsert(
       { workspace_id: await this.workspaceId(), schedule_id: r.scheduleId, period_key: r.periodKey, status: r.status, note: r.note },
@@ -183,6 +206,7 @@ export class SupabaseRepo implements Repo {
     await put('ledger_schedule_pauses', b.pauses.map((p) => ({ id: p.id, workspace_id: ws, schedule_id: p.scheduleId, paused_from: p.pausedFrom, resumed_on: p.resumedOn })));
     await put('ledger_occurrences', b.occurrences.map((o) => ({ id: o.id, workspace_id: ws, ...occurrenceRow(o), created_at: o.createdAt })));
     await put('ledger_reviews', b.reviews.map((r) => ({ id: r.id, workspace_id: ws, schedule_id: r.scheduleId, period_key: r.periodKey, status: r.status, note: r.note })));
+    if (this.meetings) await put('ledger_meetings', (b.meetings ?? []).map((m) => ({ id: m.id, workspace_id: ws, ...meetingRow(m), created_at: m.createdAt })));
   }
 
   async erase() {

@@ -51,3 +51,12 @@ describe('quick add', () => {
     expect(p('x p4').priority).toBe('low');
   });
 });
+
+describe('dates without a year', () => {
+  it('keep a recently passed date in this year, and move older ones to next year', () => {
+    expect(p('Deliver VAT 12.10').due).toBe('2026-10-12');
+    expect(p('x 20.8').due).toBe('2026-08-20');
+    expect(p('x 1.6').due).toBe('2027-06-01');
+    expect(p('x 15.11').due).toBe('2026-11-15');
+  });
+});

@@ -7,7 +7,8 @@ import { sortTasks } from '../../lib/filters';
 import { formatDate, formatDayLong, formatDue, formatMonth, formatWeekdayShort, greeting } from '../../lib/format';
 import { TYPE_LABEL } from '../../lib/labels';
 import { needsReview } from '../../lib/missing';
-import { isOpen, TASK_TYPES, type Occurrence } from '../../lib/types';
+import { isOpen, TASK_TYPES, type Meeting, type Occurrence } from '../../lib/types';
+import { sortMeetings, toMinutes } from '../../lib/meetings';
 import { UPCOMING_CHOICES, type WidgetItem } from '../../lib/widgets';
 import { Link, useRoute } from '../../router';
 import { cn } from '../../ui/cn';
@@ -509,6 +510,52 @@ export function DocumentsWidget() {
             })}
           </ul>
         ) : <QuietLine icon={FileText}>Nothing outstanding. Request documents from a client’s Documents tab.</QuietLine>}
+    </Frame>
+  );
+}
+
+/** Today's meetings by the hour, then the next few. */
+export function AgendaWidget() {
+  const { snap, today, clientById, repo } = useStore();
+  const ui = useUI();
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const todays = sortMeetings(snap.meetings.filter((m) => m.date === today));
+  const next = sortMeetings(snap.meetings.filter((m) => m.date > today)).slice(0, 4);
+  const row = (m: Meeting, day?: boolean) => {
+    const past = !day && toMinutes(m.end) <= nowMin;
+    const live = !day && toMinutes(m.start) <= nowMin && nowMin < toMinutes(m.end);
+    const client = m.clientId ? clientById.get(m.clientId)?.name : null;
+    return (
+      <li key={m.id}>
+        <button onClick={() => ui.openMeeting({ mode: 'edit', id: m.id })}
+          className={cn('flex w-full items-start gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-hover', past && 'opacity-55')}>
+          <span className="flex w-12 shrink-0 flex-col">
+            <span className={cn('num text-[12.5px] font-medium', live ? 'text-accent-ink' : 'text-ink')}>{day ? formatWeekdayShort(m.date) : m.start}</span>
+            <span className="num text-[11px] text-ink-3">{day ? m.start : m.end}</span>
+          </span>
+          <span className={cn('mt-0.5 w-[3px] self-stretch rounded-full', live ? 'bg-accent' : 'bg-accent/40')} aria-hidden />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-[13px] font-medium">{m.title}{live && <span className="ml-1.5 rounded bg-accent-soft px-1 text-[11px] font-normal text-accent-ink">Now</span>}</span>
+            <span className="truncate text-[12px] text-ink-3">{[client ?? 'Internal', m.location].filter(Boolean).join(' · ')}</span>
+          </span>
+        </button>
+      </li>
+    );
+  };
+  return (
+    <Frame title="Agenda" count={todays.length ? `${todays.length} today` : undefined}
+      action={repo.meetings && <button onClick={() => ui.openMeeting({ mode: 'new' })} className={linkCls}>New meeting</button>}>
+      {!repo.meetings ? <QuietLine icon={Users}>Meetings arrive with the database update (Settings).</QuietLine> : (
+        <div className="flex flex-col gap-1 px-2.5 py-2">
+          {todays.length ? <ul className="flex flex-col">{todays.map((m) => row(m))}</ul>
+            : <p className="px-2 py-1.5 text-[13px] text-ink-3">No meetings today.</p>}
+          {next.length > 0 && <>
+            <h3 className="mt-2 px-2 text-[11px] font-medium tracking-wide text-ink-3 uppercase">Coming up</h3>
+            <ul className="flex flex-col">{next.map((m) => row(m, true))}</ul>
+          </>}
+        </div>
+      )}
     </Frame>
   );
 }

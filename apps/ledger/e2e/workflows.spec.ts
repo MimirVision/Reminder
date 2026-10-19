@@ -204,7 +204,7 @@ test('home is a dashboard you arrange: add, move, resize and remove widgets, and
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('Shift+ArrowRight');
-  expect((await order()).slice(-3)).toEqual(['notes', 'overdue', 'missing']);
+  expect((await order()).slice(-3)).toEqual(['notes', 'week', 'missing']);
   await expect(page.locator('[data-widget-type=notes]')).toHaveAttribute('style', /--w: 5/);
 
   await page.getByRole('button', { name: 'Remove Missing tasks' }).click();
@@ -214,7 +214,7 @@ test('home is a dashboard you arrange: add, move, resize and remove widgets, and
 
   await page.reload();
   expect(await order()).not.toContain('missing');
-  expect((await order()).slice(-2)).toEqual(['notes', 'overdue']);
+  expect((await order()).slice(-2)).toEqual(['notes', 'week']);
   await expect(page.getByRole('textbox', { name: 'Notepad' })).toHaveValue('Call Nordvik about the bank feed');
 });
 
@@ -310,4 +310,33 @@ test('one task can be created for several clients at once, as separate tasks', a
   await page.getByRole('tab', { name: /All open tasks/ }).click();
   await page.getByRole('textbox', { name: 'Search tasks' }).fill('Deliver VAT');
   await expect(rows).toHaveCount(n - 1);
+});
+
+test('meetings are booked at a time of day and shown in the calendar by the hour', async ({ page }) => {
+  await page.goto('/calendar?view=week');
+  await page.getByRole('button', { name: 'New meeting' }).click();
+  const d = page.getByRole('dialog', { name: 'New meeting' });
+  await d.getByLabel('Title').fill('Budget review');
+  await d.getByLabel('Client').selectOption({ label: 'Nordvik Snekkeri AS' });
+  await d.getByLabel('Starts').fill('07:30');
+  await d.getByRole('button', { name: '45 min' }).click();
+  await expect(d.getByLabel('Ends')).toHaveValue('08:15');
+  await d.getByRole('button', { name: 'Book meeting' }).click();
+  const block = page.getByRole('button', { name: /^Budget review, 07:30 to 08:15, Nordvik Snekkeri AS/ });
+  await expect(block).toBeVisible();
+  // It sits at its time: below 07:00, above 08:00 on the grid.
+  const grid = page.getByRole('region', { name: 'Meetings by time of day' }).or(page.getByLabel('Meetings by time of day'));
+  const top = (await block.boundingBox())!.y - (await grid.boundingBox())!.y + (await grid.evaluate((el) => el.scrollTop));
+  expect(top).toBeGreaterThan(7 * 48);
+  expect(top).toBeLessThan(8 * 48);
+  // Day view, then open and change it.
+  await page.getByRole('radio', { name: 'Day' }).click();
+  await block.click();
+  await page.getByRole('dialog', { name: 'Meeting' }).getByLabel('Starts').fill('09:00');
+  await page.getByRole('dialog', { name: 'Meeting' }).getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('button', { name: /^Budget review, 09:00 to 09:45/ })).toBeVisible();
+  // The client page lists it.
+  await page.goto('/clients/client-1');
+  await page.getByRole('tab', { name: /Meetings/ }).click();
+  await expect(page.getByText('Budget review')).toBeVisible();
 });

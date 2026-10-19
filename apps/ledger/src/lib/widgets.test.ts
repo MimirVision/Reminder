@@ -27,7 +27,7 @@ describe('home layout', () => {
 
   it('moves a widget to a new position', () => {
     const ids = moveWidget(DEFAULT_LAYOUT, 0, 3).map((x) => x.id);
-    expect(ids.slice(0, 4)).toEqual(['quickAdd', 'today', 'week', 'greeting']);
+    expect(ids.slice(0, 4)).toEqual(['quickAdd', 'today', 'agenda', 'greeting']);
     expect(moveWidget(DEFAULT_LAYOUT, 2, 2)).toBe(DEFAULT_LAYOUT);
   });
 

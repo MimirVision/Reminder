@@ -1,4 +1,4 @@
-import { CheckCircle2, CirclePlus, Clock, Edit3, Pause, Play, Repeat, ShieldCheck, Square, Trash2, Archive, RotateCcw, CalendarClock } from 'lucide-react';
+import { CheckCircle2, CirclePlus, Clock, Edit3, Pause, Play, Repeat, ShieldCheck, Square, Trash2, Archive, RotateCcw, CalendarClock, Users } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDate, formatTimestamp } from '../lib/format';
 import { STATUS_LABEL } from '../lib/labels';
@@ -28,6 +28,9 @@ function describe(a: Activity): { icon: typeof Clock; text: string } {
     case 'review:reviewed': return { icon: ShieldCheck, text: `Missing ${periodLabel(d.period as string)} marked as reviewed` };
     case 'review:exception': return { icon: ShieldCheck, text: `Exception for ${periodLabel(d.period as string)}: ${d.note}` };
     case 'review:review_cleared': return { icon: RotateCcw, text: `Review for ${periodLabel(d.period as string)} cleared` };
+    case 'meeting:created': return { icon: Users, text: `Meeting booked: “${title}”, ${formatDate(d.date as string)}${d.start ? ` at ${d.start}` : ''}` };
+    case 'meeting:rescheduled': return { icon: CalendarClock, text: `Meeting “${title}” moved to ${formatDate(d.to as string)}${d.start ? ` at ${d.start}` : ''}` };
+    case 'meeting:deleted': return { icon: Trash2, text: `Meeting “${title}” on ${formatDate(d.date as string)} removed` };
     default: return { icon: Clock, text: `${a.entity} ${a.action}` };
   }
 }
