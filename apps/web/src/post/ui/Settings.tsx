@@ -8,6 +8,7 @@ import { go, useC, useNow, useWide } from './ctx.tsx';
 import { Alerts, Hours } from './Alerts.tsx';
 import { Health, dotOf, useHealthLine } from './Health.tsx';
 import { Gone } from './Gone.tsx';
+import { installPost, useInstall } from '../install.ts';
 import { Subscriptions, useSubscriptionsLine } from './Subscriptions.tsx';
 
 declare const __BUILD__: string;
@@ -103,6 +104,7 @@ export function Settings({ s }: { s: State }) {
         <div className="card">
           <button className="it" onClick={() => go({ name: 'settings', page: 'gone' })}><span className="ico"><Icon n="search" /></span>Where did my mail go?<span className="v">{s.left.length ? `${s.left.length} noted` : 'Nothing yet'}<Icon n="chev" /></span></button>
           <button className="it" onClick={() => go({ name: 'settings', page: 'health' })}><span className="ico"><Icon n="pulse" /></span>Health<span className="v"><i className={dotOf(health.level)} />{health.text}<Icon n="chev" /></span></button>
+          <InstallRow />
           <ForgetRow />
         </div>
         <p className="note">Version {typeof __BUILD__ === 'string' ? __BUILD__ : 'dev'}</p>
@@ -110,6 +112,14 @@ export function Settings({ s }: { s: State }) {
       </div>
     </div>
   );
+}
+
+function InstallRow() {
+  const st = useInstall();
+  if (st === 'none') return null;
+  return st === 'done'
+    ? <div className="it"><span className="ico"><Icon n="check" /></span>Post is installed<span className="v">Open it from the Start menu or Dock</span></div>
+    : <button className="it" onClick={() => void installPost()}><span className="ico"><Icon n="download" /></span>Install Post as an app<span className="v">Its own window<Icon n="chev" /></span></button>;
 }
 
 function ForgetRow() {

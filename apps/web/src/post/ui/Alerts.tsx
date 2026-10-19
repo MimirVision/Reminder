@@ -3,7 +3,7 @@ import type { AppAccount, State } from '../core/controller.ts';
 import { accountColour } from '../core/settings.ts';
 import { enablePush, isStandalone, pushSupported } from '../push.ts';
 import { Icon, Seg, Switch } from './ui.tsx';
-import { go, useC } from './ctx.tsx';
+import { go, useC, useWide } from './ctx.tsx';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const MODE_TEXT: Record<string, string> = { people: 'Primary', all: 'All mail', vips: 'VIPs', off: 'Off' };
@@ -41,6 +41,7 @@ export function Alerts({ s }: { s: State }) {
     setBusy(false);
   };
   const standalone = isStandalone();
+  const wide = useWide();
   const check = (ok: boolean, text: string, right: string) => <div className="c"><i className={ok ? '' : 'no'}><Icon n={ok ? 'check' : 'x'} size={13} /></i>{text}<span>{right}</span></div>;
   return (
     <div className="pg">
@@ -48,9 +49,9 @@ export function Alerts({ s }: { s: State }) {
       <div className="ttl"><h1 className="h1">Alerts</h1></div>
       <div className="scroll">
         <div className="panel">
-          <div className="on-line"><span className={`pulse${s.alertsOn ? '' : ' off'}`} /><div><b>{s.alertsOn ? 'The icon number is on' : 'The icon number is off'}</b><span>{s.alertsOn ? 'New mail adds one to the number on Post’s icon.' : 'Turn it on to see new mail on the Home Screen.'}</span></div></div>
+          <div className="on-line"><span className={`pulse${s.alertsOn ? '' : ' off'}`} /><div><b>{s.alertsOn ? 'The icon number is on' : 'The icon number is off'}</b><span>{s.alertsOn ? 'New mail adds one to the number on Post’s icon.' : 'Turn it on to see new mail on the icon.'}</span></div></div>
           <div style={{ marginTop: 10 }}>
-            {check(standalone, 'Post is on your Home Screen', standalone ? 'OK' : 'Add it')}
+            {check(standalone, wide ? 'Post is installed as an app' : 'Post is on your Home Screen', standalone ? 'OK' : wide ? 'Install it' : 'Add it')}
             {check(perm === 'granted', 'Notifications are allowed', perm === 'granted' ? 'OK' : perm === 'denied' ? 'Blocked' : 'Not yet')}
             {check(ms !== null, 'Your alert server answers', ms !== null ? `${ms} ms` : 'No answer')}
             {s.serverSmart !== null && check(s.serverSmart, 'Alerts follow your Primary tab', s.serverSmart ? 'OK' : 'Needs update')}
@@ -60,7 +61,7 @@ export function Alerts({ s }: { s: State }) {
         <div className="btns">
           {!s.alertsOn ? <button className="p" disabled={busy || !standalone} onClick={() => void turnOn()}>Turn on the icon number</button> : <button className="p" disabled={busy} onClick={() => void test()}>Send a test alert</button>}
         </div>
-        {!standalone && <p className="note">This works from the Home Screen icon only. Open Post from there (Share, Add to Home Screen).</p>}
+        {!standalone && <p className="note">{wide ? 'This works from the installed app only. Install Post from Settings, then open it from the Start menu or Dock.' : 'This works from the Home Screen icon only. Open Post from there (Share, Add to Home Screen).'}</p>}
         {msg && <p className="note" role="status" style={{ color: 'var(--ink)' }}>{msg}</p>}
         <div className="panel">
           <b style={{ fontSize: 14.5 }}>Only the number, no pop-ups</b>
