@@ -187,3 +187,46 @@ test('a client page adds tasks for that client and can be pinned to the sidebar'
   await page.getByRole('menuitem', { name: 'Pin to sidebar' }).click();
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /Lysaker Design ENK/ })).toBeVisible();
 });
+
+test('home is a dashboard you arrange: add, move, resize and remove widgets, and it stays that way', async ({ page }) => {
+  await page.goto('/');
+  const order = () => page.locator('[data-widget-type]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.widgetType));
+  await page.getByRole('button', { name: 'Customize' }).click();
+  const bar = page.getByRole('toolbar', { name: 'Customize Home' });
+  await bar.getByRole('button', { name: 'Add widget' }).click();
+  await page.getByRole('dialog', { name: 'Add a widget' }).getByRole('button', { name: /Notepad/ }).click();
+  expect((await order()).at(-1)).toBe('notes');
+
+  // From the handle: arrows move it, Shift + arrows resize it.
+  const handle = page.getByRole('button', { name: 'Move or resize Notepad' });
+  await handle.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Shift+ArrowRight');
+  expect((await order()).slice(-3)).toEqual(['notes', 'overdue', 'missing']);
+  await expect(page.locator('[data-widget-type=notes]')).toHaveAttribute('style', /--w: 5/);
+
+  await page.getByRole('button', { name: 'Remove Missing tasks' }).click();
+  await bar.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Notepad' }).fill('Call Nordvik about the bank feed');
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+
+  await page.reload();
+  expect(await order()).not.toContain('missing');
+  expect((await order()).slice(-2)).toEqual(['notes', 'overdue']);
+  await expect(page.getByRole('textbox', { name: 'Notepad' })).toHaveValue('Call Nordvik about the bank feed');
+});
+
+test('appearance follows your settings, and G then a letter jumps between screens', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('radio', { name: 'Teal' }).click();
+  await page.getByRole('radio', { name: 'Compact' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+  await page.locator('body').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('g');
+  await page.keyboard.press('t');
+  await expect(page).toHaveURL(/\/tasks/);
+  await page.keyboard.press('?');
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+});

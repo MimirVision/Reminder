@@ -167,7 +167,7 @@ export function Tasks() {
         )}
       </div>}
       <p className={cn('mt-2 hidden text-[11.5px] text-ink-3', layout === 'list' && 'md:block')}>
-        Keyboard: ↑↓ move · Enter open · D done · W waiting · T tomorrow · X select (Shift for a range) · / search · N new task
+        Keyboard: ↑↓ move · Enter open · D done · W waiting · T tomorrow · X select (Shift for a range) · / search · N new task · ? all shortcuts
       </p>
 
       {layout === 'list' && picked.length > 0 && (

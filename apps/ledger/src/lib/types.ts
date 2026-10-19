@@ -55,7 +55,17 @@ export interface WorkspaceSettings {
   theme?: 'light' | 'dark' | 'system';
   /** Clients shown in the sidebar for one-click access. */
   pinnedClients?: string[];
+  /** The Home dashboard: widgets in order with their sizes. Read through normalizeLayout. */
+  homeLayout?: unknown;
+  /** The Notepad widget's text. */
+  homeNotes?: string;
+  accent?: Accent;
+  density?: 'comfortable' | 'compact';
+  /** The screen Ledger opens on. */
+  startPage?: 'home' | 'tasks' | 'calendar';
 }
+
+export type Accent = 'cobalt' | 'violet' | 'teal' | 'amber' | 'rose' | 'graphite';
 
 export interface Client {
   id: string;

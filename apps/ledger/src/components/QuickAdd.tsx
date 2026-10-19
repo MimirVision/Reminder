@@ -108,7 +108,7 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
         />
         {hasText && (
           <button onClick={() => void submit()} disabled={busy}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[12px] font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">
             Add <CornerDownLeft className="size-3.5" />
           </button>
         )}

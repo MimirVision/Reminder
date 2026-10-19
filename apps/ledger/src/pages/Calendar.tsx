@@ -129,7 +129,7 @@ export function Calendar() {
         <div className="grid grid-cols-7 border-b border-line">
           {days.slice(0, 7).map((d) => (
             <div key={d} className="px-2 py-1.5 text-[11.5px] font-medium text-ink-3">
-              {formatWeekdayShort(d)}{view === 'week' && <span className={cn('tnum ml-1.5', d === today ? 'rounded-full bg-accent px-1.5 py-px font-semibold text-white' : 'text-ink-2')}>{parts(d)[2]}</span>}
+              {formatWeekdayShort(d)}{view === 'week' && <span className={cn('tnum ml-1.5', d === today ? 'rounded-full bg-accent px-1.5 py-px font-semibold text-on-accent' : 'text-ink-2')}>{parts(d)[2]}</span>}
             </div>
           ))}
         </div>
@@ -154,7 +154,7 @@ export function Calendar() {
                 <div className={cn('group/day flex items-center justify-between px-1', view === 'month' ? 'mb-0.5' : 'mb-1 justify-end')}>
                   {view === 'month' && (
                     <span className={cn('tnum flex size-[22px] items-center justify-center rounded-full text-[12px]',
-                      d === today ? 'bg-accent font-semibold text-white' : outside ? 'text-ink-3/60' : 'text-ink-2')}>{parts(d)[2]}</span>
+                      d === today ? 'bg-accent font-semibold text-on-accent' : outside ? 'text-ink-3/60' : 'text-ink-2')}>{parts(d)[2]}</span>
                   )}
                   <button aria-label={`Add a task on ${formatDayLong(d)}`} onClick={() => ui.openNewTask({ dueDate: d })}
                     className="flex size-[22px] items-center justify-center rounded-md text-ink-3 opacity-0 transition-opacity group-hover/cell:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">

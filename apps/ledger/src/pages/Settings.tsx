@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { CheckCircle2, Database, Download, LogOut, RefreshCw, Trash2, Upload, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Database, Download, LogOut, RefreshCw, RotateCcw, Trash2, Upload, AlertTriangle } from 'lucide-react';
+import { cn } from '../ui/cn';
 import { Page } from '../components/Shell';
 import { useStore } from '../data/store';
 import { parseBackup, toBackup } from '../data/repo';
@@ -9,7 +10,7 @@ import { DEFAULT_THEME, IS_ARTIFACT, supabase, setDemoChoice, supabaseConfigured
 import { useToast } from '../ui/toast';
 import { formatTimestamp, setLocale } from '../lib/format';
 import { STATUS_LABEL, TYPE_LABEL, PRIORITY_LABEL } from '../lib/labels';
-import type { WorkspaceSettings } from '../lib/types';
+import type { Accent, WorkspaceSettings } from '../lib/types';
 import { Button } from '../ui/button';
 import { Field, Input, Segmented, Select } from '../ui/field';
 import { Confirm } from '../ui/overlay';
@@ -25,6 +26,11 @@ function Section({ title, description, children }: { title: string; description?
     </section>
   );
 }
+
+const ACCENTS: { id: Accent; label: string; swatch: string }[] = [
+  { id: 'cobalt', label: 'Cobalt', swatch: '#2b59e3' }, { id: 'violet', label: 'Violet', swatch: '#6a45d9' }, { id: 'teal', label: 'Teal', swatch: '#0e7c72' },
+  { id: 'amber', label: 'Amber', swatch: '#b4560f' }, { id: 'rose', label: 'Rose', swatch: '#c03462' }, { id: 'graphite', label: 'Graphite', swatch: '#2e3038' },
+];
 
 const ZONES = (() => {
   try { return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf('timeZone'); } catch { return ['Europe/Oslo', 'Europe/Stockholm', 'Europe/Copenhagen', 'Europe/London', 'UTC']; }
@@ -43,7 +49,7 @@ const csvCell = (v: unknown) => {
 };
 
 export function Settings({ email }: { email?: string | null }) {
-  const { snap, repo, run, lastGeneration, today, clientById, reload } = useStore();
+  const { snap, repo, run, lastGeneration, today, clientById, reload, saveSettings: store } = useStore();
   const toast = useToast();
   // The hosted page can't start downloads, so there the export goes to the clipboard instead.
   const save = (name: string, text: string, type: string) => {
@@ -61,7 +67,7 @@ export function Settings({ email }: { email?: string | null }) {
   const file = useRef<HTMLInputElement>(null);
 
   const saveSettings = (patch: Partial<WorkspaceSettings>, msg = 'Saved') =>
-    run((r) => r.updateWorkspace({ settings: { ...snap.workspace.settings, ...patch } }), { success: msg });
+    store(patch).then((ok) => { if (ok) toast.show(msg); });
   const stamp = today;
   const empty = snap.clients.length === 0 && snap.occurrences.length === 0;
 
@@ -129,10 +135,37 @@ export function Settings({ email }: { email?: string | null }) {
             </div>
           )}
         </Field>
+        <p className="text-[12px] text-ink-3">Reminders are shown inside Ledger (Home, overdue and due-today lists). Browser notifications are not used, so nothing depends on them.</p>
+      </Section>
+
+      <Section title="Appearance" description="How Ledger looks and feels. Saved to your workspace, so it follows you to other devices.">
         <Field label="Theme">
           {() => <div><Segmented label="Theme" value={s.theme ?? DEFAULT_THEME} onChange={(v) => void saveSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>}
         </Field>
-        <p className="text-[12px] text-ink-3">Reminders are shown inside Ledger (Home, overdue and due-today lists). Browser notifications are not used, so nothing depends on them.</p>
+        <Field label="Accent colour">
+          {() => (
+            <div role="radiogroup" aria-label="Accent colour" className="flex flex-wrap gap-2">
+              {ACCENTS.map((a) => {
+                const on = (s.accent ?? 'cobalt') === a.id;
+                return (
+                  <button key={a.id} role="radio" aria-checked={on} aria-label={a.label} title={a.label} onClick={() => !on && void saveSettings({ accent: a.id }, `Accent: ${a.label}`)}
+                    className={cn('flex size-9 items-center justify-center rounded-full ring-offset-2 ring-offset-surface transition-shadow', on ? 'ring-2 ring-ink' : 'hover:ring-2 hover:ring-line-strong')}>
+                    <span className="size-7 rounded-full" style={{ background: a.swatch }} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Field>
+        <Field label="Density" hint="Compact fits more rows on screen in task lists.">
+          {() => <div><Segmented label="Density" value={s.density ?? 'comfortable'} onChange={(v) => void saveSettings({ density: v })} options={[{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }]} /></div>}
+        </Field>
+        <Field label="Open Ledger on">
+          {() => <div><Segmented label="Start page" value={s.startPage ?? 'home'} onChange={(v) => void saveSettings({ startPage: v })} options={[{ value: 'home', label: 'Home' }, { value: 'tasks', label: 'My Tasks' }, { value: 'calendar', label: 'Calendar' }]} /></div>}
+        </Field>
+        <Field label="Home dashboard" hint="Use Customize on Home to add, move and resize widgets.">
+          {() => <div><Button size="sm" onClick={() => void saveSettings({ homeLayout: undefined }, 'Home reset to the default layout')}><RotateCcw /> Reset Home layout</Button></div>}
+        </Field>
       </Section>
 
       <Section title="Backup and export" description="Export regularly. The JSON backup holds everything needed to restore this workspace.">

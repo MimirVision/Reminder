@@ -7,7 +7,7 @@ import { todayIn, type ISODate } from '../lib/dates';
 import { setLocale } from '../lib/format';
 import { liveSchedules } from '../lib/generation';
 import { detectExpected, needsReview, type ExpectedItem } from '../lib/missing';
-import type { Client, Occurrence, Schedule, Snapshot } from '../lib/types';
+import type { Client, Occurrence, Schedule, Snapshot, WorkspaceSettings } from '../lib/types';
 import { isNotInstalled } from './config';
 import { friendlyError, type Repo } from './repo';
 import { useToast } from '../ui/toast';
@@ -29,6 +29,8 @@ interface Store {
   run<T>(fn: (repo: Repo) => Promise<T>, opts?: { success?: string | ((r: T) => string); generate?: boolean; quiet?: boolean }): Promise<T | undefined>;
   /** Updates a task immediately on screen and saves it; reverts with a message if saving fails. */
   patchOccurrence(id: string, patch: Partial<Occurrence>, success?: string): Promise<boolean>;
+  /** Changes workspace settings on screen at once and saves them in order; a failure shows a message and reloads. */
+  saveSettings(patch: Partial<WorkspaceSettings>): Promise<boolean>;
 }
 
 const EMPTY: Snapshot = {
@@ -45,9 +47,12 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
   const [today, setToday] = useState(() => todayIn());
   const [genError, setGenError] = useState<string | null>(null);
   const refreshTimer = useRef<number | undefined>(undefined);
+  const settingsRef = useRef<WorkspaceSettings>({});
+  const settingsQueue = useRef<Promise<unknown>>(Promise.resolve());
 
   const reload = useCallback(async () => {
     const s = await repo.load();
+    settingsRef.current = s.workspace.settings;
     setSnap(s);
     if (s.workspace.settings.locale) setLocale(s.workspace.settings.locale);
     setToday(todayIn(s.workspace.timezone));
@@ -151,7 +156,20 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
     return { at: r.finishedAt ?? r.startedAt, created: r.created, error: genError ?? (r.errors.length ? `${r.errors.length} schedule${r.errors.length === 1 ? '' : 's'} failed: ${r.errors[0].message}` : null) };
   }, [snap.runs, genError]);
 
-  const value: Store = { repo, state, snap, today, clientById, scheduleById, expected, reviewCount, lastGeneration, reload: open, run, patchOccurrence };
+  const saveSettings: Store['saveSettings'] = useCallback((patch) => {
+    const next = { ...settingsRef.current, ...patch };
+    settingsRef.current = next;
+    setSnap((s) => ({ ...s, workspace: { ...s.workspace, settings: next } }));
+    const job = settingsQueue.current.then(() => repo.updateWorkspace({ settings: next })).then(() => true, async (e) => {
+      toast.show(friendlyError(e), { tone: 'error' });
+      await reload().catch(() => {});
+      return false;
+    });
+    settingsQueue.current = job;
+    return job;
+  }, [repo, toast, reload]);
+
+  const value: Store = { repo, state, snap, today, clientById, scheduleById, expected, reviewCount, lastGeneration, reload: open, run, patchOccurrence, saveSettings };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
