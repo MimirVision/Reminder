@@ -19,6 +19,10 @@ demo data; only add real client information where your employer allows it, and k
 | Missing Tasks | Expected vs actual, per schedule and period, with the reason each item was flagged. Create the task, mark as reviewed, or record an exception. |
 | Settings | Name, time zone, date format, defaults; appearance (theme, accent colour, density, start page, reset Home); JSON backup, CSV export, restore, data status, erase. |
 
+**One task, several clients.** In New task, choose *Several clients…* and tick the clients (or a group: VAT clients,
+Payroll clients, Pinned, All active, built from the work each client already has). Ledger creates one separate task
+per client; nothing links them afterwards, and Undo removes the whole batch.
+
 **Checklists.** A task can hold up to 50 steps, ticked as you go (`2/4` shows in lists and on the board). Settings →
 Checklist templates sets the steps each task type starts with; a schedule has its own checklist, copied unticked into
 every task it creates. **Waiting since** records when a task moved to *Waiting for client*, so Home can show how long
