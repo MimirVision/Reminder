@@ -1,14 +1,16 @@
 import type { ISODate } from '../lib/dates';
-import type { Client, Occurrence, Review, Schedule, Snapshot, Workspace } from '../lib/types';
+import type { ChecklistItem, Client, Occurrence, Review, Schedule, Snapshot, Workspace } from '../lib/types';
 
-export type NewClient = Pick<Client, 'name' | 'reference' | 'notes'> & Partial<Pick<Client, 'status'>>;
-export type ClientPatch = Partial<Pick<Client, 'name' | 'reference' | 'notes' | 'status'>>;
+type ClientExtras = 'contactName' | 'contactEmail' | 'contactPhone' | 'documents';
+export type NewClient = Pick<Client, 'name' | 'reference' | 'notes'> & Partial<Pick<Client, 'status' | ClientExtras>>;
+export type ClientPatch = Partial<Pick<Client, 'name' | 'reference' | 'notes' | 'status' | ClientExtras>>;
 
-export type NewSchedule = Omit<Schedule, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'status'>;
+export type NewSchedule = Omit<Schedule, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'status' | 'checklist'> & { checklist?: ChecklistItem[] };
 export type SchedulePatch = Partial<Omit<Schedule, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt'>>;
 
-export type NewOccurrence = Omit<Occurrence, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'completedAt'> & { completedAt?: string | null };
-export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId'>>;
+export type NewOccurrence = Omit<Occurrence, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'completedAt' | 'checklist' | 'waitingSince'>
+  & { completedAt?: string | null; checklist?: ChecklistItem[]; waitingSince?: string | null };
+export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId' | 'checklist'>>;
 
 export type NewReview = Pick<Review, 'scheduleId' | 'periodKey' | 'status' | 'note'>;
 
@@ -32,6 +34,11 @@ export interface Backup {
  */
 export interface Repo {
   readonly mode: 'supabase' | 'demo';
+  /**
+   * False while the database is on an older ledger.sql: checklists, "waiting since", client contacts and documents,
+   * and holiday-aware due dates are then off until the updated file is run. Known after load().
+   */
+  readonly current: boolean;
   load(): Promise<Snapshot>;
   updateWorkspace(patch: Partial<Pick<Workspace, 'name' | 'timezone' | 'settings'>>): Promise<void>;
 
@@ -111,6 +118,23 @@ export function toBackup(s: import('../lib/types').Snapshot): Backup {
   };
 }
 
+/** Fills in fields added after a snapshot or backup was made (checklists, contacts, documents). */
+export function upgradeRows<T extends Pick<Backup, 'clients' | 'schedules' | 'occurrences'>>(b: T): T {
+  return {
+    ...b,
+    clients: b.clients.map((c) => ({ ...c, contactName: c.contactName ?? '', contactEmail: c.contactEmail ?? '', contactPhone: c.contactPhone ?? '', documents: c.documents ?? [] })),
+    schedules: b.schedules.map((s) => ({ ...s, checklist: s.checklist ?? [] })),
+    occurrences: b.occurrences.map((o) => ({ ...o, checklist: o.checklist ?? [], waitingSince: o.waitingSince ?? null })),
+  };
+}
+
+/** Problems with a checklist, or null when it can be saved. Same limits as the database. */
+export function checklistError(items: { text: string }[]): string | null {
+  if (items.length > 50) return 'A checklist holds up to 50 items.';
+  if (items.some((i) => !i.text.trim() || i.text.length > 300)) return 'Each checklist item needs text (up to 300 characters).';
+  return null;
+}
+
 /** Checks a parsed file really is a Ledger backup before anything is written. */
 export function parseBackup(raw: unknown): Backup {
   const b = raw as Partial<Backup>;
@@ -118,5 +142,6 @@ export function parseBackup(raw: unknown): Backup {
   for (const k of ['clients', 'schedules', 'pauses', 'occurrences', 'reviews'] as const) {
     if (!Array.isArray(b[k])) throw new RepoError(`The backup is missing its ${k}.`);
   }
-  return { activity: [], ...b } as Backup;
+  // Backups made before checklists, contacts and documents existed restore with empty ones.
+  return upgradeRows({ activity: [], ...b } as Backup);
 }

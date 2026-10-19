@@ -9,6 +9,7 @@ import { Button } from '../ui/button';
 import { DatePicker } from '../ui/datepicker';
 import { Field, Input, Select, Textarea } from '../ui/field';
 import { Dialog } from '../ui/overlay';
+import { fromLines } from './Checklist';
 import { useUI } from './ui-state';
 
 export function NewTaskDialog() {
@@ -46,6 +47,7 @@ export function NewTaskDialog() {
       clientId: effective.clientId, scheduleId: null, title: parsed.title, description: notes, taskType: type, periodKey: null, periodStart: null, periodEnd: null,
       dueDate: effective.due, scheduledDueDate: null, status: 'todo', priority: effective.priority,
       tags: [...new Set([...parsed.tags, ...tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)])],
+      checklist: fromLines(snap.workspace.settings.checklistTemplates?.[type]),
     }), { success: another ? 'Task created. Add the next one.' : 'Task created' });
     setBusy(false);
     if (!created) return;
@@ -109,8 +111,9 @@ export function NewTaskDialog() {
 }
 
 export function ClientDialog({ open, onOpenChange, client, onSaved }: { open: boolean; onOpenChange: (o: boolean) => void; client?: Client; onSaved?: (c: Client) => void }) {
-  const { snap, run } = useStore();
+  const { snap, run, repo } = useStore();
   const [name, setName] = useState('');
+  const [contact, setContact] = useState({ contactName: '', contactEmail: '', contactPhone: '' });
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [tried, setTried] = useState(false);
@@ -118,15 +121,23 @@ export function ClientDialog({ open, onOpenChange, client, onSaved }: { open: bo
   useEffect(() => {
     if (!open) return;
     setName(client?.name ?? ''); setReference(client?.reference ?? ''); setNotes(client?.notes ?? ''); setTried(false);
+    setContact({ contactName: client?.contactName ?? '', contactEmail: client?.contactEmail ?? '', contactPhone: client?.contactPhone ?? '' });
   }, [open, client]);
 
   const refTaken = reference.trim() && snap.clients.some((c) => c.id !== client?.id && c.reference?.toLowerCase() === reference.trim().toLowerCase());
-  const errors = { name: !name.trim() ? 'A client needs a name.' : null, reference: refTaken ? 'Another client already uses this reference.' : null };
+  const emailBad = contact.contactEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.contactEmail.trim());
+  const errors = {
+    name: !name.trim() ? 'A client needs a name.' : null, reference: refTaken ? 'Another client already uses this reference.' : null,
+    email: emailBad ? 'That doesn’t look like an email address.' : null,
+  };
   const submit = async () => {
     setTried(true);
-    if (errors.name || errors.reference) return;
+    if (errors.name || errors.reference || errors.email) return;
     setBusy(true);
-    const values = { name: name.trim(), reference: reference.trim() || null, notes };
+    const values = {
+      name: name.trim(), reference: reference.trim() || null, notes,
+      ...(repo.current ? { contactName: contact.contactName.trim(), contactEmail: contact.contactEmail.trim(), contactPhone: contact.contactPhone.trim() } : {}),
+    };
     const saved = await run(async (r) => {
       if (client) { await r.updateClient(client.id, values); return { ...client, ...values }; }
       return r.createClient(values);
@@ -145,6 +156,14 @@ export function ClientDialog({ open, onOpenChange, client, onSaved }: { open: bo
         <Field label="Reference" hint="Optional. Your own code for the client." error={errors.reference}>
           {(p) => <Input {...p} value={reference} maxLength={50} placeholder="e.g. C-1021" onChange={(e) => setReference(e.target.value)} />}
         </Field>
+        {repo.current && (
+          <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <legend className="sr-only">Contact person (optional)</legend>
+            <Field label="Contact name" className="sm:col-span-2">{(p) => <Input {...p} value={contact.contactName} maxLength={200} autoComplete="off" onChange={(e) => setContact((c) => ({ ...c, contactName: e.target.value }))} />}</Field>
+            <Field label="Contact email" error={tried ? errors.email : null}>{(p) => <Input {...p} type="email" value={contact.contactEmail} maxLength={200} autoComplete="off" onChange={(e) => setContact((c) => ({ ...c, contactEmail: e.target.value }))} />}</Field>
+            <Field label="Contact phone">{(p) => <Input {...p} type="tel" value={contact.contactPhone} maxLength={50} autoComplete="off" onChange={(e) => setContact((c) => ({ ...c, contactPhone: e.target.value }))} />}</Field>
+          </fieldset>
+        )}
         <Field label="Notes" hint="Working notes only. Avoid sensitive personal or financial details.">
           {(p) => <Textarea {...p} rows={4} value={notes} maxLength={10000} onChange={(e) => setNotes(e.target.value)} />}
         </Field>

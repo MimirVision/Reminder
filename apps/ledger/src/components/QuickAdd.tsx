@@ -13,6 +13,7 @@ import { cn } from '../ui/cn';
 import { DatePicker } from '../ui/datepicker';
 import { Menu, MenuItem, Popover } from '../ui/overlay';
 import { useToast } from '../ui/toast';
+import { fromLines } from './Checklist';
 import { useUI } from './ui-state';
 
 const chip = 'inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[12px] transition-colors [&_svg]:size-3.5';
@@ -65,6 +66,7 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
     const created = await run((r) => r.createOccurrence({
       clientId, scheduleId: null, title: parsed.title, description: '', taskType: 'follow_up', periodKey: null, periodStart: null, periodEnd: null,
       dueDate: due, scheduledDueDate: null, status, priority, tags: parsed.tags,
+      checklist: fromLines(snap.workspace.settings.checklistTemplates?.follow_up),
     }), { quiet: false });
     setBusy(false);
     if (created) {
@@ -108,7 +110,7 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
         />
         {hasText && (
           <button onClick={() => void submit()} disabled={busy}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[12px] font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50">
             Add <CornerDownLeft className="size-3.5" />
           </button>
         )}

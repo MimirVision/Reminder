@@ -5,7 +5,8 @@ import { addDays, type ISODate } from '../lib/dates';
 import { formatDate, formatDayShort } from '../lib/format';
 import { PRIORITY_LABEL, SCHEDULE_STATUS_LABEL, TYPE_LABEL } from '../lib/labels';
 import { createOn, describeDueRule, frequencyToUnit, isPausedOn, periodLabel, recurrenceOf, upcomingPeriods, validateRecurrence } from '../lib/recurrence';
-import { PRIORITIES, TASK_TYPES, isOpen, type Adjust, type DueRule, type Frequency, type IntervalUnit, type Priority, type Schedule, type TaskType } from '../lib/types';
+import { ChecklistEditor, fromLines } from './Checklist';
+import { PRIORITIES, TASK_TYPES, isOpen, type ChecklistItem, type WorkspaceSettings, type Adjust, type DueRule, type Frequency, type IntervalUnit, type Priority, type Schedule, type TaskType } from '../lib/types';
 import { Pill } from '../ui/badges';
 import { Button } from '../ui/button';
 import { DatePicker } from '../ui/datepicker';
@@ -24,9 +25,10 @@ interface Draft {
   customUnit: IntervalUnit; customInterval: number; anchorMonth: number; startDate: ISODate; endDate: ISODate | null;
   ruleKind: RuleKind; months: number; day: number | 'last'; days: number; weekday: number; adjust: Adjust;
   leadDays: number; reminderDays: number | null; defaultPriority: Priority; autoGenerate: boolean; backfill: boolean;
+  checklist: ChecklistItem[];
 }
 
-function draftFrom(s: Schedule | undefined, today: ISODate, clientId = '', leadDays = 21): Draft {
+function draftFrom(s: Schedule | undefined, today: ISODate, clientId = '', leadDays = 21, templates: WorkspaceSettings['checklistTemplates'] = {}): Draft {
   const r = s?.dueRule;
   return {
     clientId: s?.clientId ?? clientId, title: s?.title ?? '', description: s?.description ?? '', taskType: s?.taskType ?? 'bookkeeping',
@@ -37,6 +39,7 @@ function draftFrom(s: Schedule | undefined, today: ISODate, clientId = '', leadD
     days: r?.kind === 'days_after_end' ? r.days : 14, weekday: r?.kind === 'weekday' ? r.weekday : 5,
     adjust: r?.adjust ?? 'next_business_day', leadDays: s?.leadDays ?? leadDays, reminderDays: s?.reminderDays ?? 3,
     defaultPriority: s?.defaultPriority ?? 'normal', autoGenerate: s?.autoGenerate ?? true, backfill: false,
+    checklist: s ? s.checklist.map((i) => ({ ...i, done: false })) : fromLines(templates?.bookkeeping),
   };
 }
 
@@ -55,9 +58,12 @@ function scheduleOf(d: Draft, today: ISODate): Omit<Schedule, 'id' | 'workspaceI
     clientId: d.clientId, title: d.title.trim(), description: d.description, taskType: d.taskType, frequency: d.frequency, unit, interval,
     anchorMonth: unit === 'week' ? 1 : d.anchorMonth, dueRule: ruleOf(d), startDate: d.startDate, endDate: d.endDate,
     generateFrom: d.backfill ? d.startDate : today, leadDays: d.leadDays, reminderDays: d.reminderDays, autoGenerate: d.autoGenerate,
-    defaultPriority: d.defaultPriority,
+    defaultPriority: d.defaultPriority, checklist: d.checklist,
   };
 }
+
+const sameLines = (items: ChecklistItem[], lines: string[] | undefined) =>
+  items.map((i) => i.text).join('\n') === (lines ?? []).map((l) => l.trim()).filter(Boolean).join('\n');
 
 const num = (v: string, min: number, max: number) => Math.max(min, Math.min(max, Math.round(Number(v) || 0)));
 
@@ -70,12 +76,13 @@ export function ScheduleEditor() {
 
 function Editor() {
   const ui = useUI();
-  const { snap, today, scheduleById, run } = useStore();
+  const { snap, today, scheduleById, run, repo, calendar } = useStore();
+  const templates = snap.workspace.settings.checklistTemplates;
   const ed = ui.schedule!;
   const existing = ed.mode === 'edit' ? scheduleById.get(ed.id) : undefined;
   const template = ed.mode === 'new' ? ed.from : undefined;
   const [d, setD] = useState<Draft>(() => {
-    const base = draftFrom(existing ?? template, today, ed.mode === 'new' ? ed.clientId : undefined, snap.workspace.settings.defaultLeadDays ?? 21);
+    const base = draftFrom(existing ?? template, today, ed.mode === 'new' ? ed.clientId : undefined, snap.workspace.settings.defaultLeadDays ?? 21, templates);
     if (template) { base.startDate = today; base.endDate = null; }
     return base;
   });
@@ -100,12 +107,12 @@ function Editor() {
   };
   const valid = !errors.title && !errors.client && !errors.rule;
   const pauses = existing ? snap.pauses.filter((p) => p.scheduleId === existing.id) : [];
-  const preview = useMemo(() => (validateRecurrence(s).length ? [] : upcomingPeriods(recurrenceOf(s), addDays(today, -1), 6)),
-    [JSON.stringify(s), today]); // eslint-disable-line react-hooks/exhaustive-deps
+  const preview = useMemo(() => (validateRecurrence(s).length ? [] : upcomingPeriods(recurrenceOf(s, calendar), addDays(today, -1), 6)),
+    [JSON.stringify(s), today, calendar]); // eslint-disable-line react-hooks/exhaustive-deps
   const backfillCount = useMemo(() => {
     if (existing || validateRecurrence(s).length) return 0;
-    return upcomingPeriods(recurrenceOf(s), s.startDate, 500).filter((p) => p.due < today).length;
-  }, [JSON.stringify(s), today, existing]); // eslint-disable-line react-hooks/exhaustive-deps
+    return upcomingPeriods(recurrenceOf(s, calendar), s.startDate, 500).filter((p) => p.due < today).length;
+  }, [JSON.stringify(s), today, existing, calendar]); // eslint-disable-line react-hooks/exhaustive-deps
   const clients = snap.clients.filter((c) => c.status === 'active' || c.id === d.clientId).sort((a, b) => a.name.localeCompare(b.name));
   const close = () => ui.openSchedule(null);
 
@@ -177,7 +184,12 @@ function Editor() {
                 )}
               </Field>
               <Field label="Type">
-                {(p) => <Select {...p} value={d.taskType} onChange={(e) => set('taskType', e.target.value as TaskType)}>{TASK_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}</Select>}
+                {(p) => <Select {...p} value={d.taskType} onChange={(e) => {
+                  const t = e.target.value as TaskType;
+                  // A new schedule picks up the type's checklist template, unless its checklist was already changed.
+                  const untouched = sameLines(d.checklist, templates?.[d.taskType]);
+                  setD((x) => ({ ...x, taskType: t, checklist: !existing && untouched ? fromLines(templates?.[t]) : x.checklist }));
+                }}>{TASK_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}</Select>}
               </Field>
               <Field label="Task title" className="sm:col-span-2" error={tried ? errors.title : null} hint="Each task gets this title, plus its period (e.g. “March 2026”).">
                 {(p) => <Input {...p} value={d.title} maxLength={200} placeholder="e.g. VAT return" onChange={(e) => set('title', e.target.value)} />}
@@ -185,6 +197,12 @@ function Editor() {
               <Field label="Description" className="sm:col-span-2">
                 {(p) => <Textarea {...p} rows={2} value={d.description} maxLength={10000} placeholder="What the work involves; copied to each task." onChange={(e) => set('description', e.target.value)} />}
               </Field>
+              {repo.current && (
+                <div className="sm:col-span-2">
+                  <ChecklistEditor template items={d.checklist} onChange={(v) => set('checklist', v)} label="Checklist for each task" />
+                  <p className="mt-1 text-[11.5px] text-ink-3">{existing ? 'Changes apply to tasks created from now on; existing tasks keep their own checklist.' : 'Every task this schedule creates starts with these steps.'}</p>
+                </div>
+              )}
             </section>
 
             <section className="border-t border-line pt-4">
@@ -262,7 +280,7 @@ function Editor() {
                 {d.ruleKind === 'weekday' && (
                   <Field label="Weekday">{(p) => <Select {...p} value={d.weekday} onChange={(e) => set('weekday', Number(e.target.value))}>{WEEKDAYS.map((w, i) => <option key={w} value={i + 1}>{w}</option>)}</Select>}</Field>
                 )}
-                <Field label="If it falls on a weekend">
+                <Field label={calendar === 'NO' ? 'If it falls on a weekend or holiday' : 'If it falls on a weekend'}>
                   {(p) => (
                     <Select {...p} value={d.adjust} onChange={(e) => set('adjust', e.target.value as Adjust)}>
                       <option value="none">Keep the date</option><option value="next_business_day">Move to the next weekday</option><option value="previous_business_day">Move to the previous weekday</option>
@@ -271,7 +289,7 @@ function Editor() {
                 </Field>
               </div>
               {errors.rule && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-danger"><AlertCircle className="size-3.5" />{errors.rule}</p>}
-              {!errors.rule && <p className="mt-3 text-[12px] text-ink-3">{describeDueRule(s.dueRule)}. Public holidays are not taken into account yet.</p>}
+              {!errors.rule && <p className="mt-3 text-[12px] text-ink-3">{describeDueRule(s.dueRule)}.{s.dueRule.adjust && s.dueRule.adjust !== 'none' && (calendar === 'NO' ? ' Norwegian public holidays count as non-working days.' : ' Public holidays are not taken into account (Settings → Dates).')}</p>}
             </section>
 
             <section className="grid grid-cols-1 gap-4 border-t border-line pt-4 sm:grid-cols-3">

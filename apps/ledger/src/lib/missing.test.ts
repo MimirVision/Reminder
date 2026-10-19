@@ -9,12 +9,12 @@ const base: Schedule = {
   frequency: 'monthly', unit: 'month', interval: 1, anchorMonth: 1,
   dueRule: { kind: 'month_offset', from: 'end', months: 1, day: 10 },
   startDate: '2026-06-01', endDate: null, generateFrom: '2026-08-01', leadDays: 14, reminderDays: null,
-  autoGenerate: true, status: 'active', defaultPriority: 'normal', createdAt: '', updatedAt: '',
+  autoGenerate: true, status: 'active', defaultPriority: 'normal', checklist: [], createdAt: '', updatedAt: '',
 };
 const occ = (o: Partial<Occurrence>): Occurrence => ({
   id: Math.random().toString(36), workspaceId: 'w', clientId: 'c1', scheduleId: 's1', title: 't', description: '', taskType: 'other',
   periodKey: null, periodStart: null, periodEnd: null, dueDate: today, scheduledDueDate: null, status: 'todo', priority: 'normal',
-  tags: [], completedAt: null, createdAt: '', updatedAt: '', ...o,
+  tags: [], completedAt: null, checklist: [], waitingSince: null, createdAt: '', updatedAt: '', ...o,
 });
 const run = (input: { schedules?: Schedule[]; occurrences?: Occurrence[]; reviews?: Review[]; pauses?: Pause[] }) =>
   detectExpected({ schedules: [base], occurrences: [], reviews: [], pauses: [], runs: [], ...input }, today);
@@ -75,5 +75,22 @@ describe('missing-task detection', () => {
     const items = run({ schedules: [{ ...base, autoGenerate: false }] });
     expect(new Set(needsReview(items).map((i) => i.state))).toEqual(new Set(['missing']));
     expect(needsReview(items)).toHaveLength(4);
+  });
+});
+
+describe('v3: checklists and holidays in generation', () => {
+  it('gives each generated task the schedule’s checklist, unticked', () => {
+    const s = { ...base, checklist: [{ id: 'a', text: 'Reconcile bank', done: true }] };
+    const planned = planGeneration([s], [], [], today);
+    expect(planned.length).toBeGreaterThan(0);
+    for (const o of planned) expect(o.checklist).toEqual([{ id: 'a', text: 'Reconcile bank', done: false }]);
+    expect(planned.every((o) => o.waitingSince === null)).toBe(true);
+  });
+
+  it('expects the holiday-adjusted due date when the workspace uses a calendar', () => {
+    // Due 25 December, moved to the next business day: 28 December 2026 with Norwegian holidays.
+    const s = { ...base, dueRule: { kind: 'month_offset' as const, from: 'end' as const, months: 0, day: 25, adjust: 'next_business_day' as const }, startDate: '2026-12-01', generateFrom: '2027-01-01' };
+    const items = detectExpected({ schedules: [s], occurrences: [], reviews: [], pauses: [], runs: [], holidays: 'NO' }, '2027-01-05');
+    expect(items.find((i) => i.period.key === 'M1:2026-12-01')?.period.due).toBe('2026-12-28');
   });
 });

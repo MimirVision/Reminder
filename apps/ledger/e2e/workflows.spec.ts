@@ -62,7 +62,7 @@ test('a new schedule previews its occurrences, generates once, and reloading nev
   await page.goto('/recurring');
   await page.getByRole('button', { name: 'New schedule' }).click();
   const d = page.getByRole('dialog', { name: 'New recurring schedule' });
-  await d.getByLabel('Client').selectOption({ label: 'Lysaker Design ENK' });
+  await d.getByLabel('Client', { exact: true }).selectOption({ label: 'Lysaker Design ENK' });
   await d.getByLabel('Task title').fill('E2E quarterly review');
   await d.getByLabel('Frequency').selectOption('quarterly');
   await expect(d.getByRole('heading', { name: 'Next occurrences' })).toBeVisible();
@@ -168,7 +168,8 @@ test('board view moves work between statuses by dragging', async ({ page }) => {
   const card = todo.locator('[draggable=true]').first();
   const title = (await card.locator('span.font-semibold').first().textContent())!;
   const before = await waiting.locator('[draggable=true]').count();
-  await card.dragTo(waiting);
+  // Aim at the column's header: its middle can be below the fold, and scrolling mid-drag would pick up another card.
+  await card.dragTo(waiting, { targetPosition: { x: 60, y: 16 } });
   await expect(waiting.locator('[draggable=true]')).toHaveCount(before + 1);
   await expect(page.getByText(`Waiting for client: ${title}`).first()).toBeVisible();
   await page.reload();
@@ -186,4 +187,104 @@ test('a client page adds tasks for that client and can be pinned to the sidebar'
   await page.getByRole('button', { name: 'More client actions' }).click();
   await page.getByRole('menuitem', { name: 'Pin to sidebar' }).click();
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /Lysaker Design ENK/ })).toBeVisible();
+});
+
+test('home is a dashboard you arrange: add, move, resize and remove widgets, and it stays that way', async ({ page }) => {
+  await page.goto('/');
+  const order = () => page.locator('[data-widget-type]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.widgetType));
+  await page.getByRole('button', { name: 'Customize' }).click();
+  const bar = page.getByRole('toolbar', { name: 'Customize Home' });
+  await bar.getByRole('button', { name: 'Add widget' }).click();
+  await page.getByRole('dialog', { name: 'Add a widget' }).getByRole('button', { name: /Notepad/ }).click();
+  expect((await order()).at(-1)).toBe('notes');
+
+  // From the handle: arrows move it, Shift + arrows resize it.
+  const handle = page.getByRole('button', { name: 'Move or resize Notepad' });
+  await handle.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Shift+ArrowRight');
+  expect((await order()).slice(-3)).toEqual(['notes', 'overdue', 'missing']);
+  await expect(page.locator('[data-widget-type=notes]')).toHaveAttribute('style', /--w: 5/);
+
+  await page.getByRole('button', { name: 'Remove Missing tasks' }).click();
+  await bar.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Notepad' }).fill('Call Nordvik about the bank feed');
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+
+  await page.reload();
+  expect(await order()).not.toContain('missing');
+  expect((await order()).slice(-2)).toEqual(['notes', 'overdue']);
+  await expect(page.getByRole('textbox', { name: 'Notepad' })).toHaveValue('Call Nordvik about the bank feed');
+});
+
+test('appearance follows your settings, and G then a letter jumps between screens', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('radio', { name: 'Teal' }).click();
+  await page.getByRole('radio', { name: 'Compact' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+  await page.locator('body').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('g');
+  await page.keyboard.press('t');
+  await expect(page).toHaveURL(/\/tasks/);
+  await page.keyboard.press('?');
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+});
+
+test('a task carries a checklist: add steps, tick them, and finish from the panel', async ({ page }) => {
+  await page.goto('/tasks?view=today');
+  await page.locator('tbody tr[data-task]').first().click();
+  const panel = page.getByRole('dialog');
+  const add = panel.getByRole('textbox', { name: 'Add an item to the checklist' });
+  await add.fill('Gather the questions');
+  await add.press('Enter');
+  await add.fill('Send one email');
+  await add.press('Enter');
+  await panel.getByRole('checkbox', { name: 'Tick “Gather the questions”' }).click();
+  await expect(panel.getByText('1/2')).toBeVisible();
+  await page.reload();
+  await page.locator('tbody tr[data-task]').first().click();
+  await expect(page.getByRole('dialog').getByRole('checkbox', { name: 'Untick “Gather the questions”' })).toBeVisible();
+  await page.getByRole('dialog').getByRole('checkbox', { name: 'Tick “Send one email”' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Mark the task done' }).click();
+  await expect(page.getByText('Marked done')).toBeVisible();
+});
+
+test('a filtered list can be saved as a view of its own', async ({ page }) => {
+  await page.goto('/tasks');
+  await page.getByRole('button', { name: 'Priority', exact: true }).click();
+  await page.getByRole('option', { name: 'High' }).click();
+  await page.keyboard.press('Escape');
+  const rows = await page.locator('tbody tr[data-task]').count();
+  await page.getByRole('button', { name: 'Save view' }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill('Only high');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save view' }).click();
+  await expect(page.getByRole('tab', { name: /Only high/, selected: true })).toBeVisible();
+  await page.getByRole('tab', { name: /All open tasks/ }).click();
+  await page.getByRole('tab', { name: /Only high/ }).click();
+  await expect(page.locator('tbody tr[data-task]')).toHaveCount(rows);
+  await page.reload();
+  await expect(page.getByRole('tab', { name: /Only high/ })).toBeVisible();
+});
+
+test('a client keeps a contact and a list of documents to collect', async ({ page }) => {
+  await page.goto('/clients/client-1');
+  await page.getByRole('button', { name: 'More client actions' }).click();
+  await page.getByRole('menuitem', { name: 'Edit details' }).click();
+  await page.getByLabel('Contact phone').fill('+47 000 00 000');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('link', { name: '+47 000 00 000' })).toHaveAttribute('href', 'tel:+4700000000');
+  await page.getByRole('tab', { name: /Documents/ }).click();
+  await page.getByRole('textbox', { name: 'Request a document' }).fill('Bank statements, October');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('1 document outstanding')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Mark as received: Bank statements, October' }).click();
+  await expect(page.getByText('Everything requested has arrived.')).toBeVisible();
+});
+
+test('the calendar marks Norwegian public holidays', async ({ page }) => {
+  await page.goto('/calendar?view=month&date=2026-05-01');
+  await expect(page.getByText('Constitution Day')).toBeVisible();
+  await expect(page.getByText('Ascension Day')).toBeVisible();
 });

@@ -42,7 +42,7 @@ export function FilterMenu<T extends string>({ label, options, selected, onChang
             return (
               <button key={o.value} role="option" aria-selected={on} onClick={() => toggle(o.value)}
                 className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] hover:bg-hover focus-visible:bg-hover">
-                <span className={cn('flex size-4 shrink-0 items-center justify-center rounded border', on ? 'border-accent bg-accent text-white' : 'border-line-strong')}>
+                <span className={cn('flex size-4 shrink-0 items-center justify-center rounded border', on ? 'border-accent bg-accent text-on-accent' : 'border-line-strong')}>
                   {on && <Check className="size-3" strokeWidth={3} />}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{o.label}</span>

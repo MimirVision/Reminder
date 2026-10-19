@@ -125,8 +125,10 @@ const DrawerContext = createContext<() => void>(() => {});
  * A page: a slim sticky bar (breadcrumb, search, New task) and the content, which opens with a large title row.
  * Pages with their own hero (Home, a client) pass `hideTitle` and render their own h1.
  */
-export function Page({ title, crumb, docTitle, subtitle, actions, titleExtra, hideTitle, children, wide }: {
-  title: string; crumb?: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; titleExtra?: ReactNode; hideTitle?: boolean; children: ReactNode; wide?: boolean;
+export function Page({ title, crumb, docTitle, subtitle, actions, barActions, titleExtra, hideTitle, children, wide }: {
+  title: string; crumb?: ReactNode;
+  /** Page-level controls in the top bar, before search. */
+  barActions?: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; titleExtra?: ReactNode; hideTitle?: boolean; children: ReactNode; wide?: boolean;
 }) {
   const openDrawer = useContext(DrawerContext);
   const ui = useUI();
@@ -138,6 +140,7 @@ export function Page({ title, crumb, docTitle, subtitle, actions, titleExtra, hi
         <nav aria-label="Breadcrumb" className="min-w-0 flex-1 truncate text-[13px] text-ink-3">
           {crumb ?? <span className="font-medium text-ink-2">{title}</span>}
         </nav>
+        {barActions}
         <button
           onClick={() => ui.setPalette(true)}
           className="hidden h-[34px] w-60 items-center gap-2 rounded-[9px] border border-line bg-surface px-3 text-[12.5px] text-ink-3 transition-colors hover:border-line-strong hover:text-ink-2 md:flex"

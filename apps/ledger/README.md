@@ -11,13 +11,22 @@ demo data; only add real client information where your employer allows it, and k
 
 | Screen | What it does |
 |---|---|
-| Home | Morning review: overdue, due today, next 14 days, missing tasks. Every number is a link to the matching list. |
+| Home | A dashboard you arrange. **Customize** adds widgets from a gallery of 16 (today, overdue, upcoming, this week, waiting on clients, missing tasks, key numbers, completed per week, clients needing attention, pinned clients, recent activity, notepad, deadline radar, month at a glance…), drags them into place and resizes them from the corner. The layout is saved to the workspace, so it follows you between devices. |
 | My Tasks | List with search, filters (client, status, priority, type, due date), sorting and saved views. Status and due date change inline; a side panel edits the rest without losing your place. |
 | Calendar | Month and week views of the same tasks. Drag an open task to another day, or use the date picker in its panel. Moving one task never changes its schedule. |
 | Clients | Searchable, sortable list with open/overdue counts and next deadline; a workspace per client (open tasks, schedules, completed work, notes, activity). Archive and reactivate without losing history. |
 | Recurring Work | Schedules (rules) that create tasks (occurrences), with a live preview of the next periods. Pause, resume, end, and edit with an explicit choice of which open tasks change. |
 | Missing Tasks | Expected vs actual, per schedule and period, with the reason each item was flagged. Create the task, mark as reviewed, or record an exception. |
-| Settings | Name, time zone, date format, defaults, theme (light, dark, system), JSON backup, CSV export, restore, data status, erase. |
+| Settings | Name, time zone, date format, defaults; appearance (theme, accent colour, density, start page, reset Home); JSON backup, CSV export, restore, data status, erase. |
+
+**Checklists.** A task can hold up to 50 steps, ticked as you go (`2/4` shows in lists and on the board). Settings →
+Checklist templates sets the steps each task type starts with; a schedule has its own checklist, copied unticked into
+every task it creates. **Waiting since** records when a task moved to *Waiting for client*, so Home can show how long
+you have been waiting. **Clients** have a contact person and a list of documents to collect (requested, received).
+**Your own views**: filter My Tasks, then *Save view*. **Public holidays**: with Norway chosen (the default),
+"move to the next/previous weekday" also skips Norwegian public holidays (Easter, Ascension, Whit Monday, 1 and 17 May,
+Christmas); the calendar shows them. **Install as an app** from Settings, or the browser's install button: Ledger then
+opens in its own window. The service worker caches only the app itself, never data.
 
 **Adding work fast.** Type one line in the quick-add bar (Home, My Tasks, a client's page) or in `Ctrl/⌘ K`:
 `Chase receipts @nordvik fri !high #receipts` → client, due date, priority and tag are recognised and shown as chips
@@ -25,8 +34,10 @@ before you press Enter. Dates: `today`, `tomorrow`/`i morgen`, weekdays (`fri`, 
 `15.11`, `15 nov`, `eom`. Priority: `!` high, `!!` urgent. The New task dialog understands the same shorthand and has
 *Create & add another* (Shift+Enter) for a run of similar tasks.
 
-Keyboard: `Ctrl/⌘ K` search, jump or create; `N` new task; `/` task search. In task lists: `↑↓` move, `Enter` open,
+Keyboard: `Ctrl/⌘ K` search, jump or create; `N` new task; `/` task search; `G` then `H T C L R M S` to jump to a
+screen; `?` lists every shortcut. In task lists: `↑↓` move, `Enter` open,
 `D` done, `W` waiting for client, `T` move to tomorrow, `X` select (Shift for a range) for bulk done/waiting/move.
+Customizing Home: from a widget's handle, arrows move it, Shift + arrows resize it, Delete removes it.
 
 ## How it fits next to Home Memory and Post
 
@@ -69,6 +80,13 @@ If you open the app before step 1, it shows a setup screen instead of failing.
 
 > Do not use `supabase db push` for Ledger from this repo: the CLI keeps one migration history per project, which
 > Home Memory may use too. Run `ledger.sql` in the SQL editor instead.
+
+### Updating the database
+
+When a new version adds to the database, Settings shows **Database update available**. Run `ledger.sql` again (same
+steps as above): it only adds columns and functions to Ledger's own tables and keeps everything you have. Until then the
+app keeps working and leaves the new features off. Version 3 adds checklists, "waiting since", client contacts and
+documents, and holiday-aware due dates.
 
 ### Environment variables
 
@@ -184,5 +202,5 @@ Like Post at `/post/`, Ledger is served from the same Cloudflare Worker as Home 
 
 ## Not in this version
 
-Holiday-aware due dates, notifications (in-app review is the safety net by design), multi-user workspaces, time
-tracking, billing and AI features. The due-rule format and workspace model leave room for the first three.
+Notifications (in-app review is the safety net by design), multi-user workspaces, time tracking, billing and AI
+features. The workspace model leaves room for the first two.

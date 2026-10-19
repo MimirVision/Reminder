@@ -1,6 +1,7 @@
 import { memo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { NewTaskDefaults } from './ui-state';
 import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun } from 'lucide-react';
+import { ChecklistBadge } from './Checklist';
 import { QuickAdd } from './QuickAdd';
 import { addDays, weekday, type ISODate } from '../lib/dates';
 import { formatDayShort, formatDue } from '../lib/format';
@@ -96,7 +97,7 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
       onClick={(e) => { if (onCheck && (e.metaKey || e.ctrlKey || e.shiftKey)) { onCheck(task.id, e.shiftKey); return; } ui.openTask(task.id); }}
       data-selected={current || checked || undefined}
       aria-selected={checked}
-      className={cn('group cursor-default', stacked ? 'h-[52px]' : 'h-[42px]', 'border-b border-line/70 last:border-b-0 outline-none hover:bg-hover/70 focus-visible:bg-accent-soft/40 focus-visible:shadow-[inset_2px_0_0_var(--c-accent)] data-[selected]:bg-accent-soft/60')}
+      className={cn('group cursor-default', stacked ? 'h-(--row-h-stacked)' : 'h-(--row-h)', 'border-b border-line/70 last:border-b-0 outline-none hover:bg-hover/70 focus-visible:bg-accent-soft/40 focus-visible:shadow-[inset_2px_0_0_var(--c-accent)] data-[selected]:bg-accent-soft/60')}
     >
       {onCheck && (
         <td className="w-8 pl-3" onClick={(e) => e.stopPropagation()}>
@@ -109,11 +110,15 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
       <td className="max-w-0 py-1.5 pr-3">
         {stacked ? (
           <div className="flex min-w-0 flex-col">
-            <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+              {open && <ChecklistBadge items={task.checklist} />}
+            </span>
             <span className="truncate text-[12px] text-ink-3">{[showClient && client?.name, task.periodKey && periodLabel(task.periodKey)].filter(Boolean).join(' · ')}</span>
           </div>
         ) : <div className="flex min-w-0 items-center gap-2">
           <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+          {open && <ChecklistBadge items={task.checklist} />}
           {task.periodKey && (
             <span className="hidden shrink-0 items-center gap-1 text-[11.5px] text-ink-3 sm:inline-flex" title="From a recurring schedule">
               <Repeat className="size-3" />{periodLabel(task.periodKey)}
@@ -127,7 +132,7 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
           <span className="block truncate text-[13px] text-ink-2">{client?.name ?? 'Unknown client'}</span>
         </td>
       )}
-      <td className="w-40 pr-3" onClick={(e) => e.stopPropagation()}>
+      <td className={'w-40 pr-3'} onClick={(e) => e.stopPropagation()}>
         <DatePicker
           value={task.dueDate}
           today={today}
@@ -135,7 +140,7 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
           trigger={<button tabIndex={-1} aria-label={`Due ${task.dueDate}. Change due date`} className="-mx-1.5 rounded px-1.5 py-0.5 hover:bg-sunken"><DueDate date={task.dueDate} today={today} open={open} /></button>}
         />
       </td>
-      <td className="hidden w-20 pr-3 sm:table-cell" onClick={(e) => e.stopPropagation()}>
+      <td className={cn(stacked ? 'pr-3 @max-xl:p-0 @max-xl:[&>*]:hidden' : 'hidden w-20 pr-3 sm:table-cell')} onClick={(e) => e.stopPropagation()}>
         <Menu label={`Priority: ${PRIORITY_LABEL[task.priority]}. Change priority`} trigger={
           <button tabIndex={-1} className="-mx-1.5 flex h-6 min-w-10 items-center rounded px-1.5 hover:bg-sunken">
             {task.priority === 'normal' ? <span className="text-[12px] text-ink-3/0 group-hover:text-ink-3">Set</span> : <PriorityLabel priority={task.priority} compact />}
@@ -144,7 +149,7 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
           {PRIORITIES.map((p) => <MenuItem key={p} onSelect={() => p !== task.priority && void patchOccurrence(task.id, { priority: p }, `Priority: ${PRIORITY_LABEL[p]}`)}><PriorityLabel priority={p} /></MenuItem>)}
         </Menu>
       </td>
-      <td className="hidden w-32 pr-1 sm:table-cell" onClick={(e) => e.stopPropagation()}>
+      <td className={cn(stacked ? 'pr-1 @max-lg:p-0 @max-lg:[&>*]:hidden' : 'hidden w-32 pr-1 sm:table-cell')} onClick={(e) => e.stopPropagation()}>
         <StatusPicker status={task.status} onChange={(s) => void patchOccurrence(task.id, { status: s }, 'Status updated')} />
       </td>
       <td className="w-9 pr-2" onClick={(e) => e.stopPropagation()}><RowMenu task={task} /></td>
@@ -243,9 +248,9 @@ export function TaskTable({ tasks, showClient = true, stacked, header = true, li
             <th className={cn('w-9', selection ? 'pl-1' : 'pl-3')}><span className="sr-only">Done</span></th>
             <th className="pr-3 font-medium"><span>Task</span></th>
             {showClient && !stacked && <th className="hidden w-[24%] pr-3 font-medium md:table-cell"><span>Client</span></th>}
-            <th className="w-40 pr-3 font-medium"><span>Due</span></th>
-            <th className="hidden w-20 pr-3 font-medium sm:table-cell"><span>Priority</span></th>
-            <th className="hidden w-32 pr-1 font-medium sm:table-cell"><span>Status</span></th>
+            <th className={'w-40 pr-3 font-medium'}><span>Due</span></th>
+            <th className={cn('pr-3 font-medium', stacked ? 'w-20 @max-xl:w-0 @max-xl:p-0' : 'hidden w-20 sm:table-cell')}><span>Priority</span></th>
+            <th className={cn('pr-1 font-medium', stacked ? 'w-32 @max-lg:w-0 @max-lg:p-0' : 'hidden w-32 sm:table-cell')}><span>Status</span></th>
             <th className="w-9 pr-2"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>

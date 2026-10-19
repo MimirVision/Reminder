@@ -9,7 +9,8 @@ import type { Activity, Client, Occurrence, Schedule, Snapshot } from '../lib/ty
 import { isOpen } from '../lib/types';
 import { buildSeed } from './seed';
 import type { Backup, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
-import { RepoError } from './repo';
+import { checklistError, RepoError, upgradeRows } from './repo';
+import { calendarOf } from '../lib/holidays';
 
 const KEY = 'ledger-demo-v1';
 const uid = () => crypto.randomUUID();
@@ -17,6 +18,7 @@ const now = () => new Date().toISOString();
 
 export class DemoRepo implements Repo {
   readonly mode = 'demo' as const;
+  readonly current = true;
   private s: Snapshot;
   private storage: Storage | null;
 
@@ -30,7 +32,7 @@ export class DemoRepo implements Repo {
   private read(): Snapshot | null {
     try {
       const raw = this.storage?.getItem(KEY);
-      return raw ? (JSON.parse(raw) as Snapshot) : null;
+      return raw ? upgradeRows(JSON.parse(raw) as Snapshot) : null;
     } catch { return null; }
   }
 
@@ -58,8 +60,10 @@ export class DemoRepo implements Repo {
   }
 
   // Clients ------------------------------------------------------------------------------------------------------
-  private checkClient(c: Pick<Client, 'name' | 'reference'>, id?: string) {
+  private checkClient(c: Pick<Client, 'name' | 'reference'> & Partial<Client>, id?: string) {
     if (!c.name.trim() || c.name.length > 200) throw new RepoError('A client needs a name (up to 200 characters).');
+    if ((c.contactName?.length ?? 0) > 200 || (c.contactEmail?.length ?? 0) > 200 || (c.contactPhone?.length ?? 0) > 50) throw new RepoError('A contact detail is too long.');
+    if (c.documents && (c.documents.length > 100 || c.documents.some((d) => !d.text.trim() || d.text.length > 300))) throw new RepoError('Each document needs a name (up to 300 characters), and a client holds up to 100.');
     if (c.reference && this.s.clients.some((x) => x.id !== id && x.reference?.toLowerCase() === c.reference!.toLowerCase())) {
       throw new RepoError('Another client already uses that reference.');
     }
@@ -67,7 +71,10 @@ export class DemoRepo implements Repo {
 
   async createClient(c: NewClient): Promise<Client> {
     this.checkClient(c);
-    const row: Client = { id: uid(), workspaceId: this.s.workspace.id, status: 'active', ...c, reference: c.reference || null, createdAt: now(), updatedAt: now() };
+    const row: Client = {
+      id: uid(), workspaceId: this.s.workspace.id, status: 'active', contactName: '', contactEmail: '', contactPhone: '', documents: [],
+      ...c, reference: c.reference || null, createdAt: now(), updatedAt: now(),
+    };
     this.s.clients.push(row);
     this.log('client', row.id, row.id, 'created', { name: row.name });
     this.save();
@@ -76,12 +83,13 @@ export class DemoRepo implements Repo {
 
   async updateClient(id: string, patch: ClientPatch) {
     const c = this.find(this.s.clients, id);
-    this.checkClient({ name: patch.name ?? c.name, reference: patch.reference === undefined ? c.reference : patch.reference }, id);
+    this.checkClient({ ...c, ...patch, name: patch.name ?? c.name, reference: patch.reference === undefined ? c.reference : patch.reference }, id);
     const before = { ...c };
     Object.assign(c, patch, { updatedAt: now() });
     if (patch.reference === '') c.reference = null;
+    const edited = (['name', 'reference', 'notes', 'contactName', 'contactEmail', 'contactPhone'] as const).some((k) => before[k] !== c[k]);
     if (before.status !== c.status) this.log('client', id, id, c.status === 'archived' ? 'archived' : 'reactivated', { name: c.name });
-    else this.log('client', id, id, 'edited', { name: c.name });
+    else if (edited) this.log('client', id, id, 'edited', { name: c.name });
     this.save();
   }
 
@@ -99,10 +107,12 @@ export class DemoRepo implements Repo {
     const errs = validateRecurrence(s);
     if (errs.length) throw new RepoError(errs[0]);
     if (!this.s.clients.some((c) => c.id === s.clientId)) throw new RepoError('Choose a client.');
+    const cl = checklistError(s.checklist);
+    if (cl) throw new RepoError(cl);
   }
 
   async createSchedule(input: NewSchedule): Promise<Schedule> {
-    const row: Schedule = { ...input, id: uid(), workspaceId: this.s.workspace.id, status: 'active', createdAt: now(), updatedAt: now() };
+    const row: Schedule = { checklist: [], ...input, id: uid(), workspaceId: this.s.workspace.id, status: 'active', createdAt: now(), updatedAt: now() };
     this.checkSchedule(row);
     this.s.schedules.push(row);
     this.log('schedule', row.id, row.clientId, 'created', { title: row.title });
@@ -118,7 +128,7 @@ export class DemoRepo implements Repo {
     if (locked.some((k) => next[k] !== s[k]) && this.s.occurrences.some((o) => o.scheduleId === id)) {
       throw new RepoError('The client, start date and how often a schedule repeats cannot change once it has tasks. End it and create a new schedule instead.');
     }
-    const fields = (['title', 'description', 'dueRule', 'endDate', 'leadDays', 'defaultPriority', 'autoGenerate', 'taskType'] as const)
+    const fields = (['title', 'description', 'dueRule', 'endDate', 'leadDays', 'defaultPriority', 'autoGenerate', 'taskType', 'checklist'] as const)
       .filter((k) => JSON.stringify(next[k]) !== JSON.stringify(s[k]));
     if (next.status !== s.status) this.log('schedule', id, s.clientId, next.status === 'paused' ? 'paused' : next.status === 'ended' ? 'ended' : 'resumed', { title: next.title, end: next.endDate });
     if (fields.length) this.log('schedule', id, s.clientId, 'edited', { title: next.title, fields });
@@ -173,7 +183,7 @@ export class DemoRepo implements Repo {
     let n = 0;
     for (const o of this.s.occurrences) {
       if (o.scheduleId !== id || !isOpen(o.status) || o.dueDate < from || !o.periodStart || !o.periodEnd) continue;
-      const due = dueDateFor(s.dueRule, o.periodStart, o.periodEnd);
+      const due = dueDateFor(s.dueRule, o.periodStart, o.periodEnd, calendarOf(this.s.workspace.settings));
       const moved = o.scheduledDueDate !== null && o.dueDate !== o.scheduledDueDate;
       const patch: OccurrencePatch = { taskType: s.taskType };
       if (o.title === oldTitle) patch.title = s.title;
@@ -188,7 +198,9 @@ export class DemoRepo implements Repo {
   }
 
   // Occurrences --------------------------------------------------------------------------------------------------
-  private checkOccurrence(o: Pick<Occurrence, 'title' | 'clientId' | 'scheduleId' | 'tags'>) {
+  private checkOccurrence(o: Pick<Occurrence, 'title' | 'clientId' | 'scheduleId' | 'tags'> & { checklist?: Occurrence['checklist'] }) {
+    const cl = checklistError(o.checklist ?? []);
+    if (cl) throw new RepoError(cl);
     if (!o.title.trim() || o.title.length > 200) throw new RepoError('A task needs a title (up to 200 characters).');
     if (!this.s.clients.some((c) => c.id === o.clientId)) throw new RepoError('Choose a client.');
     if (o.scheduleId && this.s.schedules.find((s) => s.id === o.scheduleId)?.clientId !== o.clientId) throw new RepoError('A schedule task must belong to the schedule’s client.');
@@ -203,6 +215,8 @@ export class DemoRepo implements Repo {
     const row: Occurrence = {
       ...input, id: uid(), workspaceId: this.s.workspace.id, createdAt: now(), updatedAt: now(),
       completedAt: input.status === 'done' ? input.completedAt ?? now() : null,
+      checklist: input.checklist ?? [],
+      waitingSince: input.status === 'waiting' ? input.waitingSince ?? now() : null,
     };
     this.s.occurrences.push(row);
     this.log('occurrence', row.id, row.clientId, row.scheduleId ? 'generated' : 'created', { title: row.title, due: row.dueDate, period: row.periodKey });
@@ -220,6 +234,7 @@ export class DemoRepo implements Repo {
     this.log('occurrence', o.id, o.clientId, 'status', { title: o.title, from: o.status, to: status });
     o.status = status;
     o.completedAt = status === 'done' ? now() : null;
+    o.waitingSince = status === 'waiting' ? now() : null;
     o.updatedAt = now();
   }
 
@@ -271,7 +286,7 @@ export class DemoRepo implements Repo {
     const today = this.today();
     for (const s of liveSchedules(this.s.schedules, this.s.clients)) {
       try {
-        for (const o of planGeneration([s], this.s.pauses, this.s.occurrences, today)) {
+        for (const o of planGeneration([s], this.s.pauses, this.s.occurrences, today, calendarOf(this.s.workspace.settings))) {
           this.insertOccurrence(o);
           run.created++;
         }
@@ -291,10 +306,11 @@ export class DemoRepo implements Repo {
     const ws = this.s.workspace.id;
     const fix = <T extends { workspaceId: string }>(xs: T[]) => xs.map((x) => ({ ...x, workspaceId: ws }));
     Object.assign(this.s.workspace, { name: b.workspace.name, timezone: b.workspace.timezone, settings: b.workspace.settings });
-    this.s.clients = fix(b.clients);
-    this.s.schedules = fix(b.schedules);
+    const u = upgradeRows(b);
+    this.s.clients = fix(u.clients);
+    this.s.schedules = fix(u.schedules);
     this.s.pauses = fix(b.pauses);
-    this.s.occurrences = fix(b.occurrences);
+    this.s.occurrences = fix(u.occurrences);
     this.s.reviews = fix(b.reviews);
     this.s.activity = fix(b.activity ?? []);
     this.save();

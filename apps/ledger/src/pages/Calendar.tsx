@@ -2,6 +2,7 @@ import { useMemo, useState, type DragEvent } from 'react';
 import { AlertTriangle, Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { FilterMenu } from '../components/FilterMenu';
 import { Page } from '../components/Shell';
+import { holidayName } from '../lib/holidays';
 import { useUI } from '../components/ui-state';
 import { useStore } from '../data/store';
 import { addDays, addMonths, isoWeek, monthGrid, parts, startOfMonth, startOfWeek, type ISODate } from '../lib/dates';
@@ -60,7 +61,7 @@ const ORDER: Record<TaskStatus, number> = { todo: 1, in_progress: 1, waiting: 1,
 const sortDay = (a: Occurrence, b: Occurrence) => ORDER[a.status] - ORDER[b.status] || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.title.localeCompare(b.title);
 
 export function Calendar() {
-  const { snap, today, patchOccurrence } = useStore();
+  const { snap, today, patchOccurrence, calendar } = useStore();
   const ui = useUI();
   const { query } = useRoute();
   const [view, setView] = useState<View>((query.get('view') as View) || snap.workspace.settings.defaultCalendarView || 'month');
@@ -129,7 +130,7 @@ export function Calendar() {
         <div className="grid grid-cols-7 border-b border-line">
           {days.slice(0, 7).map((d) => (
             <div key={d} className="px-2 py-1.5 text-[11.5px] font-medium text-ink-3">
-              {formatWeekdayShort(d)}{view === 'week' && <span className={cn('tnum ml-1.5', d === today ? 'rounded-full bg-accent px-1.5 py-px font-semibold text-white' : 'text-ink-2')}>{parts(d)[2]}</span>}
+              {formatWeekdayShort(d)}{view === 'week' && <span className={cn('tnum ml-1.5', d === today ? 'rounded-full bg-accent px-1.5 py-px font-semibold text-on-accent' : 'text-ink-2')}>{parts(d)[2]}</span>}
             </div>
           ))}
         </div>
@@ -144,18 +145,20 @@ export function Calendar() {
             const hidden = openList.length - shown.length;
             const closedWord = closed.every((t) => t.status === 'done') ? 'done' : 'closed';
             const weekend = i % 7 >= 5;
+            const holiday = holidayName(d, calendar);
             return (
               <div key={d} {...dropProps(d)}
                 onDoubleClick={(e) => { if (e.target === e.currentTarget) ui.openNewTask({ dueDate: d }); }}
                 className={cn('group/cell relative flex min-w-0 flex-col gap-0.5 border-r border-b border-line p-1 [&:nth-child(7n)]:border-r-0',
-                  weekend && 'bg-canvas/50', outside && 'bg-canvas/70', d === today && 'bg-accent-soft/35', dropTarget === d && 'bg-accent-soft ring-2 ring-accent/40 ring-inset')}
-                aria-label={`${formatDayLong(d)}: ${list.length} task${list.length === 1 ? '' : 's'}`}
+                  (weekend || holiday) && 'bg-canvas/50', outside && 'bg-canvas/70', d === today && 'bg-accent-soft/35', dropTarget === d && 'bg-accent-soft ring-2 ring-accent/40 ring-inset')}
+                aria-label={`${formatDayLong(d)}${holiday ? `, ${holiday}` : ''}: ${list.length} task${list.length === 1 ? '' : 's'}`}
               >
                 <div className={cn('group/day flex items-center justify-between px-1', view === 'month' ? 'mb-0.5' : 'mb-1 justify-end')}>
                   {view === 'month' && (
                     <span className={cn('tnum flex size-[22px] items-center justify-center rounded-full text-[12px]',
-                      d === today ? 'bg-accent font-semibold text-white' : outside ? 'text-ink-3/60' : 'text-ink-2')}>{parts(d)[2]}</span>
+                      d === today ? 'bg-accent font-semibold text-on-accent' : outside ? 'text-ink-3/60' : 'text-ink-2')}>{parts(d)[2]}</span>
                   )}
+                  {holiday && <span className="mr-auto ml-1 truncate text-[11px] text-ink-3" title="Public holiday">{holiday}</span>}
                   <button aria-label={`Add a task on ${formatDayLong(d)}`} onClick={() => ui.openNewTask({ dueDate: d })}
                     className="flex size-[22px] items-center justify-center rounded-md text-ink-3 opacity-0 transition-opacity group-hover/cell:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
                     <Plus className="size-3.5" />

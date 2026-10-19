@@ -1,4 +1,5 @@
 import type { ISODate } from './dates';
+import type { HolidayCalendar } from './holidays';
 
 export type ClientStatus = 'active' | 'archived';
 export type TaskStatus = 'todo' | 'in_progress' | 'waiting' | 'done' | 'cancelled';
@@ -25,7 +26,7 @@ export type DueRule =
   /** A weekday inside the period's first week (weekly schedules). */
   | { kind: 'weekday'; weekday: number; adjust?: Adjust };
 
-/** What to do when the date lands on a Saturday or Sunday. */
+/** What to do when the date lands on a Saturday, Sunday or (with a holiday calendar) a public holiday. */
 export type Adjust = 'none' | 'next_business_day' | 'previous_business_day';
 
 export interface Recurrence {
@@ -36,6 +37,8 @@ export interface Recurrence {
   startDate: ISODate;
   endDate: ISODate | null;
   dueRule: DueRule;
+  /** Which public holidays business-day adjustment skips. Defaults to none. */
+  holidays?: HolidayCalendar;
 }
 
 export interface Workspace {
@@ -55,7 +58,33 @@ export interface WorkspaceSettings {
   theme?: 'light' | 'dark' | 'system';
   /** Clients shown in the sidebar for one-click access. */
   pinnedClients?: string[];
+  /** The Home dashboard: widgets in order with their sizes. Read through normalizeLayout. */
+  homeLayout?: unknown;
+  /** The Notepad widget's text. */
+  homeNotes?: string;
+  accent?: Accent;
+  density?: 'comfortable' | 'compact';
+  /** The screen Ledger opens on. */
+  startPage?: 'home' | 'tasks' | 'calendar';
+  /** Public holidays that business-day adjustment skips. Missing means Norway. */
+  holidays?: HolidayCalendar;
+  /** Checklist items every new task of a type starts with (and new schedules of that type). */
+  checklistTemplates?: Partial<Record<TaskType, string[]>>;
+  /** Your own views in My Tasks: a name and the list's filter as a query string. */
+  savedViews?: { id: string; name: string; query: string }[];
 }
+
+export interface ChecklistItem { id: string; text: string; done: boolean }
+
+export interface ClientDocument {
+  id: string;
+  text: string;
+  received: boolean;
+  requestedOn?: ISODate | null;
+  receivedOn?: ISODate | null;
+}
+
+export type Accent = 'cobalt' | 'violet' | 'teal' | 'amber' | 'rose' | 'graphite';
 
 export interface Client {
   id: string;
@@ -64,6 +93,11 @@ export interface Client {
   reference: string | null;
   status: ClientStatus;
   notes: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  /** Documents to collect from the client, and whether they have arrived. */
+  documents: ClientDocument[];
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +124,8 @@ export interface Schedule {
   autoGenerate: boolean;
   status: ScheduleStatus;
   defaultPriority: Priority;
+  /** Items every task the schedule creates starts with, unticked. */
+  checklist: ChecklistItem[];
   createdAt: string;
   updatedAt: string;
 }
@@ -121,6 +157,9 @@ export interface Occurrence {
   priority: Priority;
   tags: string[];
   completedAt: string | null;
+  checklist: ChecklistItem[];
+  /** When the task last became "waiting for client"; null unless it is waiting. */
+  waitingSince: string | null;
   createdAt: string;
   updatedAt: string;
 }

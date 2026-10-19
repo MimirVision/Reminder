@@ -58,7 +58,7 @@ export function MiniCalendar({ value, today, onSelect, marks }: { value: ISODate
               onClick={() => onSelect(d)}
               className={cn(
                 'tnum relative mx-auto flex size-8 items-center justify-center rounded-md text-[12.5px] transition-colors',
-                selected ? 'bg-accent font-semibold text-white' : d === today ? 'font-semibold text-accent hover:bg-hover' : inMonth ? 'text-ink hover:bg-hover' : 'text-ink-3/60 hover:bg-hover',
+                selected ? 'bg-accent font-semibold text-on-accent' : d === today ? 'font-semibold text-accent hover:bg-hover' : inMonth ? 'text-ink hover:bg-hover' : 'text-ink-3/60 hover:bg-hover',
               )}
             >
               {parts(d)[2]}

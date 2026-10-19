@@ -7,6 +7,7 @@ import { parseQuickAdd } from '../lib/quickadd';
 import { isOpen } from '../lib/types';
 import { useRoute } from '../router';
 import { cn } from '../ui/cn';
+import { fromLines } from './Checklist';
 import { useUI } from './ui-state';
 
 interface Item { id: string; label: string; hint?: string; icon: typeof Home; group: string; run: () => void }
@@ -38,6 +39,7 @@ export function CommandPalette() {
       { id: 'home', label: 'Home', icon: Home, group: 'Go to', run: go('/') },
       { id: 'tasks', label: 'My Tasks', icon: ListChecks, group: 'Go to', run: go('/tasks') },
       { id: 'overdue', label: 'Overdue tasks', icon: ListChecks, group: 'Go to', run: go('/tasks?view=overdue') },
+      ...(snap.workspace.settings.savedViews ?? []).map((v) => ({ id: `view-${v.id}`, label: v.name, icon: ListChecks, group: 'Go to', hint: 'Saved view', run: go(`/tasks?${v.query}`) })),
       { id: 'waiting', label: 'Waiting for client', icon: ListChecks, group: 'Go to', run: go('/tasks?view=waiting') },
       { id: 'calendar', label: 'Calendar', icon: CalendarDays, group: 'Go to', run: go('/calendar') },
       { id: 'clients', label: 'Clients', icon: Building2, group: 'Go to', run: go('/clients') },
@@ -55,6 +57,7 @@ export function CommandPalette() {
       run: () => void run((r) => r.createOccurrence({
         clientId: draft.clientId!, scheduleId: null, title: draft.title, description: '', taskType: 'follow_up', periodKey: null, periodStart: null,
         periodEnd: null, dueDate: draft.due ?? today, scheduledDueDate: null, status: 'todo', priority: draft.priority ?? 'normal', tags: draft.tags,
+        checklist: fromLines(snap.workspace.settings.checklistTemplates?.follow_up),
       }), { success: 'Task created' }),
     }] : [{ id: 'create', label: `New task “${draft.title || q.trim()}”…`, icon: Plus, group: 'Create', hint: 'add @client to create it right away', run: () => ui.openNewTask({ title: q.trim() }) }];
     const words = s.split(/\s+/);

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { CommandPalette } from './components/CommandPalette';
 import { ScheduleEditor } from './components/ScheduleEditor';
 import { Shell } from './components/Shell';
+import { Shortcuts } from './components/Shortcuts';
 import { NewTaskDialog } from './components/TaskForms';
 import { TaskPanel } from './components/TaskPanel';
 import { UIProvider } from './components/ui-state';
@@ -35,7 +36,21 @@ function applyTheme(theme: string | undefined) {
 function Screens({ email }: { email?: string | null }) {
   const { path, navigate } = useRoute();
   const { state, snap, reload } = useStore();
-  useEffect(() => applyTheme(snap.workspace.settings.theme), [snap.workspace.settings.theme]);
+  const { theme, accent, density, startPage } = snap.workspace.settings;
+  useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (accent && accent !== 'cobalt') root.dataset.accent = accent; else delete root.dataset.accent;
+    if (density === 'compact') root.dataset.density = 'compact'; else delete root.dataset.density;
+    try { localStorage.setItem('ledger-accent', accent ?? 'cobalt'); localStorage.setItem('ledger-density', density ?? 'comfortable'); } catch { /* ignore */ }
+  }, [accent, density]);
+  // Open on the chosen start page, once, when Ledger is opened at its root.
+  const started = useRef(false);
+  useEffect(() => {
+    if (state.kind !== 'ready' || started.current) return;
+    started.current = true;
+    if (path === '/' && startPage && startPage !== 'home') navigate(`/${startPage}`, { replace: true });
+  }, [state.kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (state.kind === 'not_installed') return <NotInstalled />;
   if (state.kind === 'error') return <LoadError message={state.message} retry={() => void reload()} />;
@@ -58,7 +73,7 @@ function Screens({ email }: { email?: string | null }) {
   return (
     <Shell>
       {page}
-      {state.kind === 'ready' && <><TaskPanel /><NewTaskDialog /><ScheduleEditor /><CommandPalette /></>}
+      {state.kind === 'ready' && <><TaskPanel /><NewTaskDialog /><ScheduleEditor /><CommandPalette /><Shortcuts /></>}
     </Shell>
   );
 }
