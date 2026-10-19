@@ -3,9 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { createController, type Controller } from './core/controller.ts';
 import { openStore } from './idb.ts';
 import { clearBadge, hasPush, markSeen, registerWorker } from './push.ts';
+import { watchInstall } from './install.ts';
 import { App } from './ui/App.tsx';
 import { showFatal } from './ui/recover.ts';
 import './post.css';
+
+watchInstall(); // the browser offers installing early, before the app has finished starting
 
 const kv = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },

@@ -2,15 +2,18 @@
   "name": "Post",
   "short_name": "Post",
   "description": "Fast, calm mail for Outlook. The number on the icon tells you when new mail has arrived.",
+  "id": "/post/",
   "start_url": "/post/",
   "scope": "/post/",
-  "id": "/post/",
   "display": "standalone",
-  "orientation": "portrait",
+  "display_override": ["standalone"],
   "background_color": "#F2F3F5",
   "theme_color": "#1E2430",
+  "categories": ["productivity", "business"],
   "icons": [
-    { "src": "/post/icon-180.png", "sizes": "180x180", "type": "image/png" },
-    { "src": "/post/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "/post/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/post/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/post/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/post/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
