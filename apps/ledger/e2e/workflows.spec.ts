@@ -375,3 +375,24 @@ test('nothing is lost or broken by Escape, odd links or a phone screen', async (
   const firstTitle = page.locator('tbody tr[data-task]').first().locator('td').nth(2);
   expect((await firstTitle.boundingBox())!.width).toBeGreaterThan(200);
 });
+
+test('a schedule can be copied to other clients as separate schedules', async ({ page }) => {
+  await page.goto('/clients/client-1');
+  await page.getByRole('tab', { name: /Recurring/ }).click();
+  await page.getByRole('button', { name: 'Payroll run', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Recurring schedule' });
+  await editor.getByRole('button', { name: 'Copy to clients…' }).click();
+  const copy = page.getByRole('dialog', { name: 'Copy to other clients' });
+  // The client it is copied from isn't offered; clients that already have one are marked.
+  await expect(copy.getByRole('checkbox', { name: /Nordvik Snekkeri AS/ })).toHaveCount(0);
+  await expect(copy.getByText('has one already').first()).toBeVisible();
+  await copy.getByRole('checkbox', { name: /Lysaker Design ENK/ }).check();
+  await copy.getByRole('checkbox', { name: /Havbris Eiendom AS/ }).check();
+  await copy.getByRole('button', { name: 'Copy to 2 clients' }).click();
+  await expect(page.getByText(/“Payroll run” copied to 2 clients/)).toBeVisible();
+  for (const id of ['client-4', 'client-3']) {
+    await page.goto(`/clients/${id}`);
+    await page.getByRole('tab', { name: /Recurring/ }).click();
+    await expect(page.getByRole('button', { name: 'Payroll run', exact: true })).toBeVisible();
+  }
+});

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarX2, Pause, Plus, Repeat, Search } from 'lucide-react';
+import { CalendarX2, Pause, Plus, Repeat, Search, Copy } from 'lucide-react';
 import { FilterMenu } from '../components/FilterMenu';
 import { Page } from '../components/Shell';
 import { useUI } from '../components/ui-state';
@@ -9,13 +9,15 @@ import { SCHEDULE_STATUS_LABEL } from '../lib/labels';
 import { describeDueRule, describeRecurrence, isPausedOn, recurrenceOf, shortDueRule, upcomingPeriods } from '../lib/recurrence';
 import { isOpen, type Schedule, type ScheduleStatus } from '../lib/types';
 import { Pill } from '../ui/badges';
-import { Button } from '../ui/button';
+import { Button, IconButton } from '../ui/button';
 import { cn } from '../ui/cn';
+import { CopyScheduleDialog } from '../components/CopySchedule';
 import { EmptyState } from '../ui/states';
 
 export function ScheduleList({ schedules, showClient = true, emptyAction }: { schedules: Schedule[]; showClient?: boolean; emptyAction?: () => void }) {
   const { snap, today, clientById, calendar } = useStore();
   const ui = useUI();
+  const [copyFrom, setCopyFrom] = useState<Schedule | null>(null);
   const info = useMemo(() => new Map(schedules.map((s) => {
     const pauses = snap.pauses.filter((p) => p.scheduleId === s.id);
     const next = s.status === 'ended' ? undefined : upcomingPeriods(recurrenceOf(s, calendar), today, 6).find((p) => !isPausedOn(p.due, pauses));
@@ -47,7 +49,7 @@ export function ScheduleList({ schedules, showClient = true, emptyAction }: { sc
             <th className="col-lg w-[30%] pr-3 font-medium">Due</th>
             <th className="w-24 pr-3 font-medium sm:w-32">Next due</th>
             <th className="col-sm w-28 pr-3 text-right font-medium">Tasks</th>
-            <th className="col-sm w-24 pr-4 font-medium"><span className="sr-only">Status</span></th>
+            <th className="col-sm w-28 pr-2 font-medium"><span className="sr-only">Status and actions</span></th>
           </tr>
         </thead>
         {groups.map(([clientId, list], gi) => (
@@ -63,7 +65,7 @@ export function ScheduleList({ schedules, showClient = true, emptyAction }: { sc
             {list.map((s) => {
               const i = info.get(s.id)!;
               return (
-                <tr key={s.id} className="min-h-10 h-10 cursor-default border-b border-line last:border-b-0 hover:bg-hover/70" onClick={() => ui.openSchedule({ mode: 'edit', id: s.id })}>
+                <tr key={s.id} className="group min-h-10 h-10 cursor-default border-b border-line last:border-b-0 hover:bg-hover/70" onClick={() => ui.openSchedule({ mode: 'edit', id: s.id })}>
                   <td className="max-w-0 pr-3 pl-4">
                     {/* One line on wide screens; title over its rhythm on a phone. */}
                     <div className="flex min-w-0 flex-col py-1 sm:flex-row sm:items-baseline sm:gap-2">
@@ -74,10 +76,15 @@ export function ScheduleList({ schedules, showClient = true, emptyAction }: { sc
                   <td className="col-lg max-w-0 truncate pr-3 text-[12.5px] text-ink-2" title={describeDueRule(s.dueRule)}>{shortDueRule(s.dueRule)}</td>
                   <td className="tnum pr-3 text-[12.5px] text-ink-2">{i.next ? formatDue(i.next.due, today) : <span className="text-ink-3">None</span>}</td>
                   <td className="tnum col-sm pr-3 text-right text-[12.5px] text-ink-3">{i.open > 0 && <span className="text-ink-2">{i.open} open · </span>}{i.total}</td>
-                  <td className="col-sm pr-4 text-right">
-                    {s.status !== 'active' && (
-                      <Pill tone={s.status === 'paused' ? 'warn' : 'neutral'}>{s.status === 'paused' ? <Pause /> : <CalendarX2 />}{SCHEDULE_STATUS_LABEL[s.status]}</Pill>
-                    )}
+                  <td className="col-sm pr-2 text-right">
+                    <span className="flex items-center justify-end gap-1">
+                      {s.status !== 'active' && (
+                        <Pill tone={s.status === 'paused' ? 'warn' : 'neutral'}>{s.status === 'paused' ? <Pause /> : <CalendarX2 />}{SCHEDULE_STATUS_LABEL[s.status]}</Pill>
+                      )}
+                      <IconButton label={`Copy “${s.title}” to other clients`} size="sm" title="Copy to other clients"
+                        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        onClick={(e) => { e.stopPropagation(); setCopyFrom(s); }}><Copy /></IconButton>
+                    </span>
                   </td>
                 </tr>
               );
@@ -85,6 +92,7 @@ export function ScheduleList({ schedules, showClient = true, emptyAction }: { sc
           </tbody>
         ))}
       </table>
+      {copyFrom && <CopyScheduleDialog schedule={copyFrom} open onOpenChange={(o) => { if (!o) setCopyFrom(null); }} />}
     </div>
   );
 }

@@ -25,6 +25,10 @@ time (overlaps side by side, a line for now), tasks stay in a row at the top sin
 Click an empty time to book a meeting there; drag a meeting to move it. Month view lists each day's meetings first.
 Home has an Agenda widget, and a client's page a Meetings tab. Needs `0004_ledger_meetings.sql` (run `ledger.sql`).
 
+**Copy a schedule to other clients.** In a schedule, *Copy to clients…* (or the copy button on its row in Recurring
+Work) makes the same schedule for every client you tick, or a whole group such as VAT clients. Each copy is separate
+and starts from the current period; clients that already have one like it are marked and left out of groups.
+
 **One task, several clients.** In New task, choose *Several clients…* and tick the clients (or a group: VAT clients,
 Payroll clients, Pinned, All active, built from the work each client already has). Ledger creates one separate task
 per client; nothing links them afterwards, and Undo removes the whole batch.
