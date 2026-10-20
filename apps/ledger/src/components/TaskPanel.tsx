@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X } from 'lucide-react';
+import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X, ChevronDown, ChevronUp, Copy } from 'lucide-react';
 import { useStore } from '../data/store';
 import { addDays, diffDays, localISODate, weekday, type ISODate } from '../lib/dates';
 import { formatDate, formatDayLong, formatTimestamp, relativeDue } from '../lib/format';
@@ -13,6 +13,7 @@ import { DatePicker } from '../ui/datepicker';
 import { Input, Select, Textarea } from '../ui/field';
 import { Confirm, Menu, MenuItem, Sheet, SheetClose } from '../ui/overlay';
 import { ActivityList } from './ActivityList';
+import { useTaskActions } from './TaskTable';
 import { ChecklistEditor, progressOf } from './Checklist';
 import { useUI } from './ui-state';
 import { Link } from '../router';
@@ -44,6 +45,37 @@ export function waitedDays(since: string, today: ISODate): string {
   return n === 0 ? 'since today' : `${n} day${n === 1 ? '' : 's'}`;
 }
 
+/** Previous and next task in the list behind the panel (the rows on screen), with J and K. */
+function Neighbours({ id }: { id: string }) {
+  const ui = useUI();
+  const step = (d: 1 | -1) => {
+    const ids = [...document.querySelectorAll<HTMLElement>('tr[data-task]')].map((r) => r.dataset.task!);
+    const i = ids.indexOf(id);
+    const next = i < 0 ? undefined : ids[i + d];
+    if (next) {
+      ui.openTask(next);
+      document.querySelector(`tr[data-task="${next}"]`)?.scrollIntoView({ block: 'nearest' });
+    }
+  };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).closest('input,textarea,select,[contenteditable],[role=menu]')) return;
+      if (e.key === 'j' || e.key === 'k') { e.preventDefault(); step(e.key === 'j' ? 1 : -1); }
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  });
+  const ids = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLElement>('tr[data-task]')].map((r) => r.dataset.task!);
+  const i = ids.indexOf(id);
+  if (i < 0) return null;
+  return (
+    <div className="flex items-center">
+      <IconButton label="Previous task (K)" disabled={i === 0} onClick={() => step(-1)}><ChevronUp /></IconButton>
+      <IconButton label="Next task (J)" disabled={i === ids.length - 1} onClick={() => step(1)}><ChevronDown /></IconButton>
+    </div>
+  );
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[112px_1fr] items-center gap-3 py-1.5">
@@ -56,6 +88,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function TaskDetail({ task }: { task: Occurrence }) {
   const ui = useUI();
   const { snap, today, clientById, scheduleById, patchOccurrence, run, repo } = useStore();
+  const actions = useTaskActions();
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.description);
   const [tags, setTags] = useState(task.tags.join(', '));
@@ -85,10 +118,12 @@ function TaskDetail({ task }: { task: Occurrence }) {
       <div className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-4">
         <StatusPicker status={task.status} short={false} onChange={(s) => void patchOccurrence(task.id, { status: s }, 'Status updated')} />
         <div className="flex-1" />
+        <Neighbours id={task.id} />
         {isOpen(task.status)
           ? <Button size="sm" variant="primary" onClick={() => void patchOccurrence(task.id, { status: 'done' }, 'Marked done')}><Check /> Mark done</Button>
           : <Button size="sm" onClick={() => void patchOccurrence(task.id, { status: 'todo' }, 'Reopened')}><RotateCcw /> Reopen</Button>}
         <Menu align="end" label="More actions" trigger={<IconButton label="More actions"><MoreHorizontal /></IconButton>}>
+          <MenuItem onSelect={() => void actions.duplicate(task)}><Copy /> Duplicate</MenuItem>
           {task.scheduleId ? (
             <MenuItem onSelect={() => setConfirm('cancel')} disabled={task.status === 'cancelled'}><CircleSlash /> Cancel this occurrence</MenuItem>
           ) : (

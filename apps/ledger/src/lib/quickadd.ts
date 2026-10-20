@@ -14,6 +14,8 @@ export interface QuickAdd {
   dueText: string | null;
   priority: Priority | null;
   tags: string[];
+  /** A time of day ("HH:MM") when the line names one; QuickAdd then offers to book a meeting. */
+  time: string | null;
 }
 
 const WEEKDAYS: Record<string, number> = {
@@ -121,6 +123,20 @@ function findClient(token: string, clients: Pick<Client, 'id' | 'name' | 'refere
   return exactFirst.length === 1 ? exactFirst[0] : null;
 }
 
+function readTime(words: string[], i: number): { time: string; length: number } | null {
+  const hhmm = (s: string) => {
+    const m = /^([01]?\d|2[0-3])(?::([0-5]\d))?$/.exec(s);
+    return m ? `${m[1].padStart(2, '0')}:${m[2] ?? '00'}` : null;
+  };
+  const w = norm(words[i]);
+  if (/^([01]?\d|2[0-3]):[0-5]\d$/.test(w)) return { time: hhmm(w)!, length: 1 };
+  if ((w === 'kl' || w === 'kl.' || w === 'at') && words[i + 1]) {
+    const t = hhmm(norm(words[i + 1]).replace('.', ':'));
+    if (t) return { time: t, length: 2 };
+  }
+  return null;
+}
+
 /** Words too common in task titles to be read as a client name on their own. */
 const COMMON = new Set(['monthly', 'annual', 'payroll', 'vat', 'invoice', 'invoices', 'bank', 'call', 'email', 'meeting', 'check', 'send', 'review', 'year', 'report']);
 
@@ -128,7 +144,7 @@ export function parseQuickAdd(input: string, clients: Pick<Client, 'id' | 'name'
   const active = clients.filter((c) => c.status === 'active');
   const words = input.trim().split(/\s+/).filter(Boolean);
   const keep: string[] = [];
-  const out: QuickAdd = { title: '', clientId: null, clientBy: null, due: null, dueText: null, priority: null, tags: [] };
+  const out: QuickAdd = { title: '', clientId: null, clientBy: null, due: null, dueText: null, priority: null, tags: [], time: null };
 
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
@@ -142,6 +158,11 @@ export function parseQuickAdd(input: string, clients: Pick<Client, 'id' | 'name'
     if (w.length > 1 && w.startsWith('@') && !out.clientId) {
       const c = findClient(w.slice(1), active);
       if (c) { out.clientId = c.id; out.clientBy = 'mention'; continue; }
+    }
+    // A time of day ("10:00", "kl 10", "kl. 14:30", "at 9"): the line can then be booked as a meeting.
+    if (!out.time) {
+      const t = readTime(words, i);
+      if (t) { out.time = t.time; i += t.length - 1; continue; }
     }
     if (!out.due) {
       const d = readDate(words, i, today);

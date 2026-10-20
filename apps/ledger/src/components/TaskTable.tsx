@@ -1,6 +1,6 @@
 import { memo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { NewTaskDefaults } from './ui-state';
-import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun } from 'lucide-react';
+import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun, Copy } from 'lucide-react';
 import { ChecklistBadge } from './Checklist';
 import { QuickAdd } from './QuickAdd';
 import { addDays, weekday, type ISODate } from '../lib/dates';
@@ -22,8 +22,18 @@ const nextMonday = (today: ISODate) => addDays(today, ((1 - weekday(today) + 7) 
 
 /** The quick moves people make all day, shared by the row menu and the keyboard. */
 export function useTaskActions() {
-  const { patchOccurrence, today } = useStore();
+  const { patchOccurrence, today, run } = useStore();
+  const ui = useUI();
   return {
+    /** A one-off copy of the task (not linked to its schedule), with the checklist unticked; opens it. */
+    duplicate: async (t: Occurrence) => {
+      const copy = await run((r) => r.createOccurrence({
+        clientId: t.clientId, scheduleId: null, title: t.title, description: t.description, taskType: t.taskType, periodKey: null, periodStart: null,
+        periodEnd: null, dueDate: t.dueDate, scheduledDueDate: null, status: 'todo', priority: t.priority, tags: t.tags,
+        checklist: t.checklist.map((i) => ({ ...i, done: false })),
+      }), { success: 'Duplicated' });
+      if (copy) ui.openTask(copy.id);
+    },
     toggleDone: (t: Occurrence) => patchOccurrence(t.id, { status: t.status === 'done' ? 'todo' : 'done' }, t.status === 'done' ? 'Reopened' : `Done: ${t.title}`),
     waiting: (t: Occurrence) => patchOccurrence(t.id, { status: t.status === 'waiting' ? 'todo' : 'waiting' }, t.status === 'waiting' ? 'No longer waiting' : 'Waiting for client'),
     moveTo: (t: Occurrence, d: ISODate) => (d === t.dueDate ? Promise.resolve(true) : patchOccurrence(t.id, { dueDate: d }, `Moved to ${formatDue(d, today).toLowerCase()}`)),
@@ -78,6 +88,7 @@ function RowMenu({ task }: { task: Occurrence }) {
         <MenuItem onSelect={() => void a.moveTo(task, addDays(task.dueDate < a.tomorrow ? a.tomorrow : task.dueDate, 7))}><CalendarClock /> One week later</MenuItem>
       </>}
       <MenuSeparator />
+      <MenuItem onSelect={() => void a.duplicate(task)}><Copy /> Duplicate</MenuItem>
       <MenuItem shortcut="↵" onSelect={() => ui.openTask(task.id)}><CornerDownLeft /> Open details</MenuItem>
     </Menu>
   );

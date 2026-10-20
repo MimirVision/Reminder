@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Building2, CalendarDays, Home, ListChecks, Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, Plus, Repeat, Search, SearchCheck, Settings, X } from 'lucide-react';
 import { isOpen } from '../lib/types';
 import { useStore } from '../data/store';
@@ -24,6 +24,9 @@ function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () 
   const { reviewCount, repo, snap, today, clientById } = useStore();
   const active = (to: string) => (to === '/' ? path === '/' : path === to || path.startsWith(`${to}/`));
   const overdue = snap.occurrences.filter((o) => isOpen(o.status) && o.dueDate < today).length;
+  // Meetings still to come today (by end time), so the calendar shows when the day has appointments left.
+  const nowHHMM = new Date().toTimeString().slice(0, 5);
+  const meetingsLeft = snap.meetings.filter((m) => m.date === today && m.end > nowHHMM).length;
   const pinned = (snap.workspace.settings.pinnedClients ?? []).map((id) => clientById.get(id)).filter((c): c is NonNullable<typeof c> => !!c && c.status === 'active');
   const overdueBy = (id: string) => snap.occurrences.filter((o) => o.clientId === id && isOpen(o.status) && o.dueDate < today).length;
   const count = (n: number, tone: 'danger' | 'warn' | 'muted', label: string) => n > 0 && (
@@ -67,7 +70,8 @@ function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () 
       <div className="flex flex-col gap-0.5">
         {NAV.map((n) => item(n.to, n.label, n.icon,
           n.to === '/tasks' ? count(overdue, 'danger', `${overdue} overdue`)
-            : n.to === '/missing' ? count(reviewCount, 'warn', `${reviewCount} to review`) : undefined))}
+            : n.to === '/missing' ? count(reviewCount, 'warn', `${reviewCount} to review`)
+            : n.to === '/calendar' ? count(meetingsLeft, 'muted', `${meetingsLeft} meeting${meetingsLeft === 1 ? '' : 's'} left today`) : undefined))}
       </div>
       {pinned.length > 0 && (
         <div className="mt-6 flex min-h-0 flex-col gap-0.5 overflow-y-auto">
@@ -132,7 +136,10 @@ export function Page({ title, crumb, docTitle, subtitle, actions, barActions, ti
 }) {
   const openDrawer = useContext(DrawerContext);
   const ui = useUI();
-  useEffect(() => { document.title = `${docTitle ?? title} · Ledger`; }, [title, docTitle]);
+  // The tab shows how much is overdue, so a pinned tab says when something needs attention.
+  const { snap, today } = useStore();
+  const overdue = useMemo(() => snap.occurrences.filter((o) => isOpen(o.status) && o.dueDate < today).length, [snap.occurrences, today]);
+  useEffect(() => { document.title = `${overdue ? `(${overdue}) ` : ''}${docTitle ?? title} · Ledger`; }, [title, docTitle, overdue]);
   return (
     <>
       <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-canvas/85 px-4 backdrop-blur-md md:px-8">

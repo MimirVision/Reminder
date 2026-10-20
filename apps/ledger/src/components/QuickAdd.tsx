@@ -1,7 +1,7 @@
 // The fastest way to add work: type one line, press Enter. Recognised parts (client, date, priority, tags) appear as
 // chips as you type, so you can see exactly what will be saved, and each chip can be changed with a click.
 import { useMemo, useRef, useState } from 'react';
-import { Building2, CalendarDays, CornerDownLeft, Flag, Hash, Plus, X } from 'lucide-react';
+import { Building2, CalendarDays, CornerDownLeft, Flag, Hash, Plus, X, Users } from 'lucide-react';
 import { useStore } from '../data/store';
 import type { ISODate } from '../lib/dates';
 import { formatDue } from '../lib/format';
@@ -14,6 +14,7 @@ import { DatePicker } from '../ui/datepicker';
 import { Menu, MenuItem, Popover } from '../ui/overlay';
 import { useToast } from '../ui/toast';
 import { fromLines } from './Checklist';
+import { fromMinutes, toMinutes } from '../lib/meetings';
 import { useUI } from './ui-state';
 
 const chip = 'inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[12px] transition-colors [&_svg]:size-3.5';
@@ -23,7 +24,7 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
   /** 'box' stands alone; 'row' sits inside a list as its first row, like ClickUp's "+ Add task". */
   variant?: 'box' | 'row';
 }) {
-  const { snap, today, clientById, run } = useStore();
+  const { snap, today, clientById, run, repo } = useStore();
   const ui = useUI();
   const toast = useToast();
   const [text, setText] = useState('');
@@ -74,6 +75,19 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
       reset();
       input.current?.focus();
     }
+  };
+
+  // A line with a time of day ("Call Nordvik fri 10:00") can be booked as a meeting instead, one hour by default.
+  const canMeet = repo.meetings && !!parsed.time && !!parsed.title;
+  const bookMeeting = async () => {
+    if (!canMeet) return;
+    setBusy(true);
+    const start = parsed.time!;
+    const ok = await run((r) => r.createMeeting({
+      clientId: clientId ?? null, title: parsed.title, date: due, start, end: fromMinutes(Math.min(toMinutes(start) + 60, 23 * 60 + 59)), location: '', notes: '',
+    }), { success: `Meeting booked: ${formatDue(due, today).toLowerCase()} at ${start}` });
+    setBusy(false);
+    if (ok) { reset(); input.current?.focus(); }
   };
 
   const missingClient = tried && !clientId && !!parsed.title;
@@ -139,6 +153,12 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
 
       {(hasText || tried) && (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-line px-3 py-2">
+          {canMeet && (
+            <button type="button" onClick={() => void bookMeeting()} disabled={busy}
+              className={cn(chip, 'border-accent/40 bg-accent-soft text-accent-ink hover:border-accent')}>
+              <Users />Book as meeting at {parsed.time}
+            </button>
+          )}
           {fixedClient ? (
             <span className={cn(chip, 'border-line bg-sunken text-ink-2')}><Building2 />{client?.name}</span>
           ) : (
