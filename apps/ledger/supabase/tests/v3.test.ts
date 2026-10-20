@@ -63,7 +63,7 @@ describe('Database v3', () => {
 
   it('reports its schema version, so the app can switch the new features on', async () => {
     await t.as(A, async () => {
-      expect(Number((await t.one<{ v: number }>(`select public.ledger_schema_version() v`)).v)).toBe(3);
+      expect(Number((await t.one<{ v: number }>(`select public.ledger_schema_version() v`)).v)).toBeGreaterThanOrEqual(3);
     });
   });
 

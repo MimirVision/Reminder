@@ -248,7 +248,27 @@ export function buildSeed(today: ISODate): Snapshot {
   activity.push({ id: 'act-pause', workspaceId: ws, entity: 'schedule', entityId: seasonal.id, clientId: seasonal.clientId, action: 'paused', details: { title: seasonal.title }, actorId: 'demo', createdAt: new Date(Date.parse(addDays(today, -20))).toISOString() });
   activity.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
+  // A realistic week of meetings: client calls and reviews, plus an internal one with no client.
+  const MEETINGS: [client: number | null, title: string, day: number, start: string, end: string, location: string][] = [
+    [4, 'Year-end planning call', 0, '10:00', '10:45', 'Teams'],
+    [13, 'Onboarding meeting', 0, '13:30', '14:30', 'At the marina office'],
+    [null, 'Team stand-up', 0, '09:00', '09:15', ''],
+    [null, 'Team stand-up', 1, '09:00', '09:15', ''],
+    [15, 'Board meeting preparation', 1, '11:00', '12:00', 'Teams'],
+    [19, 'Quarterly review with the bank', 2, '14:00', '15:00', 'Bank office, 3rd floor'],
+    [9, 'Supplier invoice walkthrough', 2, '14:30', '15:15', 'Phone'],
+    [null, 'Team stand-up', 2, '09:00', '09:15', ''],
+    [0, 'Fixed assets review', 4, '10:00', '11:30', 'Client site'],
+    [10, 'Partner meeting: WIP and billing', -2, '15:00', '16:00', 'Teams'],
+    [17, 'Company car: private use', 7, '09:30', '10:00', 'Phone'],
+  ];
+  const meetings: Snapshot['meetings'] = MEETINGS.map(([client, title, day, start, end, location], i) => ({
+    id: `meeting-${i + 1}`, workspaceId: ws, clientId: client === null ? null : `client-${client + 1}`, title,
+    date: addDays(today, day), start, end, location, notes: '', createdAt: stamp, updatedAt: stamp,
+  }));
+
   return {
+    meetings,
     workspace: { id: ws, name: 'Demo workspace', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Oslo', settings: { displayName: '', pinnedClients: ['client-10', 'client-1', 'client-14'], checklistTemplates: TEMPLATES } },
     clients, schedules, pauses, occurrences, reviews, activity,
     runs: [{ id: 'run-1', workspaceId: ws, trigger: 'app', startedAt: stamp, finishedAt: stamp, created: occurrences.length, errors: [] }],

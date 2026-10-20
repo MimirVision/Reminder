@@ -5,10 +5,11 @@
 import { todayIn, type ISODate } from '../lib/dates';
 import { liveSchedules, planGeneration } from '../lib/generation';
 import { dueDateFor, validateRecurrence } from '../lib/recurrence';
-import type { Activity, Client, Occurrence, Schedule, Snapshot } from '../lib/types';
+import type { Activity, Client, Meeting, Occurrence, Schedule, Snapshot } from '../lib/types';
+import { meetingErrors } from '../lib/meetings';
 import { isOpen } from '../lib/types';
 import { buildSeed } from './seed';
-import type { Backup, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
+import type { Backup, MeetingPatch, NewMeeting, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
 import { checklistError, RepoError, upgradeRows } from './repo';
 import { calendarOf } from '../lib/holidays';
 
@@ -19,6 +20,7 @@ const now = () => new Date().toISOString();
 export class DemoRepo implements Repo {
   readonly mode = 'demo' as const;
   readonly current = true;
+  readonly meetings = true;
   private s: Snapshot;
   private storage: Storage | null;
 
@@ -32,7 +34,9 @@ export class DemoRepo implements Repo {
   private read(): Snapshot | null {
     try {
       const raw = this.storage?.getItem(KEY);
-      return raw ? upgradeRows(JSON.parse(raw) as Snapshot) : null;
+      if (!raw) return null;
+      const snap = JSON.parse(raw) as Snapshot;
+      return upgradeRows({ ...snap, meetings: snap.meetings ?? [] });
     } catch { return null; }
   }
 
@@ -94,7 +98,7 @@ export class DemoRepo implements Repo {
   }
 
   async deleteClient(id: string) {
-    if (this.s.occurrences.some((o) => o.clientId === id) || this.s.schedules.some((s) => s.clientId === id)) {
+    if (this.s.occurrences.some((o) => o.clientId === id) || this.s.schedules.some((s) => s.clientId === id) || this.s.meetings.some((m) => m.clientId === id)) {
       throw new RepoError('It still has tasks or schedules attached. Archive it instead, so its history is kept.');
     }
     this.s.clients = this.s.clients.filter((c) => c.id !== id);
@@ -262,6 +266,39 @@ export class DemoRepo implements Repo {
     this.save();
   }
 
+  // Meetings -----------------------------------------------------------------------------------------------------
+  private checkMeeting(m: NewMeeting) {
+    const e = meetingErrors(m);
+    if (e.title || e.time) throw new RepoError((e.title ?? e.time)!);
+    if (m.clientId && !this.s.clients.some((c) => c.id === m.clientId)) throw new RepoError('That client no longer exists.');
+    if (m.location.length > 500 || m.notes.length > 10000) throw new RepoError('The location or notes are too long.');
+  }
+
+  async createMeeting(input: NewMeeting): Promise<Meeting> {
+    this.checkMeeting(input);
+    const row: Meeting = { ...input, id: uid(), workspaceId: this.s.workspace.id, createdAt: now(), updatedAt: now() };
+    this.s.meetings.push(row);
+    this.log('meeting', row.id, row.clientId, 'created', { title: row.title, date: row.date, start: row.start });
+    this.save();
+    return structuredClone(row);
+  }
+
+  async updateMeeting(id: string, patch: MeetingPatch) {
+    const m = this.find(this.s.meetings, id);
+    const next = { ...m, ...patch };
+    this.checkMeeting(next);
+    if (next.date !== m.date || next.start !== m.start) this.log('meeting', id, next.clientId, 'rescheduled', { title: next.title, from: m.date, to: next.date, start: next.start });
+    Object.assign(m, patch, { updatedAt: now() });
+    this.save();
+  }
+
+  async deleteMeeting(id: string) {
+    const m = this.find(this.s.meetings, id);
+    this.s.meetings = this.s.meetings.filter((x) => x.id !== id);
+    this.log('meeting', id, m.clientId, 'deleted', { title: m.title, date: m.date });
+    this.save();
+  }
+
   // Reviews ------------------------------------------------------------------------------------------------------
   async saveReview(r: NewReview) {
     if (r.status === 'exception' && !r.note.trim()) throw new RepoError('Say why this is an exception.');
@@ -312,12 +349,13 @@ export class DemoRepo implements Repo {
     this.s.pauses = fix(b.pauses);
     this.s.occurrences = fix(u.occurrences);
     this.s.reviews = fix(b.reviews);
+    this.s.meetings = fix(b.meetings ?? []);
     this.s.activity = fix(b.activity ?? []);
     this.save();
   }
 
   async erase() {
-    Object.assign(this.s, { clients: [], schedules: [], pauses: [], occurrences: [], reviews: [], activity: [], runs: [] });
+    Object.assign(this.s, { clients: [], schedules: [], pauses: [], occurrences: [], reviews: [], meetings: [], activity: [], runs: [] });
     this.save();
   }
 

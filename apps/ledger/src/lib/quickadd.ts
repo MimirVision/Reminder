@@ -38,15 +38,24 @@ function nextWeekday(today: ISODate, wd: number): ISODate {
   return addDays(today, ((wd - weekday(today) + 7) % 7) || 7);
 }
 
-/** A calendar date without a year: this year, or next year if it has already passed. */
+/**
+ * A calendar date without a year. Up to two months back it means this year (a deadline just missed, to be done now);
+ * further back it means the next time the date comes round.
+ */
+const RECENT_DAYS = 61;
+
 function upcoming(today: ISODate, month: number, day: number, year?: number): ISODate | null {
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   if (year !== undefined) {
     const y = year < 100 ? year + 2000 : year;
     return day <= daysInMonth(y, month) ? fromParts(y, month, day) : null;
   }
-  // No year: the next time this date comes round (29 February may be up to four years away).
   const [ty] = parts(today);
+  if (day <= daysInMonth(ty, month)) {
+    const thisYear = fromParts(ty, month, day);
+    if (thisYear >= addDays(today, -RECENT_DAYS)) return thisYear;
+  }
+  // Otherwise the next time this date comes round (29 February may be up to four years away).
   for (let y = ty; y <= ty + 4; y++) {
     if (day > daysInMonth(y, month)) continue;
     const d = fromParts(y, month, day);

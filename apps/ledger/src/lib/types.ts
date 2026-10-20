@@ -52,7 +52,7 @@ export interface WorkspaceSettings {
   displayName?: string;
   locale?: string;
   weekStartsOn?: 1;
-  defaultCalendarView?: 'month' | 'week';
+  defaultCalendarView?: 'month' | 'week' | 'day';
   defaultLeadDays?: number;
   defaultReminderDays?: number;
   theme?: 'light' | 'dark' | 'system';
@@ -180,7 +180,7 @@ export interface Review {
 export interface Activity {
   id: string;
   workspaceId: string;
-  entity: 'occurrence' | 'schedule' | 'client' | 'review';
+  entity: 'occurrence' | 'schedule' | 'client' | 'review' | 'meeting';
   entityId: string;
   clientId: string | null;
   action: string;
@@ -206,8 +206,25 @@ export interface Snapshot {
   pauses: Pause[];
   occurrences: Occurrence[];
   reviews: Review[];
+  meetings: Meeting[];
   activity: Activity[];
   runs: GenerationRun[];
+}
+
+/** A meeting: a day and a time of day (wall-clock, in the workspace's time zone), optionally with a client. */
+export interface Meeting {
+  id: string;
+  workspaceId: string;
+  clientId: string | null;
+  title: string;
+  date: ISODate;
+  /** "HH:MM", 24-hour. */
+  start: string;
+  end: string;
+  location: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const isOpen = (s: TaskStatus) => s === 'todo' || s === 'in_progress' || s === 'waiting';

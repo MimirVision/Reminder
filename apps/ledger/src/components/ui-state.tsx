@@ -5,6 +5,8 @@ import type { ISODate } from '../lib/dates';
 import type { Schedule } from '../lib/types';
 
 export interface NewTaskDefaults { clientId?: string; dueDate?: ISODate; title?: string; /** Open in several-clients mode. */ multi?: boolean }
+/** The meeting dialog: a new one (with defaults) or an existing one. */
+export type MeetingEditor = { mode: 'new'; date?: ISODate; start?: string; end?: string; clientId?: string } | { mode: 'edit'; id: string } | null;
 export type ScheduleEditor = { mode: 'new'; clientId?: string; from?: Schedule } | { mode: 'edit'; id: string } | null;
 
 interface UI {
@@ -19,6 +21,8 @@ interface UI {
   setPalette(o: boolean): void;
   newClient: boolean;
   setNewClient(o: boolean): void;
+  meeting: MeetingEditor;
+  openMeeting(m: MeetingEditor): void;
 }
 
 const Ctx = createContext<UI | null>(null);
@@ -29,10 +33,11 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [schedule, openSchedule] = useState<ScheduleEditor>(null);
   const [palette, setPalette] = useState(false);
   const [newClient, setNewClient] = useState(false);
+  const [meeting, openMeeting] = useState<MeetingEditor>(null);
   const value = useMemo<UI>(() => ({
     taskId, openTask, newTask, openNewTask: (d = {}) => setNewTask(d), closeNewTask: () => setNewTask(null),
-    schedule, openSchedule, palette, setPalette, newClient, setNewClient,
-  }), [taskId, newTask, schedule, palette, newClient]);
+    schedule, openSchedule, palette, setPalette, newClient, setNewClient, meeting, openMeeting,
+  }), [taskId, newTask, schedule, palette, newClient, meeting]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

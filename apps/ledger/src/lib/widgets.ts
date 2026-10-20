@@ -4,7 +4,7 @@
 
 export type WidgetType =
   | 'greeting' | 'quickAdd' | 'today' | 'overdue' | 'upcoming' | 'week' | 'waiting' | 'missing'
-  | 'stats' | 'progress' | 'attention' | 'pinned' | 'activity' | 'notes' | 'deadlines' | 'calendar' | 'documents';
+  | 'stats' | 'progress' | 'attention' | 'pinned' | 'activity' | 'notes' | 'deadlines' | 'calendar' | 'documents' | 'agenda';
 
 export interface WidgetItem {
   id: string;
@@ -50,6 +50,7 @@ export const WIDGETS: WidgetSpec[] = [
   { type: 'activity', name: 'Recent activity', description: 'What changed lately across all clients.', w: 4, h: 5, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'notes', name: 'Notepad', description: 'A scratchpad for the day. Saved as you type.', w: 4, h: 4, minW: 3, minH: 2, maxH: 10, single: true },
   { type: 'deadlines', name: 'Deadline radar', description: 'The next deadline for each kind of work: VAT, payroll, annual accounts…', w: 4, h: 4, minW: 3, minH: 3, maxH: 8, single: true },
+  { type: 'agenda', name: 'Agenda', description: 'Today’s meetings by the hour, and the next ones coming up.', w: 4, h: 6, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'documents', name: 'Documents to collect', description: 'Everything you’ve requested from clients that hasn’t arrived yet, oldest first.', w: 4, h: 4, minW: 3, minH: 3, maxH: 10, single: true },
   { type: 'calendar', name: 'Month at a glance', description: 'A small calendar with the busy days marked.', w: 4, h: 5, minW: 3, minH: 4, maxH: 7, single: true },
 ];
@@ -60,10 +61,11 @@ export const DEFAULT_LAYOUT: WidgetItem[] = [
   { id: 'greeting', type: 'greeting', w: 12, h: 2 },
   { id: 'quickAdd', type: 'quickAdd', w: 12, h: 2 },
   { id: 'today', type: 'today', w: 8, h: 6 },
-  { id: 'week', type: 'week', w: 4, h: 4 },
-  { id: 'waiting', type: 'waiting', w: 4, h: 5 },
+  { id: 'agenda', type: 'agenda', w: 4, h: 6 },
   { id: 'overdue', type: 'overdue', w: 8, h: 6 },
-  { id: 'missing', type: 'missing', w: 4, h: 3 },
+  { id: 'waiting', type: 'waiting', w: 4, h: 6 },
+  { id: 'week', type: 'week', w: 4, h: 4 },
+  { id: 'missing', type: 'missing', w: 4, h: 4 },
 ];
 
 export const UPCOMING_CHOICES = [7, 14, 30] as const;

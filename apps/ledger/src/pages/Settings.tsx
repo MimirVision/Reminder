@@ -133,7 +133,7 @@ export function Settings({ email }: { email?: string | null }) {
 
       <Section title="Defaults">
         <Field label="Calendar opens in">
-          {() => <div><Segmented label="Default calendar view" value={s.defaultCalendarView ?? 'month'} onChange={(v) => void saveSettings({ defaultCalendarView: v })} options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }]} /></div>}
+          {() => <div><Segmented label="Default calendar view" value={s.defaultCalendarView ?? 'month'} onChange={(v) => void saveSettings({ defaultCalendarView: v })} options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }, { value: 'day', label: 'Day' }]} /></div>}
         </Field>
         <Field label="New schedules create tasks" hint="Each schedule can override this.">
           {(p) => (
@@ -196,7 +196,7 @@ export function Settings({ email }: { email?: string | null }) {
       </Section>
 
       <Section title="Application and data status">
-        {repo.mode === 'supabase' && !repo.current && <DatabaseUpdate />}
+        {repo.mode === 'supabase' && !repo.meetings && <DatabaseUpdate />}
         <dl className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 text-[13px]">
           <dt className="text-ink-3">Storage</dt>
           <dd className="flex items-center gap-1.5">
@@ -246,12 +246,13 @@ export function Settings({ email }: { email?: string | null }) {
 
 /** Shown while the database is on an older ledger.sql: which features wait for it, and how to run it. */
 export function DatabaseUpdate() {
+  const { repo } = useStore();
   return (
     <div className="rounded-lg border border-warn/30 bg-warn-soft p-4 text-[12.5px] text-warn">
       <p className="font-semibold">Database update available</p>
       <p className="mt-1 text-ink-2">
-        Run <code className="num rounded bg-surface px-1">apps/ledger/supabase/ledger.sql</code> again in Supabase → SQL Editor to turn on checklists,
-        “waiting since”, client contacts and documents, and holiday-aware due dates. It only adds to Ledger’s own tables; Home Memory and Post
+        Run <code className="num rounded bg-surface px-1">apps/ledger/supabase/ledger.sql</code> again in Supabase → SQL Editor to turn on {repo.current ? 'meetings in the calendar' : <>meetings, checklists,
+        “waiting since”, client contacts and documents, and holiday-aware due dates</>}. It only adds to Ledger’s own tables; Home Memory and Post
         are not touched, and nothing you have is changed.
       </p>
     </div>

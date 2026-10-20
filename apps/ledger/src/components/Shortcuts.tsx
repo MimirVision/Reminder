@@ -4,6 +4,8 @@ import { useRoute } from '../router';
 import { Kbd } from '../ui/button';
 import { Dialog } from '../ui/overlay';
 import { MOD } from './Shell';
+import { useUI } from './ui-state';
+import { useStore } from '../data/store';
 
 const GO: Record<string, { to: string; label: string }> = {
   h: { to: '/', label: 'Home' }, t: { to: '/tasks', label: 'My Tasks' }, c: { to: '/calendar', label: 'Calendar' },
@@ -13,7 +15,7 @@ const GO: Record<string, { to: string; label: string }> = {
 
 const SECTIONS: { title: string; rows: [string[], string][] }[] = [
   { title: 'Anywhere', rows: [
-    [[MOD, 'K'], 'Search, jump or create'], [['N'], 'New task'], [['?'], 'This list'],
+    [[MOD, 'K'], 'Search, jump or create'], [['N'], 'New task'], [['M'], 'New meeting'], [['?'], 'This list'],
     ...Object.entries(GO).map(([k, v]) => [['G', k.toUpperCase()], `Go to ${v.label}`] as [string[], string]),
   ] },
   { title: 'In a task list', rows: [
@@ -27,6 +29,8 @@ const SECTIONS: { title: string; rows: [string[], string][] }[] = [
 
 export function Shortcuts() {
   const { navigate } = useRoute();
+  const ui = useUI();
+  const { repo } = useStore();
   const [open, setOpen] = useState(false);
   const pendingG = useRef(0);
   useEffect(() => {
@@ -34,13 +38,15 @@ export function Shortcuts() {
       if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).closest('input,textarea,select,[contenteditable]') || document.querySelector('[role=dialog]')) return;
       const k = e.key.toLowerCase();
       if (e.key === '?') { e.preventDefault(); setOpen(true); return; }
+      const afterG = pendingG.current > 0 && Date.now() - pendingG.current < 1200;
+      if (k === 'm' && !afterG && repo.meetings) { e.preventDefault(); ui.openMeeting({ mode: 'new' }); return; }
       // Captured before the lists see it, so G then T jumps to My Tasks instead of moving the focused task to tomorrow.
-      if (pendingG.current && Date.now() - pendingG.current < 1200 && GO[k]) { e.preventDefault(); e.stopPropagation(); pendingG.current = 0; navigate(GO[k].to); return; }
+      if (afterG && GO[k]) { e.preventDefault(); e.stopPropagation(); pendingG.current = 0; navigate(GO[k].to); return; }
       pendingG.current = k === 'g' ? Date.now() : 0;
     };
     window.addEventListener('keydown', on, true);
     return () => window.removeEventListener('keydown', on, true);
-  }, [navigate]);
+  }, [navigate, ui, repo]);
   return (
     <Dialog open={open} onOpenChange={setOpen} title="Keyboard shortcuts" width="max-w-2xl">
       <div className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">

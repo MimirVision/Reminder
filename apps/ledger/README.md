@@ -19,6 +19,12 @@ demo data; only add real client information where your employer allows it, and k
 | Missing Tasks | Expected vs actual, per schedule and period, with the reason each item was flagged. Create the task, mark as reviewed, or record an exception. |
 | Settings | Name, time zone, date format, defaults; appearance (theme, accent colour, density, start page, reset Home); JSON backup, CSV export, restore, data status, erase. |
 
+**Meetings.** Book a meeting (New meeting in the calendar, `M`, or Ctrl/⌘ K) with a day, start and end time, an
+optional client, a place and notes. The calendar's Week and Day views show the hours of the day: meetings sit at their
+time (overlaps side by side, a line for now), tasks stay in a row at the top since they have a day but not a time.
+Click an empty time to book a meeting there; drag a meeting to move it. Month view lists each day's meetings first.
+Home has an Agenda widget, and a client's page a Meetings tab. Needs `0004_ledger_meetings.sql` (run `ledger.sql`).
+
 **One task, several clients.** In New task, choose *Several clients…* and tick the clients (or a group: VAT clients,
 Payroll clients, Pinned, All active, built from the work each client already has). Ledger creates one separate task
 per client; nothing links them afterwards, and Undo removes the whole batch.
@@ -90,7 +96,7 @@ If you open the app before step 1, it shows a setup screen instead of failing.
 When a new version adds to the database, Settings shows **Database update available**. Run `ledger.sql` again (same
 steps as above): it only adds columns and functions to Ledger's own tables and keeps everything you have. Until then the
 app keeps working and leaves the new features off. Version 3 adds checklists, "waiting since", client contacts and
-documents, and holiday-aware due dates.
+documents, and holiday-aware due dates; version 4 adds meetings.
 
 ### Environment variables
 

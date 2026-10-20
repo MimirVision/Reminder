@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Archive, CheckCircle2, ChevronRight, Edit3, ListChecks, Mail, MoreHorizontal, Phone, Pin, PinOff, Plus, Repeat, RotateCcw, Trash2, User } from 'lucide-react';
+import { Archive, CheckCircle2, ChevronRight, Edit3, ListChecks, Mail, MoreHorizontal, Phone, Pin, PinOff, Plus, Repeat, RotateCcw, Trash2, User, Users } from 'lucide-react';
 import { ClientDocuments, outstanding } from '../components/ClientDocuments';
 import { ActivityList } from '../components/ActivityList';
 import { Page } from '../components/Shell';
@@ -7,7 +7,8 @@ import { ClientDialog } from '../components/TaskForms';
 import { TaskTable } from '../components/TaskTable';
 import { useUI } from '../components/ui-state';
 import { useStore } from '../data/store';
-import { formatDue } from '../lib/format';
+import { formatDayShort, formatDue } from '../lib/format';
+import { sortMeetings } from '../lib/meetings';
 import { sortTasks } from '../lib/filters';
 import { needsReview } from '../lib/missing';
 import { isOpen } from '../lib/types';
@@ -21,7 +22,7 @@ import { EmptyState } from '../ui/states';
 import { useClientStats } from './Clients';
 import { ScheduleList } from './Recurring';
 
-type Tab = 'open' | 'recurring' | 'completed' | 'documents' | 'notes' | 'activity';
+type Tab = 'open' | 'recurring' | 'completed' | 'meetings' | 'documents' | 'notes' | 'activity';
 
 export function ClientDetail({ id }: { id: string }) {
   const { snap, clientById, run, expected, today, repo } = useStore();
@@ -39,6 +40,8 @@ export function ClientDetail({ id }: { id: string }) {
   const done = useMemo(() => sortTasks(tasks.filter((o) => !isOpen(o.status)), 'completed', clientById), [tasks, clientById]);
   const schedules = snap.schedules.filter((s) => s.clientId === id);
   const missing = needsReview(expected).filter((i) => i.clientId === id);
+  const clientMeetings = useMemo(() => sortMeetings(snap.meetings.filter((m) => m.clientId === id)), [snap.meetings, id]);
+  const upcomingMeetings = clientMeetings.filter((m) => m.date >= today);
   const activity = snap.activity.filter((a) => a.clientId === id);
 
   if (!client) {
@@ -49,6 +52,7 @@ export function ClientDetail({ id }: { id: string }) {
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'open', label: 'Open tasks', count: open.length }, { id: 'recurring', label: 'Recurring', count: schedules.length },
     { id: 'completed', label: 'Completed', count: done.length },
+    ...(repo.meetings ? [{ id: 'meetings' as const, label: 'Meetings', count: upcomingMeetings.length || undefined }] : []),
     ...(repo.current ? [{ id: 'documents' as const, label: 'Documents', count: outstanding(client).length || undefined }] : []),
     { id: 'notes', label: 'Notes' }, { id: 'activity', label: 'Activity' },
   ];
@@ -95,6 +99,7 @@ export function ClientDetail({ id }: { id: string }) {
           </>}
           <Menu align="end" label="More client actions" trigger={<IconButton label="More client actions"><MoreHorizontal /></IconButton>}>
             <MenuItem onSelect={() => setEditing(true)}><Edit3 /> Edit details</MenuItem>
+            {repo.meetings && !archived && <MenuItem onSelect={() => ui.openMeeting({ mode: 'new', clientId: id })}><Users /> Book a meeting</MenuItem>}
             {!archived && (
               <MenuItem onSelect={() => {
                 const cur = snap.workspace.settings.pinnedClients ?? [];
@@ -134,6 +139,28 @@ export function ClientDetail({ id }: { id: string }) {
       {tab === 'completed' && (
         <div className="overflow-clip rounded-xl border border-line bg-surface">
           {done.length ? <TaskTable tasks={done} showClient={false} /> : <EmptyState compact icon={ListChecks} title="Nothing completed yet" />}
+        </div>
+      )}
+      {tab === 'meetings' && (
+        <div className="max-w-3xl overflow-clip rounded-xl border border-line bg-surface">
+          {!archived && (
+            <button onClick={() => ui.openMeeting({ mode: 'new', clientId: id })} className="flex h-11 w-full items-center gap-2 border-b border-line px-4 text-left text-[13px] text-ink-3 hover:bg-hover/60 hover:text-ink">
+              <Plus className="size-4" /> Book a meeting
+            </button>
+          )}
+          {clientMeetings.length ? (
+            <ul className="divide-y divide-line/70">
+              {[...upcomingMeetings, ...clientMeetings.filter((m) => m.date < today).reverse()].map((m) => (
+                <li key={m.id}>
+                  <button onClick={() => ui.openMeeting({ mode: 'edit', id: m.id })} className={cn('flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-hover/70', m.date < today && 'text-ink-3')}>
+                    <span className="num w-36 shrink-0 text-[12.5px]">{formatDayShort(m.date)} · {m.start}</span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{m.title}</span>
+                    {m.location && <span className="max-w-48 shrink-0 truncate text-[12px] text-ink-3">{m.location}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <EmptyState compact icon={Users} title="No meetings yet" body="Book one from here, or from the calendar." />}
         </div>
       )}
       {tab === 'documents' && <ClientDocuments client={client} disabled={archived} />}
