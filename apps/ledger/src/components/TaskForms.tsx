@@ -92,7 +92,9 @@ export function NewTaskDialog() {
       </>}>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}
         onKeyDown={(e) => {
-          if (e.key !== 'Enter' || (e.target as HTMLElement).tagName === 'TEXTAREA' && !(e.ctrlKey || e.metaKey)) return;
+          // Only Enter typed in this form's own fields: not in a date picker or menu opened from it, nor on a button.
+          const t = e.target as HTMLElement;
+          if (e.key !== 'Enter' || !e.currentTarget.contains(t) || t.tagName === 'BUTTON' || (t.tagName === 'TEXTAREA' && !(e.ctrlKey || e.metaKey))) return;
           e.preventDefault(); void submit(e.shiftKey);
         }}>
         <Field label="Title" error={tried ? errors.title : null}
@@ -155,7 +157,7 @@ export function ClientDialog({ open, onOpenChange, client, onSaved }: { open: bo
     if (!open) return;
     setName(client?.name ?? ''); setReference(client?.reference ?? ''); setNotes(client?.notes ?? ''); setTried(false);
     setContact({ contactName: client?.contactName ?? '', contactEmail: client?.contactEmail ?? '', contactPhone: client?.contactPhone ?? '' });
-  }, [open, client]);
+  }, [open, client?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- a refresh mustn't wipe what is being typed
 
   const refTaken = reference.trim() && snap.clients.some((c) => c.id !== client?.id && c.reference?.toLowerCase() === reference.trim().toLowerCase());
   const emailBad = contact.contactEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.contactEmail.trim());

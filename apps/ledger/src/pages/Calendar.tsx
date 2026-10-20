@@ -7,7 +7,7 @@ import { Page } from '../components/Shell';
 import { holidayName } from '../lib/holidays';
 import { useUI } from '../components/ui-state';
 import { useStore } from '../data/store';
-import { addDays, addMonths, isoWeek, monthGrid, parts, startOfMonth, startOfWeek, type ISODate } from '../lib/dates';
+import { addDays, addMonths, isoWeek, isISODate, monthGrid, parts, startOfMonth, startOfWeek, type ISODate } from '../lib/dates';
 import { formatDate, formatDayLong, formatMonth, formatWeekdayShort } from '../lib/format';
 import { PRIORITY_RANK, STATUS_LABEL, TYPE_LABEL } from '../lib/labels';
 import { isOpen, TASK_STATUSES, TASK_TYPES, type Meeting, type Occurrence, type TaskStatus } from '../lib/types';
@@ -82,8 +82,10 @@ export function Calendar() {
   const { snap, today, patchOccurrence, calendar, repo } = useStore();
   const ui = useUI();
   const { query } = useRoute();
-  const [view, setView] = useState<View>((query.get('view') as View) || snap.workspace.settings.defaultCalendarView || 'month');
-  const [cursor, setCursor] = useState<ISODate>(query.get('date') ?? today);
+  // Links can carry anything: unknown views and dates fall back instead of breaking the page.
+  const asView = (v: string | null | undefined): View | null => (v === 'month' || v === 'week' || v === 'day' ? v : null);
+  const [view, setView] = useState<View>(asView(query.get('view')) ?? asView(snap.workspace.settings.defaultCalendarView) ?? 'month');
+  const [cursor, setCursor] = useState<ISODate>(() => { const d = query.get('date'); return d && isISODate(d) ? d : today; });
   const [clients, setClients] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<TaskStatus[]>([]);
   const [types, setTypes] = useState<string[]>([]);
@@ -136,7 +138,7 @@ export function Calendar() {
   const viewOptions = [{ value: 'month' as const, label: 'Month' }, { value: 'week' as const, label: 'Week' }, { value: 'day' as const, label: 'Day' }];
 
   return (
-    <Page title="Calendar" wide actions={repo.meetings && <Button variant="primary" onClick={() => ui.openMeeting({ mode: 'new', date: newMeetingDay })} aria-keyshortcuts="m"><Users /> New meeting</Button>}>
+    <Page title="Calendar" actions={repo.meetings && <Button variant="primary" onClick={() => ui.openMeeting({ mode: 'new', date: newMeetingDay })} aria-keyshortcuts="m"><Users /> New meeting</Button>}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => setCursor(today)}>Today</Button>
         <div className="flex">
@@ -163,7 +165,7 @@ export function Calendar() {
             <div key={d} className="px-2 py-1.5 text-[11.5px] font-medium text-ink-3">{formatWeekdayShort(d)}</div>
           ))}
         </div>
-        <div className="grid auto-rows-[minmax(132px,1fr)] grid-cols-7">
+        <div className="grid grid-cols-7 sm:auto-rows-[minmax(132px,1fr)]">
           {days.map((d, i) => {
             const list = byDay.get(d) ?? [];
             const dayMeetings = meetingsOn(d);
@@ -180,7 +182,7 @@ export function Calendar() {
             return (
               <div key={d} {...dropProps(d)}
                 onDoubleClick={(e) => { if (e.target === e.currentTarget) ui.openNewTask({ dueDate: d }); }}
-                className={cn('group/cell relative flex min-w-0 flex-col gap-0.5 border-r border-b border-line p-1 [&:nth-child(7n)]:border-r-0',
+                className={cn('group/cell relative flex min-w-0 flex-col gap-0.5 border-r border-b border-line p-1 [&:nth-child(7n)]:border-r-0 max-sm:min-h-16',
                   (weekend || holiday) && 'bg-canvas/50', outside && 'bg-canvas/70', d === today && 'bg-accent-soft/35', dropTarget === d && 'bg-accent-soft ring-2 ring-accent/40 ring-inset')}
                 aria-label={`${formatDayLong(d)}${holiday ? `, ${holiday}` : ''}: ${list.length} task${list.length === 1 ? '' : 's'}${dayMeetings.length ? `, ${dayMeetings.length} meeting${dayMeetings.length === 1 ? '' : 's'}` : ''}`}
               >
@@ -199,11 +201,19 @@ export function Calendar() {
                     {repo.meetings && <MenuItem onSelect={() => ui.openMeeting({ mode: 'new', date: d })}><Users /> Meeting</MenuItem>}
                   </Menu>
                 </div>
+                {/* On a phone a cell is too narrow for titles: dots show what the day holds, and a tap opens it. */}
+                {(dayMeetings.length > 0 || openList.length > 0) && (
+                  <button onClick={() => { setCursor(d); setView('day'); }} aria-label={`Open ${formatDayLong(d)}`} className="flex flex-wrap gap-0.5 px-1 sm:hidden">
+                    {dayMeetings.slice(0, 4).map((m) => <span key={m.id} className="size-1.5 rounded-full bg-accent" />)}
+                    {openList.slice(0, 4).map((t) => <span key={t.id} className={cn('size-1.5 rounded-full', t.dueDate < today ? 'bg-danger' : 'bg-ink-3/60')} />)}
+                  </button>
+                )}
+                <div className="contents max-sm:hidden">
                 {dayMeetings.slice(0, MAX).map((m) => <MeetingChip key={m.id} m={m} />)}
                 {shown.map((t) => <Chip key={t.id} task={t} today={today} compact />)}
                 {(hidden > 0 || closed.length > 0 || dayMeetings.length > MAX) && (
                   <Popover trigger={
-                    <button className="flex h-5 items-center gap-1 rounded px-1.5 text-left text-[11.5px] font-medium text-ink-3 hover:bg-hover hover:text-ink">
+                    <button className="flex h-5 max-w-full items-center gap-1 overflow-hidden rounded px-1.5 text-left text-[11.5px] font-medium whitespace-nowrap text-ink-3 hover:bg-hover hover:text-ink">
                       {hidden > 0 ? `+${hidden} more` : closed.length ? <><Check className="size-3 text-ok" strokeWidth={3} />{closed.length} {closedWord}</> : `+${dayMeetings.length - MAX} more`}
                       {hidden > 0 && closed.length > 0 && <span className="font-normal">· {closed.length} {closedWord}</span>}
                     </button>
@@ -217,6 +227,7 @@ export function Calendar() {
                     </div>
                   </Popover>
                 )}
+                </div>
               </div>
             );
           })}

@@ -52,7 +52,7 @@ export function ClientDocuments({ client, disabled }: { client: Client; disabled
   );
 
   return (
-    <div className="max-w-3xl overflow-clip rounded-xl border border-line bg-surface">
+    <div className="overflow-clip rounded-xl border border-line bg-surface">
       {!disabled && (
         <div className="flex items-center gap-2 border-b border-line px-4">
           <Plus className="size-4 shrink-0 text-ink-3" />

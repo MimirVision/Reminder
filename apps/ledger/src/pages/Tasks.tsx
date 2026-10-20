@@ -87,7 +87,7 @@ export function Tasks() {
 
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if (e.key === '/' && !(e.target as HTMLElement).closest('input,textarea,select,[contenteditable]')) { e.preventDefault(); searchRef.current?.focus(); }
+      if (e.key === '/' && !document.querySelector('[role=dialog]') && !(e.target as HTMLElement).closest('input,textarea,select,[contenteditable]')) { e.preventDefault(); searchRef.current?.focus(); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
@@ -106,7 +106,8 @@ export function Tasks() {
     toggle: (id: string, range: boolean) => setSelected((s) => {
       const n = new Set(s);
       if (range && anchor.current) {
-        const ids = tasks.map((t) => t.id);
+        // The order on screen (grouping changes it), and only rows that are showing (not in folded groups).
+        const ids = [...document.querySelectorAll<HTMLElement>('tbody tr[data-task]')].map((r) => r.dataset.task!);
         const [a, b] = [ids.indexOf(anchor.current), ids.indexOf(id)].sort((x, y) => x - y);
         if (a >= 0) { ids.slice(a, b + 1).forEach((x) => n.add(x)); return n; }
       }
@@ -132,7 +133,7 @@ export function Tasks() {
     [snap.occurrences, today, clientById]);
 
   return (
-    <Page title="My Tasks" wide titleExtra={
+    <Page title="My Tasks" titleExtra={
       <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ value: 'list', label: 'List' }, { value: 'board', label: 'Board' }]} />
     }>
       <div role="tablist" aria-label="Saved views" className="-mx-4 mb-4 flex gap-6 overflow-x-auto border-b border-line px-4 md:-mx-8 md:px-8">

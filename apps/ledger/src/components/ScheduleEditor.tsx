@@ -221,7 +221,7 @@ function Editor() {
                   <Field label="Every">
                     {(p) => (
                       <div className="flex gap-2">
-                        <Input {...p} type="number" min={1} max={d.customUnit === 'week' ? 52 : 24} disabled={locked} className="w-20" value={d.customInterval} onChange={(e) => set('customInterval', num(e.target.value, 1, 52))} />
+                        <Input {...p} type="number" min={1} max={d.customUnit === 'week' ? 52 : 24} disabled={locked} className="w-20" value={d.customInterval} onChange={(e) => set('customInterval', num(e.target.value, 1, d.customUnit === 'week' ? 52 : 24))} />
                         <Select aria-label="Unit" disabled={locked} className="flex-1" value={d.customUnit} onChange={(e) => set('customUnit', e.target.value as IntervalUnit)}>
                           <option value="month">months</option><option value="week">weeks</option>
                         </Select>

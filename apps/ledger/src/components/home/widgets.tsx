@@ -22,7 +22,28 @@ import { useUI } from '../ui-state';
 export interface WidgetProps { item: WidgetItem; update: (patch: Partial<WidgetItem>) => void }
 
 /** The card most widgets sit in: a header with title, count and an action, and a body that scrolls. */
+/** True while there is more to scroll to below, so the last visible row can fade instead of being cut mid-line. */
+function useMoreBelow() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    // Rows added or removed (a task done, a group folded) change the height inside.
+    const mo = new MutationObserver(check);
+    mo.observe(el, { childList: true, subtree: true });
+    return () => { el.removeEventListener('scroll', check); ro.disconnect(); mo.disconnect(); };
+  }, []);
+  return [ref, more] as const;
+}
+
 function Frame({ title, count, action, children, tone, padded }: { title: string; count?: ReactNode; action?: ReactNode; children: ReactNode; tone?: 'danger'; padded?: boolean }) {
+  const [body, more] = useMoreBelow();
   return (
     <section aria-label={title} className="flex h-full min-h-0 flex-col overflow-clip rounded-xl border border-line bg-surface">
       <header className="flex h-[50px] shrink-0 items-center gap-2.5 border-b border-line px-[18px]">
@@ -30,7 +51,7 @@ function Frame({ title, count, action, children, tone, padded }: { title: string
         {count !== undefined && <span className="num shrink-0 text-[12px] text-ink-3">{count}</span>}
         <div className="ml-auto shrink-0">{action}</div>
       </header>
-      <div className={cn('@container min-h-0 flex-1 overflow-y-auto', padded && 'px-[18px] py-3.5')}>{children}</div>
+      <div ref={body} className={cn('@container min-h-0 flex-1 overflow-y-auto', padded && 'px-[18px] py-3.5', more && '[mask-image:linear-gradient(to_bottom,black_calc(100%-36px),transparent)]')}>{children}</div>
     </section>
   );
 }
@@ -217,7 +238,7 @@ export function WaitingWidget() {
                 <button onClick={() => ui.openTask(t.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-hover">
                   <span className="min-w-0 flex-1 truncate">{t.title} <span className="text-ink-3">· {clientById.get(t.clientId)?.name}</span></span>
                   {waited !== null && <span className="num shrink-0 text-[12px] text-warn" title={`Waiting since ${formatDate(localISODate(new Date(t.waitingSince!)))}`}>{waited}d</span>}
-                  <span className={cn('num w-14 shrink-0 text-right text-[12px]', late > 0 ? 'text-danger' : 'text-ink-3')} title={`Due ${formatDate(t.dueDate)}`}>{late > 0 ? `${late}d late` : formatDue(t.dueDate, today)}</span>
+                  <span className={cn('num shrink-0 text-right text-[12px] whitespace-nowrap', late > 0 ? 'text-danger' : 'text-ink-3')} title={`Due ${formatDate(t.dueDate)}`}>{late > 0 ? `${late}d late` : formatDue(t.dueDate, today)}</span>
                 </button>
               </li>
             );
@@ -406,12 +427,14 @@ export function NotesWidget() {
   const latest = useRef(text);
   latest.current = text;
   // Save shortly after typing stops, and on the way out.
-  useEffect(() => () => { window.clearTimeout(timer.current); if (latest.current !== (snap.workspace.settings.homeNotes ?? '')) void saveSettings({ homeNotes: latest.current }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // What was last sent, so leaving the page saves only a real change.
+  const sent = useRef(saved);
+  useEffect(() => () => { window.clearTimeout(timer.current); if (latest.current !== sent.current) void saveSettings({ homeNotes: latest.current }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const change = (v: string) => {
     setText(v);
     setState('saving');
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => { void saveSettings({ homeNotes: v }).then(() => setState('saved')); }, 700);
+    timer.current = window.setTimeout(() => { sent.current = v; void saveSettings({ homeNotes: v }).then(() => setState('saved')); }, 700);
   };
   return (
     <Frame title="Notepad" action={<span className="text-[11.5px] text-ink-3" aria-live="polite">{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : ''}</span>}>

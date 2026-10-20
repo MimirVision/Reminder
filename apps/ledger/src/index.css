@@ -23,6 +23,7 @@
   --color-on-accent: var(--c-on-accent);
   --color-danger: var(--c-danger);
   --color-danger-soft: var(--c-danger-soft);
+  --color-danger-strong: var(--c-danger-strong);
   --color-warn: var(--c-warn);
   --color-warn-soft: var(--c-warn-soft);
   --color-ok: var(--c-ok);
@@ -75,6 +76,8 @@
   --c-on-accent: #ffffff;
   --c-danger: #b42f22;
   --c-danger-soft: #fcefec;
+  /* Filled danger buttons with white text: the same red in light, a deeper one in dark so the text stays readable. */
+  --c-danger-strong: #b42f22;
   --c-warn: #9a5a0b;
   --c-warn-soft: #fcf1df;
   --c-ok: #23854f;
@@ -95,7 +98,7 @@
   :root:not([data-theme='light']) {
     --c-canvas: #141518; --c-surface: #1c1d21; --c-sunken: #18191c; --c-hover: #24252a; --c-line: #2c2d33; --c-line-strong: #3a3b42;
     --c-ink: #ededf0; --c-ink-2: #b6b7be; --c-ink-3: #8e9099; --c-accent: #6f93ff; --c-accent-hover: #86a5ff; --c-accent-soft: #1f2a4a;
-    --c-accent-ink: #a9c0ff; --c-on-accent: #0b0c10; --c-danger: #f07a6c; --c-danger-soft: #3a2220; --c-warn: #e6ab55; --c-warn-soft: #36291a; --c-ok: #5fc58a;
+    --c-accent-ink: #a9c0ff; --c-on-accent: #0b0c10; --c-danger: #f07a6c; --c-danger-soft: #3a2220; --c-danger-strong: #b8392d; --c-warn: #e6ab55; --c-warn-soft: #36291a; --c-ok: #5fc58a;
     --c-ok-soft: #1c3226; --c-info: #a9c0ff; --c-info-soft: #1f2a4a;
     --c-side: #0f1013; --c-side-hover: #18191d; --c-side-active: #23242a; --c-side-ink: #ffffff; --c-side-ink-2: #c9cad0; --c-side-ink-3: #8b8d96;
     color-scheme: dark;
@@ -104,7 +107,7 @@
 :root[data-theme='dark'] {
   --c-canvas: #141518; --c-surface: #1c1d21; --c-sunken: #18191c; --c-hover: #24252a; --c-line: #2c2d33; --c-line-strong: #3a3b42;
     --c-ink: #ededf0; --c-ink-2: #b6b7be; --c-ink-3: #8e9099; --c-accent: #6f93ff; --c-accent-hover: #86a5ff; --c-accent-soft: #1f2a4a;
-    --c-accent-ink: #a9c0ff; --c-on-accent: #0b0c10; --c-danger: #f07a6c; --c-danger-soft: #3a2220; --c-warn: #e6ab55; --c-warn-soft: #36291a; --c-ok: #5fc58a;
+    --c-accent-ink: #a9c0ff; --c-on-accent: #0b0c10; --c-danger: #f07a6c; --c-danger-soft: #3a2220; --c-danger-strong: #b8392d; --c-warn: #e6ab55; --c-warn-soft: #36291a; --c-ok: #5fc58a;
     --c-ok-soft: #1c3226; --c-info: #a9c0ff; --c-info-soft: #1f2a4a;
     --c-side: #0f1013; --c-side-hover: #18191d; --c-side-active: #23242a; --c-side-ink: #ffffff; --c-side-ink-2: #c9cad0; --c-side-ink-3: #8b8d96;
   color-scheme: dark;
@@ -167,3 +170,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 /* Skeleton shimmer. */
 .skeleton { background: linear-gradient(90deg, var(--c-sunken) 0%, var(--c-hover) 50%, var(--c-sunken) 100%); background-size: 200% 100%; animation: shimmer 1.2s ease-in-out infinite; border-radius: 4px; }
 @keyframes shimmer { from { background-position: 100% 0 } to { background-position: -100% 0 } }
+
+/*
+ * Table columns that give way on narrow screens. They collapse to zero width instead of display:none, because rows
+ * that span every column (group headings, "Add task") would otherwise create phantom columns that squeeze the rest.
+ */
+@media (width < 40rem) { .col-sm { width: 0 !important; padding: 0 !important; overflow: hidden; visibility: hidden; } }
+@media (width < 48rem) { .col-md { width: 0 !important; padding: 0 !important; overflow: hidden; visibility: hidden; } }
+@media (width < 64rem) { .col-lg { width: 0 !important; padding: 0 !important; overflow: hidden; visibility: hidden; } }

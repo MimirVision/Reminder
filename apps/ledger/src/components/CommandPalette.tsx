@@ -23,13 +23,16 @@ export function CommandPalette() {
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement).closest('input,textarea,select,[contenteditable]');
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); ui.setPalette(true); }
+      // Not on top of another dialog: finish or close that first.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!document.querySelector('[role=dialog]')) ui.setPalette(true); }
       else if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'n' && !document.querySelector('[role=dialog]')) { e.preventDefault(); ui.openNewTask(); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
   }, [ui]);
   useEffect(() => { if (ui.palette) { setQ(''); setActive(0); } }, [ui.palette]);
+  // Keep the highlighted item in view while arrowing through a long list.
+  useEffect(() => { document.getElementById(`pal-${items[active]?.id}`)?.scrollIntoView({ block: 'nearest' }); }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const items = useMemo<Item[]>(() => {
     const go = (to: string) => () => navigate(to);

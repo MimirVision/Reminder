@@ -5,6 +5,14 @@ import { Button, IconButton } from './button';
 import { cn } from './cn';
 
 /** A centred modal dialog. */
+/**
+ * Escape inside a field that handles it itself (marked data-escape-local, e.g. a checklist item being edited) cancels
+ * that edit instead of closing the dialog or panel around it.
+ */
+function keepEscapeLocal(e: KeyboardEvent) {
+  if ((document.activeElement as HTMLElement | null)?.closest('[data-escape-local]')) e.preventDefault();
+}
+
 export function Dialog({ open, onOpenChange, title, description, children, footer, width = 'max-w-lg' }: {
   open: boolean; onOpenChange: (o: boolean) => void; title: string; description?: ReactNode; children: ReactNode; footer?: ReactNode; width?: string;
 }) {
@@ -14,6 +22,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
         <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-[rgb(20_20_28/0.28)]" />
         <D.Content
           className={cn('fixed top-[10vh] left-1/2 z-50 flex max-h-[80vh] w-[calc(100vw-32px)] -translate-x-1/2 animate-pop-in flex-col rounded-xl bg-surface shadow-pop focus:outline-none', width)}
+          onEscapeKeyDown={keepEscapeLocal}
           onOpenAutoFocus={(e) => {
             // Focus the first field rather than the close button.
             const el = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('input:not([type=checkbox]),textarea,select');
@@ -45,6 +54,7 @@ export function Sheet({ open, onOpenChange, title, children, width = 'w-[min(560
         <D.Overlay className="fixed inset-0 z-40 animate-fade-in bg-[rgb(20_20_28/0.12)]" />
         <D.Content
           className={cn('fixed inset-y-0 right-0 z-40 flex animate-slide-in flex-col bg-surface shadow-panel focus:outline-none', width)}
+          onEscapeKeyDown={keepEscapeLocal}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <D.Title className="sr-only">{title}</D.Title>
@@ -85,7 +95,11 @@ export function Menu({ trigger, children, align = 'start', label }: { trigger: R
     <M.Root modal={false}>
       <M.Trigger asChild aria-label={label}>{trigger}</M.Trigger>
       <M.Portal>
-        <M.Content align={align} sideOffset={4} className="z-50 min-w-44 animate-pop-in rounded-lg bg-surface p-1 shadow-pop" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <M.Content align={align} sideOffset={4} className="z-50 min-w-44 animate-pop-in rounded-lg bg-surface p-1 shadow-pop" onCloseAutoFocus={(e) => {
+          // Back to the trigger (keyboard users keep their place), unless the chosen item moved focus somewhere on purpose.
+          const a = document.activeElement as HTMLElement | null;
+          if (a && a !== document.body && !a.closest('[role=menu]')) e.preventDefault();
+        }}>
           {children}
         </M.Content>
       </M.Portal>

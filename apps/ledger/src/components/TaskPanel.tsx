@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X, ChevronDown, ChevronUp, Copy } from 'lucide-react';
 import { useStore } from '../data/store';
 import { addDays, diffDays, localISODate, weekday, type ISODate } from '../lib/dates';
@@ -112,6 +112,11 @@ function TaskDetail({ task }: { task: Occurrence }) {
     const list = [...new Set(tags.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
     if (list.join(',') !== task.tags.join(',')) void patchOccurrence(task.id, { tags: list }, 'Saved');
   };
+  const saveNotes = () => { if (notes !== task.description) void patchOccurrence(task.id, { description: notes }, 'Notes saved'); };
+  // Closing the panel (Escape, the X, another task) never loses what was typed: anything unsaved is saved on the way out.
+  const latest = useRef({ saveTitle, saveTags, saveNotes });
+  latest.current = { saveTitle, saveTags, saveNotes };
+  useEffect(() => () => { latest.current.saveTitle(); latest.current.saveNotes(); latest.current.saveTags(); }, []);
 
   return (
     <>
@@ -239,7 +244,7 @@ function TaskDetail({ task }: { task: Occurrence }) {
         <div className="mt-4">
           <label htmlFor="task-notes" className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Notes</label>
           <Textarea id="task-notes" rows={5} maxLength={10000} placeholder="Add notes, what you’re waiting for, links…" value={notes}
-            onChange={(e) => setNotes(e.target.value)} onBlur={() => notes !== task.description && void patchOccurrence(task.id, { description: notes }, 'Notes saved')} />
+            onChange={(e) => setNotes(e.target.value)} onBlur={saveNotes} />
         </div>
 
         <div className="mt-6">

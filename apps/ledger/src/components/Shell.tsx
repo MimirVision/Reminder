@@ -57,7 +57,7 @@ function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () 
     </Link>
   );
   return (
-    <nav aria-label="Main" className={cn('flex h-full flex-col bg-side pt-[18px] pb-3 text-side-ink-2 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[240px] px-3')}>
+    <nav aria-label="Main" className={cn('flex h-full flex-col border-r border-white/[0.06] bg-side pt-[18px] pb-3 text-side-ink-2 transition-[width] duration-200', collapsed ? 'w-[60px] px-2' : 'w-[240px] px-3')}>
       <div className={cn('mb-5 flex items-center gap-2.5', collapsed ? 'justify-center' : 'px-1.5')}>
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#f5f4f0] text-[14px] font-bold tracking-tight text-[#18191d]" aria-hidden>L</div>
         {!collapsed && (
@@ -129,10 +129,10 @@ const DrawerContext = createContext<() => void>(() => {});
  * A page: a slim sticky bar (breadcrumb, search, New task) and the content, which opens with a large title row.
  * Pages with their own hero (Home, a client) pass `hideTitle` and render their own h1.
  */
-export function Page({ title, crumb, docTitle, subtitle, actions, barActions, titleExtra, hideTitle, children, wide }: {
+export function Page({ title, crumb, docTitle, subtitle, actions, barActions, titleExtra, hideTitle, children }: {
   title: string; crumb?: ReactNode;
   /** Page-level controls in the top bar, before search. */
-  barActions?: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; titleExtra?: ReactNode; hideTitle?: boolean; children: ReactNode; wide?: boolean;
+  barActions?: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; titleExtra?: ReactNode; hideTitle?: boolean; children: ReactNode;
 }) {
   const openDrawer = useContext(DrawerContext);
   const ui = useUI();
@@ -161,7 +161,7 @@ export function Page({ title, crumb, docTitle, subtitle, actions, barActions, ti
           <Plus /> <span className="hidden sm:inline">New task</span>
         </Button>
       </header>
-      <main id="main" className={cn('mx-auto w-full flex-1 px-4 pt-7 pb-10 md:px-8', wide ? 'max-w-[1400px]' : 'max-w-6xl')}>
+      <main id="main" className={cn('mx-auto w-full flex-1 px-4 pt-7 pb-10 md:px-8', 'max-w-[1400px]')}>
         {!hideTitle && (
           <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
             <h1 className="text-[24px] leading-tight font-semibold tracking-[-0.02em]">{title}</h1>

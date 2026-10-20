@@ -156,8 +156,10 @@ export class DemoRepo implements Repo {
     const open = this.s.pauses.find((p) => p.scheduleId === id && p.resumedOn === null);
     if (paused) {
       if (open) return;
-      this.s.pauses.push({ id: uid(), workspaceId: s.workspaceId, scheduleId: id, pausedFrom: on, resumedOn: null, createdAt: now() });
+      // Change the schedule first: if that is refused, no stray pause is left behind.
       await this.updateSchedule(id, { status: 'paused' });
+      this.s.pauses.push({ id: uid(), workspaceId: s.workspaceId, scheduleId: id, pausedFrom: on, resumedOn: null, createdAt: now() });
+      this.save();
     } else {
       if (open) open.resumedOn = on < open.pausedFrom ? open.pausedFrom : on;
       await this.updateSchedule(id, { status: 'active' });
@@ -322,12 +324,14 @@ export class DemoRepo implements Repo {
     const run = { id: uid(), workspaceId: this.s.workspace.id, trigger: 'app' as const, startedAt: now(), finishedAt: null as string | null, created: 0, errors: [] as { scheduleId: string; message: string }[] };
     const today = this.today();
     for (const s of liveSchedules(this.s.schedules, this.s.clients)) {
+      // Like the database: a schedule that fails partway keeps none of that run's tasks.
+      const before = this.s.occurrences.length, logged = this.s.activity.length;
       try {
-        for (const o of planGeneration([s], this.s.pauses, this.s.occurrences, today, calendarOf(this.s.workspace.settings))) {
-          this.insertOccurrence(o);
-          run.created++;
-        }
+        for (const o of planGeneration([s], this.s.pauses, this.s.occurrences, today, calendarOf(this.s.workspace.settings))) this.insertOccurrence(o);
+        run.created += this.s.occurrences.length - before;
       } catch (e) {
+        this.s.occurrences.length = before;
+        this.s.activity.splice(0, this.s.activity.length - logged);
         run.errors.push({ scheduleId: s.id, message: (e as Error).message });
       }
     }

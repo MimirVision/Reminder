@@ -10,7 +10,8 @@ export type SchedulePatch = Partial<Omit<Schedule, 'id' | 'workspaceId' | 'creat
 
 export type NewOccurrence = Omit<Occurrence, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'completedAt' | 'checklist' | 'waitingSince'>
   & { completedAt?: string | null; checklist?: ChecklistItem[]; waitingSince?: string | null };
-export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId' | 'checklist'>>;
+/** completedAt only matters with status 'done' (to keep the original time when a completion is undone). */
+export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId' | 'checklist' | 'completedAt'>>;
 
 export type NewReview = Pick<Review, 'scheduleId' | 'periodKey' | 'status' | 'note'>;
 

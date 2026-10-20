@@ -66,7 +66,8 @@ export function ClientDetail({ id }: { id: string }) {
       </span>
     }>
       <div className="mb-5 flex flex-wrap items-start gap-4">
-        <div className="min-w-0 flex-1">
+        {/* The actions move below the name when there isn't room beside it. */}
+        <div className="min-w-0 flex-[1_1_20rem]">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-[24px] leading-tight font-semibold tracking-[-0.02em]">{client.name}</h1>
             {client.reference && <span className="num text-[13px] text-ink-3">{client.reference}</span>}
@@ -77,7 +78,7 @@ export function ClientDetail({ id }: { id: string }) {
             <span aria-hidden>·</span>
             <span className={stats?.overdue ? 'font-medium text-danger' : ''}>{stats?.overdue ?? 0} overdue</span>
             <span aria-hidden>·</span>
-            <span>Next deadline <span className={stats?.next === today ? 'font-medium text-accent-ink' : 'text-ink-2'}>{stats?.next ? formatDue(stats.next, today).toLowerCase() : 'none'}</span></span>
+            <span>Next deadline <span className={stats?.next === today ? 'font-medium text-accent-ink' : 'text-ink-2'}>{stats?.next ? formatDue(stats.next, today) : 'none'}</span></span>
             {missing.length > 0 && <><span aria-hidden>·</span><Link to={`/missing?client=${id}`} className="font-medium text-warn hover:underline">{missing.length} missing to review</Link></>}
             {outstanding(client).length > 0 && <><span aria-hidden>·</span><button onClick={() => setTab('documents')} className="font-medium text-warn hover:underline">{outstanding(client).length} document{outstanding(client).length === 1 ? '' : 's'} outstanding</button></>}
           </p>
@@ -119,10 +120,10 @@ export function ClientDetail({ id }: { id: string }) {
       )}
 
 
-      <div role="tablist" className="mb-3 flex gap-1 border-b border-line">
+      <div role="tablist" className="-mx-4 mb-3 flex gap-1 overflow-x-auto border-b border-line px-4 md:mx-0 md:px-0">
         {tabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-            className={cn('-mb-px flex h-9 items-center gap-1.5 border-b-2 px-3 text-[13px] transition-colors', tab === t.id ? 'border-accent font-medium text-ink' : 'border-transparent text-ink-3 hover:text-ink')}>
+            className={cn('-mb-px flex h-9 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[13px] font-medium transition-colors', tab === t.id ? 'border-accent text-ink' : 'border-transparent text-ink-3 hover:text-ink')}>
             {t.label}{t.count !== undefined && <span className="tnum text-[11.5px] text-ink-3">{t.count}</span>}
           </button>
         ))}
@@ -142,7 +143,7 @@ export function ClientDetail({ id }: { id: string }) {
         </div>
       )}
       {tab === 'meetings' && (
-        <div className="max-w-3xl overflow-clip rounded-xl border border-line bg-surface">
+        <div className="overflow-clip rounded-xl border border-line bg-surface">
           {!archived && (
             <button onClick={() => ui.openMeeting({ mode: 'new', clientId: id })} className="flex h-11 w-full items-center gap-2 border-b border-line px-4 text-left text-[13px] text-ink-3 hover:bg-hover/60 hover:text-ink">
               <Plus className="size-4" /> Book a meeting
@@ -172,7 +173,7 @@ export function ClientDetail({ id }: { id: string }) {
           <p className="mt-1.5 text-[12px] text-ink-3">Saved when you click outside the field.</p>
         </div>
       )}
-      {tab === 'activity' && <div className="max-w-3xl rounded-lg border border-line bg-surface px-4 py-2"><ActivityList items={activity} empty="No activity recorded yet." limit={100} /></div>}
+      {tab === 'activity' && <div className="rounded-xl border border-line bg-surface px-4 py-2"><ActivityList items={activity} empty="No activity recorded yet." limit={100} /></div>}
 
       <ClientDialog open={editing} onOpenChange={setEditing} client={client} />
       <Confirm open={confirm === 'archive'} onOpenChange={(o) => !o && setConfirm(null)} tone="primary" title={`Archive ${client.name}?`} confirmLabel="Archive client"

@@ -71,3 +71,17 @@ describe('times', () => {
     expect(p('Meeting 25:00').time).toBeNull();
   });
 });
+
+describe('ordinary words that look like dates', () => {
+  it('stay in the title unless they end the line', () => {
+    expect(p('Call Tom about VAT')).toMatchObject({ title: 'Call Tom about VAT', due: null });
+    expect(p('Email the man at bank')).toMatchObject({ title: 'Email the man at bank', due: null });
+    expect(p('Sat with client')).toMatchObject({ title: 'Sat with client', due: null });
+    expect(p('Count at 20 invoices')).toMatchObject({ title: 'Count at 20 invoices', time: null });
+    expect(p('Upgrade to 3.1 release')).toMatchObject({ title: 'Upgrade to 3.1 release', due: null });
+    expect(p('Review mar 15 report')).toMatchObject({ title: 'Review mar 15 report', due: null });
+    expect(p('VAT return sat !high')).toMatchObject({ title: 'VAT return', due: '2026-10-17', priority: 'high' });
+    expect(p('Call Nordvik tom')).toMatchObject({ due: '2026-10-17' });
+    expect(p('Report 15.11.1999').due).toBeNull();
+  });
+});

@@ -44,10 +44,10 @@ export function ScheduleList({ schedules, showClient = true, emptyAction }: { sc
         <thead>
           <tr className="sticky top-[52px] z-10 h-8 border-b border-line bg-surface text-left text-[11.5px] text-ink-3">
             <th className="pl-4 font-medium">Schedule</th>
-            <th className="hidden w-[30%] pr-3 font-medium lg:table-cell">Due</th>
-            <th className="w-32 pr-3 font-medium">Next due</th>
-            <th className="hidden w-28 pr-3 text-right font-medium sm:table-cell">Tasks</th>
-            <th className="w-24 pr-4 font-medium"><span className="sr-only">Status</span></th>
+            <th className="col-lg w-[30%] pr-3 font-medium">Due</th>
+            <th className="w-24 pr-3 font-medium sm:w-32">Next due</th>
+            <th className="col-sm w-28 pr-3 text-right font-medium">Tasks</th>
+            <th className="col-sm w-24 pr-4 font-medium"><span className="sr-only">Status</span></th>
           </tr>
         </thead>
         {groups.map(([clientId, list], gi) => (
@@ -63,17 +63,18 @@ export function ScheduleList({ schedules, showClient = true, emptyAction }: { sc
             {list.map((s) => {
               const i = info.get(s.id)!;
               return (
-                <tr key={s.id} className="h-10 cursor-default border-b border-line last:border-b-0 hover:bg-hover/70" onClick={() => ui.openSchedule({ mode: 'edit', id: s.id })}>
+                <tr key={s.id} className="min-h-10 h-10 cursor-default border-b border-line last:border-b-0 hover:bg-hover/70" onClick={() => ui.openSchedule({ mode: 'edit', id: s.id })}>
                   <td className="max-w-0 pr-3 pl-4">
-                    <div className="flex min-w-0 items-baseline gap-2">
+                    {/* One line on wide screens; title over its rhythm on a phone. */}
+                    <div className="flex min-w-0 flex-col py-1 sm:flex-row sm:items-baseline sm:gap-2">
                       <button className="truncate text-left text-[13px] font-medium hover:text-accent" onClick={(e) => { e.stopPropagation(); ui.openSchedule({ mode: 'edit', id: s.id }); }}>{s.title}</button>
-                      <span className="shrink-0 truncate text-[12px] text-ink-3">{describeRecurrence(s)}{!s.autoGenerate && ' · check only'}</span>
+                      <span className="truncate text-[12px] text-ink-3 sm:shrink-0">{describeRecurrence(s)}{!s.autoGenerate && ' · check only'}{s.status !== 'active' && <span className="sm:hidden"> · {SCHEDULE_STATUS_LABEL[s.status]}</span>}</span>
                     </div>
                   </td>
-                  <td className="hidden max-w-0 truncate pr-3 text-[12.5px] text-ink-2 lg:table-cell" title={describeDueRule(s.dueRule)}>{shortDueRule(s.dueRule)}</td>
+                  <td className="col-lg max-w-0 truncate pr-3 text-[12.5px] text-ink-2" title={describeDueRule(s.dueRule)}>{shortDueRule(s.dueRule)}</td>
                   <td className="tnum pr-3 text-[12.5px] text-ink-2">{i.next ? formatDue(i.next.due, today) : <span className="text-ink-3">None</span>}</td>
-                  <td className="tnum hidden pr-3 text-right text-[12.5px] text-ink-3 sm:table-cell">{i.open > 0 && <span className="text-ink-2">{i.open} open · </span>}{i.total}</td>
-                  <td className="pr-4 text-right">
+                  <td className="tnum col-sm pr-3 text-right text-[12.5px] text-ink-3">{i.open > 0 && <span className="text-ink-2">{i.open} open · </span>}{i.total}</td>
+                  <td className="col-sm pr-4 text-right">
                     {s.status !== 'active' && (
                       <Pill tone={s.status === 'paused' ? 'warn' : 'neutral'}>{s.status === 'paused' ? <Pause /> : <CalendarX2 />}{SCHEDULE_STATUS_LABEL[s.status]}</Pill>
                     )}

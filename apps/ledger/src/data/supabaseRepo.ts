@@ -5,7 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ISODate } from '../lib/dates';
 import type { Activity, Client, GenerationRun, Meeting, Occurrence, Pause, Review, Schedule, Snapshot, Workspace } from '../lib/types';
 import type { Backup, MeetingPatch, NewMeeting, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
-import { RepoError, withUuids } from './repo';
+import { friendlyError, RepoError, withUuids } from './repo';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -197,16 +197,22 @@ export class SupabaseRepo implements Repo {
     const ws = await this.workspaceId();
     const existing = check(await this.sb.from('ledger_clients').select('id').limit(1)) as Row[];
     if (existing.length) throw new RepoError('Restore needs an empty workspace. Erase it first.');
+    // Check before writing anything, so a backup this database can't fully hold doesn't half-restore.
+    if ((b.meetings ?? []).length && !this.meetings) throw new RepoError('This backup has meetings. Run the database update (Settings) first, then restore.');
     await this.updateWorkspace({ name: b.workspace.name, timezone: b.workspace.timezone, settings: b.workspace.settings });
     const put = async (table: string, rows: Row[]) => {
       for (let i = 0; i < rows.length; i += 500) check(await this.sb.from(table).insert(rows.slice(i, i + 500).map((r) => this.w(r))));
     };
-    await put('ledger_clients', b.clients.map((c) => ({ id: c.id, workspace_id: ws, ...clientRow(c), created_at: c.createdAt })));
-    await put('ledger_schedules', b.schedules.map((s) => ({ id: s.id, workspace_id: ws, ...scheduleRow(s), created_at: s.createdAt })));
-    await put('ledger_schedule_pauses', b.pauses.map((p) => ({ id: p.id, workspace_id: ws, schedule_id: p.scheduleId, paused_from: p.pausedFrom, resumed_on: p.resumedOn })));
-    await put('ledger_occurrences', b.occurrences.map((o) => ({ id: o.id, workspace_id: ws, ...occurrenceRow(o), created_at: o.createdAt })));
-    await put('ledger_reviews', b.reviews.map((r) => ({ id: r.id, workspace_id: ws, schedule_id: r.scheduleId, period_key: r.periodKey, status: r.status, note: r.note })));
-    if (this.meetings) await put('ledger_meetings', (b.meetings ?? []).map((m) => ({ id: m.id, workspace_id: ws, ...meetingRow(m), created_at: m.createdAt })));
+    try {
+      await put('ledger_clients', b.clients.map((c) => ({ id: c.id, workspace_id: ws, ...clientRow(c), created_at: c.createdAt })));
+      await put('ledger_schedules', b.schedules.map((s) => ({ id: s.id, workspace_id: ws, ...scheduleRow(s), created_at: s.createdAt })));
+      await put('ledger_schedule_pauses', b.pauses.map((p) => ({ id: p.id, workspace_id: ws, schedule_id: p.scheduleId, paused_from: p.pausedFrom, resumed_on: p.resumedOn })));
+      await put('ledger_occurrences', b.occurrences.map((o) => ({ id: o.id, workspace_id: ws, ...occurrenceRow(o), created_at: o.createdAt })));
+      await put('ledger_reviews', b.reviews.map((r) => ({ id: r.id, workspace_id: ws, schedule_id: r.scheduleId, period_key: r.periodKey, status: r.status, note: r.note })));
+      if (this.meetings) await put('ledger_meetings', (b.meetings ?? []).map((m) => ({ id: m.id, workspace_id: ws, ...meetingRow(m), created_at: m.createdAt })));
+    } catch (e) {
+      throw new RepoError(`The restore stopped partway (${friendlyError(e)}). Erase all data in Settings, then restore again.`);
+    }
   }
 
   async erase() {

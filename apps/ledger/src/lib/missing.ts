@@ -79,7 +79,8 @@ export function detectExpected(
     }
 
     if (s.status !== 'ended') {
-      const next = upcomingPeriods(rec, today, 6).find((p) => p.due >= s.startDate && createOn(p.due, s.leadDays) > today && !isPausedOn(p.due, pauses) && !have.has(occurrenceKey(s.id, p.key)));
+      // Enough periods ahead that a weekly schedule with a long lead time still shows its next one.
+      const next = upcomingPeriods(rec, today, 60).find((p) => p.due >= s.startDate && createOn(p.due, s.leadDays) > today && !isPausedOn(p.due, pauses) && !have.has(occurrenceKey(s.id, p.key)));
       if (next) {
         out.push(item(next, 'not_yet_due', s.autoGenerate
           ? `Will be created on ${formatDate(createOn(next.due, s.leadDays))}, ${s.leadDays} days before it is due.`
