@@ -46,3 +46,10 @@ describe('task filters', () => {
     expect(queryToFilter(new URLSearchParams(filterToQuery(f)))).toEqual(f);
   });
 });
+
+describe('links with unknown values', () => {
+  it('drop what they don’t know instead of hiding every task', () => {
+    const f = queryToFilter(new URLSearchParams('due=bogus&sort=nope&status=todo,frozen&priority=high,mega&type=vat,x'));
+    expect(f).toMatchObject({ due: 'any', sort: 'due', statuses: ['todo'], priorities: ['high'], types: ['vat'] });
+  });
+});

@@ -14,6 +14,8 @@ export interface QuickAdd {
   dueText: string | null;
   priority: Priority | null;
   tags: string[];
+  /** A time of day ("HH:MM") when the line names one; QuickAdd then offers to book a meeting. */
+  time: string | null;
 }
 
 const WEEKDAYS: Record<string, number> = {
@@ -48,6 +50,7 @@ function upcoming(today: ISODate, month: number, day: number, year?: number): IS
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   if (year !== undefined) {
     const y = year < 100 ? year + 2000 : year;
+    if (y < 2000 || y > 2100) return null;
     return day <= daysInMonth(y, month) ? fromParts(y, month, day) : null;
   }
   const [ty] = parts(today);
@@ -121,6 +124,41 @@ function findClient(token: string, clients: Pick<Client, 'id' | 'name' | 'refere
   return exactFirst.length === 1 ? exactFirst[0] : null;
 }
 
+/** Date and time words that are also ordinary words, names or version numbers. */
+const LOOSE = new Set(['tom', 'man', 'sat', 'sun', 'mar', 'may', 'tor', 'fre', 'jan', 'jun', 'des']);
+
+function isLoose(words: string[], i: number, length: number): boolean {
+  const w = norm(words[i]);
+  if (length === 1 && LOOSE.has(w)) return true;
+  if (length === 2 && LOOSE.has(w) && /^\d{1,2}$/.test(norm(words[i + 1] ?? ''))) return true;
+  // "3.1" reads as a version number as easily as 3 January; "03.01" or "3.12" are clearly dates.
+  return length === 1 && /^\d\.\d$/.test(w);
+}
+
+/** Only the line's extras follow: tags, priority, @client, and more date or time words. */
+function onlyExtrasAfter(words: string[], from: number): boolean {
+  return words.slice(from).every((x) => {
+    const w = norm(x);
+    return /^[#!@]/.test(w) || /^\d{1,2}([.:/]\d{1,2})*$/.test(w) || !!WEEKDAYS[w] || !!MONTHS[w]
+      || ['kl', 'kl.', 'at', 'i', 'dag', 'morgen', 'today', 'tomorrow', 'next', 'neste', 'week', 'uke'].includes(w) || !!PRIORITY_WORDS[w];
+  });
+}
+
+function readTime(words: string[], i: number): { time: string; length: number; loose?: boolean } | null {
+  const hhmm = (s: string) => {
+    const m = /^([01]?\d|2[0-3])(?::([0-5]\d))?$/.exec(s);
+    return m ? `${m[1].padStart(2, '0')}:${m[2] ?? '00'}` : null;
+  };
+  const w = norm(words[i]);
+  if (/^([01]?\d|2[0-3]):[0-5]\d$/.test(w)) return { time: hhmm(w)!, length: 1 };
+  if ((w === 'kl' || w === 'kl.' || w === 'at') && words[i + 1]) {
+    const t = hhmm(norm(words[i + 1]).replace('.', ':'));
+    // "at 20 invoices" is not a time; "at 9" at the end of the line is. "kl" is always a time.
+    if (t) return { time: t, length: 2, loose: w === 'at' && !words[i + 1].includes(':') };
+  }
+  return null;
+}
+
 /** Words too common in task titles to be read as a client name on their own. */
 const COMMON = new Set(['monthly', 'annual', 'payroll', 'vat', 'invoice', 'invoices', 'bank', 'call', 'email', 'meeting', 'check', 'send', 'review', 'year', 'report']);
 
@@ -128,7 +166,7 @@ export function parseQuickAdd(input: string, clients: Pick<Client, 'id' | 'name'
   const active = clients.filter((c) => c.status === 'active');
   const words = input.trim().split(/\s+/).filter(Boolean);
   const keep: string[] = [];
-  const out: QuickAdd = { title: '', clientId: null, clientBy: null, due: null, dueText: null, priority: null, tags: [] };
+  const out: QuickAdd = { title: '', clientId: null, clientBy: null, due: null, dueText: null, priority: null, tags: [], time: null };
 
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
@@ -143,9 +181,16 @@ export function parseQuickAdd(input: string, clients: Pick<Client, 'id' | 'name'
       const c = findClient(w.slice(1), active);
       if (c) { out.clientId = c.id; out.clientBy = 'mention'; continue; }
     }
+    // A time of day ("10:00", "kl 10", "kl. 14:30", "at 9"): the line can then be booked as a meeting.
+    if (!out.time) {
+      const t = readTime(words, i);
+      if (t && (!t.loose || onlyExtrasAfter(words, i + t.length))) { out.time = t.time; i += t.length - 1; continue; }
+    }
     if (!out.due) {
       const d = readDate(words, i, today);
-      if (d) {
+      // A word that is also an ordinary word or name ("Tom", "man", "sat", "mar", "3.1") counts as a date only at the
+      // end of the line, among other extras: "Call Tom about VAT" keeps Tom; "VAT return sat !high" is due Saturday.
+      if (d && (!isLoose(words, i, d.length) || onlyExtrasAfter(words, i + d.length))) {
         out.due = d.due;
         out.dueText = words.slice(i, i + d.length).join(' ');
         i += d.length - 1;

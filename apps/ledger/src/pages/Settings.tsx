@@ -164,7 +164,7 @@ export function Settings({ email }: { email?: string | null }) {
                 return (
                   <button key={a.id} role="radio" aria-checked={on} aria-label={a.label} title={a.label} onClick={() => !on && void saveSettings({ accent: a.id }, `Accent: ${a.label}`)}
                     className={cn('flex size-9 items-center justify-center rounded-full ring-offset-2 ring-offset-surface transition-shadow', on ? 'ring-2 ring-ink' : 'hover:ring-2 hover:ring-line-strong')}>
-                    <span className="size-7 rounded-full" style={{ background: a.swatch }} />
+                    <span className="size-7 rounded-full ring-1 ring-ink/15" style={{ background: a.swatch }} />
                   </button>
                 );
               })}
@@ -236,7 +236,9 @@ export function Settings({ email }: { email?: string | null }) {
       </Confirm>
       <Confirm open={confirm === 'seed'} onOpenChange={(o) => !o && setConfirm(null)} tone="primary" title="Load fictional demo data?" confirmLabel="Load demo data"
         body="Adds about 20 invented clients with schedules and tasks, so you can try everything. Erase it from here when you are ready to start for real."
-        onConfirm={() => run(async (r) => { const b = toBackup(buildSeed(today)); await r.restore({ ...b, workspace: { ...b.workspace, name: snap.workspace.name, timezone: snap.workspace.timezone } }); }, { generate: true, success: 'Demo data loaded' })} />
+        onConfirm={() => run(async (r) => { const b = toBackup(buildSeed(today)); // Keep the person's own settings (name, theme, layout, notes, views); only the demo's checklist templates are added.
+          await r.restore({ ...b, workspace: { name: snap.workspace.name, timezone: snap.workspace.timezone,
+            settings: { ...snap.workspace.settings, checklistTemplates: snap.workspace.settings.checklistTemplates ?? b.workspace.settings.checklistTemplates } } }); }, { generate: true, success: 'Demo data loaded' })} />
       <Confirm open={confirm === 'reset-demo'} onOpenChange={(o) => !o && setConfirm(null)} tone="primary" title="Reset the demo?" confirmLabel="Reset"
         body="Replaces everything in this browser’s demo with fresh fictional data."
         onConfirm={async () => { (repo as DemoRepo).reset(today); await reload(); }} />

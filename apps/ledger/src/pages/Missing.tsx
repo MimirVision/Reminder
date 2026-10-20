@@ -47,7 +47,14 @@ export function Missing() {
     if (focus) document.getElementById(`exp-${focus}`)?.scrollIntoView({ block: 'center' });
   }, [focus]);
 
-  const generate = (list: ExpectedItem[]) => run(async (r) => {
+  // One batch at a time: a quick second click would otherwise land on the next row as it moves up.
+  const [busy, setBusy] = useState(false);
+  const generate = async (list: ExpectedItem[]) => {
+    if (busy) return;
+    setBusy(true);
+    try { return await createFor(list); } finally { setBusy(false); }
+  };
+  const createFor = (list: ExpectedItem[]) => run(async (r) => {
     let n = 0;
     for (const i of list) {
       const s = scheduleById.get(i.scheduleId);
@@ -77,10 +84,10 @@ export function Missing() {
       <p className="mb-4 text-[12.5px] text-ink-3">
         Periods that an active schedule expects by today but that have no task. Nothing here is created or dismissed for you.
       </p>
-      <div role="tablist" className="mb-3 flex gap-1 border-b border-line">
+      <div role="tablist" className="-mx-4 mb-3 flex gap-1 overflow-x-auto border-b border-line px-4 md:mx-0 md:px-0">
         {tabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} title={t.hint} onClick={() => setTab(t.id)}
-            className={cn('-mb-px flex h-9 items-center gap-1.5 border-b-2 px-3 text-[13px]', tab === t.id ? 'border-accent font-medium text-ink' : 'border-transparent text-ink-3 hover:text-ink')}>
+            className={cn('-mb-px flex h-9 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[13px] font-medium whitespace-nowrap', tab === t.id ? 'border-accent text-ink' : 'border-transparent text-ink-3 hover:text-ink')}>
             {t.label}
             <span className={cn('tnum text-[11.5px]', t.id === 'review' && byTab.review.length ? 'font-semibold text-warn' : 'text-ink-3')}>{byTab[t.id].length}</span>
           </button>
@@ -92,7 +99,7 @@ export function Missing() {
         {tab === 'review' && picked.length > 0 && (
           <div className="flex items-center gap-2 rounded-md bg-accent-soft py-0.5 pr-0.5 pl-2.5 text-[12.5px] text-accent-ink">
             {picked.length} selected
-            <Button size="sm" variant="secondary" onClick={() => void generate(picked).then(() => setSelected(new Set()))}><FilePlus2 /> Create tasks</Button>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void generate(picked).then(() => setSelected(new Set()))}><FilePlus2 /> Create tasks</Button>
             <Button size="sm" variant="secondary" onClick={() => void review(picked, 'reviewed').then(() => setSelected(new Set()))}><CheckCircle2 /> Mark reviewed</Button>
             <Button size="sm" variant="secondary" onClick={() => { setNote(''); setExceptionFor(picked); }}><ShieldCheck /> Exception…</Button>
           </div>
@@ -111,25 +118,27 @@ export function Missing() {
               const st = STATE[i.state];
               const client = clientById.get(i.clientId);
               return (
-                <li key={i.id} id={`exp-${i.id}`} className={cn('flex items-start gap-3 px-4 py-3', focus === i.id && 'bg-accent-soft/50')}>
+                <li key={i.id} id={`exp-${i.id}`} className={cn('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3', focus === i.id && 'bg-accent-soft/50')}>
                   {tab === 'review' && (
                     <input type="checkbox" aria-label={`Select ${i.title}, ${i.periodName}`} className="mt-[3px] size-4 shrink-0 accent-[var(--c-accent)]" checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
                   )}
-                  <div className="min-w-0 flex-1">
+                  {/* On a phone the actions drop below the text instead of squeezing it. */}
+                  <div className="min-w-0 flex-[1_1_15rem]">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="text-[13px] font-medium">{i.title}</span>
                       <span className="text-[13px] text-ink-2" title={`Period ${formatDate(i.period.start)} – ${formatDate(i.period.end)}`}>{i.periodName}</span>
                       {(tab !== 'review' || i.state === 'generation_failure') && <Pill tone={st.tone}><st.icon />{st.label}</Pill>}
                     </div>
                     <p className="mt-0.5 text-[12.5px] text-ink-3">{i.reason}</p>
+                    <p className="mt-0.5 text-[12px] text-ink-2 md:hidden">{client?.name} · <span className="tnum">Due {formatDate(i.period.due)}</span></p>
                   </div>
                   <div className="hidden w-48 shrink-0 text-right md:block">
                     <div className="truncate text-[12.5px] text-ink-2">{client?.name}</div>
                     <div className="tnum text-[12px] text-ink-3">Due {formatDate(i.period.due)}</div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
                     {tab === 'review' && <>
-                      <Button size="sm" onClick={() => void generate([i])}><FilePlus2 /> Create task</Button>
+                      <Button size="sm" disabled={busy} onClick={() => void generate([i])}><FilePlus2 /> Create task</Button>
                       <Button size="sm" variant="ghost" onClick={() => void review([i], 'reviewed')}><CheckCircle2 /> Reviewed</Button>
                     </>}
                     <Menu align="end" label="More actions" trigger={<IconButton label="More actions" size="sm"><MoreHorizontal /></IconButton>}>

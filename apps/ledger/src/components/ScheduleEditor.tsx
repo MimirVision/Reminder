@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CalendarDays, CalendarX2, Lock, Pause, Play, Trash2 } from 'lucide-react';
+import { AlertCircle, CalendarDays, CalendarX2, Copy, Lock, Pause, Play, Trash2 } from 'lucide-react';
+import { CopyScheduleDialog } from './CopySchedule';
 import { useStore } from '../data/store';
 import { addDays, type ISODate } from '../lib/dates';
 import { formatDate, formatDayShort } from '../lib/format';
@@ -92,6 +93,7 @@ function Editor() {
   const [applyAsk, setApplyAsk] = useState<null | { count: number }>(null);
   const [applyMode, setApplyMode] = useState<'future' | 'new'>('future');
   const [confirm, setConfirm] = useState<null | 'end' | 'delete' | 'pause'>(null);
+  const [copying, setCopying] = useState(false);
   const [endOn, setEndOn] = useState(today);
   const [cancelLater, setCancelLater] = useState(true);
 
@@ -157,6 +159,7 @@ function Editor() {
                   {status === 'paused' ? <><Play /> Resume</> : <><Pause /> Pause</>}
                 </Button>
               )}
+              <Button variant="ghost" size="sm" onClick={() => setCopying(true)} title="The same schedule for other clients"><Copy /> Copy to clients…</Button>
               {status !== 'ended' && <Button variant="ghost" size="sm" onClick={() => setConfirm('end')}><CalendarX2 /> End schedule</Button>}
               {!locked && <Button variant="ghost" size="sm" className="text-danger" onClick={() => setConfirm('delete')}><Trash2 /> Delete</Button>}
             </div>
@@ -221,7 +224,7 @@ function Editor() {
                   <Field label="Every">
                     {(p) => (
                       <div className="flex gap-2">
-                        <Input {...p} type="number" min={1} max={d.customUnit === 'week' ? 52 : 24} disabled={locked} className="w-20" value={d.customInterval} onChange={(e) => set('customInterval', num(e.target.value, 1, 52))} />
+                        <Input {...p} type="number" min={1} max={d.customUnit === 'week' ? 52 : 24} disabled={locked} className="w-20" value={d.customInterval} onChange={(e) => set('customInterval', num(e.target.value, 1, d.customUnit === 'week' ? 52 : 24))} />
                         <Select aria-label="Unit" disabled={locked} className="flex-1" value={d.customUnit} onChange={(e) => set('customUnit', e.target.value as IntervalUnit)}>
                           <option value="month">months</option><option value="week">weeks</option>
                         </Select>
@@ -372,6 +375,7 @@ function Editor() {
       </Dialog>
 
       {existing && <>
+        <CopyScheduleDialog schedule={existing} open={copying} onOpenChange={setCopying} />
         <Confirm open={confirm === 'pause'} onOpenChange={(o) => !o && setConfirm(null)} tone="primary"
           title={status === 'paused' ? 'Resume this schedule?' : 'Pause this schedule?'}
           confirmLabel={status === 'paused' ? 'Resume' : 'Pause'}

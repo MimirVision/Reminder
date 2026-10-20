@@ -138,7 +138,7 @@ test('quick add turns one line into a task, and the keyboard completes it', asyn
   await page.getByLabel('Search tasks').fill('holiday pay');
   const row = page.locator('tbody tr[data-task]');
   await expect(row).toHaveCount(1);
-  await expect(row.getByText('Nordvik Snekkeri AS')).toBeVisible();
+  await expect(row.getByText('Nordvik Snekkeri AS', { exact: true })).toBeVisible();
   await expect(row.getByText('High')).toBeVisible();
   await row.focus();
   await page.keyboard.press('d');
@@ -339,4 +339,60 @@ test('meetings are booked at a time of day and shown in the calendar by the hour
   await page.goto('/clients/client-1');
   await page.getByRole('tab', { name: /Meetings/ }).click();
   await expect(page.getByText('Budget review')).toBeVisible();
+});
+
+test('nothing is lost or broken by Escape, odd links or a phone screen', async ({ page }) => {
+  // Escape saves what was typed in the task panel.
+  await page.goto('/tasks?view=today');
+  await page.locator('tbody tr[data-task]').first().click();
+  await page.getByRole('dialog').getByLabel('Notes').fill('Typed, then Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('tbody tr[data-task]').first().click();
+  await expect(page.getByRole('dialog').getByLabel('Notes')).toHaveValue('Typed, then Escape');
+  // Escape while editing a checklist item cancels the edit, not the panel.
+  const add = page.getByRole('dialog').getByRole('textbox', { name: 'Add an item to the checklist' });
+  await add.fill('Step one');
+  await add.press('Enter');
+  await page.getByRole('dialog').getByRole('button', { name: 'Step one', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  // A broken link falls back instead of blanking the page.
+  await page.goto('/calendar?date=foo&view=year');
+  await expect(page.getByRole('heading', { level: 1, name: 'Calendar' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Month', checked: true })).toBeVisible();
+
+  // On a phone the lists keep their titles and the pages don't scroll sideways.
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const path of ['/tasks', '/recurring', '/missing', '/clients/client-1', '/calendar?view=week']) {
+    await page.goto(path);
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), path).toBe(true);
+  }
+  await page.goto('/tasks');
+  const firstTitle = page.locator('tbody tr[data-task]').first().locator('td').nth(2);
+  expect((await firstTitle.boundingBox())!.width).toBeGreaterThan(200);
+});
+
+test('a schedule can be copied to other clients as separate schedules', async ({ page }) => {
+  await page.goto('/clients/client-1');
+  await page.getByRole('tab', { name: /Recurring/ }).click();
+  await page.getByRole('button', { name: 'Payroll run', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Recurring schedule' });
+  await editor.getByRole('button', { name: 'Copy to clients…' }).click();
+  const copy = page.getByRole('dialog', { name: 'Copy to other clients' });
+  // The client it is copied from isn't offered; clients that already have one are marked.
+  await expect(copy.getByRole('checkbox', { name: /Nordvik Snekkeri AS/ })).toHaveCount(0);
+  await expect(copy.getByText('has one already').first()).toBeVisible();
+  await copy.getByRole('checkbox', { name: /Lysaker Design ENK/ }).check();
+  await copy.getByRole('checkbox', { name: /Havbris Eiendom AS/ }).check();
+  await copy.getByRole('button', { name: 'Copy to 2 clients' }).click();
+  await expect(page.getByText(/“Payroll run” copied to 2 clients/)).toBeVisible();
+  for (const id of ['client-4', 'client-3']) {
+    await page.goto(`/clients/${id}`);
+    await page.getByRole('tab', { name: /Recurring/ }).click();
+    await expect(page.getByRole('button', { name: 'Payroll run', exact: true })).toBeVisible();
+  }
 });

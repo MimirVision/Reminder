@@ -1,6 +1,6 @@
 import { memo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { NewTaskDefaults } from './ui-state';
-import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun } from 'lucide-react';
+import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun, Copy } from 'lucide-react';
 import { ChecklistBadge } from './Checklist';
 import { QuickAdd } from './QuickAdd';
 import { addDays, weekday, type ISODate } from '../lib/dates';
@@ -22,8 +22,18 @@ const nextMonday = (today: ISODate) => addDays(today, ((1 - weekday(today) + 7) 
 
 /** The quick moves people make all day, shared by the row menu and the keyboard. */
 export function useTaskActions() {
-  const { patchOccurrence, today } = useStore();
+  const { patchOccurrence, today, run } = useStore();
+  const ui = useUI();
   return {
+    /** A one-off copy of the task (not linked to its schedule), with the checklist unticked; opens it. */
+    duplicate: async (t: Occurrence) => {
+      const copy = await run((r) => r.createOccurrence({
+        clientId: t.clientId, scheduleId: null, title: t.title, description: t.description, taskType: t.taskType, periodKey: null, periodStart: null,
+        periodEnd: null, dueDate: t.dueDate, scheduledDueDate: null, status: 'todo', priority: t.priority, tags: t.tags,
+        checklist: t.checklist.map((i) => ({ ...i, done: false })),
+      }), { success: 'Duplicated' });
+      if (copy) ui.openTask(copy.id);
+    },
     toggleDone: (t: Occurrence) => patchOccurrence(t.id, { status: t.status === 'done' ? 'todo' : 'done' }, t.status === 'done' ? 'Reopened' : `Done: ${t.title}`),
     waiting: (t: Occurrence) => patchOccurrence(t.id, { status: t.status === 'waiting' ? 'todo' : 'waiting' }, t.status === 'waiting' ? 'No longer waiting' : 'Waiting for client'),
     moveTo: (t: Occurrence, d: ISODate) => (d === t.dueDate ? Promise.resolve(true) : patchOccurrence(t.id, { dueDate: d }, `Moved to ${formatDue(d, today).toLowerCase()}`)),
@@ -49,7 +59,8 @@ export function CompleteToggle({ task }: { task: Occurrence }) {
         window.setTimeout(() => { void toggleDone(task).finally(() => setCompleting(false)); }, 280);
       }}
       className={cn(
-        'group/check flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] transition-[background-color,border-color,transform] duration-150',
+        // A larger invisible hit area than the 18px circle, for fingers.
+        'group/check relative flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] before:absolute before:-inset-2.5 before:content-[\'\'] transition-[background-color,border-color,transform] duration-150',
         done ? 'scale-110 border-ok bg-ok text-white' : task.status === 'cancelled' ? 'border-dashed border-line-strong' : 'border-line-strong hover:border-ok hover:bg-ok-soft',
       )}
     >
@@ -78,6 +89,7 @@ function RowMenu({ task }: { task: Occurrence }) {
         <MenuItem onSelect={() => void a.moveTo(task, addDays(task.dueDate < a.tomorrow ? a.tomorrow : task.dueDate, 7))}><CalendarClock /> One week later</MenuItem>
       </>}
       <MenuSeparator />
+      <MenuItem onSelect={() => void a.duplicate(task)}><Copy /> Duplicate</MenuItem>
       <MenuItem shortcut="↵" onSelect={() => ui.openTask(task.id)}><CornerDownLeft /> Open details</MenuItem>
     </Menu>
   );
@@ -114,9 +126,14 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
               <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
               {open && <ChecklistBadge items={task.checklist} />}
             </span>
-            <span className="truncate text-[12px] text-ink-3">{[showClient && client?.name, task.periodKey && periodLabel(task.periodKey)].filter(Boolean).join(' · ')}</span>
+            <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3">
+              {/* In a narrow card the due date moves here from its own column. */}
+              <span className="hidden shrink-0 @max-sm:inline"><DueDate date={task.dueDate} today={today} open={open} /></span>
+              <span className="truncate">{[showClient && client?.name, task.periodKey && periodLabel(task.periodKey)].filter(Boolean).join(' · ')}</span>
+            </span>
           </div>
-        ) : <div className="flex min-w-0 items-center gap-2">
+        ) : <>
+        <div className="flex min-w-0 items-center gap-2">
           <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
           {open && <ChecklistBadge items={task.checklist} />}
           {task.periodKey && (
@@ -125,14 +142,20 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
             </span>
           )}
           <span className="hidden gap-1 xl:flex">{task.tags.slice(0, 2).map((t) => <Tag key={t}>{t}</Tag>)}</span>
-        </div>}
+        </div>
+        {/* On a phone, the client and due date sit under the title instead of in their own columns. */}
+        <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3 sm:hidden">
+          <DueDate date={task.dueDate} today={today} open={open} />
+          {showClient && <span className="truncate">· {client?.name}</span>}
+        </div>
+        </>}
       </td>
       {showClient && !stacked && (
-        <td className="hidden w-[24%] max-w-0 pr-3 md:table-cell">
+        <td className="col-md w-[24%] max-w-0 pr-3">
           <span className="block truncate text-[13px] text-ink-2">{client?.name ?? 'Unknown client'}</span>
         </td>
       )}
-      <td className={'w-40 pr-3'} onClick={(e) => e.stopPropagation()}>
+      <td className={cn('w-40 pr-3', stacked ? '@max-sm:p-0 @max-sm:[&>*]:hidden' : 'col-sm')} onClick={(e) => e.stopPropagation()}>
         <DatePicker
           value={task.dueDate}
           today={today}
@@ -140,7 +163,7 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
           trigger={<button tabIndex={-1} aria-label={`Due ${task.dueDate}. Change due date`} className="-mx-1.5 rounded px-1.5 py-0.5 hover:bg-sunken"><DueDate date={task.dueDate} today={today} open={open} /></button>}
         />
       </td>
-      <td className={cn(stacked ? 'pr-3 @max-xl:p-0 @max-xl:[&>*]:hidden' : 'hidden w-20 pr-3 sm:table-cell')} onClick={(e) => e.stopPropagation()}>
+      <td className={cn(stacked ? 'pr-3 @max-xl:p-0 @max-xl:[&>*]:hidden' : 'col-sm w-20 pr-3')} onClick={(e) => e.stopPropagation()}>
         <Menu label={`Priority: ${PRIORITY_LABEL[task.priority]}. Change priority`} trigger={
           <button tabIndex={-1} className="-mx-1.5 flex h-6 min-w-10 items-center rounded px-1.5 hover:bg-sunken">
             {task.priority === 'normal' ? <span className="text-[12px] text-ink-3/0 group-hover:text-ink-3">Set</span> : <PriorityLabel priority={task.priority} compact />}
@@ -149,7 +172,7 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
           {PRIORITIES.map((p) => <MenuItem key={p} onSelect={() => p !== task.priority && void patchOccurrence(task.id, { priority: p }, `Priority: ${PRIORITY_LABEL[p]}`)}><PriorityLabel priority={p} /></MenuItem>)}
         </Menu>
       </td>
-      <td className={cn(stacked ? 'pr-1 @max-lg:p-0 @max-lg:[&>*]:hidden' : 'hidden w-32 pr-1 sm:table-cell')} onClick={(e) => e.stopPropagation()}>
+      <td className={cn(stacked ? 'pr-1 @max-lg:p-0 @max-lg:[&>*]:hidden' : 'col-sm w-32 pr-1')} onClick={(e) => e.stopPropagation()}>
         <StatusPicker status={task.status} onChange={(s) => void patchOccurrence(task.id, { status: s }, 'Status updated')} />
       </td>
       <td className="w-9 pr-2" onClick={(e) => e.stopPropagation()}><RowMenu task={task} /></td>
@@ -164,7 +187,8 @@ interface Group { key: string; label: ReactNode; dot?: string; tasks: Occurrence
 const STATUS_DOT: Record<TaskStatus, string> = { todo: 'bg-ink-3/60', in_progress: 'bg-accent', waiting: 'bg-warn', done: 'bg-ok', cancelled: 'bg-line-strong' };
 
 function groupTasks(tasks: Occurrence[], by: GroupBy, today: ISODate, clientById: Map<string, Client>): Group[] {
-  if (by === 'none') return [{ key: 'all', label: null, tasks, adds: {} }];
+  // No tasks, or no grouping: one plain group, so an "Add task" row still has somewhere to go.
+  if (by === 'none' || !tasks.length) return [{ key: 'all', label: null, tasks, adds: {} }];
   const map = new Map<string, Occurrence[]>();
   const keyOf = (t: Occurrence) => by === 'client' ? t.clientId
     : by === 'status' ? t.status
@@ -247,10 +271,10 @@ export function TaskTable({ tasks, showClient = true, stacked, header = true, li
             )}
             <th className={cn('w-9', selection ? 'pl-1' : 'pl-3')}><span className="sr-only">Done</span></th>
             <th className="pr-3 font-medium"><span>Task</span></th>
-            {showClient && !stacked && <th className="hidden w-[24%] pr-3 font-medium md:table-cell"><span>Client</span></th>}
-            <th className={'w-40 pr-3 font-medium'}><span>Due</span></th>
-            <th className={cn('pr-3 font-medium', stacked ? 'w-20 @max-xl:w-0 @max-xl:p-0' : 'hidden w-20 sm:table-cell')}><span>Priority</span></th>
-            <th className={cn('pr-1 font-medium', stacked ? 'w-32 @max-lg:w-0 @max-lg:p-0' : 'hidden w-32 sm:table-cell')}><span>Status</span></th>
+            {showClient && !stacked && <th className="col-md w-[24%] pr-3 font-medium"><span>Client</span></th>}
+            <th className={cn('pr-3 font-medium', stacked ? 'w-40 @max-sm:w-0 @max-sm:p-0' : 'col-sm w-40')}><span>Due</span></th>
+            <th className={cn('pr-3 font-medium', stacked ? 'w-20 @max-xl:w-0 @max-xl:p-0' : 'col-sm w-20')}><span>Priority</span></th>
+            <th className={cn('pr-1 font-medium', stacked ? 'w-32 @max-lg:w-0 @max-lg:p-0' : 'col-sm w-32')}><span>Status</span></th>
             <th className="w-9 pr-2"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>

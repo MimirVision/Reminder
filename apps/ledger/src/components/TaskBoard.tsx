@@ -27,7 +27,11 @@ function Card({ task }: { task: Occurrence }) {
       draggable
       onDragStart={(e) => { e.dataTransfer.setData('text/ledger-task', task.id); e.dataTransfer.effectAllowed = 'move'; }}
       onClick={() => ui.openTask(task.id)}
-      onKeyDown={(e) => { if (e.key === 'Enter') ui.openTask(task.id); }}
+      onKeyDown={(e) => {
+        // Only the card's own keys: Enter on the done button inside it is that button's business.
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ui.openTask(task.id); }
+      }}
       className={cn(
         'group flex cursor-grab flex-col gap-2 rounded-[10px] border border-line bg-surface p-3 text-left shadow-soft transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-pop active:cursor-grabbing',
         ui.taskId === task.id && 'border-accent/60 ring-2 ring-accent/15',
@@ -42,7 +46,7 @@ function Card({ task }: { task: Occurrence }) {
         <span className={cn('min-w-0 flex-1 text-[13.5px] leading-snug font-semibold', !open && 'font-medium text-ink-3 line-through decoration-ink-3/40')}>{task.title}</span>
       </div>
       <span className="truncate pl-[26px] text-[12.5px] text-ink-2">{clientById.get(task.clientId)?.name}</span>
-      <div className="flex items-center gap-2 border-t border-line/70 pt-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line/70 pt-2">
         <DueDate date={task.dueDate} today={today} open={open} />
         <ChecklistBadge items={task.checklist} />
         <span className="ml-auto"><PriorityLabel priority={task.priority} compact /></span>

@@ -30,16 +30,22 @@ export function useClientGroups(): ClientGroup[] {
   }, [snap.clients, snap.schedules, snap.workspace.settings.pinnedClients]);
 }
 
-export function ClientsPicker({ selected, onChange, onGroup }: {
+export function ClientsPicker({ selected, onChange, onGroup, exclude, hint }: {
   selected: string[];
   onChange: (ids: string[]) => void;
   /** Called when a group chip is used, so the form can follow (e.g. set the task type to VAT). */
   onGroup?: (g: ClientGroup) => void;
+  /** Clients not to offer at all (e.g. the one a schedule is copied from). */
+  exclude?: string[];
+  /** A short note beside a client's name (e.g. "has one already"). */
+  hint?: (clientId: string) => string | null;
 }) {
   const { snap } = useStore();
-  const groups = useClientGroups();
+  const all = useClientGroups();
+  const groups = useMemo(() => all.map((g) => ({ ...g, ids: g.ids.filter((id) => !exclude?.includes(id)) })).filter((g) => g.ids.length > 0),
+    [all, exclude]);
   const [q, setQ] = useState('');
-  const clients = useMemo(() => snap.clients.filter((c) => c.status === 'active').sort((a, b) => a.name.localeCompare(b.name)), [snap.clients]);
+  const clients = useMemo(() => snap.clients.filter((c) => c.status === 'active' && !exclude?.includes(c.id)).sort((a, b) => a.name.localeCompare(b.name)), [snap.clients, exclude]);
   const shown = clients.filter((c) => `${c.name} ${c.reference ?? ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   const on = new Set(selected);
   const toggle = (id: string) => onChange(on.has(id) ? selected.filter((x) => x !== id) : [...selected, id]);
@@ -80,6 +86,7 @@ export function ClientsPicker({ selected, onChange, onGroup }: {
               <label className="flex h-8 cursor-pointer items-center gap-2.5 px-2.5 text-[13px] hover:bg-hover">
                 <input type="checkbox" className="size-4 shrink-0 accent-[var(--c-accent)]" checked={on.has(c.id)} onChange={() => toggle(c.id)} />
                 <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                {hint?.(c.id) && <span className="shrink-0 text-[11.5px] text-warn">{hint(c.id)}</span>}
                 {c.reference && <span className="num shrink-0 text-[11.5px] text-ink-3">{c.reference}</span>}
               </label>
             </li>
@@ -88,7 +95,7 @@ export function ClientsPicker({ selected, onChange, onGroup }: {
         </ul>
       </div>
       <p className="text-[12px] text-ink-3" aria-live="polite">
-        {selected.length ? <><span className="num font-medium text-ink-2">{selected.length}</span> client{selected.length === 1 ? '' : 's'} selected. Each gets its own task; they aren’t linked.</> : 'Tick the clients that need this task.'}
+        {selected.length ? <><span className="num font-medium text-ink-2">{selected.length}</span> client{selected.length === 1 ? '' : 's'} selected. Each gets its own copy; they aren’t linked.</> : 'Tick the clients that need this task.'}
       </p>
     </div>
   );

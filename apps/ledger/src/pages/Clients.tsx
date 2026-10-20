@@ -84,8 +84,8 @@ export function Clients() {
                 {header('name', 'Client', 'pl-4')}
                 {header('open', 'Open', 'w-20 text-right')}
                 {header('overdue', 'Overdue', 'w-24 text-right')}
-                {header('next', 'Next deadline', 'w-44 pl-6 hidden sm:table-cell')}
-                <th className="hidden w-28 pr-4 text-right font-medium md:table-cell">Schedules</th>
+                {header('next', 'Next deadline', 'col-sm w-44 pl-6')}
+                <th className="col-md w-28 pr-4 text-right font-medium">Schedules</th>
               </tr>
             </thead>
             <tbody>
@@ -96,7 +96,7 @@ export function Clients() {
                     <td className="max-w-0 pr-3 pl-4">
                       <div className="flex items-center gap-2">
                         <Link to={`/clients/${c.id}`} className="truncate text-[13px] font-medium hover:text-accent" onClick={(e) => e.stopPropagation()}>{c.name}</Link>
-                        {c.reference && <span className="shrink-0 text-[12px] text-ink-3">{c.reference}</span>}
+                        {c.reference && <span className="num hidden shrink-0 text-[12px] text-ink-3 sm:inline">{c.reference}</span>}
                         {c.status === 'archived' && <Pill>Archived</Pill>}
                       </div>
                     </td>
@@ -104,10 +104,10 @@ export function Clients() {
                     <td className="tnum pr-3 text-right text-[13px]">
                       {st.overdue ? <span className="inline-flex items-center gap-1 font-medium text-danger"><AlertTriangle className="size-3.5" aria-label="Overdue" />{st.overdue}</span> : <span className="text-ink-3">0</span>}
                     </td>
-                    <td className="tnum hidden pr-3 pl-6 text-[12.5px] sm:table-cell">
+                    <td className="tnum col-sm pr-3 pl-6 text-[12.5px]">
                       {st.next ? <span className={st.next === today ? 'font-medium text-accent-ink' : 'text-ink-2'}>{formatDue(st.next, today)}{diffDays(st.next, today) > 1 && <span className="text-ink-3"> · in {diffDays(st.next, today)}d</span>}</span> : <span className="text-ink-3">None</span>}
                     </td>
-                    <td className={cn('tnum hidden pr-4 text-right text-[12.5px] md:table-cell', st.schedules ? 'text-ink-2' : 'text-ink-3')}>{st.schedules}</td>
+                    <td className={cn('tnum col-md pr-4 text-right text-[12.5px]', st.schedules ? 'text-ink-2' : 'text-ink-3')}>{st.schedules}</td>
                   </tr>
                 );
               })}

@@ -7,3 +7,7 @@ test-results/
 playwright-report/
 dist-artifact/
 dist-site/
+
+# Throwaway local scripts (QA, screenshots)
+/qa-tmp*.mjs
+/.*.mjs

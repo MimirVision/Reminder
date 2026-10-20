@@ -1,7 +1,7 @@
-import { addDays, startOfWeek, type ISODate } from './dates';
+import { addDays, localISODate, startOfWeek, type ISODate } from './dates';
 import { PRIORITY_RANK } from './labels';
 import type { Client, Occurrence, Priority, TaskStatus, TaskType } from './types';
-import { isOpen } from './types';
+import { isOpen, PRIORITIES, TASK_STATUSES, TASK_TYPES } from './types';
 
 export type DueFilter = 'any' | 'overdue' | 'today' | 'this_week' | 'next_14' | 'later' | 'completed_30';
 export type SortKey = 'due' | 'priority' | 'client' | 'title' | 'completed';
@@ -45,7 +45,7 @@ export function matchesDue(o: Occurrence, due: DueFilter, today: ISODate): boole
     case 'this_week': { const s = startOfWeek(today); return o.dueDate >= s && o.dueDate <= addDays(s, 6); }
     case 'next_14': return o.dueDate >= today && o.dueDate <= addDays(today, 14);
     case 'later': return o.dueDate > addDays(today, 14);
-    case 'completed_30': return !!o.completedAt && o.completedAt.slice(0, 10) >= addDays(today, -30);
+    case 'completed_30': return !!o.completedAt && localISODate(new Date(o.completedAt)) >= addDays(today, -30);
   }
 }
 
@@ -97,11 +97,17 @@ export function filterToQuery(f: TaskFilter): string {
   return p.toString();
 }
 
+const DUES: DueFilter[] = ['any', 'overdue', 'today', 'this_week', 'next_14', 'later', 'completed_30'];
+const SORTS: SortKey[] = ['due', 'priority', 'client', 'title', 'completed'];
+
+/** Reads a filter from a link or a saved view. Values it doesn't know are dropped, so an old link can't empty the list. */
 export function queryToFilter(q: URLSearchParams): TaskFilter {
-  const list = <T extends string>(k: string) => (q.get(k)?.split(',').filter(Boolean) ?? []) as T[];
+  const list = <T extends string>(k: string, allowed?: readonly T[]) =>
+    (q.get(k)?.split(',').filter(Boolean) ?? []).filter((v) => !allowed || allowed.includes(v as T)) as T[];
+  const due = q.get('due') as DueFilter | null, sort = q.get('sort') as SortKey | null;
   return {
     search: q.get('q') ?? '',
-    clients: list('client'), statuses: list('status'), priorities: list('priority'), types: list('type'),
-    due: (q.get('due') as DueFilter) ?? 'any', sort: (q.get('sort') as SortKey) ?? 'due',
+    clients: list('client'), statuses: list('status', TASK_STATUSES), priorities: list('priority', PRIORITIES), types: list('type', TASK_TYPES),
+    due: due && DUES.includes(due) ? due : 'any', sort: sort && SORTS.includes(sort) ? sort : 'due',
   };
 }

@@ -13,7 +13,7 @@ const p = (s: string) => parseQuickAdd(s, clients, today);
 describe('quick add', () => {
   it('reads client, date, priority and tags, and leaves a clean title', () => {
     expect(p('Chase receipts @nordvik fri !high #receipts')).toEqual({
-      title: 'Chase receipts', clientId: 'n', clientBy: 'mention', due: '2026-10-23', dueText: 'fri', priority: 'high', tags: ['receipts'],
+      title: 'Chase receipts', clientId: 'n', clientBy: 'mention', due: '2026-10-23', dueText: 'fri', priority: 'high', tags: ['receipts'], time: null,
     });
   });
 
@@ -58,5 +58,30 @@ describe('dates without a year', () => {
     expect(p('x 20.8').due).toBe('2026-08-20');
     expect(p('x 1.6').due).toBe('2027-06-01');
     expect(p('x 15.11').due).toBe('2026-11-15');
+  });
+});
+
+describe('times', () => {
+  it('reads a time of day, so the line can become a meeting', () => {
+    expect(p('Call Nordvik fri 10:00')).toMatchObject({ title: 'Call', clientId: 'n', due: '2026-10-23', time: '10:00' });
+    expect(p('Møte @fjellbris i morgen kl 9').time).toBe('09:00');
+    expect(p('Review kl. 14.30').time).toBe('14:30');
+    expect(p('Budget at 13').time).toBe('13:00');
+    expect(p('VAT 12.10')).toMatchObject({ time: null, due: '2026-10-12' });
+    expect(p('Meeting 25:00').time).toBeNull();
+  });
+});
+
+describe('ordinary words that look like dates', () => {
+  it('stay in the title unless they end the line', () => {
+    expect(p('Call Tom about VAT')).toMatchObject({ title: 'Call Tom about VAT', due: null });
+    expect(p('Email the man at bank')).toMatchObject({ title: 'Email the man at bank', due: null });
+    expect(p('Sat with client')).toMatchObject({ title: 'Sat with client', due: null });
+    expect(p('Count at 20 invoices')).toMatchObject({ title: 'Count at 20 invoices', time: null });
+    expect(p('Upgrade to 3.1 release')).toMatchObject({ title: 'Upgrade to 3.1 release', due: null });
+    expect(p('Review mar 15 report')).toMatchObject({ title: 'Review mar 15 report', due: null });
+    expect(p('VAT return sat !high')).toMatchObject({ title: 'VAT return', due: '2026-10-17', priority: 'high' });
+    expect(p('Call Nordvik tom')).toMatchObject({ due: '2026-10-17' });
+    expect(p('Report 15.11.1999').due).toBeNull();
   });
 });

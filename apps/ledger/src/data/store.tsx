@@ -52,10 +52,24 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
   const refreshTimer = useRef<number | undefined>(undefined);
   const settingsRef = useRef<WorkspaceSettings>({});
   const settingsQueue = useRef<Promise<unknown>>(Promise.resolve());
+  // Changes still on their way to the database. A reload that started before they landed would bring back the old
+  // values, so they are laid over whatever a reload returns until they are saved.
+  const pendingSettings = useRef(0);
+  const pendingPatches = useRef(new Map<string, Partial<Occurrence>[]>());
+  const snapRef = useRef(snap);
+  snapRef.current = snap;
 
   const reload = useCallback(async () => {
-    const s = await repo.load();
-    settingsRef.current = s.workspace.settings;
+    const loaded = await repo.load();
+    const s = { ...loaded };
+    if (pendingSettings.current > 0) s.workspace = { ...loaded.workspace, settings: settingsRef.current };
+    else settingsRef.current = loaded.workspace.settings;
+    if (pendingPatches.current.size) {
+      s.occurrences = loaded.occurrences.map((o) => {
+        const ps = pendingPatches.current.get(o.id);
+        return ps ? Object.assign({ ...o }, ...ps) : o;
+      });
+    }
     setSnap(s);
     if (s.workspace.settings.locale) setLocale(s.workspace.settings.locale);
     setToday(todayIn(s.workspace.timezone));
@@ -121,31 +135,38 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
   }, [repo, reload, toast]);
 
   const patchOccurrence: Store['patchOccurrence'] = useCallback(async (id, patch, success) => {
-    let before: Occurrence | undefined;
-    setSnap((s) => ({
-      ...s,
-      occurrences: s.occurrences.map((o) => {
-        if (o.id !== id) return o;
-        before = o;
-        const next = { ...o, ...patch };
-        if (patch.status) {
-          next.completedAt = patch.status === 'done' ? (o.completedAt ?? new Date().toISOString()) : null;
-          next.waitingSince = patch.status === 'waiting' ? (o.status === 'waiting' ? o.waitingSince : new Date().toISOString()) : null;
-        }
-        return next;
-      }),
-    }));
+    const before = snapRef.current.occurrences.find((o) => o.id === id);
+    const apply = (o: Occurrence): Occurrence => {
+      const next = { ...o, ...patch };
+      if (patch.status) {
+        next.completedAt = patch.status === 'done' ? (patch.completedAt ?? o.completedAt ?? new Date().toISOString()) : null;
+        next.waitingSince = patch.status === 'waiting' ? (o.status === 'waiting' ? o.waitingSince : new Date().toISOString()) : null;
+      }
+      return next;
+    };
+    setSnap((s) => ({ ...s, occurrences: s.occurrences.map((o) => (o.id === id ? apply(o) : o)) }));
+    const pending = pendingPatches.current;
+    pending.set(id, [...(pending.get(id) ?? []), patch]);
+    const settle = () => {
+      const rest = (pending.get(id) ?? []).filter((p) => p !== patch);
+      if (rest.length) pending.set(id, rest); else pending.delete(id);
+    };
     try {
       await repo.updateOccurrence(id, patch);
-      if (success) toast.show(success, before ? { undo: () => { void patchOccurrenceRef.current(id, pick(before!, patch)); } } : {});
+      settle();
+      // Undo puts back exactly what this change replaced, including when it was completed.
+      const undoPatch = before ? { ...pick(before, patch), ...(patch.status && before.status === 'done' ? { completedAt: before.completedAt } : {}) } : null;
+      if (success) toast.show(success, undoPatch ? { undo: () => { void patchOccurrenceRef.current(id, undoPatch); } } : {});
       softRefresh();
       return true;
     } catch (e) {
-      if (before) setSnap((s) => ({ ...s, occurrences: s.occurrences.map((o) => (o.id === id ? before! : o)) }));
+      settle();
       toast.show(friendlyError(e), { tone: 'error' });
+      // Reload rather than restore a copy: other changes to the same task may have saved meanwhile.
+      await reload().catch(() => {});
       return false;
     }
-  }, [repo, toast, softRefresh]);
+  }, [repo, toast, softRefresh, reload]);
   const patchOccurrenceRef = useRef(patchOccurrence);
   patchOccurrenceRef.current = patchOccurrence;
 
@@ -166,8 +187,10 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
   const saveSettings: Store['saveSettings'] = useCallback((patch) => {
     const next = { ...settingsRef.current, ...patch };
     settingsRef.current = next;
+    pendingSettings.current++;
     setSnap((s) => ({ ...s, workspace: { ...s.workspace, settings: next } }));
-    const job = settingsQueue.current.then(() => repo.updateWorkspace({ settings: next })).then(() => true, async (e) => {
+    const job = settingsQueue.current.then(() => repo.updateWorkspace({ settings: next })).then(() => { pendingSettings.current--; return true; }, async (e) => {
+      pendingSettings.current--;
       toast.show(friendlyError(e), { tone: 'error' });
       await reload().catch(() => {});
       return false;

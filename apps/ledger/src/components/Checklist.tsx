@@ -108,9 +108,9 @@ export function ChecklistEditor({ items, onChange, template, label = 'Checklist'
                 </button>
               )}
               {editing === it.id ? (
-                <input autoFocus value={draft} maxLength={300} aria-label="Edit item" onChange={(e) => setDraft(e.target.value)}
+                <input autoFocus data-escape-local value={draft} maxLength={300} aria-label="Edit item" onChange={(e) => setDraft(e.target.value)}
                   onBlur={() => commitEdit(it.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEdit(it.id); } if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEdit(it.id); } if (e.key === 'Escape') { setEditing(null); } }}
                   className="h-7 min-w-0 flex-1 rounded border border-accent/50 bg-surface px-1.5 text-[13px] focus:outline-none" />
               ) : (
                 <button type="button" disabled={disabled} onClick={() => { setEditing(it.id); setDraft(it.text); }} title="Click to edit · Alt + ↑↓ to move"
@@ -136,7 +136,8 @@ export function ChecklistEditor({ items, onChange, template, label = 'Checklist'
               const t = e.clipboardData.getData('text');
               if (t.includes('\n')) { e.preventDefault(); add(text + t); }
             }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+            data-escape-local={text ? '' : undefined}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } if (e.key === 'Escape' && text) setText(''); }}
             onBlur={() => add()}
             placeholder={full ? `Up to ${MAX_ITEMS} items` : template ? 'Add a step every task starts with' : 'Add an item'}
             aria-label={template ? `Add a step to the ${label.toLowerCase()}` : `Add an item to the ${label.toLowerCase()}`}

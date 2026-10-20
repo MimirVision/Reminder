@@ -84,7 +84,9 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
 
   const cols = `56px repeat(${days.length}, minmax(0, 1fr))`;
   return (
-    <div className="overflow-clip rounded-xl border border-line bg-surface">
+    // Seven days need room: on a narrow screen the week scrolls sideways instead of squeezing every day to a sliver.
+    <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+    <div className={cn(days.length > 1 && 'min-w-[720px]')}>
       {/* Day headers */}
       <div className="grid border-b border-line" style={{ gridTemplateColumns: cols }}>
         <div />
@@ -147,7 +149,8 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
                 {list.map((m) => {
                   const pos = lanes.get(m.id) ?? { lane: 0, lanes: 1 };
                   const len = durationMinutes(m);
-                  const short = len < 45;
+                  // Under 75 minutes the time sits beside the title, leaving a line for the client.
+                  const short = len < 75;
                   const client = m.clientId ? clientById.get(m.clientId)?.name : null;
                   return (
                     <button key={m.id} draggable
@@ -172,7 +175,7 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
                         <span className="truncate font-semibold">{m.title}</span>
                         <span className="num shrink-0 text-[11px] text-accent-ink">{m.start}{!short && `–${m.end}`}</span>
                       </span>
-                      {!short && client && <span className="truncate text-[11px] text-ink-2">{client}</span>}
+                      {len >= 45 && client && <span className="truncate text-[11px] text-ink-2">{client}</span>}
                       {len >= 75 && m.location && <span className="flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-3"><MapPin className="size-3 shrink-0" />{m.location}</span>}
                     </button>
                   );
@@ -187,6 +190,7 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
           })}
         </div>
       </div>
+    </div>
     </div>
   );
 }
