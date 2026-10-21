@@ -786,3 +786,14 @@ body.dragging-mail .sb-it > * { pointer-events: none; }
 .set-link .ic { color: var(--mu); }
 .set-link:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
 .lbl[id^="set-"] { scroll-margin-top: 64px; }
+
+/* Phone inbox, a shorter top: the sync line sits under the title (it becomes its own line again once the list is scrolled). */
+.hd .hd-ttl { min-width: 0; }
+.hd .hd-ttl .sync { margin: 2px 0 0; padding: 0; height: 18px; }
+.pills[aria-label="Mail categories"] { padding-top: 4px; padding-bottom: 4px; }
+.hd .hd-ttl { flex: 1 1 0; }
+.hd .hd-ttl .sync { max-width: 100%; white-space: nowrap; }
+.hd .hd-ttl .sync b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hd .hd-ttl { display: flex; flex-direction: column; align-items: flex-start; }
+.hd .hd-ttl .sync { position: relative; }
+.hd .hd-ttl .sync::after { content: ''; position: absolute; inset: -13px -4px; } /* a 44 px tap area */

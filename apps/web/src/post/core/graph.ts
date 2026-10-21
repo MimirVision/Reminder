@@ -78,8 +78,8 @@ export interface AttachmentInfo { id: string; name: string; size: number; conten
 /** What goes out: a new message, an answer to one (`replyTo` is the message answered), or a forward of one. */
 export type Outgoing =
   | { kind: 'new'; subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[] }
-  | { kind: 'reply' | 'replyAll'; replyTo: string; body: string }
-  | { kind: 'forward'; replyTo: string; to: string[]; body: string }
+  | { kind: 'reply' | 'replyAll'; replyTo: string; body: string; /** people added on top of the ones Outlook put on the answer */ to?: string[]; cc?: string[]; bcc?: string[] }
+  | { kind: 'forward'; replyTo: string; to: string[]; body: string; cc?: string[]; bcc?: string[] }
   /** A draft that is already at Outlook (made in another app, or left behind): what was changed (`edited`; everything when it is not said) is replaced by this, then it is sent. */
   | { kind: 'draft'; draftId: string; subject: string; body: string; to: string[]; cc?: string[]; edited?: DraftField[] };
 
@@ -274,7 +274,7 @@ export function createGraph(deps: GraphDeps) {
   async function makeDraft(msg: Exclude<Outgoing, { kind: 'draft' }>): Promise<string> {
     let j: any;
     if (msg.kind === 'new') j = await request('POST', '/me/messages', { subject: msg.subject, body: { contentType: 'Text', content: msg.body }, toRecipients: rcpt(msg.to), ccRecipients: rcpt(msg.cc), bccRecipients: rcpt(msg.bcc) });
-    else if (msg.kind === 'forward') j = await request('POST', `/me/messages/${enc(msg.replyTo)}/createForward`, { comment: msg.body, toRecipients: rcpt(msg.to) });
+    else if (msg.kind === 'forward') j = await request('POST', `/me/messages/${enc(msg.replyTo)}/createForward`, { comment: msg.body, toRecipients: rcpt(msg.to) }); // (cc and bcc are added in deliver)
     else j = await request('POST', `/me/messages/${enc(msg.replyTo)}/${msg.kind === 'replyAll' ? 'createReplyAll' : 'createReply'}`, { comment: msg.body });
     const id = String(j?.id ?? '');
     if (!id) throw new GraphError(0, 'draft', 'Outlook did not create the draft');
@@ -303,6 +303,23 @@ export function createGraph(deps: GraphDeps) {
     if (parts.has('body')) patch.body = { contentType: 'Text', content: f.body };
     if (parts.has('to')) patch.toRecipients = rcpt(f.to);
     if (parts.has('cc')) patch.ccRecipients = rcpt(f.cc);
+    if (Object.keys(patch).length) await request('PATCH', `/me/messages/${enc(id)}`, patch);
+  }
+
+  /**
+   * Adds people to a draft Outlook made (an answer or a forward): the ones typed in the editor come on top of the ones Outlook put there, and
+   * nobody is taken off. Safe to repeat.
+   */
+  async function addRecipients(id: string, f: { to?: string[]; cc?: string[]; bcc?: string[] }): Promise<void> {
+    if (!(f.to?.length || f.cc?.length || f.bcc?.length)) return;
+    const j = await request('GET', `/me/messages/${enc(id)}?$select=toRecipients,ccRecipients,bccRecipients`);
+    const patch: Record<string, unknown> = {};
+    for (const [field, more] of [['toRecipients', f.to], ['ccRecipients', f.cc], ['bccRecipients', f.bcc]] as const) {
+      const have: any[] = Array.isArray(j?.[field]) ? j[field] : [];
+      const seen = new Set(have.map((r) => String(r?.emailAddress?.address ?? '').toLowerCase()));
+      const add = (more ?? []).filter((a) => !seen.has(a.toLowerCase()));
+      if (add.length) patch[field] = [...have, ...rcpt(add)];
+    }
     if (Object.keys(patch).length) await request('PATCH', `/me/messages/${enc(id)}`, patch);
   }
 
@@ -455,6 +472,7 @@ export function createGraph(deps: GraphDeps) {
       if (!id) { id = await makeDraft(msg); await saved?.({ id, phase: 'made' }); }
       else if (resume!.phase === 'made' && files.length) have = await listed(id);
       if (!(resume && resume.id === id && resume.phase === 'sending')) {
+        if (msg.kind !== 'new') await addRecipients(id, msg.kind === 'forward' ? { cc: msg.cc, bcc: msg.bcc } : msg); // (a forward has its To from the start)
         for (const f of files) if (!without(have, f)) await attachSafely(id, f);
         await saved?.({ id, phase: 'sending' });
       }
@@ -465,6 +483,7 @@ export function createGraph(deps: GraphDeps) {
     draftState,
 
     updateDraft,
+    addRecipients,
     addToDraft,
 
     /** A draft as the editor needs it. Outlook turns whatever formatting it has into plain text. */

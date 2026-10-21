@@ -238,6 +238,20 @@ test('a reply, a reply all and a forward are made with their own calls, so the c
   assert.deepEqual(JSON.parse(String(fwd.calls[0].init.body)), { comment: 'se her', toRecipients: [{ emailAddress: { address: 'z@y.no' } }] });
 });
 
+test('people typed on a reply (Cc, Bcc, more To) come on top of the ones Outlook put on it, and nobody is taken off', async () => {
+  const have = { toRecipients: [{ emailAddress: { address: 'orig@x.no' } }], ccRecipients: [{ emailAddress: { address: 'old@x.no' } }], bccRecipients: [] };
+  const { g, calls } = setup([res(201, { id: 'R1' }), res(200, have), res(200, {}), res(202)]);
+  await g.deliver({ kind: 'replyAll', replyTo: 'o', body: 'x', to: ['ORIG@x.no'], cc: ['new@x.no', 'old@x.no'], bcc: ['hid@x.no'] });
+  assert.deepEqual(steps(calls).map((x) => x.replace(/\?.*/, '')), ['POST /me/messages/o/createReplyAll', 'GET /me/messages/R1', 'PATCH /me/messages/R1', 'POST /me/messages/R1/send']);
+  const patch = JSON.parse(String(calls[2].init.body));
+  assert.deepEqual(Object.keys(patch).sort(), ['bccRecipients', 'ccRecipients']);
+  assert.deepEqual(patch.ccRecipients.map((r: any) => r.emailAddress.address), ['old@x.no', 'new@x.no']);
+  assert.deepEqual(patch.bccRecipients.map((r: any) => r.emailAddress.address), ['hid@x.no']);
+  const plain = setup([res(201, { id: 'R2' }), res(202)]);
+  await plain.g.deliver({ kind: 'reply', replyTo: 'o', body: 'x', to: [], cc: [], bcc: [] });
+  assert.equal(plain.calls.length, 2, 'nothing typed, nothing extra asked of Outlook');
+});
+
 test('files go onto the draft one by one, whatever their size, before it is sent', async () => {
   const { g, calls } = setup([res(201, { id: 'D/1' }), res(201, {}), res(201, {}), res(202)]);
   await g.deliver(note({ cc: ['c@d.no'] }), [file('a.pdf', 1_500_000), { name: 'b.bin', type: '', bytes: new Uint8Array([1, 2, 3]) }]);

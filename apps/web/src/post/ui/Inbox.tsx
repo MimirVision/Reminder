@@ -250,20 +250,21 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const ico: Record<string, string> = { archive: 'archive', read: 'eye', flag: 'flag', delete: 'trash' };
 
   const unreadBtn = <button className={`un${s.unreadOnly ? ' on' : ''}`} aria-pressed={s.unreadOnly} onClick={() => c.setUnreadOnly(!s.unreadOnly)}>Unread{viewUnread > 0 && <span className="n">{viewUnread > 99 ? '99+' : viewUnread}</span>}</button>;
+  const syncBtn = (short = false) => <button className="sync" onClick={() => void c.sync()} aria-label="Update now">{short ? when || 'Update now' : <><b>{scope}</b> · {when}</>}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>;
   return (
     <div className="pg">
       <header className={`hd${scrolled ? ' min' : ''}`}>
-        <h1 className="h1">{pane ? (s.view === 'all' ? 'All mail' : KIND_TAB[s.view]) : 'Inbox'}</h1>
+        {pane || scrolled ? <h1 className="h1">{pane ? (s.view === 'all' ? 'All mail' : KIND_TAB[s.view]) : 'Inbox'}</h1> : <div className="hd-ttl"><h1 className="h1">Inbox</h1>{syncBtn(s.accounts.length < 2 && !s.accountFilter)}</div>}
         <div className="r">
           {triage > 0 && !selecting && <button className="btn tri" aria-label={`Triage mode, ${triage} to go through`} onClick={() => go({ name: 'triage' })}><Icon n="cards" size={20} />Triage</button>}
           <button className="btn" aria-label={selecting ? 'Done selecting' : 'Select messages'} onClick={() => (selecting ? exit() : setSelecting(true))}><Icon n={selecting ? 'x' : 'select'} /></button>
           {!pane && <button className="btn me" aria-label="Accounts and settings" onClick={() => go({ name: 'accounts' })}>{(s.accounts[0]?.label ?? 'P')[0].toUpperCase()}</button>}
         </div>
       </header>
-      <div className="sync-row">
-        <button className="sync" onClick={() => void c.sync()} aria-label="Update now"><b>{scope}</b> · {when}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>
+      {(pane || scrolled) && <div className="sync-row">
+        {syncBtn()}
         {scrolled && unreadBtn}
-      </div>
+      </div>}
       <div className={`fold${scrolled ? ' min' : ''}`}><div><button className="find" tabIndex={scrolled ? -1 : 0} onClick={() => go({ name: 'search', q: '' })}><Icon n="search" />Search mail</button>{!scrolled && unreadBtn}</div></div>
       {!pane && <div className={`fold tabsfold${tabsHidden ? ' min' : ''}`} aria-hidden={tabsHidden || undefined}><div><CategoryTabs s={s} counts={counts} /></div></div>}
       <StatusBanners s={s} />

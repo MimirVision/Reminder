@@ -26,6 +26,26 @@ function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: bo
   return <iframe ref={ref} className="frame" title="Message" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={doc} onLoad={fit} />;
 }
 
+/** Prints the message that is open (the newest one when a conversation has several), with who it is from and when above the text. */
+function printOpenMessage(m: Mail | undefined) {
+  const frames = [...document.querySelectorAll<HTMLIFrameElement>('iframe.frame')];
+  const win = frames[frames.length - 1]?.contentWindow;
+  const d = win?.document;
+  if (!win || !d?.body) return;
+  const head = d.createElement('div');
+  const line = (t: string, css: string) => { const e = d.createElement('div'); e.textContent = t; e.setAttribute('style', css); head.appendChild(e); };
+  if (m) {
+    line(m.subject || '(no subject)', 'font:600 20px/1.3 -apple-system,system-ui,sans-serif;color:#000');
+    line(`${m.fromName ? `${m.fromName} ` : ''}<${m.fromAddress}>`, 'font:14px/1.5 -apple-system,system-ui,sans-serif;color:#333;margin-top:4px');
+    line(new Date(m.received).toLocaleString(), 'font:13px/1.5 -apple-system,system-ui,sans-serif;color:#555');
+  }
+  head.setAttribute('style', 'padding:14px 16px 10px;border-bottom:1px solid #ccc;margin-bottom:6px');
+  d.body.insertBefore(head, d.body.firstChild);
+  win.addEventListener('afterprint', () => head.remove(), { once: true });
+  win.focus();
+  win.print();
+}
+
 const toDataUri = (bytes: Uint8Array, type: string) => `data:${type};base64,${toBase64(bytes)}`;
 
 /** Pictures inside a message, remembered while Post is open so going back and forth between messages does not fetch them again. */
@@ -90,6 +110,12 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
 
   // Which folder a message is in decides which buttons it gets, so the folders are listed (from the phone's copy at once, and from Outlook when they are old).
   useEffect(() => { if (far && m) void c.loadFolders(); }, [far, !!m]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ctrl/Cmd+P prints the message, not the whole app around it.
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p' && !document.querySelector('.sheet, .viewer') && document.querySelector('iframe.frame')) { e.preventDefault(); printOpenMessage(m); } };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, [m]);
 
   // The rest of the conversation comes from Outlook: your replies, and anything archived or older than this phone keeps. Asked in the
   // background; the message is already on the screen.
@@ -242,6 +268,7 @@ export function Reader({ s, account, id, pane = false }: { s: State; account: st
           <div className="card">
             <button className="it" onClick={() => reply('replyAll')}><span className="ico"><Icon n="replyAll" /></span>Reply all</button>
             <button className="it" onClick={() => reply('forward')}><span className="ico"><Icon n="forward" /></span>Forward</button>
+            <button className="it" onClick={() => { setSheet(null); setTimeout(() => printOpenMessage(m), 0); }}><span className="ico"><Icon n="print" /></span>Print</button>
             <button className="it" onClick={() => setSheet('remind')}><span className="ico"><Icon n="home" /></span>Remind me<span className="v">in Home Memory</span></button>
           </div>
           <div className="card">
