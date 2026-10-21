@@ -56,6 +56,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const [bcc, setBcc] = useState<string[]>([]);
   const base = useRef<{ to: string; cc: string; subject: string; text: string; modified: string } | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [leavingNew, setLeavingNew] = useState(false);   // Cancel on a message with something written: keep it as a draft, or throw it away
   const [saveError, setSaveError] = useState<string | null>(null);
   // What was kept here for this draft is older than the draft at Outlook (it was changed over there since): which to go on with is asked, never guessed.
   const [conflict, setConflict] = useState(false);
@@ -198,7 +199,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const discardAndLeave = () => { sent.current = true; keep(null); back(); };
   const cancel = () => {
     if (mode === 'draft') { if (loaded.state === 'ready' && changed()) setLeaving(true); else { sent.current = true; back(); } return; }
-    if ((text.trim() || files.length) && !confirm('Keep this as a draft?')) c.saveDraft(null);
+    if (text.trim() || files.length) { setLeavingNew(true); return; }
     back();
   };
   const total = totalBytes(files);
@@ -284,6 +285,15 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
           {files.length > 0 && <p className="note">The {files.length === 1 ? 'file' : `${files.length} files`} you added here {files.length === 1 ? 'is' : 'are'} attached to the draft as well. A big file can take a while: keep Post open until this closes.</p>}
           {busy && <p className="note" role="status">Saving to the draft…</p>}
           {saveError && <p className="note warn" role="alert">Could not save: {saveError} Your changes are still here.</p>}
+        </Sheet>
+      )}
+      {leavingNew && (
+        <Sheet title="Keep this message?" onClose={() => setLeavingNew(false)}>
+          <div className="card">
+            <button className="it" onClick={() => back()}><span className="ico"><Icon n="check" /></span><span className="rw">Save as a draft<small>It is here the next time you write a message</small></span></button>
+            <button className="it danger" onClick={() => { sent.current = true; c.saveDraft(null); void c.saveDraftFiles([]); back(); }}><span className="ico"><Icon n="trash" /></span><span className="rw">Discard<small>The text and files are thrown away</small></span></button>
+            <button className="it" onClick={() => setLeavingNew(false)}><span className="ico"><Icon n="edit" /></span>Keep writing</button>
+          </div>
         </Sheet>
       )}
       {conflict && (
