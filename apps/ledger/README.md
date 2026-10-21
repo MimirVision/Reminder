@@ -25,6 +25,11 @@ time (overlaps side by side, a line for now), tasks stay in a row at the top sin
 Click an empty time to book a meeting there; drag a meeting to move it. Month view lists each day's meetings first.
 Home has an Agenda widget, and a client's page a Meetings tab. Needs `0004_ledger_meetings.sql` (run `ledger.sql`).
 
+**Notifications on your phone and PC.** Tasks remind you on their due date at 08:00 and meetings 15 minutes before
+they start; add earlier ones (a few days, a week, …) in Settings → Notifications, or per task, schedule and meeting under
+*Notify me*. Turn them on once on each device. They work while Ledger is open straight away; with Ledger closed too after
+a one-time setup in Supabase (an edge function and a 5-minute schedule): see [NOTIFICATIONS.md](NOTIFICATIONS.md).
+
 **Copy a schedule to other clients.** In a schedule, *Copy to clients…* (or the copy button on its row in Recurring
 Work) makes the same schedule for every client you tick, or a whole group such as VAT clients. Each copy is separate
 and starts from the current period; clients that already have one like it are marked and left out of groups.
@@ -179,6 +184,7 @@ npm run test:e2e      # Playwright, against demo mode: dashboard, task create/co
                       # rescheduling, schedule preview + no duplicates, missing-task review, calendar, keyboard
 npm run build         # type check and production build
 npm run build:sql     # regenerate supabase/ledger.sql from the migrations
+npm run build:function # regenerate supabase/dashboard/ledger-notify.ts (the notification server)
 ```
 
 Date handling is tested across month ends, leap years (2024, 2028, 2100, 2000), ISO week-years and the 2026
@@ -216,5 +222,5 @@ Like Post at `/post/`, Ledger is served from the same Cloudflare Worker as Home 
 
 ## Not in this version
 
-Notifications (in-app review is the safety net by design), multi-user workspaces, time tracking, billing and AI
-features. The workspace model leaves room for the first two.
+Multi-user workspaces, time tracking, billing and AI
+features. The workspace model leaves room for more than one user.

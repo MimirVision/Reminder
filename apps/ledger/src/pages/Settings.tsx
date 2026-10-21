@@ -17,6 +17,7 @@ import { ChecklistEditor, fromLines } from '../components/Checklist';
 import { Button } from '../ui/button';
 import { Field, Input, Segmented, Select } from '../ui/field';
 import { Confirm } from '../ui/overlay';
+import { NotificationSettings } from '../components/Notifications';
 
 function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
   return (
@@ -144,7 +145,10 @@ export function Settings({ email }: { email?: string | null }) {
             </div>
           )}
         </Field>
-        <p className="text-[12px] text-ink-3">Reminders are shown inside Ledger (Home, overdue and due-today lists). Browser notifications are not used, so nothing depends on them.</p>
+      </Section>
+
+      <Section title="Notifications" description="Reminders on your phone and PC. Turn them on once on each device; what you are reminded of, and when, is shared by all of them.">
+        <NotificationSettings />
       </Section>
 
       <Section title="Checklist templates" description="Steps every new task of a type starts with. New schedules of that type start with them too, and each schedule can change its own.">
@@ -196,7 +200,7 @@ export function Settings({ email }: { email?: string | null }) {
       </Section>
 
       <Section title="Application and data status">
-        {repo.mode === 'supabase' && !repo.meetings && <DatabaseUpdate />}
+        {repo.mode === 'supabase' && !repo.notify && <DatabaseUpdate />}
         <dl className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 text-[13px]">
           <dt className="text-ink-3">Storage</dt>
           <dd className="flex items-center gap-1.5">
@@ -253,7 +257,8 @@ export function DatabaseUpdate() {
     <div className="rounded-lg border border-warn/30 bg-warn-soft p-4 text-[12.5px] text-warn">
       <p className="font-semibold">Database update available</p>
       <p className="mt-1 text-ink-2">
-        Run <code className="num rounded bg-surface px-1">apps/ledger/supabase/ledger.sql</code> again in Supabase → SQL Editor to turn on {repo.current ? 'meetings in the calendar' : <>meetings, checklists,
+        Run <code className="num rounded bg-surface px-1">apps/ledger/supabase/ledger.sql</code> again in Supabase → SQL Editor to turn on {repo.meetings ? 'notifications on your phone and PC with Ledger closed, and choosing them per task and meeting'
+          : repo.current ? 'meetings in the calendar and phone/PC notifications' : <>meetings, notifications, checklists,
         “waiting since”, client contacts and documents, and holiday-aware due dates</>}. It only adds to Ledger’s own tables; Home Memory and Post
         are not touched, and nothing you have is changed.
       </p>

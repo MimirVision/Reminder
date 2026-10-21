@@ -10,7 +10,7 @@ import { meetingErrors } from '../lib/meetings';
 import { isOpen } from '../lib/types';
 import { buildSeed } from './seed';
 import type { Backup, MeetingPatch, NewMeeting, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
-import { checklistError, RepoError, upgradeRows } from './repo';
+import { checklistError, notifyError, RepoError, upgradeRows } from './repo';
 import { calendarOf } from '../lib/holidays';
 
 const KEY = 'ledger-demo-v1';
@@ -21,6 +21,8 @@ export class DemoRepo implements Repo {
   readonly mode = 'demo' as const;
   readonly current = true;
   readonly meetings = true;
+  readonly notify = true;
+  readonly push = null;
   private s: Snapshot;
   private storage: Storage | null;
 
@@ -111,7 +113,7 @@ export class DemoRepo implements Repo {
     const errs = validateRecurrence(s);
     if (errs.length) throw new RepoError(errs[0]);
     if (!this.s.clients.some((c) => c.id === s.clientId)) throw new RepoError('Choose a client.');
-    const cl = checklistError(s.checklist);
+    const cl = checklistError(s.checklist) ?? notifyError(s.notifyDays, 60);
     if (cl) throw new RepoError(cl);
   }
 
@@ -204,8 +206,8 @@ export class DemoRepo implements Repo {
   }
 
   // Occurrences --------------------------------------------------------------------------------------------------
-  private checkOccurrence(o: Pick<Occurrence, 'title' | 'clientId' | 'scheduleId' | 'tags'> & { checklist?: Occurrence['checklist'] }) {
-    const cl = checklistError(o.checklist ?? []);
+  private checkOccurrence(o: Pick<Occurrence, 'title' | 'clientId' | 'scheduleId' | 'tags' | 'notifyDays'> & { checklist?: Occurrence['checklist'] }) {
+    const cl = checklistError(o.checklist ?? []) ?? notifyError(o.notifyDays, 60);
     if (cl) throw new RepoError(cl);
     if (!o.title.trim() || o.title.length > 200) throw new RepoError('A task needs a title (up to 200 characters).');
     if (!this.s.clients.some((c) => c.id === o.clientId)) throw new RepoError('Choose a client.');
@@ -274,6 +276,8 @@ export class DemoRepo implements Repo {
     if (e.title || e.time) throw new RepoError((e.title ?? e.time)!);
     if (m.clientId && !this.s.clients.some((c) => c.id === m.clientId)) throw new RepoError('That client no longer exists.');
     if (m.location.length > 500 || m.notes.length > 10000) throw new RepoError('The location or notes are too long.');
+    const n = notifyError(m.notifyMinutes, 10080);
+    if (n) throw new RepoError(n);
   }
 
   async createMeeting(input: NewMeeting): Promise<Meeting> {

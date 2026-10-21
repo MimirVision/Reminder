@@ -1,5 +1,6 @@
 import type { ISODate } from './dates';
 import type { HolidayCalendar } from './holidays';
+import type { NotifySettings } from './reminders';
 
 export type ClientStatus = 'active' | 'archived';
 export type TaskStatus = 'todo' | 'in_progress' | 'waiting' | 'done' | 'cancelled';
@@ -72,6 +73,8 @@ export interface WorkspaceSettings {
   checklistTemplates?: Partial<Record<TaskType, string[]>>;
   /** Your own views in My Tasks: a name and the list's filter as a query string. */
   savedViews?: { id: string; name: string; query: string }[];
+  /** When notifications arrive. Read through notifySettings. */
+  notifications?: Partial<NotifySettings>;
 }
 
 export interface ChecklistItem { id: string; text: string; done: boolean }
@@ -126,6 +129,8 @@ export interface Schedule {
   defaultPriority: Priority;
   /** Items every task the schedule creates starts with, unticked. */
   checklist: ChecklistItem[];
+  /** Notifications for its tasks: days before the due date. Null = the default in Settings. */
+  notifyDays?: number[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -160,6 +165,8 @@ export interface Occurrence {
   checklist: ChecklistItem[];
   /** When the task last became "waiting for client"; null unless it is waiting. */
   waitingSince: string | null;
+  /** Notifications: days before the due date. Null = its schedule's, else the default in Settings. */
+  notifyDays?: number[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -223,6 +230,8 @@ export interface Meeting {
   end: string;
   location: string;
   notes: string;
+  /** Notifications: minutes before it starts. Null = the default in Settings. */
+  notifyMinutes?: number[] | null;
   createdAt: string;
   updatedAt: string;
 }
