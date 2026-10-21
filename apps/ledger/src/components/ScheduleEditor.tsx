@@ -15,6 +15,8 @@ import { Checkbox, Field, Input, Select, Textarea } from '../ui/field';
 import { Confirm, Dialog } from '../ui/overlay';
 import { ActivityList } from './ActivityList';
 import { useUI } from './ui-state';
+import { ReminderPicker } from './Notifications';
+import { notifySettings } from '../lib/reminders';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -27,6 +29,7 @@ interface Draft {
   ruleKind: RuleKind; months: number; day: number | 'last'; days: number; weekday: number; adjust: Adjust;
   leadDays: number; reminderDays: number | null; defaultPriority: Priority; autoGenerate: boolean; backfill: boolean;
   checklist: ChecklistItem[];
+  notifyDays: number[] | null;
 }
 
 function draftFrom(s: Schedule | undefined, today: ISODate, clientId = '', leadDays = 21, templates: WorkspaceSettings['checklistTemplates'] = {}): Draft {
@@ -41,6 +44,7 @@ function draftFrom(s: Schedule | undefined, today: ISODate, clientId = '', leadD
     adjust: r?.adjust ?? 'next_business_day', leadDays: s?.leadDays ?? leadDays, reminderDays: s?.reminderDays ?? 3,
     defaultPriority: s?.defaultPriority ?? 'normal', autoGenerate: s?.autoGenerate ?? true, backfill: false,
     checklist: s ? s.checklist.map((i) => ({ ...i, done: false })) : fromLines(templates?.bookkeeping),
+    notifyDays: s?.notifyDays ?? null,
   };
 }
 
@@ -59,7 +63,7 @@ function scheduleOf(d: Draft, today: ISODate): Omit<Schedule, 'id' | 'workspaceI
     clientId: d.clientId, title: d.title.trim(), description: d.description, taskType: d.taskType, frequency: d.frequency, unit, interval,
     anchorMonth: unit === 'week' ? 1 : d.anchorMonth, dueRule: ruleOf(d), startDate: d.startDate, endDate: d.endDate,
     generateFrom: d.backfill ? d.startDate : today, leadDays: d.leadDays, reminderDays: d.reminderDays, autoGenerate: d.autoGenerate,
-    defaultPriority: d.defaultPriority, checklist: d.checklist,
+    defaultPriority: d.defaultPriority, checklist: d.checklist, notifyDays: d.notifyDays,
   };
 }
 
@@ -300,8 +304,9 @@ function Editor() {
               <Field label="Create the task" hint="days before it is due">
                 {(p) => <Input {...p} type="number" min={0} max={366} value={d.leadDays} onChange={(e) => set('leadDays', num(e.target.value, 0, 366))} />}
               </Field>
-              <Field label="Flag as due soon" hint="days before (optional)">
-                {(p) => <Input {...p} type="number" min={0} max={366} value={d.reminderDays ?? ''} onChange={(e) => set('reminderDays', e.target.value === '' ? null : num(e.target.value, 0, 366))} />}
+              <Field label="Notify me" hint={repo.notify ? 'for each of its tasks' : 'Needs the database update (Settings).'}>
+                {(p) => <ReminderPicker id={p.id} kind="days" value={d.notifyDays} disabled={!repo.notify} inherited={notifySettings(snap.workspace.settings.notifications).taskDays}
+                  inheritedFrom="Settings" onChange={(v) => set('notifyDays', v)} />}
               </Field>
               <Field label="Priority">
                 {(p) => <Select {...p} value={d.defaultPriority} onChange={(e) => set('defaultPriority', e.target.value as Priority)}>{PRIORITIES.map((x) => <option key={x} value={x}>{PRIORITY_LABEL[x]}</option>)}</Select>}

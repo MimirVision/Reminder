@@ -4,7 +4,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ISODate } from '../lib/dates';
 import type { Activity, Client, GenerationRun, Meeting, Occurrence, Pause, Review, Schedule, Snapshot, Workspace } from '../lib/types';
-import type { Backup, MeetingPatch, NewMeeting, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
+import type { Backup, PushApi, PushDevice, PushStatus, MeetingPatch, NewMeeting, ClientPatch, NewClient, NewOccurrence, NewReview, NewSchedule, OccurrencePatch, Repo, SchedulePatch } from './repo';
 import { friendlyError, RepoError, withUuids } from './repo';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -19,22 +19,22 @@ const toSchedule = (r: Row): Schedule => ({
   id: r.id, workspaceId: r.workspace_id, clientId: r.client_id, title: r.title, description: r.description, taskType: r.task_type,
   frequency: r.frequency, unit: r.unit, interval: r.interval_count, anchorMonth: r.anchor_month, dueRule: r.due_rule,
   startDate: r.start_date, endDate: r.end_date, generateFrom: r.generate_from, leadDays: r.lead_days, reminderDays: r.reminder_days,
-  autoGenerate: r.auto_generate, status: r.status, defaultPriority: r.default_priority, checklist: r.checklist ?? [], createdAt: r.created_at, updatedAt: r.updated_at,
+  autoGenerate: r.auto_generate, status: r.status, defaultPriority: r.default_priority, checklist: r.checklist ?? [], notifyDays: r.notify_days ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const toPause = (r: Row): Pause => ({ id: r.id, workspaceId: r.workspace_id, scheduleId: r.schedule_id, pausedFrom: r.paused_from, resumedOn: r.resumed_on, createdAt: r.created_at });
 const toOccurrence = (r: Row): Occurrence => ({
   id: r.id, workspaceId: r.workspace_id, clientId: r.client_id, scheduleId: r.schedule_id, title: r.title, description: r.description,
   taskType: r.task_type, periodKey: r.period_key, periodStart: r.period_start, periodEnd: r.period_end, dueDate: r.due_date,
   scheduledDueDate: r.scheduled_due_date, status: r.status, priority: r.priority, tags: r.tags ?? [], completedAt: r.completed_at,
-  checklist: r.checklist ?? [], waitingSince: r.waiting_since ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
+  checklist: r.checklist ?? [], waitingSince: r.waiting_since ?? null, notifyDays: r.notify_days ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const hhmm = (t: string) => String(t ?? '').slice(0, 5);
 const toMeeting = (r: Row): Meeting => ({
   id: r.id, workspaceId: r.workspace_id, clientId: r.client_id, title: r.title, date: r.meeting_date, start: hhmm(r.start_time), end: hhmm(r.end_time),
-  location: r.location ?? '', notes: r.notes ?? '', createdAt: r.created_at, updatedAt: r.updated_at,
+  location: r.location ?? '', notes: r.notes ?? '', notifyMinutes: r.notify_minutes ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const meetingRow = (m: Partial<NewMeeting>): Row => strip({
-  client_id: m.clientId, title: m.title, meeting_date: m.date, start_time: m.start, end_time: m.end, location: m.location, notes: m.notes,
+  client_id: m.clientId, title: m.title, meeting_date: m.date, start_time: m.start, end_time: m.end, location: m.location, notes: m.notes, notify_minutes: m.notifyMinutes,
 });
 const toReview = (r: Row): Review => ({ id: r.id, workspaceId: r.workspace_id, scheduleId: r.schedule_id, periodKey: r.period_key, status: r.status, note: r.note, createdAt: r.created_at, updatedAt: r.updated_at });
 const toActivity = (r: Row): Activity => ({ id: String(r.id), workspaceId: r.workspace_id, entity: r.entity, entityId: r.entity_id, clientId: r.client_id, action: r.action, details: r.details ?? {}, actorId: r.actor_id, createdAt: r.created_at });
@@ -44,13 +44,13 @@ const scheduleRow = (s: Partial<Schedule>): Row => strip({
   client_id: s.clientId, title: s.title, description: s.description, task_type: s.taskType, frequency: s.frequency, unit: s.unit,
   interval_count: s.interval, anchor_month: s.anchorMonth, due_rule: s.dueRule, start_date: s.startDate, end_date: s.endDate,
   generate_from: s.generateFrom, lead_days: s.leadDays, reminder_days: s.reminderDays, auto_generate: s.autoGenerate,
-  status: s.status, default_priority: s.defaultPriority, checklist: s.checklist,
+  status: s.status, default_priority: s.defaultPriority, checklist: s.checklist, notify_days: s.notifyDays,
 });
 const occurrenceRow = (o: Partial<Occurrence>): Row => strip({
   client_id: o.clientId, schedule_id: o.scheduleId, title: o.title, description: o.description, task_type: o.taskType,
   period_key: o.periodKey, period_start: o.periodStart, period_end: o.periodEnd, due_date: o.dueDate,
   scheduled_due_date: o.scheduledDueDate, status: o.status, priority: o.priority, tags: o.tags, completed_at: o.completedAt,
-  checklist: o.checklist, waiting_since: o.waitingSince,
+  checklist: o.checklist, waiting_since: o.waitingSince, notify_days: o.notifyDays,
 });
 const clientRow = (c: Partial<Client>): Row => strip({
   name: c.name, reference: c.reference === '' ? null : c.reference, status: c.status, notes: c.notes,
@@ -59,6 +59,8 @@ const clientRow = (c: Partial<Client>): Row => strip({
 
 /** Columns added by 0003_ledger_v3.sql, left out of writes until that file has been run. */
 const V3_COLUMNS = ['checklist', 'waiting_since', 'contact_name', 'contact_email', 'contact_phone', 'documents'];
+/** Columns added by 0005_ledger_notifications.sql. */
+const V5_COLUMNS = ['notify_days', 'notify_minutes'];
 
 function strip(r: Row): Row {
   return Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined));
@@ -73,12 +75,17 @@ export class SupabaseRepo implements Repo {
   readonly mode = 'supabase' as const;
   current = false;
   meetings = false;
+  notify = false;
+  readonly push: PushApi;
   private ws: Workspace | null = null;
-  constructor(private sb: SupabaseClient) {}
+  constructor(private sb: SupabaseClient) {
+    this.push = pushApi(sb, () => this.workspaceId());
+  }
 
   /** A row to write, without the newer columns while the database doesn't have them yet. */
   private w(r: Row): Row {
-    return this.current ? r : Object.fromEntries(Object.entries(r).filter(([k]) => !V3_COLUMNS.includes(k)));
+    const drop = [...(this.current ? [] : V3_COLUMNS), ...(this.notify ? [] : V5_COLUMNS)];
+    return Object.fromEntries(Object.entries(r).filter(([k]) => !drop.includes(k)));
   }
 
   private async workspaceId(): Promise<string> {
@@ -103,6 +110,7 @@ export class SupabaseRepo implements Repo {
     const v = await this.sb.rpc('ledger_schema_version');
     this.current = !v.error && Number(v.data) >= 3;
     this.meetings = !v.error && Number(v.data) >= 4;
+    this.notify = !v.error && Number(v.data) >= 5;
     const [clients, schedules, pauses, occurrences, reviews, meetings, activity, runs] = await Promise.all([
       this.all('ledger_clients'), this.all('ledger_schedules'), this.all('ledger_schedule_pauses'), this.all('ledger_occurrences', 'due_date'),
       this.all('ledger_reviews'),
@@ -169,10 +177,10 @@ export class SupabaseRepo implements Repo {
 
   async createMeeting(m: NewMeeting): Promise<Meeting> {
     if (!this.meetings) throw new RepoError('Meetings need the database update: run ledger.sql again (see Settings).');
-    return toMeeting(check(await this.sb.from('ledger_meetings').insert({ ...meetingRow(m), workspace_id: await this.workspaceId() }).select().single()) as Row);
+    return toMeeting(check(await this.sb.from('ledger_meetings').insert(this.w({ ...meetingRow(m), workspace_id: await this.workspaceId() })).select().single()) as Row);
   }
   async updateMeeting(id: string, patch: MeetingPatch) {
-    const res = check(await this.sb.from('ledger_meetings').update(meetingRow(patch)).eq('id', id).select('id'));
+    const res = check(await this.sb.from('ledger_meetings').update(this.w(meetingRow(patch))).eq('id', id).select('id'));
     if (!(res as Row[]).length) throw new RepoError('That meeting no longer exists. Reload to see the latest.');
   }
   async deleteMeeting(id: string) {
@@ -218,4 +226,41 @@ export class SupabaseRepo implements Repo {
   async erase() {
     check(await this.sb.rpc('ledger_erase_workspace', { p_confirm: await this.workspaceId() }));
   }
+}
+
+/** Phone and PC notifications: devices are rows under row level security; status and test go through the ledger-notify function. */
+function pushApi(sb: SupabaseClient, workspaceId: () => Promise<string>): PushApi {
+  const call = async (body: Record<string, unknown>) => {
+    const { data, error } = await sb.functions.invoke('ledger-notify', { body });
+    if (error) {
+      const status = (error as { context?: Response }).context?.status;
+      throw Object.assign(new Error(status === 503 ? 'not_configured' : status && status < 500 ? 'not_deployed' : 'offline'), { status });
+    }
+    return data as Record<string, unknown>;
+  };
+  return {
+    async status(): Promise<PushStatus> {
+      try {
+        const d = await call({ op: 'status' });
+        return typeof d?.publicKey === 'string' ? { ok: true, publicKey: d.publicKey, lastRun: (d.lastRun as string | null) ?? null } : { ok: false, reason: 'not_deployed' };
+      } catch (e) {
+        const reason = (e as Error).message;
+        return { ok: false, reason: reason === 'not_configured' || reason === 'not_deployed' ? reason : 'offline' };
+      }
+    },
+    async devices(): Promise<PushDevice[]> {
+      const rows = check(await sb.from('ledger_push_devices').select('id, endpoint, label, created_at').order('created_at')) as Row[];
+      return rows.map((r) => ({ id: r.id, endpoint: r.endpoint, label: r.label, createdAt: r.created_at }));
+    },
+    async saveDevice(d) {
+      check(await sb.from('ledger_push_devices').upsert({ workspace_id: await workspaceId(), ...d }, { onConflict: 'workspace_id,endpoint' }));
+    },
+    async removeDevice(endpoint: string) {
+      check(await sb.from('ledger_push_devices').delete().eq('endpoint', endpoint));
+    },
+    async test(endpoint?: string) {
+      const d = await call({ op: 'test', endpoint });
+      return Number(d?.sent ?? 0);
+    },
+  };
 }

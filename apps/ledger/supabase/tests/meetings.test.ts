@@ -17,9 +17,9 @@ describe('Meetings', () => {
      values ($1, $2, $3, $4, $5, $6, $7) returning id`,
     [ws, 'client' in fields ? fields.client : client, fields.title ?? 'Year-end planning', fields.date ?? '2026-10-20', fields.start ?? '10:00', fields.end ?? '11:00', fields.location ?? 'Teams']).then((r) => r.id);
 
-  it('reports schema version 4', async () => {
+  it('reports schema version 4 or later', async () => {
     await t.as(A, async () => {
-      expect(Number((await t.one<{ v: number }>(`select public.ledger_schema_version() v`)).v)).toBe(4);
+      expect(Number((await t.one<{ v: number }>(`select public.ledger_schema_version() v`)).v)).toBeGreaterThanOrEqual(4);
     });
   });
 

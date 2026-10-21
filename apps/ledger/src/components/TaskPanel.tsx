@@ -16,6 +16,8 @@ import { ActivityList } from './ActivityList';
 import { useTaskActions } from './TaskTable';
 import { ChecklistEditor, progressOf } from './Checklist';
 import { useUI } from './ui-state';
+import { ReminderPicker } from './Notifications';
+import { notifySettings } from '../lib/reminders';
 import { Link } from '../router';
 
 export function TaskPanel() {
@@ -200,6 +202,14 @@ function TaskDetail({ task }: { task: Occurrence }) {
               {TASK_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
             </Select>
           </Row>
+          {isOpen(task.status) && (
+            <Row label="Notify">
+              <ReminderPicker kind="days" value={task.notifyDays} disabled={!repo.notify}
+                inherited={schedule?.notifyDays ?? notifySettings(snap.workspace.settings.notifications).taskDays}
+                inheritedFrom={schedule?.notifyDays ? 'its schedule' : 'Settings'}
+                onChange={(v) => void patchOccurrence(task.id, { notifyDays: v }, v === null ? 'Using the default notifications' : 'Notifications saved')} />
+            </Row>
+          )}
           {!task.scheduleId && (
             <Row label="Client">
               <Select aria-label="Client" value={task.clientId} onChange={(e) => void patchOccurrence(task.id, { clientId: e.target.value }, 'Saved')}>

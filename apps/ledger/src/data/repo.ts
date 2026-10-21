@@ -11,11 +11,11 @@ export type SchedulePatch = Partial<Omit<Schedule, 'id' | 'workspaceId' | 'creat
 export type NewOccurrence = Omit<Occurrence, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'completedAt' | 'checklist' | 'waitingSince'>
   & { completedAt?: string | null; checklist?: ChecklistItem[]; waitingSince?: string | null };
 /** completedAt only matters with status 'done' (to keep the original time when a completion is undone). */
-export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId' | 'checklist' | 'completedAt'>>;
+export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId' | 'checklist' | 'completedAt' | 'notifyDays'>>;
 
 export type NewReview = Pick<Review, 'scheduleId' | 'periodKey' | 'status' | 'note'>;
 
-export type NewMeeting = Pick<Meeting, 'clientId' | 'title' | 'date' | 'start' | 'end' | 'location' | 'notes'>;
+export type NewMeeting = Pick<Meeting, 'clientId' | 'title' | 'date' | 'start' | 'end' | 'location' | 'notes'> & Partial<Pick<Meeting, 'notifyMinutes'>>;
 export type MeetingPatch = Partial<NewMeeting>;
 
 /** A full export of a workspace. Restoring it recreates the same ids, so it is also the restore format. */
@@ -47,6 +47,10 @@ export interface Repo {
   readonly current: boolean;
   /** False while the database is older than 0004_ledger_meetings.sql: meetings are then off. */
   readonly meetings: boolean;
+  /** False while the database is older than 0005_ledger_notifications.sql: per-item reminders and phone/PC delivery are then off. */
+  readonly notify: boolean;
+  /** Notifications with Ledger closed (Web Push through the ledger-notify function). Null in demo mode. */
+  readonly push: PushApi | null;
   load(): Promise<Snapshot>;
   updateWorkspace(patch: Partial<Pick<Workspace, 'name' | 'timezone' | 'settings'>>): Promise<void>;
 
@@ -79,6 +83,19 @@ export interface Repo {
 
   restore(b: Backup): Promise<void>;
   erase(): Promise<void>;
+}
+
+export interface PushDevice { id: string; endpoint: string; label: string; createdAt: string }
+export type PushStatus = { ok: true; publicKey: string; lastRun: string | null } | { ok: false; reason: 'not_deployed' | 'not_configured' | 'offline' };
+
+export interface PushApi {
+  /** Whether the ledger-notify function is deployed and has its keys, and when its schedule last ran. */
+  status(): Promise<PushStatus>;
+  devices(): Promise<PushDevice[]>;
+  saveDevice(d: { endpoint: string; p256dh: string; auth: string; label: string }): Promise<void>;
+  removeDevice(endpoint: string): Promise<void>;
+  /** Sends a test notification to one device (or all). Returns how many accepted it. */
+  test(endpoint?: string): Promise<number>;
 }
 
 export class RepoError extends Error {}
@@ -145,6 +162,13 @@ export function upgradeRows<T extends Pick<Backup, 'clients' | 'schedules' | 'oc
 export function checklistError(items: { text: string }[]): string | null {
   if (items.length > 50) return 'A checklist holds up to 50 items.';
   if (items.some((i) => !i.text.trim() || i.text.length > 300)) return 'Each checklist item needs text (up to 300 characters).';
+  return null;
+}
+
+/** Problems with a reminder list (days or minutes before), or null. Same limits as the database. */
+export function notifyError(list: number[] | null | undefined, max: number): string | null {
+  if (list == null) return null;
+  if (list.length > 4 || list.some((n) => !Number.isInteger(n) || n < 0 || n > max)) return 'Up to four notifications, each at most ' + (max === 60 ? '60 days' : 'a week') + ' before.';
   return null;
 }
 

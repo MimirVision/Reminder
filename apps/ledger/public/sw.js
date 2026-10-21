@@ -40,3 +40,31 @@ self.addEventListener('fetch', (e) => {
   }
   e.respondWith(fetch(req).catch(() => caches.match(req)));
 });
+
+// Notifications (Web Push from the ledger-notify function). The message is encrypted end to end: the push service
+// that carries it (Google, Apple, Mozilla, Microsoft) cannot read it.
+self.addEventListener('push', (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = { title: 'Ledger', body: e.data ? e.data.text() : '' }; }
+  const icon = new URL('icon-192.png', self.registration.scope).href;
+  e.waitUntil(self.registration.showNotification(m.title || 'Ledger', {
+    body: m.body || '', tag: m.tag || undefined, icon, badge: icon, data: { url: m.url || '/' },
+  }));
+});
+
+// A tap opens the task or meeting: in a Ledger window that is already open if there is one, else in a new one.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const path = (e.notification.data && e.notification.data.url) || '/';
+  const scope = new URL(self.registration.scope);
+  // Under /ledger/ the app's routes live after the # (see src/router.tsx).
+  const target = scope.pathname === '/' ? new URL(path, scope).href : `${scope.href}#${path}`;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const open = list.find((c) => c.url.startsWith(scope.href));
+    if (open) {
+      open.postMessage({ type: 'ledger-open', url: path });
+      return open.focus();
+    }
+    return self.clients.openWindow(target);
+  }));
+});

@@ -19,7 +19,7 @@ export function copyOf(s: Schedule, clientId: string, today: string): NewSchedul
     // From the current period on, like a new schedule: earlier periods are not created for the new client.
     startDate: today, endDate: s.endDate && s.endDate > today ? s.endDate : null, generateFrom: today,
     leadDays: s.leadDays, reminderDays: s.reminderDays, autoGenerate: s.autoGenerate, defaultPriority: s.defaultPriority,
-    checklist: s.checklist.map((i) => ({ ...i, done: false })),
+    checklist: s.checklist.map((i) => ({ ...i, done: false })), notifyDays: s.notifyDays ?? null,
   };
 }
 
@@ -62,7 +62,7 @@ export function CopyScheduleDialog({ schedule, open, onOpenChange, onDone }: {
           onGroup={(g) => setSelected((cur) => cur.filter((id) => !(similar.has(id) && g.ids.includes(id))))}
           hint={(id) => (similar.has(id) ? 'has one already' : null)} />
         <ul className="list-disc pl-5 text-[12.5px] text-ink-3">
-          <li>Copied: the title, type, checklist, due-date rule, how early tasks are created, and priority{schedule.endDate && schedule.endDate > today ? `, and the end date (${formatDate(schedule.endDate)})` : ''}.</li>
+          <li>Copied: the title, type, checklist, due-date rule, how early tasks are created, notifications, and priority{schedule.endDate && schedule.endDate > today ? `, and the end date (${formatDate(schedule.endDate)})` : ''}.</li>
           <li>Each copy starts from the current period: tasks for earlier periods aren’t created.</li>
           <li>The copies are separate schedules. Changing one later changes only that one; {clientById.get(schedule.clientId)?.name ?? 'this client'}’s stays as it is.</li>
         </ul>

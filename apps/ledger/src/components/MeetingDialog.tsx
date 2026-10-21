@@ -11,6 +11,8 @@ import { DatePicker } from '../ui/datepicker';
 import { Field, Input, Select, Textarea } from '../ui/field';
 import { Confirm, Dialog } from '../ui/overlay';
 import { useUI } from './ui-state';
+import { ReminderPicker } from './Notifications';
+import { notifySettings } from '../lib/reminders';
 
 const LENGTHS = [15, 30, 45, 60, 90, 120];
 
@@ -28,14 +30,14 @@ export function MeetingDialog() {
 
 function Editor() {
   const ui = useUI();
-  const { snap, today, run } = useStore();
+  const { snap, today, run, repo } = useStore();
   const ed = ui.meeting!;
   const existing = ed.mode === 'edit' ? snap.meetings.find((m) => m.id === ed.id) : undefined;
   const [m, setM] = useState<NewMeeting>(() => {
-    if (existing) return { clientId: existing.clientId, title: existing.title, date: existing.date, start: existing.start, end: existing.end, location: existing.location, notes: existing.notes };
+    if (existing) return { clientId: existing.clientId, title: existing.title, date: existing.date, start: existing.start, end: existing.end, location: existing.location, notes: existing.notes, notifyMinutes: existing.notifyMinutes ?? null };
     const n = ed.mode === 'new' ? ed : { mode: 'new' as const };
     const start = n.start ?? nextSlot();
-    return { clientId: n.clientId ?? null, title: '', date: n.date ?? today, start, end: n.end ?? fromMinutes(toMinutes(start) + 60), location: '', notes: '' };
+    return { clientId: n.clientId ?? null, title: '', date: n.date ?? today, start, end: n.end ?? fromMinutes(toMinutes(start) + 60), location: '', notes: '', notifyMinutes: null };
   });
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -117,6 +119,10 @@ function Editor() {
               </button>
             ))}
           </div>
+          <Field label="Notify me" hint={repo.notify ? undefined : 'Choosing per meeting needs the database update (Settings).'}>
+            {(p) => <ReminderPicker id={p.id} kind="minutes" value={m.notifyMinutes} disabled={!repo.notify} inheritedFrom="Settings"
+              inherited={notifySettings(snap.workspace.settings.notifications).meetingMinutes} onChange={(v) => set('notifyMinutes', v)} />}
+          </Field>
           <Field label="Where" hint="A room, an address, or Teams/phone.">
             {(p) => <Input {...p} value={m.location} maxLength={500} placeholder="e.g. Teams" onChange={(e) => set('location', e.target.value)} />}
           </Field>
