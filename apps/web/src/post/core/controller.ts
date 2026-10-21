@@ -47,12 +47,12 @@ export interface Erasing { what: string; done: number; total: number | null }
 export const folderKey = (t: FolderTarget) => `${t.kind}|${t.account ?? ''}|${t.id ?? ''}`;
 /** A file waiting to be sent: what the outbox list knows about it. The file itself is kept apart, under the account's own name, so removing the account removes it. */
 export interface OutFileRef { name: string; type: string; size: number }
-export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward' | 'draft'; to: string[]; cc: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number;
+export interface OutboxItem { id: string; account: string; sendAt: number; kind: 'new' | 'reply' | 'replyAll' | 'forward' | 'draft'; to: string[]; cc: string[]; bcc?: string[]; subject: string; body: string; replyTo?: string; files?: OutFileRef[]; /** failed tries so far (only counted for messages with files) */ attempts?: number;
   /** How far the message got at Outlook (its draft, and whether "send" was asked for): kept so that a try that was cut short is carried on, never repeated. */ draft?: DraftProgress;
   /** For a draft that lives at Outlook: which parts of it were changed here. The rest is left as Outlook has it. Everything, when it is not said. */ edited?: DraftField[];
   /** For a draft that lives at Outlook: when Outlook last changed it as of the time its text was read here. It goes back with the text if Undo is used or Outlook refuses the send. */ modified?: string }
 /** Half-written text. `modified`: for a draft that lives at Outlook, when Outlook last changed it as of the time this text was read, so that a change made over there since is noticed. */
-export interface Draft { account: string; to: string; cc: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind']; modified?: string }
+export interface Draft { account: string; to: string; cc: string; bcc?: string; subject: string; body: string; replyTo?: string; mode: OutboxItem['kind']; modified?: string }
 /** A draft that lives at Outlook. What was changed in it here is kept apart from the message being written (see `saveDraft`). */
 export interface DraftOf { account: string; id: string }
 
@@ -787,7 +787,7 @@ export function createController(deps: Deps) {
 
   /** Where the text of a message that comes back from the outbox is kept: a draft that lives at Outlook has a place of its own, everything else is the message being written. */
   const placeOf = (it: OutboxItem): DraftOf | undefined => (it.kind === 'draft' && it.replyTo ? { account: it.account, id: it.replyTo } : undefined);
-  const textOf = (it: OutboxItem): Draft => ({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind, ...(it.kind === 'draft' && it.modified ? { modified: it.modified } : {}) });
+  const textOf = (it: OutboxItem): Draft => ({ account: it.account, to: it.to.join(', '), cc: it.cc.join(', '), ...(it.bcc?.length ? { bcc: it.bcc.join(', ') } : {}), subject: it.subject, body: it.body, replyTo: it.replyTo, mode: it.kind, ...(it.kind === 'draft' && it.modified ? { modified: it.modified } : {}) });
 
   /**
    * The message goes back to the editor, with its files, and the person is told why. Its half-made copy at Outlook is thrown away.
@@ -819,11 +819,18 @@ export function createController(deps: Deps) {
     return (await queue.pending()).some((o) => o.account === account && o.messageId === id && isMove(o.type));
   }
 
+  /** The people typed in the To field of an answer besides the one it is for (who wrote the message): Outlook already has that one. */
+  const moreThanSender = (it: OutboxItem, replyTo: string): string[] => {
+    const key = mailKey(it.account, replyTo);
+    const orig = state.mail.find((m) => m.key === key) ?? remote.get(key);
+    return it.to.filter((a) => a.toLowerCase() !== (orig?.fromAddress ?? it.to[0] ?? '').toLowerCase());
+  };
+
   const outgoing = (it: OutboxItem, replyTo: string | undefined): Outgoing =>
     it.kind === 'draft' && replyTo ? { kind: 'draft', draftId: replyTo, subject: it.subject, body: it.body, to: it.to, cc: it.cc, ...(it.edited ? { edited: it.edited } : {}) }
-    : it.kind === 'new' || it.kind === 'draft' || !replyTo ? { kind: 'new', subject: it.subject, body: it.body, to: it.to, cc: it.cc }
-    : it.kind === 'forward' ? { kind: 'forward', replyTo, to: it.to, body: it.body }
-    : { kind: it.kind, replyTo, body: it.body };
+    : it.kind === 'new' || it.kind === 'draft' || !replyTo ? { kind: 'new', subject: it.subject, body: it.body, to: it.to, cc: it.cc, bcc: it.bcc }
+    : it.kind === 'forward' ? { kind: 'forward', replyTo, to: it.to, body: it.body, cc: it.cc, bcc: it.bcc }
+    : { kind: it.kind, replyTo, body: it.body, to: moreThanSender(it, replyTo), cc: it.cc, bcc: it.bcc };
 
   async function putInOutbox(item: Omit<OutboxItem, 'id' | 'sendAt' | 'files' | 'attempts'>, files: OutFile[]): Promise<boolean> {
     const delay = state.settings.undoSend * 1000;
@@ -871,7 +878,7 @@ export function createController(deps: Deps) {
       staleView();                                                                        // and Sent has one more
       finished.add(it.id);
       await dropOutFiles(it);
-      if (await rememberKnown(store, it.account, [...it.to, ...it.cc])) learned = true;
+      if (await rememberKnown(store, it.account, [...it.to, ...it.cc, ...(it.bcc ?? [])])) learned = true;
     };
     for (const it of list) {
       if (!early && it.sendAt > now()) continue;
@@ -1604,6 +1611,8 @@ export function createController(deps: Deps) {
     threadOf(m: Mail): Mail[] { return threadOf(state.mail, m, state.settings.threads); },
 
     /** A message Post has seen in Outlook this time it was open (the rest of a conversation, a search result), though it is not in the inbox on this phone. */
+    /** Addresses any signed-in mailbox has written to (for suggestions while writing). */
+    contacts(): string[] { return [...known]; },
     remoteMail(account: string, id: string): Mail | undefined { return remote.get(mailKey(account, id)); },
 
     /**

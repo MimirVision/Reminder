@@ -7,7 +7,7 @@ export interface KeyInfo { key: string; ctrl?: boolean; meta?: boolean; alt?: bo
 export const SHORTCUT_HELP: [string, string][] = [
   ['j / ↓', 'Next message'], ['k / ↑', 'Previous message'], ['Enter / o', 'Open the first message'], ['e', 'Archive'], ['#  / Delete', 'Delete'],
   ['r', 'Reply'], ['a', 'Reply all'], ['c', 'Write a new message'], ['/', 'Search'], ['u / Esc', 'Back to the list'], ['Shift+U', 'Mark as unread'],
-  ['s', 'Flag'], ['Ctrl+K', 'Quick actions'], ['Ctrl+Z', 'Undo'], ['Shift/Ctrl+click', 'Pick several'], ['Right-click', 'Menu for a message'], ['g', 'Refresh'], ['?', 'Show this list'],
+  ['s', 'Flag'], ['Ctrl+K', 'Quick actions'], ['Ctrl+Z', 'Undo'], ['Ctrl+P', 'Print the open message'], ['Ctrl+Enter', 'Send (while writing)'], ['Shift/Ctrl+click', 'Pick several'], ['Right-click', 'Menu for a message'], ['g', 'Refresh'], ['?', 'Show this list'],
 ];
 
 /** What a key press means. Nothing while typing in a field, nothing with Ctrl/Cmd/Alt held (so the browser's own shortcuts keep working), except undo. */

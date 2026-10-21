@@ -40,10 +40,11 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [showCc, setShowCc] = useState(false);
+  const [bccIn, setBccIn] = useState('');   // Bcc typed here (a draft from Outlook shows the Bcc it has, read only, in `bcc`)
   const [subject, setSubject] = useState('');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [focus, setFocus] = useState(false);
+  const [focus, setFocus] = useState<'to' | 'cc' | 'bcc' | null>(null);
   const [files, setFiles] = useState<OutFile[]>([]);
   const [problems, setProblems] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -114,7 +115,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
     if (mode === 'draft') { void openDraft(); return; }
     const d = c.loadDraft();
     if (d && d.mode === mode && (mode === 'new' || d.replyTo === id)) {
-      setFrom(d.account); setTo(d.to); setCc(d.cc); setShowCc(!!d.cc); setSubject(d.subject); setText(d.body);
+      setFrom(d.account); setTo(d.to); setCc(d.cc); setBccIn(d.bcc ?? ''); setShowCc(!!d.cc || !!d.bcc); setSubject(d.subject); setText(d.body);
       void c.loadDraftFiles().then((f) => { setFiles(f); filesReady.current = true; });
       return;
     }
@@ -130,7 +131,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
 
   // Autosave about a second after you stop typing.
   useEffect(() => {
-    if (sent.current || !(to || cc || subject || text.trim() || files.length)) return;
+    if (sent.current || !(to || cc || bccIn || subject || text.trim() || files.length)) return;
     if (mode === 'draft') {
       // Only what you changed is kept: a draft that is as Outlook has it needs nothing saved on the phone (and nothing left over from an edit you took back).
       // While the question about a newer version at Outlook is open nothing is written: what was kept stays as it was, so the question comes again if it is not answered.
@@ -138,9 +139,9 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
       if (!changed()) { if (c.loadDraft(slot)) keep(null); return; }
     }
     // (Sent, saved or left in the meantime: nothing is kept then, or what was just sent would come back as a draft.)
-    const t = setTimeout(() => { if (!sent.current) keep({ account: from, to, cc, subject, body: text, replyTo: id, mode, ...(mode === 'draft' && base.current ? { modified: base.current.modified } : {}) }); }, 800);
+    const t = setTimeout(() => { if (!sent.current) keep({ account: from, to, cc, ...(bccIn.trim() ? { bcc: bccIn } : {}), subject, body: text, replyTo: id, mode, ...(mode === 'draft' && base.current ? { modified: base.current.modified } : {}) }); }, 800);
     return () => clearTimeout(t);
-  }, [from, to, cc, subject, text, files.length, loaded.state, conflict]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from, to, cc, bccIn, subject, text, files.length, loaded.state, conflict]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The files are kept next to the text, so they are still there after the app is closed.
   useEffect(() => {
@@ -159,14 +160,18 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   };
   const dropped = (e: React.DragEvent) => { e.preventDefault(); setDragging(false); void attach(e.dataTransfer.files); };
 
-  const lastWord = to.split(/[,;\s]+/).pop() ?? '';
+  const field = focus === 'cc' ? cc : focus === 'bcc' ? bccIn : to;
+  const lastWord = field.split(/[,;\s]+/).pop() ?? '';
   const suggestions = useMemo(() => {
     if (!focus || lastWord.length < 2 || lastWord.includes('@')) return [];
     const q = lastWord.toLowerCase();
     const seen = new Map<string, string>();
     for (const m of s.mail) if (!seen.has(m.fromAddress) && `${m.fromName} ${m.fromAddress}`.toLowerCase().includes(q)) seen.set(m.fromAddress, m.fromName);
-    return [...seen].slice(0, 4);
-  }, [focus, lastWord, s.mail]);
+    // People you have written to (Sent Items) come after the ones who wrote to you: they have no name here, only an address.
+    for (const a of c.contacts()) if (!seen.has(a) && a.includes(q)) seen.set(a, '');
+    return [...seen].slice(0, 5);
+  }, [focus, lastWord, s.mail]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pick = (addr: string) => { const next = field.replace(/[^,;\s]*$/, '') + addr + ', '; if (focus === 'cc') setCc(next); else if (focus === 'bcc') setBccIn(next); else setTo(next); };
 
   const rcpt = addresses(to);
   const body = text.trim();
@@ -177,7 +182,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const send = async () => {
     setBusy(true);
     sent.current = true;
-    const ok = await c.send({ account: from, kind: mode, to: rcpt, cc: addresses(cc), subject: subject.trim(), body: text, replyTo: id, ...(mode === 'draft' ? { edited: edited(), ...(base.current ? { modified: base.current.modified } : {}) } : {}) }, files);
+    const ok = await c.send({ account: from, kind: mode, to: rcpt, cc: addresses(cc), ...(mode !== 'draft' && addresses(bccIn).length ? { bcc: addresses(bccIn) } : {}), subject: subject.trim(), body: text, replyTo: id, ...(mode === 'draft' ? { edited: edited(), ...(base.current ? { modified: base.current.modified } : {}) } : {}) }, files);
     if (ok) back(); else { sent.current = false; setBusy(false); }
   };
   /** Leaving a draft you changed: keep the changes (and the files you added) in the draft at Outlook, or let them go (the draft stays at Outlook as it was). */
@@ -200,7 +205,7 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
   const heading = mode === 'new' ? 'New message' : mode === 'draft' ? 'Draft' : mode === 'forward' ? 'Forward' : mode === 'replyAll' ? 'Reply all' : 'Reply';
 
   return (
-    <div className="pg" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true); } }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={dropped}>
+    <div className="pg" onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canSend) { e.preventDefault(); void send(); } }} onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true); } }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={dropped}>
       <div className="nav">
         <button className="cancel" onClick={cancel}>Cancel</button>
         <span className="sp" style={{ textAlign: 'center' }}><h1 className="h3 nav-title">{heading}</h1></span>
@@ -222,14 +227,15 @@ export function Compose({ s, mode, account, id }: { s: State; mode: 'new' | 'rep
         {(mode !== 'draft' || loaded.state === 'ready') && <>
         <div className="fields">
           {s.accounts.length > 1 && <div className="f"><span className="k">From</span><select aria-label="Send from" disabled={mode === 'draft'} value={from} onChange={(e) => setFrom(e.target.value)}>{s.accounts.map((a) => <option key={a.email} value={a.email}>{a.label} · {a.email}</option>)}</select></div>}
-          <div className="f"><span className="k">To</span><input aria-label="To" inputMode="email" autoCapitalize="none" autoCorrect="off" value={to} onChange={(e) => setTo(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 150)} placeholder={mode === 'new' ? 'name@example.com' : ''} />{!showCc && <button className="link" onClick={() => setShowCc(true)} style={{ minHeight: 44 }}>Cc</button>}</div>
-          {showCc && <div className="f"><span className="k">Cc</span><input aria-label="Cc" inputMode="email" autoCapitalize="none" value={cc} onChange={(e) => setCc(e.target.value)} /></div>}
+          <div className="f"><span className="k">To</span><input aria-label="To" inputMode="email" autoCapitalize="none" autoCorrect="off" value={to} onChange={(e) => setTo(e.target.value)} onFocus={() => setFocus('to')} onBlur={() => setTimeout(() => setFocus(null), 150)} placeholder={mode === 'new' ? 'name@example.com' : ''} />{!showCc && <button className="link" onClick={() => setShowCc(true)} style={{ minHeight: 44 }}>{mode === 'draft' ? 'Cc' : 'Cc/Bcc'}</button>}</div>
+          {showCc && <div className="f"><span className="k">Cc</span><input aria-label="Cc" inputMode="email" autoCapitalize="none" autoCorrect="off" value={cc} onChange={(e) => setCc(e.target.value)} onFocus={() => setFocus('cc')} onBlur={() => setTimeout(() => setFocus(null), 150)} /></div>}
+          {showCc && mode !== 'draft' && <div className="f"><span className="k">Bcc</span><input aria-label="Bcc" inputMode="email" autoCapitalize="none" autoCorrect="off" value={bccIn} onChange={(e) => setBccIn(e.target.value)} onFocus={() => setFocus('bcc')} onBlur={() => setTimeout(() => setFocus(null), 150)} /></div>}
           {bcc.length > 0 && <div className="f"><span className="k">Bcc</span><span className="ro" aria-label={`Bcc: ${bcc.join(', ')}`}>{bcc.join(', ')}</span></div>}
           <div className="f"><span className="k">Subject</span><input aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} disabled={mode === 'reply' || mode === 'replyAll'} /></div>
         </div>
         {suggestions.length > 0 && (
           <div className="sugg" role="listbox" aria-label="Suggestions">
-            {suggestions.map(([addr, name]) => <button key={addr} className="sg" role="option" aria-selected="false" onMouseDown={(e) => e.preventDefault()} onClick={() => setTo(to.replace(/[^,;\s]*$/, '') + addr + ', ')}><div className="av small" style={avatarHue(addr, name)}>{initials(name, addr)}</div><div><b>{displayName(name, addr)}</b><span>{addr}</span></div></button>)}
+            {suggestions.map(([addr, name]) => <button key={addr} className="sg" role="option" aria-selected="false" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(addr)}><div className="av small" style={avatarHue(addr, name)}>{initials(name, addr)}</div><div><b>{displayName(name, addr)}</b><span>{addr}</span></div></button>)}
           </div>
         )}
         <div className="write"><textarea aria-label="Message" autoFocus={mode === 'reply' || mode === 'replyAll' || mode === 'forward'} value={text} onChange={(e) => setText(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void attach(e.clipboardData.files); } }} placeholder={mode === 'forward' ? 'Add a note (optional)' : 'Write your message'} /></div>
