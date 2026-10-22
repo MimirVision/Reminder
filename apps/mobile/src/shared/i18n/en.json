@@ -771,5 +771,22 @@
   "desk.keySearch": "Search",
   "desk.keyTabs": "Switch screen",
   "desk.addHint": "Add a to-do… (N)",
-  "desk.today": "Calendar"
+  "desk.today": "Calendar",
+  "view.week": "Week",
+  "week.late": "Late",
+  "week.nodate": "No date",
+  "week.drop": "Drop here",
+  "pal.placeholder": "Type a command, or search your to-dos…",
+  "pal.none": "Nothing found",
+  "pal.commands": "Commands",
+  "pal.todos": "To-dos",
+  "pal.new": "New to-do",
+  "pal.search": "Search to-dos",
+  "pal.hint": "Enter to run · Esc to close",
+  "pal.open": "Command palette",
+  "desk.keyMove": "Move up or down",
+  "desk.keyDone": "Finish",
+  "desk.keyEdit": "Edit",
+  "desk.keyPalette": "Commands",
+  "desk.keyTomorrow": "Tomorrow"
 }

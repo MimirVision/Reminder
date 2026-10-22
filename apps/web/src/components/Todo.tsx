@@ -36,6 +36,8 @@ import { RescheduleSheet } from './RescheduleSheet';
 import { RouteSheet, type RouteView } from './RouteSheet';
 import { RecapCard } from './RecapCard';
 import { Tour, tourKey } from './Tour';
+import { CommandPalette, type Command } from './CommandPalette';
+import { WeekBoard } from './WeekBoard';
 import { useDesktop } from '../lib/useDesktop';
 import { SetupChecklist } from './SetupChecklist';
 import { TodoRow } from './TodoRow';
@@ -62,7 +64,10 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const toast = useToast();
-  const [mode, setMode] = useState<'list' | 'calendar' | 'map'>('list');
+  const [mode, setMode] = useState<'list' | 'calendar' | 'week' | 'map'>('list');
+  const [palette, setPalette] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const [filter, setFilter] = useState<Filter>(noFilter);
   const [filtering, setFiltering] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -139,18 +144,16 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     return () => { window.removeEventListener('online', sync); window.removeEventListener('offline', off); document.removeEventListener('visibilitychange', sync); };
   }, [toast, tn]);
 
-  // Keyboard (computer): n = new to-do, / = search. Ignored while typing or when a sheet is open.
+  // Keyboard (computer): the handler is defined further down, where everything it needs exists.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (e.metaKey || e.ctrlKey || e.altKey || (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable))) return;
-      if (document.querySelector('.sheet')) return;
-      if (e.key === 'n') { e.preventDefault(); setAdding(true); }
-      else if (e.key === '/') { e.preventDefault(); setSearching(true); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const h = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
   }, []);
+  // The week board only exists on a computer.
+  useEffect(() => { if (!desktop && mode === 'week') setMode('list'); }, [desktop, mode]);
+  // Keep the keyboard cursor in view.
+  useEffect(() => { if (cursor) document.querySelector(`[data-row="${cursor}"]`)?.scrollIntoView({ block: 'nearest' }); }, [cursor]);
 
   // The installed app's "New to-do" shortcut (/?new=1) opens the add sheet.
   useEffect(() => {
@@ -369,6 +372,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
         place={opts.place || m.place_trigger === 'leave' ? (m.place_trigger === 'leave' ? t('row.leaving', { place: placeName(m.place_id) ?? t('todo.somewhere') }) : placeName(m.place_id)) : undefined} forName={members.length > 1 && m.assignee_id ? (m.assignee_id === userId ? t('row.forYou') : t('row.for', { name: members.find((x) => x.user_id === m.assignee_id)?.display_name || t('common.partner') })) : undefined} byline={opts.meta === false ? undefined : byline(m)}
         author={members.length > 1 && m.author_id !== userId ? { id: m.author_id, name: members.find((x) => x.user_id === m.author_id)?.display_name ?? null } : null}
         onToggle={() => toggle(m)} onEdit={() => setEditing(m)} onDelete={() => remove(m)}
+        cursor={cursor === m.id} draggable={desktop}
         select={picking && !m.pending ? { on: picked.has(m.id), toggle: () => setPicked((s) => { const n = new Set(s); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); return n; }) } : undefined}
         onReschedule={m.pending ? undefined : () => setRescheduling(m)} onChecklist={(items) => tickStep(m, items)} reorder={opts.group ? reorderFor(opts.group, m) : undefined}>
         {m.suggestion && !showDone && (
@@ -411,9 +415,49 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     );
   };
 
+  // Computer keys: j/k or arrows move a cursor down the list; x finishes, e or Enter edits, t moves to tomorrow, m picks a day, p pins,
+  // Delete removes; n new, / search, Ctrl or Cmd + K the command palette.
+  const orderedIds = [...groups.today, ...groups.upcoming.flatMap((g) => g.items), ...[...groups.byPlace.values()].flat(), ...groups.anytime].map((m) => m.id);
+  keyRef.current = (e) => {
+    const el = e.target as HTMLElement | null;
+    const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!document.querySelector('.sheet')) setPalette((p) => !p); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey || typing || palette || document.querySelector('.sheet')) return;
+    const cur = cursor ? memories.find((x) => x.id === cursor && !x.pending) ?? null : null;
+    const listing = mode === 'list' && !showDone && !found;
+    const step = (d: 1 | -1) => { const i = cur ? orderedIds.indexOf(cur.id) : -1; const n = orderedIds[Math.max(0, Math.min(orderedIds.length - 1, i + d))]; if (n) setCursor(n); };
+    if (e.key === 'n') { e.preventDefault(); setAdding(true); }
+    else if (e.key === '/') { e.preventDefault(); setSearching(true); }
+    else if (listing && (e.key === 'j' || (e.key === 'ArrowDown' && cursor))) { e.preventDefault(); step(1); }
+    else if (listing && (e.key === 'k' || (e.key === 'ArrowUp' && cursor))) { e.preventDefault(); step(-1); }
+    else if (listing && cur && e.key === 'x') { e.preventDefault(); const i = orderedIds.indexOf(cur.id); setCursor(orderedIds[i + 1] ?? orderedIds[i - 1] ?? null); toggle(cur); }
+    else if (listing && cur && (e.key === 'e' || e.key === 'Enter')) { e.preventDefault(); setEditing(cur); }
+    else if (listing && cur && (e.key === 'Delete' || e.key === 'Backspace' || e.key === '#')) { e.preventDefault(); const i = orderedIds.indexOf(cur.id); setCursor(orderedIds[i + 1] ?? orderedIds[i - 1] ?? null); remove(cur); }
+    else if (listing && cur && e.key === 't') { e.preventDefault(); moveTo(cur, addDays(todayISO(), 1)); }
+    else if (listing && cur && e.key === 'm') { e.preventDefault(); setRescheduling(cur); }
+    else if (listing && cur && e.key === 'p') { e.preventDefault(); setMemories((c) => c.map((x) => (x.id === cur.id ? { ...x, pinned: !x.pinned } : x))); void act(() => updateMemory(cur.id, { pinned: !cur.pinned })); }
+    else if (e.key === 'Escape' && cursor) setCursor(null);
+  };
+  const commands: Command[] = [
+    { id: 'new', label: t('pal.new'), run: () => setAdding(true) },
+    { id: 'search', label: t('pal.search'), run: () => { setMode('list'); setShowDone(false); setSearching(true); } },
+    { id: 'list', label: t('view.list'), run: () => { setShowDone(false); setMode('list'); } },
+    { id: 'calendar', label: t('view.calendar'), run: () => { setShowDone(false); setMode('calendar'); } },
+    ...(desktop ? [{ id: 'week', label: t('view.week'), run: () => { setShowDone(false); setMode('week'); } }] : []),
+    { id: 'map', label: t('view.map'), run: () => { setShowDone(false); setMode('map'); } },
+    { id: 'filter', label: t('filter.button'), run: () => setFiltering(true) },
+    { id: 'select', label: t('bulk.select'), run: () => { setMode('list'); setShowDone(false); setPicking(true); } },
+    { id: 'reorder', label: t('more.reorder'), run: () => { setMode('list'); setShowDone(false); setReordering(true); } },
+    { id: 'route', label: t('more.route'), run: () => setPlanning(true) },
+    { id: 'done', label: t('more.done'), run: () => { setMode('list'); setShowDone(true); } },
+    { id: 'house', label: t('nav.house'), run: () => onNavigate('house') },
+    { id: 'places', label: t('nav.places'), run: () => onNavigate('places') },
+    { id: 'settings', label: t('nav.settings'), run: () => onNavigate('settings') },
+  ];
+
   const seg = (
     <div className={`seg glass${mapOn ? '' : ' wide'}`} role="group" aria-label={t('view.label')}>
-      {([['list', 'list'], ['calendar', 'calendar'], ['map', 'pin']] as const).map(([m, ic]) => <button key={m} aria-pressed={mode === m} aria-label={t(`view.${m}` as const)} title={t(`view.${m}` as const)} onClick={() => { setMode(m); setReordering(false); }}><Icon name={ic} size={18} /><span className="lbl">{t(`view.${m}` as const)}</span></button>)}
+      {([['list', 'list'], ['calendar', 'calendar'], ...(desktop ? [['week', 'list'] as const] : []), ['map', 'pin']] as const).map(([m, ic]) => <button key={m} aria-pressed={mode === m} aria-label={t(`view.${m}` as const)} title={t(`view.${m}` as const)} onClick={() => { setMode(m); setReordering(false); }}><Icon name={ic} size={18} /><span className="lbl">{t(`view.${m}` as const)}</span></button>)}
     </div>
   );
 
@@ -441,7 +485,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const found = query.trim() ? matchTodos(memories, query, placeName, (m) => dueLabel(m, t, locale)) : null;
 
   return (
-    <main className={`page${mapOn ? ' map-mode' : ' todo-page'}`}>
+    <main className={`page${mapOn ? ' map-mode' : ' todo-page'}${mode === 'week' ? ' week' : ''}`}>
       <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{showDone && <button className="btn small icon glass on" aria-label={t('todo.back')} aria-pressed onClick={() => { setShowDone(false); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{mapOn && <button className={`btn small icon glass${route ? ' on' : ''}`} aria-label={t('route.open')} onClick={() => setPlanning(true)}><Icon name="navigate" size={16} /></button>}{!showDone && !mapOn && <button className={`btn small icon glass${activeCount(filter) ? ' on' : ''}`} aria-label={activeCount(filter) ? `${t('filter.button')} (${activeCount(filter)})` : t('filter.button')} onClick={() => setFiltering(true)}><Icon name="filter" size={16} />{activeCount(filter) > 0 && <span className="badge-n">{activeCount(filter)}</span>}</button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('more.label')} onClick={() => setMenu(true)}><Icon name="more" size={16} /></button>}{!showDone && mapOn && seg}</div></div>
       <div className="todo-cols"><div className="todo-main">
       {desktop && !showDone && !mapOn && !picking && <AddBar inline onClick={() => setAdding(true)} />}
@@ -496,7 +540,9 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
           {!tour && <SetupChecklist household={household} onNavigate={onNavigate} onVisible={setSetupOn} />}
           {memories.length > 0 && !tour && !setupOn && <InstallBanner />}
           {recapOn && <RecapCard household={household} members={members} refreshKey={doneTicks} />}
-          {mode === 'calendar' ? (
+          {mode === 'week' ? (
+            <WeekBoard memories={visible} onMove={(m, d) => moveTo(m, d)} onEdit={(m) => setEditing(m)} onToggle={toggle} onAdd={(d) => { setAddDate(d); setAdding(true); }} />
+          ) : mode === 'calendar' ? (
             <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => { setAddDate(d); setAdding(true); }} />
           ) : (<>
           {empty && (
@@ -525,7 +571,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       </div>
       {desktop && mode === 'list' && !showDone && !mapOn && !found && (
         <aside className="todo-aside" aria-label={t('desk.today')}>
-          <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => { setAddDate(d); setAdding(true); }} />
+          <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => { setAddDate(d); setAdding(true); }} onMove={(id, d) => { const m = memories.find((x) => x.id === id); if (m && m.due_on !== d) moveTo(m, d); }} />
         </aside>
       )}
       </div>
@@ -545,6 +591,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       {bulkMove && <RescheduleSheet title={tn('bulk.count', picked.size)} dueOn={null} onPick={bulkMoveTo} onClose={() => setBulkMove(false)} />}
       {!desktop && !showDone && !mapOn && !picking && <AddBar onClick={() => setAdding(true)} />}
       {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} initialDate={addDate} onClose={() => { setAdding(false); setSharedText(null); setAddDate(undefined); }} onSaved={saved} />}
+      {palette && <CommandPalette commands={commands} todos={memories.filter((m) => !m.pending).map((m) => ({ id: m.id, label: (m.body || t('todo.photo')).split('\n')[0], hint: [m.due_on ? dueLabel(m, t, locale) : '', placeName(m.place_id) ?? ''].filter(Boolean).join(' · ') }))} onOpenTodo={(id) => { const m = memories.find((x) => x.id === id); if (m) setEditing(m); }} onClose={() => setPalette(false)} />}
       {filtering && <FilterSheet value={filter} onChange={setFilter} partnerName={partner ? partner.display_name || t('common.partner') : null} tags={tagList} onClose={() => setFiltering(false)} />}
       {menu && (
         <Sheet label={t('more.label')} onClose={() => setMenu(false)}>

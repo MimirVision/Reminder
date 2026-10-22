@@ -44,7 +44,7 @@ export function Places({ household }: { household: Household }) {
   });
 
   return (
-    <main className="page">
+    <main className="page places-page">
       <h1>{t('places.title')}</h1>
       <span className="muted">{t('places.intro')}</span>
       {err && <p className="error" role="alert">{err}</p>}
@@ -56,6 +56,7 @@ export function Places({ household }: { household: Household }) {
       </div>
 
       {places.length === 0 && <p className="muted">{t('places.empty')}</p>}
+      <div className="cards-grid">
       {places.map((p) => (
         <div className="card place" key={p.id}>
           <div className="row spread">
@@ -83,6 +84,7 @@ export function Places({ household }: { household: Household }) {
           </div>
         </div>
       ))}
+      </div>
     </main>
   );
 }

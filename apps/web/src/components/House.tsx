@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { completeTask, listTaskEvents, listTasks, retireTask, seedHouseTemplate } from '../lib/api';
 import { groupTasks } from '../lib/maintenance';
+import { ribbonMonths } from '../lib/ribbon';
 import { scheduleLabel, taskNotes, taskTitle } from '../lib/labels';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask } from '../lib/types';
 import { useI18n } from '../i18n';
@@ -16,15 +17,12 @@ const PROFILE: (keyof HouseProfile)[] = ['has_garden', 'has_wood_stove', 'has_he
 
 function Ribbon({ task }: { task: MaintenanceTask }) {
   const { t } = useI18n();
-  if (task.schedule !== 'seasonal' || !task.window_start_month || !task.window_end_month) return null;
-  const s = task.window_start_month, e = task.window_end_month, now = new Date().getMonth() + 1;
+  const months = ribbonMonths(task);
+  if (!months) return null;
+  const now = new Date().getMonth() + 1;
   return (
     <div className="ribbon" aria-label={scheduleLabel(task, t)}>
-      {t('ribbon.months').split('').map((m, idx) => {
-        const i = idx + 1;
-        const on = s <= e ? i >= s && i <= e : i >= s || i <= e;
-        return <span key={idx} className={`${on ? 'on' : ''} ${i === now ? 'now' : ''}`}>{m}</span>;
-      })}
+      {t('ribbon.months').split('').map((m, idx) => <span key={idx} className={`${months[idx] ? 'on' : ''} ${idx + 1 === now ? 'now' : ''}`}>{m}</span>)}
     </div>
   );
 }
@@ -102,6 +100,7 @@ export function House({ household }: { household: Household }) {
     list.length === 0 ? null : (
       <>
         <div className="label">{title}</div>
+        <div className="cards-grid">
         {list.map((task) => {
           const notes = taskNotes(task, lang);
           return (
@@ -137,11 +136,12 @@ export function House({ household }: { household: Household }) {
             </div>
           );
         })}
+        </div>
       </>
     );
 
   return (
-    <main className="page">
+    <main className="page house-page">
       {head}
       {addingTask
         ? <AddTaskForm household={household} onDone={() => { setAddingTask(false); void load(); }} />

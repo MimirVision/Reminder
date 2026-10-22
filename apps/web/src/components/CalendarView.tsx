@@ -8,12 +8,13 @@ import { Icon } from './icons';
 
 // A month at a glance: a dot under each day that has something, colour by the most important thing that day.
 // Tap a day to see its list below and add something on it.
-export function CalendarView({ memories, row, onAdd }: { memories: Memory[]; row: (m: Memory) => ReactNode; onAdd: (date: string) => void }) {
+export function CalendarView({ memories, row, onAdd, onMove }: { memories: Memory[]; row: (m: Memory) => ReactNode; onAdd: (date: string) => void; onMove?: (id: string, date: string) => void }) {
   const { t, tn, locale } = useI18n();
   const today = todayISO();
   const now = new Date();
   const [ym, setYm] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
   const [sel, setSel] = useState(today);
+  const [over, setOver] = useState<string | null>(null);
   const weeks = useMemo(() => monthGrid(ym.year, ym.month), [ym]);
   const counts = useMemo(() => countsByDay(memories), [memories]);
   const day = useMemo(() => agendaFor(memories, sel), [memories, sel]);
@@ -36,7 +37,9 @@ export function CalendarView({ memories, row, onAdd }: { memories: Memory[]; row
             return (
               <button key={c.iso} type="button" role="gridcell" aria-selected={sel === c.iso}
                 aria-label={`${formatDay(c.iso, locale)}${n ? `, ${t('cal.open', { n: n.count })}` : ''}`}
-                className={`cal-day${c.inMonth ? '' : ' out'}${c.iso === today ? ' today' : ''}${sel === c.iso ? ' sel' : ''}${c.iso < today ? ' past' : ''}`}
+                onDragOver={onMove ? (e) => { e.preventDefault(); setOver(c.iso); } : undefined} onDragLeave={onMove ? () => setOver((o) => (o === c.iso ? null : o)) : undefined}
+                onDrop={onMove ? (e) => { e.preventDefault(); setOver(null); const id = e.dataTransfer.getData('text/plain'); if (id) onMove(id, c.iso); } : undefined}
+                className={`${over === c.iso ? 'drop ' : ''}cal-day${c.inMonth ? '' : ' out'}${c.iso === today ? ' today' : ''}${sel === c.iso ? ' sel' : ''}${c.iso < today ? ' past' : ''}`}
                 onClick={() => { setSel(c.iso); if (!c.inMonth) setYm({ year: +c.iso.slice(0, 4), month: +c.iso.slice(5, 7) }); }}>
                 <span>{c.day}</span>
                 {n && <i className={`dot prio-${n.top}`} title={tn('map.todos', n.count)} />}

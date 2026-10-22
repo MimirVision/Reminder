@@ -12,9 +12,9 @@ export type Who = { id: string; name: string | null } | null;
 
 // One to-do: tick to finish, tap the text to edit, swipe right to finish or left to delete. Due date, repeat and place show
 // as small chips; who added it shows as a small avatar once the household has more than one person.
-export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, select, children }: {
+export function TodoRow({ m, photos, done, due, dueLate, place, forName, author, doneBy, byline, onToggle, onEdit, onDelete, onReschedule, onChecklist, reorder, select, cursor, draggable, children }: {
   m: Memory; photos?: string[]; done?: boolean; due?: string; dueLate?: boolean; place?: string; forName?: string; author?: Who; doneBy?: string | null; byline?: string;
-  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; select?: { on: boolean; toggle: () => void }; children?: ReactNode;
+  onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; select?: { on: boolean; toggle: () => void }; cursor?: boolean; draggable?: boolean; children?: ReactNode;
 }) {
   const { t } = useI18n();
   const title = m.body || t('todo.photo');
@@ -22,7 +22,7 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
   const prog = progress(steps);
   const prio = m.priority ?? 0;
   const row = (
-    <div className={`todo${select?.on ? ' picked' : ''}${done ? ' done' : ''}${m.pending ? ' pending' : ''}${prio ? ` has-prio prio-${prio}` : ''}`}>
+    <div data-row={m.id} draggable={draggable && !done && !m.pending ? true : undefined} onDragStart={draggable ? (e) => { e.dataTransfer.setData('text/plain', m.id); e.dataTransfer.effectAllowed = 'move'; } : undefined} className={`todo${cursor ? ' cursor' : ''}${select?.on ? ' picked' : ''}${done ? ' done' : ''}${m.pending ? ' pending' : ''}${prio ? ` has-prio prio-${prio}` : ''}`}>
       {select ? (
         <button type="button" className={`check${select.on ? ' on' : ''}${prio ? ` prio-${prio}` : ''}`} role="checkbox" aria-checked={select.on} aria-label={t('bulk.pick', { title: title.split('\n')[0] })} onClick={select.toggle}>
           {select.on && <Icon name="check" size={14} />}

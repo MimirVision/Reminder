@@ -771,5 +771,22 @@
   "desk.keySearch": "Søk",
   "desk.keyTabs": "Bytt skjerm",
   "desk.addHint": "Legg til en oppgave… (N)",
-  "desk.today": "Kalender"
+  "desk.today": "Kalender",
+  "view.week": "Uke",
+  "week.late": "Forfalt",
+  "week.nodate": "Uten dato",
+  "week.drop": "Slipp her",
+  "pal.placeholder": "Skriv en kommando, eller søk i oppgavene …",
+  "pal.none": "Ingen treff",
+  "pal.commands": "Kommandoer",
+  "pal.todos": "Oppgaver",
+  "pal.new": "Ny oppgave",
+  "pal.search": "Søk i oppgaver",
+  "pal.hint": "Enter for å kjøre · Esc for å lukke",
+  "pal.open": "Kommandopalett",
+  "desk.keyMove": "Opp eller ned",
+  "desk.keyDone": "Fullfør",
+  "desk.keyEdit": "Rediger",
+  "desk.keyPalette": "Kommandoer",
+  "desk.keyTomorrow": "I morgen"
 }

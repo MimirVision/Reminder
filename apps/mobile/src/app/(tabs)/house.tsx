@@ -11,6 +11,7 @@ import { MovingView } from '@/lib/MovingView';
 import { BAR_SPACE, Btn, Card, Check, Field, Muted, SectionLabel, Title, styles } from '@/lib/ui';
 import { groupTasks } from '../../core/maintenance.ts';
 import { scheduleLabel, taskNotes, taskTitle } from '../../shared/lib/labels';
+import { ribbonMonths } from '../../shared/lib/ribbon';
 import { useI18n } from '@/lib/i18n';
 import { useToast } from '@/lib/Toast';
 import type { HouseProfile, MaintenanceEvent, MaintenanceTask } from '@/lib/types';
@@ -21,17 +22,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 function Ribbon({ task }: { task: MaintenanceTask }) {
   const t = useTheme();
   const { t: tr } = useI18n();
-  if (task.schedule !== 'seasonal' || !task.window_start_month || !task.window_end_month) return null;
-  const s = task.window_start_month;
-  const e = task.window_end_month;
+  const months = ribbonMonths(task);
+  if (!months) return null;
   const now = new Date().getMonth() + 1;
   return (
     <View style={{ flexDirection: 'row', gap: 3 }}>
       {tr('ribbon.months').split('').map((m, idx) => {
-        const i = idx + 1;
-        const inWin = s <= e ? i >= s && i <= e : i >= s || i <= e;
+        const inWin = months[idx];
         return (
-          <View key={idx} style={{ flex: 1, height: 26, borderRadius: 13, backgroundColor: inWin ? t.accent : t.dark ? '#262C36' : '#ECEEF2', alignItems: 'center', justifyContent: 'center', borderWidth: i === now ? 2 : 0, borderColor: t.ink }}>
+          <View key={idx} style={{ flex: 1, height: 26, borderRadius: 13, backgroundColor: inWin ? t.accent : t.dark ? '#262C36' : '#ECEEF2', alignItems: 'center', justifyContent: 'center', borderWidth: idx + 1 === now ? 2 : 0, borderColor: t.ink }}>
             <Text style={{ fontSize: 11, color: inWin ? '#FFFFFF' : t.muted, fontFamily: font.semi }}>{m}</Text>
           </View>
         );

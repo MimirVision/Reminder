@@ -41,7 +41,7 @@ export function Settings({ household }: { household: Household }) {
   const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rpc/capture_memory`;
 
   return (
-    <main className="page">
+    <main className="page settings-page">
       <h1>{t('set.title')}</h1>
       {err && <p className="error">{err}</p>}
 

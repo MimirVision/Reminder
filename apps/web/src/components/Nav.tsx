@@ -21,6 +21,11 @@ export function Nav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void })
       <dl className="nav-keys" aria-label={t('desk.keys')}>
         <dt>N</dt><dd>{t('desk.keyNew')}</dd>
         <dt>/</dt><dd>{t('desk.keySearch')}</dd>
+        <dt>J K</dt><dd>{t('desk.keyMove')}</dd>
+        <dt>X</dt><dd>{t('desk.keyDone')}</dd>
+        <dt>E</dt><dd>{t('desk.keyEdit')}</dd>
+        <dt>T</dt><dd>{t('desk.keyTomorrow')}</dd>
+        <dt>Ctrl K</dt><dd>{t('desk.keyPalette')}</dd>
         <dt>1–4</dt><dd>{t('desk.keyTabs')}</dd>
       </dl>
     </div>
