@@ -1,7 +1,7 @@
 // Oppsett: everything the calculations need, entered once. Each employer (or department) has its own hourly wage,
 // supplements and shift types; a setup can be copied to another employer. Below: goal, tax and the account.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, Share, Trash2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, Share, Sparkles, Trash2 } from 'lucide-react';
 import { useStore } from '../data/store';
 import { supabase } from '../data/config';
 import { newId } from '../data/repo';
@@ -12,6 +12,7 @@ import { calcShift, copySetup, shiftKind, wageOn } from '../lib/pay';
 import { EMPLOYER_COLORS, PRESETS, describeAmount, describeWhen, fromPreset } from '../lib/presets';
 import { DEFAULT_TEMPLATES, type Employer, type Settings, type ShiftTemplate, type Supplement } from '../lib/types';
 import { SupplementSheet } from '../components/SupplementSheet';
+import { TOUR_EVENT } from '../components/Tour';
 import { KindIcon } from '../components/ShiftSheet';
 import { Button, Card, Chip, Label, NumberInput, Sheet, Switch, cn, inputClass } from '../components/ui';
 
@@ -90,7 +91,8 @@ export function Setup() {
 function General() {
   const store = useStore();
   const { email, local } = store;
-  const [draft, set] = useDraft<Settings>(store.settings, (s) => void store.saveSettings(s));
+  // Only this form's fields go on top of the newest settings, so a flag saved elsewhere (the walkthrough) isn't undone.
+  const [draft, set] = useDraft<Settings>(store.settings, (s) => void store.saveSettings({ ...store.settings, name: s.name, goal: s.goal, tax_percent: s.tax_percent }));
   const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
   const standalone = matchMedia('(display-mode: standalone)').matches;
   return (
@@ -121,6 +123,10 @@ function General() {
           </Card>
         </Section>
       )}
+
+      <Section title="Hjelp">
+        <Button variant="soft" className="w-full" onClick={() => window.dispatchEvent(new Event(TOUR_EVENT))}><Sparkles className="size-5" /> Vis gjennomgangen igjen</Button>
+      </Section>
 
       <Section title="Konto">
         <Card className="space-y-3">

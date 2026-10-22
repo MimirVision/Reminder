@@ -21,6 +21,7 @@ async function onboard(page: Page, opts: { others?: string[] } = {}) {
   await page.getByRole('button', { name: 'Neste' }).click();
   await page.getByLabel('Månedsmål').fill('30000');
   await page.getByRole('button', { name: 'Kom i gang' }).click();
+  await page.getByRole('button', { name: 'Hopp over' }).click();
 }
 
 test('onboarding, adding shifts and seeing what they pay', async ({ page }) => {
@@ -102,7 +103,7 @@ test('two departments: choose one per shift, filter, and copy a changed setup', 
 test('a supplement added in setup counts on the next shift', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.setItem('vakt-local-data', JSON.stringify({
-    settings: { onboarded: true },
+    settings: { onboarded: true, toured: true },
     employers: [{ id: 'e1', name: 'Jobben', color: '#7c3aed', wages: [{ from: '2000-01-01', hourly: 200 }], templates: [], sort: 0 }],
     supplements: [], shifts: [],
   })));
@@ -127,10 +128,37 @@ test('a supplement added in setup counts on the next shift', async ({ page }) =>
 test('data saved before employers existed moves to one employer', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.setItem('vakt-local-data', JSON.stringify({
-    settings: { onboarded: true, wages: [{ from: '2000-01-01', hourly: 250 }], templates: [] },
+    settings: { onboarded: true, toured: true, wages: [{ from: '2000-01-01', hourly: 250 }], templates: [] },
     supplements: [], shifts: [{ id: 's1', date: '2026-10-21', start_time: '08:00', end_time: '16:00', break_minutes: 0, overtime_percent: 0, note: '' }],
   })));
   await page.reload();
   await page.getByRole('button', { name: 'Oppsett' }).click();
   await expect(page.getByRole('button', { name: /Jobben min.*250 kr\/t.*1 vakter/ })).toBeVisible();
+});
+
+test('the walkthrough shows once, ends in a new shift, and can be started again', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('vakt-local-data', JSON.stringify({
+    settings: { onboarded: true, name: 'Nikita' },
+    employers: [{ id: 'e1', name: 'Jobben', color: '#7c3aed', wages: [{ from: '2000-01-01', hourly: 200 }], templates: [], sort: 0 }],
+    supplements: [], shifts: [],
+  })));
+  await page.reload();
+  const tour = page.getByRole('dialog', { name: 'Gjennomgang' });
+  await expect(tour.getByText('Velkommen, Nikita!')).toBeVisible();
+  for (const title of ['Månedens lønn', 'Bla mellom måneder', 'Legg inn en vakt', 'Alle vaktene', 'Året', 'Oppsett', 'Klar!']) {
+    await tour.getByRole('button', { name: 'Neste' }).click();
+    await expect(tour.getByText(title, { exact: true })).toBeVisible();
+  }
+  await tour.getByRole('button', { name: 'Legg inn første vakt' }).click();
+  await expect(page.getByRole('dialog', { name: 'Ny vakt' })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByTestId('hero-total')).toBeVisible();
+  await page.waitForTimeout(1000);
+  await expect(tour).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Oppsett' }).click();
+  await page.getByRole('button', { name: 'Vis gjennomgangen igjen' }).click();
+  await expect(tour.getByText('Velkommen, Nikita!')).toBeVisible();
 });

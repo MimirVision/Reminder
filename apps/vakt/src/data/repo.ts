@@ -18,8 +18,8 @@ export interface Repo {
 export const newId = () => crypto.randomUUID();
 
 const settingsFrom = (raw: unknown): Settings => {
-  const { name, goal, tax_percent, onboarded } = { ...DEFAULT_SETTINGS, ...(raw && typeof raw === 'object' ? raw : {}) } as Settings;
-  return { name, goal, tax_percent, onboarded };
+  const { name, goal, tax_percent, onboarded, toured } = { ...DEFAULT_SETTINGS, ...(raw && typeof raw === 'object' ? raw : {}) } as Settings;
+  return { name, goal, tax_percent, onboarded, toured };
 };
 
 const SHIFT_COLS = 'id, employer_id, date, start_time, end_time, break_minutes, overtime_percent, note';
