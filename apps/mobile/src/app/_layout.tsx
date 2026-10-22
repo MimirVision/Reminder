@@ -68,6 +68,9 @@ function Gate() {
       void markDone(data.memoryIds).then(() => refreshRegions()).catch(() => {});
     } else if (data?.placeId) {
       router.push({ pathname: '/list/[placeId]', params: { placeId: data.placeId, label: data.label ?? '' } });
+    } else if (data?.memoryIds?.length === 1) {
+      // A reminder for one to-do (at its time, or time to leave): open it.
+      router.push({ pathname: '/add', params: { id: data.memoryIds[0] } });
     }
   }, [last, hasHousehold, router]);
 

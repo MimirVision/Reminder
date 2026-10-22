@@ -274,15 +274,21 @@ export async function listPhotoUrls(memoryIds: string[]): Promise<Map<string, st
   if (memoryIds.length === 0) return out;
   const media: Media[] = check(await supabase.from('media').select('*').in('memory_id', memoryIds).eq('kind', 'photo'));
   if (media.length === 0) return out;
-  const signed = await supabase.storage.from('media').createSignedUrls(media.map((m) => m.storage_path), 3600);
-  if (signed.error) throw new Error(signed.error.message);
-  const urlByPath = new Map(signed.data.map((s) => [s.path, s.signedUrl] as const));
+  // Links last an hour; keep them for 50 minutes so every refresh does not sign every photo again.
+  const now = Date.now();
+  const need = media.filter((m) => (urlCache.get(m.storage_path)?.exp ?? 0) <= now).map((m) => m.storage_path);
+  if (need.length > 0) {
+    const signed = await supabase.storage.from('media').createSignedUrls(need, 3600);
+    if (signed.error) throw new Error(signed.error.message);
+    for (const s of signed.data) if (s.signedUrl) urlCache.set(s.path ?? '', { url: s.signedUrl, exp: now + 50 * 60_000 });
+  }
   for (const m of media) {
-    const url = urlByPath.get(m.storage_path);
+    const url = urlCache.get(m.storage_path)?.url;
     if (url) out.set(m.memory_id, [...(out.get(m.memory_id) ?? []), url]);
   }
   return out;
 }
+const urlCache = new Map<string, { url: string; exp: number }>();
 
 export type CaptureKey = { id: string; label: string; created_at: string; last_used_at: string | null };
 
@@ -486,6 +492,12 @@ export function aiAvailable(): Promise<boolean> {
     try { const { error } = await supabase.functions.invoke('parse-tasks', { body: { probe: true } }); return !error; } catch { return false; }
   })();
   return aiProbe;
+}
+
+/** Null when the database has every column the app uses; otherwise the server's complaint (the upgrade script has not been run). */
+export async function schemaProblem(): Promise<string | null> {
+  const { error } = await supabase.from('memories').select('tags, sort_order, duration_min, remind_travel, place_trigger, notes, checklist, priority, remind_before, assignee_id, pinned').limit(1);
+  return error && /column|schema cache|does not exist/i.test(error.message) ? error.message : null;
 }
 
 /** "Smart add": the AI reads free text into a list of to-dos. `unavailable` when the function is not set up (the caller falls back to the local reader). */

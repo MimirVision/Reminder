@@ -204,11 +204,15 @@ function readPriority(s: string): { s: string; priority: Priority } {
 }
 
 const UNIT_MIN = (u: string) => (/^(?:h|hours?|timer?|t)$/i.test(u) ? 60 : /^(?:days?|dag(?:er)?)$/i.test(u) ? 1440 : 1);
-const LEAD = W('(?:(?:remind|alert|påminn|varsle)(?:\\s+(?:me|meg))?\\s+)?(\\d{1,4})\\s*(min(?:utes?|utter)?|hours?|timer?|h|days?|dag(?:er)?)\\s+(?:before|ahead|early|før|i forveien)');
+const LEAD_UNIT = '(\\d{1,4})\\s*(min(?:utes?|utter)?|hours?|timer?|h|days?|dag(?:er)?)';
+// With "remind me" the sentence can go on; a bare "30 min before" counts only when it ends the phrase ("...at 14:00, 30 min before"),
+// so "buy a gift 2 days before the party" keeps its words.
+const LEAD_VERB = W(`(?:remind|alert|påminn|varsle)(?:\\s+(?:me|meg))?\\s+(?:om\\s+)?${LEAD_UNIT}\\s+(?:before|ahead|early|før|i forveien)`);
+const LEAD_BARE = W(`${LEAD_UNIT}\\s+(?:before|ahead|early|før|i forveien)(?=\\s*(?:$|[,.;!?]|it\\b|that\\b|then\\b|the time\\b|start|begin|den\\b|det\\b|start|begynner))`);
 const TAKES = W('(?:takes?|taking|tar|varer|duration)\\s+(?:about\\s+|ca\\.?\\s+|rundt\\s+)?(\\d{1,4})\\s*(min(?:utes?|utter)?|hours?|timer?|h|t)');
 function readLeadAndDuration(s: string): { s: string; lead: number | null; dur: number | null } {
   let lead: number | null = null, dur: number | null = null;
-  const a = matchAt(s, LEAD);
+  const a = matchAt(s, LEAD_VERB) ?? matchAt(s, LEAD_BARE);
   if (a) { const n = +a.m[1] * UNIT_MIN(a.m[2]); if (n >= 0 && n <= 20160) { lead = n; s = a.rest; } }
   const b = matchAt(s, TAKES);
   if (b) { const n = +b.m[1] * UNIT_MIN(b.m[2]); if (n >= 1 && n <= 1440) { dur = n; s = b.rest; } }

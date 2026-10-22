@@ -750,5 +750,20 @@
   "sync.failed_other": "{n} oppgaver kunne ikke lagres",
   "sync.retry": "Prøv igjen",
   "sync.stillSending": "Sendes fortsatt. Prøver igjen nå …",
-  "sync.completeFailed": "Kunne ikke fullføre: {msg}"
+  "sync.completeFailed": "Kunne ikke fullføre: {msg}",
+  "sync.actionFailed": "Det gikk ikke gjennom: {msg}",
+  "schema.outdated": "Databasen trenger en oppdatering",
+  "schema.how": "Åpne Supabase, gå til SQL editor, lim inn supabase/upgrade.sql og kjør den. Den kan trygt kjøres flere ganger. Inntil da kan ikke merkelapper, varighet og lignende lagres.",
+  "schema.recheck": "Sjekk igjen",
+  "schema.ok": "Databasen er oppdatert",
+  "diag.title": "Synkronisering og påminnelser",
+  "diag.lastSync": "Sist synkronisert",
+  "diag.never": "ikke ennå",
+  "diag.waiting": "Venter på å bli sendt",
+  "diag.failed": "Kunne ikke lagres",
+  "diag.database": "Database",
+  "diag.planned": "Planlagte påminnelser",
+  "diag.nonePlanned": "Ingen planlagt.",
+  "diag.refresh": "Oppdater",
+  "diag.dbOutdated": "Trenger oppdatering (kjør upgrade.sql)"
 }

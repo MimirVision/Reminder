@@ -750,5 +750,20 @@
   "sync.failed_other": "{n} to-dos could not be saved",
   "sync.retry": "Try again",
   "sync.stillSending": "Still being sent. Trying again now…",
-  "sync.completeFailed": "Could not finish that: {msg}"
+  "sync.completeFailed": "Could not finish that: {msg}",
+  "sync.actionFailed": "That did not go through: {msg}",
+  "schema.outdated": "Your database needs an update",
+  "schema.how": "Open Supabase, go to SQL editor, paste supabase/upgrade.sql and run it. It is safe to run again. Until then tags, duration and similar extras cannot be saved.",
+  "schema.recheck": "Check again",
+  "schema.ok": "Database is up to date",
+  "diag.title": "Sync and reminders",
+  "diag.lastSync": "Last sync",
+  "diag.never": "not yet",
+  "diag.waiting": "Waiting to be sent",
+  "diag.failed": "Could not be saved",
+  "diag.database": "Database",
+  "diag.planned": "Planned reminders",
+  "diag.nonePlanned": "None planned.",
+  "diag.refresh": "Refresh",
+  "diag.dbOutdated": "Needs an update (run upgrade.sql)"
 }

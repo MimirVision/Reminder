@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   acceptSuggestion, cachedOpenMemories, deleteMemory, dismissSuggestion, flushOutbox, listMembers, listMemories, listPhotoUrls, listPlaces, markDone,
-  notifyPartnerIfSet, pendingTodos, purgeDismissed, reopen, requestSuggestion, restoreMemory, setOrder, softDelete, subscribeHousehold, updateMemory,
+  notifyPartnerIfSet, pendingTodos, schemaProblem, purgeDismissed, reopen, requestSuggestion, restoreMemory, setOrder, softDelete, subscribeHousehold, updateMemory,
 } from '../lib/api';
 import { tap } from '../lib/haptics';
 import { statusFor } from '../lib/api';
@@ -67,6 +67,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [menu, setMenu] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [schemaBad, setSchemaBad] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulkMove, setBulkMove] = useState(false);
   const [addDate, setAddDate] = useState<string | undefined>();
@@ -113,6 +114,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const loadPlaces = useCallback(() => { listPlaces(household.id).then((p) => { setPlaces(p); setPlacesLoaded(true); }).catch(() => setPlacesLoaded(true)); }, [household.id]);
 
   useEffect(() => { void load(); }, [load]);
+  const checkSchema = useCallback(() => { schemaProblem().then((p) => setSchemaBad(!!p)).catch(() => {}); }, []);
+  useEffect(() => { checkSchema(); }, [checkSchema]);
   useEffect(() => { loadPlaces(); listMembers(household.id).then(setMembers).catch(() => {}); }, [household.id, loadPlaces]);
   useEffect(() => { void purgeDismissed(household.id).catch(() => {}); }, [household.id]);
 
@@ -310,7 +313,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     endPicking();
     setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
     setDoneTicks((n) => n + list.length);
-    void act(async () => { for (const m of list) await markDone(m.id); }).then(() => toast({ text: tn('bulk.completed', list.length) }));
+    const nexts: string[] = [];
+    void act(async () => { for (const m of list) { const n = await markDone(m.id); if (n) nexts.push(n); } }).then(() => toast({ text: tn('bulk.completed', list.length), undo: () => void act(async () => { for (const m of list) await reopen(m.id, m); for (const n of nexts) await deleteMemory(n); }) }));
   };
   const bulkDelete = () => {
     const list = chosen();
@@ -322,7 +326,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     const list = chosen();
     endPicking();
     setMemories((cur) => cur.map((x) => (list.some((l) => l.id === x.id) ? { ...x, due_on: date, due_time: date ? x.due_time : null } : x)));
-    void act(async () => { for (const m of list) await updateMemory(m.id, { due_on: date, due_time: date ? m.due_time : null, repeat_rule: date ? m.repeat_rule ?? null : null, status: statusFor({ place_id: m.place_id, due_on: date }) }); }).then(() => toast({ text: tn('bulk.moved', list.length) }));
+    void act(async () => { for (const m of list) await updateMemory(m.id, { due_on: date, due_time: date ? m.due_time : null, repeat_rule: date ? m.repeat_rule ?? null : null, status: statusFor({ place_id: m.place_id, due_on: date }) }); }).then(() => toast({ text: tn('bulk.moved', list.length), undo: () => void act(async () => { for (const m of list) await updateMemory(m.id, { due_on: m.due_on, due_time: m.due_time, repeat_rule: m.repeat_rule ?? null, status: statusFor(m) }); }) }));
   };
 
   const saved = (info: SavedInfo) => {
@@ -442,6 +446,12 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
         </div>
       )}
       {reordering && !showDone && !mapOn && <div className="reorder-bar" role="status"><span>{t('reorder.hint')}</span><button className="btn small primary" onClick={() => setReordering(false)}>{t('reorder.done')}</button></div>}
+      {schemaBad && !mapOn && (
+        <div className="late-banner schema-banner" role="alert">
+          <span><strong>{t('schema.outdated')}</strong><br />{t('schema.how')}</span>
+          <button className="btn small" onClick={checkSchema}>{t('schema.recheck')}</button>
+        </div>
+      )}
       {(!online || loadFailed) && !mapOn && <p className="offline-banner" role="status">{t('offline.banner')}</p>}
       {err && (
         <p className="error" role="alert">{err} <button className="link" onClick={() => void load()}>{t('common.retry')}</button></p>

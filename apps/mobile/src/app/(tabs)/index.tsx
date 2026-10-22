@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   acceptSuggestion, completeMemory, deleteMemory, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, purgeDismissed, reopenMemory,
-  requestSuggestion, setOrder, softDelete, statusFor, subscribeHousehold, updateMemory,
+  requestSuggestion, schemaProblem, setOrder, softDelete, statusFor, subscribeHousehold, updateMemory,
 } from '@/lib/api';
 import { AddBar } from '@/lib/AddBar';
 import { CalendarView } from '@/lib/CalendarView';
@@ -55,6 +55,8 @@ export default function Todo() {
   const [reordering, setReordering] = useState(false);
   const [searching, setSearching] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [schemaBad, setSchemaBad] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [recapOn, setRecapOn] = useState(() => readJson<boolean>('hm.recap', false));
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
@@ -83,17 +85,22 @@ export default function Todo() {
     try {
       await flush();
       const [m, p, mem] = await Promise.all([listMemories(household.id, ['inbox', 'active']), listPlaces(household.id), listMembers(household.id)]);
+      setOffline(false);
+      writeJson('hm.lastSync', Date.now());
+      writeJson('hm.cache.memories', m.slice(0, 100)); // so the list still opens with no connection
       setMemories([...pending().filter((q) => q.household_id === household.id && !m.some((x) => x.id === q.id)).map((q) => queuedToMemory(q, uid)), ...m]);
       setPlaces(p);
       setMembers(mem);
-      setPhotos(await listPhotoUrls(m.map((x) => x.id)));
+      listPhotoUrls(m.map((x) => x.id)).then(setPhotos).catch(() => {}); // photos never hold up the list or the reminders
       void scheduleDueReminders([...waiting, ...m]); // to-dos still waiting to be sent ring too
       void scheduleBriefings([...waiting, ...m]);
       latest = { m, p };
       void setBadge(m, todayISO());
       await refreshRegions().catch(() => {});
     } catch {
-      setMemories((cur) => [...waiting, ...cur.filter((x) => !x.pending)]); // offline: keep what we have, plus what was written on this phone
+      setOffline(true);
+      // Offline: keep what we have (or the last list we saw), plus what was written on this phone.
+      setMemories((cur) => [...waiting, ...(cur.filter((x) => !x.pending).length > 0 ? cur.filter((x) => !x.pending) : readJson<Memory[]>('hm.cache.memories', []).filter((x) => !waiting.some((w) => w.id === x.id)))]);
     }
     setLoaded(true);
     const mp = await mapPins().catch(() => ({ here: null, pins: [] as Pin[] }));
@@ -104,6 +111,8 @@ export default function Todo() {
   }, [household, uid]);
 
   useEffect(() => { void load(); }, [load]);
+  const checkSchema = useCallback(() => { schemaProblem().then((p) => { setSchemaBad(!!p); writeJson('hm.schemaBad', !!p); }).catch(() => {}); }, []);
+  useEffect(() => { checkSchema(); }, [checkSchema]);
   const loadDone = useCallback(async () => { if (household) setDoneList(await listMemories(household.id, ['done']).catch(() => [])); }, [household]);
   useEffect(() => { if (showDone) void loadDone(); }, [showDone, loadDone]);
   useFocusEffect(useCallback(() => { setRecapOn(readJson<boolean>('hm.recap', false)); void load(); }, [load])); // after the add screen closes or a setting changes
@@ -193,6 +202,8 @@ export default function Todo() {
   };
   const byline = (m: Memory) => (m.author_id === uid ? undefined : `${nameOf(m.author_id) ?? t('common.partner')} · ${ago(m.created_at)}`);
 
+  const report = (e: unknown) => toast({ text: t('sync.actionFailed', { msg: e instanceof Error ? e.message : String(e) }) });
+
   async function complete(m: Memory) {
     if (m.pending) { toast({ text: t('sync.stillSending') }); void flush().then(() => load()); return; }
     setMemories((cur) => cur.filter((x) => x.id !== m.id));
@@ -213,7 +224,7 @@ export default function Todo() {
     try {
       await softDelete(m.id);
       toast({ text: t('toast.deleted'), undo: () => void (async () => { await updateMemory(m.id, { status: statusFor(m) }).catch(() => {}); await load(); })() });
-    } finally {
+    } catch (e) { report(e); } finally {
       void load();
     }
   }
@@ -225,7 +236,7 @@ export default function Todo() {
     const ups = moveStep(group, m.id, dir);
     if (!ups) return;
     setMemories((cur) => cur.map((x) => { const u = ups.find((y) => y.id === x.id); return u ? { ...x, sort_order: u.sort_order } : x; }));
-    try { await setOrder(ups); } finally { void load(); }
+    try { await setOrder(ups); } catch (e) { report(e); } finally { void load(); }
   }
   const reorderFor = (group: Memory[], m: Memory) => reordering && !m.pending
     ? { up: group[0]?.id === m.id ? undefined : () => void move(group, m, -1), down: group[group.length - 1]?.id === m.id ? undefined : () => void move(group, m, 1) } : undefined;
@@ -281,19 +292,19 @@ export default function Todo() {
     try {
       await updateMemory(m.id, patch({ ...was, due_on: date }));
       toast({ text: t('toast.saved'), undo: () => void (async () => { await updateMemory(m.id, patch(was)).catch(() => {}); await load(); })() });
-    } finally { void load(); }
+    } catch (e) { report(e); } finally { void load(); }
   }
 
   async function tickStep(m: Memory, items: NonNullable<Memory['checklist']>) {
     setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, checklist: items } : x)));
-    try { await updateMemory(m.id, { checklist: items }); } finally { void load(); }
+    try { await updateMemory(m.id, { checklist: items }); } catch (e) { report(e); } finally { void load(); }
   }
 
   const lateOnes = visible.filter((m) => !m.pending && isLate(m, todayISO()));
   async function moveLateToToday() {
     const day = todayISO();
     setMemories((cur) => cur.map((x) => (lateOnes.some((l) => l.id === x.id) ? { ...x, due_on: day } : x)));
-    try { for (const m of lateOnes) await updateMemory(m.id, { due_on: day }); toast({ text: t('late.moved') }); } finally { void load(); }
+    try { for (const m of lateOnes) await updateMemory(m.id, { due_on: day }); toast({ text: t('late.moved') }); } catch (e) { report(e); } finally { void load(); }
   }
 
   const section = (title: string, items: Memory[]) => items.length === 0 ? null : (
@@ -386,7 +397,11 @@ export default function Todo() {
     endPicking();
     setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
     setDoneTicks((n) => n + list.length);
-    try { for (const m of list) await completeMemory(m.id); toast({ text: tn('bulk.completed', list.length) }); } finally { void load(); }
+    const nexts: string[] = [];
+    try {
+      for (const m of list) { const n = await completeMemory(m.id); if (n) nexts.push(n); }
+      toast({ text: tn('bulk.completed', list.length), undo: () => void (async () => { for (const m of list) await reopenMemory(m.id, m).catch(() => {}); for (const n of nexts) await deleteMemory(n).catch(() => {}); await load(); })() });
+    } catch (e) { report(e); } finally { void load(); }
   }
   async function bulkDelete() {
     const list = chosen();
@@ -395,7 +410,7 @@ export default function Todo() {
     try {
       for (const m of list) await softDelete(m.id);
       toast({ text: tn('bulk.deleted', list.length), undo: () => void (async () => { for (const m of list) await updateMemory(m.id, { status: statusFor(m) }).catch(() => {}); await load(); })() });
-    } finally { void load(); }
+    } catch (e) { report(e); } finally { void load(); }
   }
   function bulkMove() {
     const list = chosen();
@@ -409,14 +424,14 @@ export default function Todo() {
       void (async () => {
         try {
           for (const m of list) await updateMemory(m.id, { due_on: date, due_time: date ? m.due_time : null, repeat_rule: date ? m.repeat_rule ?? null : null, status: statusFor({ place_id: m.place_id, due_on: date }) });
-          toast({ text: tn('bulk.moved', list.length) });
-        } finally { void load(); }
+          toast({ text: tn('bulk.moved', list.length), undo: () => void (async () => { for (const m of list) await updateMemory(m.id, { due_on: m.due_on, due_time: m.due_time, repeat_rule: m.repeat_rule ?? null, status: statusFor(m) }).catch(() => {}); await load(); })() });
+        } catch (e) { report(e); } finally { void load(); }
       })();
     });
   }
   async function reopenDone(m: Memory) {
     setDoneList((cur) => cur.filter((x) => x.id !== m.id));
-    try { await reopenMemory(m.id, m); } finally { void load(); void loadDone(); }
+    try { await reopenMemory(m.id, m); } catch (e) { report(e); } finally { void load(); void loadDone(); }
   }
 
   const partnerName = partner ? partner.display_name || t('common.partner') : null;
@@ -488,6 +503,14 @@ export default function Todo() {
         </View>
         {!showDone && segmented(true)}
         {searching && !showDone && <Field autoFocus placeholder={t('search.placeholder')} value={query} onChangeText={setQuery} returnKeyType="search" clearButtonMode="while-editing" autoCorrect={false} />}
+        {schemaBad && (
+          <View style={{ gap: 8, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.tint }}>
+            <Text accessibilityRole="alert" style={{ color: th.tintInk, fontSize: 15, fontFamily: font.semi }}>{t('schema.outdated')}</Text>
+            <Muted>{t('schema.how')}</Muted>
+            <View style={styles.row}><Btn small label={t('schema.recheck')} onPress={checkSchema} /></View>
+          </View>
+        )}
+        {offline && <Muted>{t('offline.banner')}</Muted>}
         {queued > 0 && <Muted>{tn('sync.waiting', queued)}</Muted>}
         {failedItems().length > 0 && (
           <View style={{ gap: 8, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.tint }}>

@@ -306,6 +306,20 @@ export async function replanNotifications(householdId: string): Promise<void> {
   } catch { /* offline */ }
 }
 
+/** What the phone has planned to ring, soonest first (for the diagnostics card in Settings). */
+export async function plannedNotifications(max = 8): Promise<{ id: string; at: Date; title: string }[]> {
+  try {
+    const all = await Notifications.getAllScheduledNotificationsAsync();
+    const out = all.map((n) => {
+      const t = n.trigger as { value?: number; date?: number | string } | null;
+      const raw = t?.value ?? t?.date;
+      const at = raw != null ? new Date(raw) : null;
+      return at && !Number.isNaN(at.getTime()) ? { id: n.identifier, at, title: [n.content.title, n.content.body].filter(Boolean).join(': ') } : null;
+    }).filter((x): x is { id: string; at: Date; title: string } => !!x);
+    return out.sort((a, b) => a.at.getTime() - b.at.getTime()).slice(0, max);
+  } catch { return []; }
+}
+
 export type NotifyStatus = 'granted' | 'denied' | 'undetermined';
 export async function notifyStatus(): Promise<NotifyStatus> {
   try {

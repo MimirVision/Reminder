@@ -195,3 +195,14 @@ test('"when I leave home" is a real leave trigger at that place', async () => {
   assert.equal(a[0].leaving, true);
   assert.equal(a[0].title, 'Buy diapers');
 });
+
+test('"2 days before the party" is not read as a reminder, but a trailing "30 min before" is', async () => {
+  const { parseTasks } = await import('./quickAdd.ts');
+  const now = new Date(2026, 9, 22, 9, 0);
+  const a = parseTasks('buy a gift 2 days before the party', { places: [], now });
+  assert.equal(a[0].remind_before, null);
+  assert.equal(a[0].title, 'Buy a gift 2 days before the party');
+  const b = parseTasks('dentist tomorrow at 14:00, 30 min before', { places: [], now });
+  assert.equal(b[0].remind_before, 30);
+  assert.equal(b[0].title, 'Dentist');
+});

@@ -7,12 +7,13 @@ import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, r
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { Select } from '@/lib/Select';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
-import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, readBriefing, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
+import { failedItems, pending } from '@/lib/outbox';
+import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, plannedNotifications, readBriefing, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
 import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
 import { font, setThemePref, useTheme, useThemePref } from '@/lib/theme';
-import { BAR_SPACE, Btn, Card, Field, Muted, Title, styles } from '@/lib/ui';
+import { BAR_SPACE, Btn, Card, Field, Muted, SectionLabel, Title, styles } from '@/lib/ui';
 import type { CaptureKey } from '@/lib/types';
 
 export default function Settings() {
@@ -32,6 +33,8 @@ export default function Settings() {
   const [confirmText, setConfirmText] = useState('');
   const [acctBusy, setAcctBusy] = useState(false);
   const [brief, setBrief] = useState(readBriefing);
+  const [lastSync, setLastSync] = useState(() => readJson<number | null>('hm.lastSync', null));
+  const [planned, setPlanned] = useState<{ id: string; at: Date; title: string }[]>([]);
   const [recap, setRecap] = useState(() => readJson<boolean>('hm.recap', false));
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
@@ -41,7 +44,7 @@ export default function Settings() {
     setNotif(await notifyStatus());
     setKeys(await listCaptureKeys().catch(() => []));
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); void plannedNotifications().then(setPlanned); }, [load]);
 
   async function turnOn() {
     try {
@@ -86,6 +89,20 @@ export default function Settings() {
         {notif === 'undetermined' && <Btn primary label={t('set.notifTurnOn')} onPress={async () => { await ensureNotifyPermission(); await load(); }} />}
         {notif === 'denied' && <Btn primary label={t('set.openSettings')} onPress={() => void Linking.openSettings()} />}
         {notif === 'granted' && <Btn label={t('set.notifTest')} onPress={async () => { Alert.alert((await sendTestNotification()) ? t('set.notifTestSent') : t('set.notifDenied')); }} />}
+      </Card>
+
+      <Card>
+        {h(t('diag.title'))}
+        <Muted>{t('diag.lastSync')}: {lastSync ? new Date(lastSync).toLocaleString(locale) : t('diag.never')}</Muted>
+        <Muted>{t('diag.database')}: {readJson<boolean>('hm.schemaBad', false) ? t('diag.dbOutdated') : t('schema.ok')}</Muted>
+        <Muted>{t('diag.waiting')}: {pending().length} · {t('diag.failed')}: {failedItems().length}</Muted>
+        <SectionLabel>{t('diag.planned')}</SectionLabel>
+        {planned.length === 0 ? <Muted>{t('diag.nonePlanned')}</Muted> : planned.map((n) => (
+          <Text key={n.id} numberOfLines={2} style={{ color: th.ink, fontSize: 14, fontFamily: font.body }}>
+            {n.at.toLocaleString(locale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {n.title}
+          </Text>
+        ))}
+        <Btn small label={t('diag.refresh')} onPress={() => { setLastSync(readJson<number | null>('hm.lastSync', null)); void plannedNotifications().then(setPlanned); }} />
       </Card>
 
       <Card>
