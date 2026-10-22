@@ -3,6 +3,7 @@ import { calcShift, copySetup, overlapMinutes, payOf, shiftKind, summarize, wage
 import { eveName, holidayName, isHoliday } from './holidays';
 import { isoWeek, toMinutes } from './dates';
 import type { Employer, Shift, Supplement } from './types';
+import { PRESETS, fromPreset } from './presets';
 
 const shift = (date: string, start_time: string, end_time: string, extra: Partial<Shift> = {}): Shift =>
   ({ id: 's', employer_id: null, date, start_time, end_time, break_minutes: 0, overtime_percent: 0, note: '', ...extra });
@@ -136,4 +137,9 @@ describe('helpers', () => {
     expect(isoWeek('2026-10-22')).toBe(43);
     expect(isoWeek('2027-01-01')).toBe(53);
   });
+});
+
+it('turns a preset (even with extra form fields on it) into exactly a supplement', () => {
+  const sup = fromPreset({ ...PRESETS[0], on: true } as typeof PRESETS[0], 'e1', 'id1', 0);
+  expect(Object.keys(sup).sort()).toEqual(['active', 'amount', 'amount_type', 'color', 'days', 'employer_id', 'end_time', 'id', 'min_per_hour', 'name', 'sort', 'start_time']);
 });

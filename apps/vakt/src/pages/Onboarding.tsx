@@ -1,6 +1,6 @@
 // First time in: where she works and the hourly wage, which supplements she gets (with amounts to check), other
 // employers or departments (same setup copied), and a monthly goal. Everything can be changed later under Oppsett.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import { useStore } from '../data/store';
 import { newId } from '../data/repo';
@@ -21,11 +21,14 @@ export function Onboarding() {
   const [others, setOthers] = useState<string[]>(['']);
   const [goal, setGoal] = useState<number | null>(settings.goal);
   const [busy, setBusy] = useState(false);
+  // The same ids on every try, so pressing again after a failed save updates what got saved instead of adding twice.
+  const firstId = useRef(existing?.id ?? newId());
+  const otherIds = useRef<string[]>([]);
 
   const finish = async () => {
     setBusy(true);
     const first: Employer = {
-      id: existing?.id ?? newId(), name: job.trim() || 'Jobben min', color: existing?.color ?? EMPLOYER_COLORS[0],
+      id: firstId.current, name: job.trim() || 'Jobben min', color: existing?.color ?? EMPLOYER_COLORS[0],
       wages: wage ? [{ from: '2000-01-01', hourly: wage }] : [],
       templates: existing?.templates.length ? existing.templates : DEFAULT_TEMPLATES.map((t) => ({ ...t, id: newId() })), sort: 0,
     };
@@ -34,7 +37,8 @@ export function Onboarding() {
     if (more) {
       const names = others.map((o) => o.trim()).filter(Boolean);
       for (const [i, n] of names.entries()) {
-        const target: Employer = { id: newId(), name: n, color: EMPLOYER_COLORS[(i + 1) % EMPLOYER_COLORS.length], wages: [], templates: [], sort: i + 1 };
+        otherIds.current[i] ??= newId();
+        const target: Employer = { id: otherIds.current[i], name: n, color: EMPLOYER_COLORS[(i + 1) % EMPLOYER_COLORS.length], wages: [], templates: [], sort: i + 1 };
         const out = copySetup(first, sups, target, newId);
         if (!(await replaceSetup(out.employer, out.supplements))) { setBusy(false); return; }
       }

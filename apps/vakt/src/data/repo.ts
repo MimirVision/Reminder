@@ -25,6 +25,11 @@ const settingsFrom = (raw: unknown): Settings => {
 const SHIFT_COLS = 'id, employer_id, date, start_time, end_time, break_minutes, overtime_percent, note';
 const SUP_COLS = 'id, employer_id, name, color, amount_type, amount, min_per_hour, days, start_time, end_time, active, sort';
 
+// Only the table's columns go to the database: an extra field in an object (from a form, say) would make the save fail.
+const pick = <T extends object>(x: T, cols: string): T =>
+  Object.fromEntries(cols.split(', ').filter((k) => k in x).map((k) => [k, (x as Record<string, unknown>)[k]])) as T;
+const EMP_COLS = 'id, name, color, wages, templates, sort';
+
 const toSupplement = (r: Record<string, unknown>): Supplement => ({
   ...(r as unknown as Supplement),
   amount: Number(r.amount),
@@ -38,7 +43,7 @@ export function supabaseRepo(): Repo {
     async load() {
       const [p, emp, sup, sh] = await Promise.all([
         db.from('vakt_profiles').select('settings').maybeSingle(),
-        db.from('vakt_employers').select('id, name, color, wages, templates, sort').order('sort').order('created_at'),
+        db.from('vakt_employers').select(EMP_COLS).order('sort').order('created_at'),
         db.from('vakt_supplements').select(SUP_COLS).order('sort').order('created_at'),
         db.from('vakt_shifts').select(SHIFT_COLS).order('date').order('start_time'),
       ]);
@@ -54,11 +59,11 @@ export function supabaseRepo(): Repo {
       const { data } = await db.auth.getUser();
       check(await db.from('vakt_profiles').upsert({ owner_id: data.user?.id, settings }));
     },
-    async saveShift(s) { check(await db.from('vakt_shifts').upsert(s)); },
+    async saveShift(s) { check(await db.from('vakt_shifts').upsert(pick(s, SHIFT_COLS))); },
     async deleteShift(id) { check(await db.from('vakt_shifts').delete().eq('id', id)); },
-    async saveSupplements(list) { if (list.length) check(await db.from('vakt_supplements').upsert(list)); },
+    async saveSupplements(list) { if (list.length) check(await db.from('vakt_supplements').upsert(list.map((x) => pick(x, SUP_COLS)))); },
     async deleteSupplements(ids) { if (ids.length) check(await db.from('vakt_supplements').delete().in('id', ids)); },
-    async saveEmployer(e) { check(await db.from('vakt_employers').upsert(e)); },
+    async saveEmployer(e) { check(await db.from('vakt_employers').upsert(pick(e, EMP_COLS))); },
     async deleteEmployer(id) { check(await db.from('vakt_employers').delete().eq('id', id)); },
   };
 }
@@ -83,11 +88,12 @@ export function localRepo(): Repo {
   return {
     load: () => Promise.resolve(read()),
     saveSettings: (settings) => write((d) => ({ ...d, settings })),
-    saveShift: (s) => write((d) => ({ ...d, shifts: upsert(d.shifts, s) })),
+    // Stored the way the database stores them, so a field the tables don't have shows up in local mode too.
+    saveShift: (s) => write((d) => ({ ...d, shifts: upsert(d.shifts, pick(s, SHIFT_COLS)) })),
     deleteShift: (id) => write((d) => ({ ...d, shifts: d.shifts.filter((x) => x.id !== id) })),
-    saveSupplements: (list) => write((d) => ({ ...d, supplements: list.reduce(upsert, d.supplements) })),
+    saveSupplements: (list) => write((d) => ({ ...d, supplements: list.map((x) => pick(x, SUP_COLS)).reduce(upsert, d.supplements) })),
     deleteSupplements: (ids) => write((d) => ({ ...d, supplements: d.supplements.filter((x) => !ids.includes(x.id)) })),
-    saveEmployer: (e) => write((d) => ({ ...d, employers: upsert(d.employers, e) })),
+    saveEmployer: (e) => write((d) => ({ ...d, employers: upsert(d.employers, pick(e, EMP_COLS)) })),
     deleteEmployer: (id) => write((d) => ({ ...d, employers: d.employers.filter((x) => x.id !== id), supplements: d.supplements.filter((x) => x.employer_id !== id) })),
   };
 }
