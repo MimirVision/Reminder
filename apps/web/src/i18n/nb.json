@@ -765,5 +765,11 @@
   "diag.planned": "Planlagte påminnelser",
   "diag.nonePlanned": "Ingen planlagt.",
   "diag.refresh": "Oppdater",
-  "diag.dbOutdated": "Trenger oppdatering (kjør upgrade.sql)"
+  "diag.dbOutdated": "Trenger oppdatering (kjør upgrade.sql)",
+  "desk.keys": "Hurtigtaster",
+  "desk.keyNew": "Ny oppgave",
+  "desk.keySearch": "Søk",
+  "desk.keyTabs": "Bytt skjerm",
+  "desk.addHint": "Legg til en oppgave… (N)",
+  "desk.today": "Kalender"
 }

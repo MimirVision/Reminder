@@ -32,7 +32,7 @@
     {
       "name": "New to-do",
       "short_name": "New",
-      "url": "/?share=1",
+      "url": "/?new=1",
       "icons": [
         {
           "src": "/icon-180.png",
@@ -40,5 +40,13 @@
         }
       ]
     }
+  ],
+  "id": "/",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "categories": [
+    "productivity",
+    "lifestyle"
   ]
 }

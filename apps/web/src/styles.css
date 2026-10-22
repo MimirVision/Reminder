@@ -433,3 +433,51 @@ input.switch:checked::after { transform: translateX(20px); }
 .bulkbar .row { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
 .bulkbar .btn { min-width: 0; padding-left: 6px; padding-right: 6px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 380px) { .bulkbar .btn svg { display: none; } }
+
+/* ---------- Computer layout (a laptop or desktop window, 1000 px and up): a side bar, a wider page, a calendar next to the list ---------- */
+.nav-brand, .nav-keys { display: none; }
+.row-del { display: none; }
+.todo-cols, .todo-main { display: contents; }
+@media (hover: hover) and (min-width: 1000px) {
+  .row-del { display: inline-grid; place-items: center; opacity: 0; transition: opacity 0.12s; align-self: center; }
+  .todo:hover .row-del, .row-del:focus-visible { opacity: 1; }
+}
+@media (min-width: 1000px) {
+  :root { --side: 232px; }
+  /* side bar instead of the floating bottom bar */
+  .nav-dock { top: 0; bottom: 0; left: 0; right: auto; width: var(--side); padding: 22px 14px 18px; flex-direction: column; justify-content: flex-start; align-items: stretch; gap: 16px; pointer-events: auto; z-index: 30;
+    background: color-mix(in srgb, var(--card) 60%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.3); backdrop-filter: blur(22px) saturate(1.3); border-right: 1px solid var(--line); }
+  .nav-dock > * { max-width: none; width: 100%; }
+  .nav-brand { display: block; padding: 4px 12px 8px; font: 700 20px var(--font-display, var(--font-body)); letter-spacing: -0.3px; }
+  .nav-dock .nav.glass { flex-direction: column; gap: 4px; padding: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .nav-dock .nav.glass::before, .nav-dock .nav.glass::after { display: none; }
+  .nav button { flex: none; height: 44px; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 0 14px; border-radius: 12px; font-size: 15px; }
+  .nav button:hover:not([aria-current='page']) { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+  .nav-keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; margin: auto 0 0; padding: 0 12px; font-size: 13px; color: var(--muted); }
+  .nav-keys dt { font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); border-radius: 6px; padding: 1px 7px; text-align: center; }
+  .nav-keys dd { margin: 0; }
+
+  /* the page sits to the right of the side bar, centred in what is left */
+  .page:not(.narrow):not(.map-mode) { --content: 820px; margin: 0 0 0 var(--side); width: calc(100vw - var(--side)); max-width: none; padding: 32px max(40px, calc((100vw - var(--side) - var(--content)) / 2)) 80px; }
+  .page.todo-page { --content: 1180px; }
+  .page.todo-page .todo-cols { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 32px; align-items: start; }
+  .page.todo-page .todo-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .todo-aside { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+  .addbar.inline { position: sticky; top: 12px; z-index: 6; height: 52px; max-width: none; }
+  .head h1 { font-size: 34px; }
+  .sheet { max-width: 620px; }
+  .toast-dock { left: var(--side); bottom: 24px; }
+  .bulkbar { left: calc(var(--side) + 40px); right: auto; width: min(560px, calc(100vw - var(--side) - 480px)); bottom: 24px; }
+
+  /* the map: beside the side bar, with the places list as a panel on the left instead of a bottom sheet */
+  .mapwrap { left: var(--side); }
+  .map-mode .head { left: var(--side); }
+  .map-controls { right: 24px; bottom: 24px !important; }
+  .mapsheet { left: calc(var(--side) + 16px); top: 76px; bottom: 16px; width: 380px; height: auto !important; transform: none; border-radius: 24px; }
+  .mapsheet-head { cursor: default; }
+  .mapsheet .grab-bar { display: none; }
+  .mapsheet-body { padding-bottom: 16px; }
+  .mapsheet-body.peek { overflow: auto; }
+  .mapsheet-body.peek .pc-actions { display: flex; }
+  .mapwrap .maplibregl-ctrl-bottom-left { bottom: 0; }
+}

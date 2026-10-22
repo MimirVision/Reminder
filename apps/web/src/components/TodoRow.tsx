@@ -69,6 +69,9 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
         )}
         {children}
       </div>
+      {onDelete && !done && !reorder && !select && (
+        <button type="button" className="mini row-del" aria-label={t('sheet.delete')} title={t('sheet.delete')} onClick={onDelete}><Icon name="trash" size={15} /></button>
+      )}
       {reorder && (
         <div className="reorder">
           <button type="button" className="mini" disabled={!reorder.up} aria-label={t('reorder.up', { title: title.split('\n')[0] })} onClick={reorder.up}><Icon name="up" size={16} /></button>

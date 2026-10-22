@@ -765,5 +765,11 @@
   "diag.planned": "Planned reminders",
   "diag.nonePlanned": "None planned.",
   "diag.refresh": "Refresh",
-  "diag.dbOutdated": "Needs an update (run upgrade.sql)"
+  "diag.dbOutdated": "Needs an update (run upgrade.sql)",
+  "desk.keys": "Keys",
+  "desk.keyNew": "New to-do",
+  "desk.keySearch": "Search",
+  "desk.keyTabs": "Switch screen",
+  "desk.addHint": "Add a to-do… (N)",
+  "desk.today": "Calendar"
 }

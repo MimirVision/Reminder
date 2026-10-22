@@ -42,6 +42,19 @@ export default function App() {
     else setHousehold(null);
   }, [session, loadHousehold]);
 
+  // Computer: 1-4 switch screens (ignored while typing or when a sheet is open).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable))) return;
+      if (document.querySelector('.sheet')) return;
+      const next = (['todo', 'house', 'places', 'settings'] as const)[Number(e.key) - 1];
+      if (next) setTab(next);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   if (!configured) {
     return (
       <main className="page narrow">

@@ -36,6 +36,7 @@ import { RescheduleSheet } from './RescheduleSheet';
 import { RouteSheet, type RouteView } from './RouteSheet';
 import { RecapCard } from './RecapCard';
 import { Tour, tourKey } from './Tour';
+import { useDesktop } from '../lib/useDesktop';
 import { SetupChecklist } from './SetupChecklist';
 import { TodoRow } from './TodoRow';
 import { TodoSheet, type SavedInfo } from './TodoSheet';
@@ -68,6 +69,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [reordering, setReordering] = useState(false);
   const [picking, setPicking] = useState(false);
   const [schemaBad, setSchemaBad] = useState(false);
+  const desktop = useDesktop();
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulkMove, setBulkMove] = useState(false);
   const [addDate, setAddDate] = useState<string | undefined>();
@@ -148,6 +150,13 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // The installed app's "New to-do" shortcut (/?new=1) opens the add sheet.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('new') !== '1') return;
+    window.history.replaceState(null, '', window.location.pathname);
+    setAdding(true);
   }, []);
 
   // Something shared into the app (Web Share Target) opens the add sheet with the text ready.
@@ -432,8 +441,10 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const found = query.trim() ? matchTodos(memories, query, placeName, (m) => dueLabel(m, t, locale)) : null;
 
   return (
-    <main className={`page${mapOn ? ' map-mode' : ''}`}>
+    <main className={`page${mapOn ? ' map-mode' : ' todo-page'}`}>
       <div className="head"><h1 className={mapOn ? 'glass titlepill' : undefined}>{title}</h1><div className="row nowrap">{showDone && <button className="btn small icon glass on" aria-label={t('todo.back')} aria-pressed onClick={() => { setShowDone(false); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /></button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('search.open')} aria-pressed={searching} onClick={() => { setSearching((s) => !s); setQuery(''); }}><Icon name="search" size={16} /></button>}{mapOn && <button className={`btn small icon glass${route ? ' on' : ''}`} aria-label={t('route.open')} onClick={() => setPlanning(true)}><Icon name="navigate" size={16} /></button>}{!showDone && !mapOn && <button className={`btn small icon glass${activeCount(filter) ? ' on' : ''}`} aria-label={activeCount(filter) ? `${t('filter.button')} (${activeCount(filter)})` : t('filter.button')} onClick={() => setFiltering(true)}><Icon name="filter" size={16} />{activeCount(filter) > 0 && <span className="badge-n">{activeCount(filter)}</span>}</button>}{!showDone && !mapOn && <button className="btn small icon glass" aria-label={t('more.label')} onClick={() => setMenu(true)}><Icon name="more" size={16} /></button>}{!showDone && mapOn && seg}</div></div>
+      <div className="todo-cols"><div className="todo-main">
+      {desktop && !showDone && !mapOn && !picking && <AddBar inline onClick={() => setAdding(true)} />}
       {!showDone && !mapOn && seg}
       {searching && !mapOn && !showDone && (
         <label className="searchfield"><Icon name="search" size={18} /><input autoFocus type="search" placeholder={t('search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />{query && <button type="button" className="mini" aria-label={t('search.clear')} onClick={() => setQuery('')}><Icon name="x" size={14} /></button>}</label>
@@ -511,7 +522,13 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
           </>)}
         </>
       )}
-
+      </div>
+      {desktop && mode === 'list' && !showDone && !mapOn && !found && (
+        <aside className="todo-aside" aria-label={t('desk.today')}>
+          <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => { setAddDate(d); setAdding(true); }} />
+        </aside>
+      )}
+      </div>
 
       {mapOn && route && <button className="glass map-route-clear" onClick={() => setRoute(null)}><Icon name="x" size={14} /> {t('route.clear')}</button>}
       {picking && !showDone && !mapOn && (
@@ -526,7 +543,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
         </div>
       )}
       {bulkMove && <RescheduleSheet title={tn('bulk.count', picked.size)} dueOn={null} onPick={bulkMoveTo} onClose={() => setBulkMove(false)} />}
-      {!showDone && !mapOn && !picking && <AddBar onClick={() => setAdding(true)} />}
+      {!desktop && !showDone && !mapOn && !picking && <AddBar onClick={() => setAdding(true)} />}
       {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} initialDate={addDate} onClose={() => { setAdding(false); setSharedText(null); setAddDate(undefined); }} onSaved={saved} />}
       {filtering && <FilterSheet value={filter} onChange={setFilter} partnerName={partner ? partner.display_name || t('common.partner') : null} tags={tagList} onClose={() => setFiltering(false)} />}
       {menu && (
