@@ -43,8 +43,10 @@ export function describeAmount(s: Pick<Supplement, 'amount_type' | 'amount' | 'm
 
 /** A preset as a real supplement for an employer. */
 export function fromPreset(p: Preset, employerId: string, id: string, sort: number): Supplement {
-  const { hint: _hint, ...rest } = p;
-  return { ...rest, days: [...rest.days], id, employer_id: employerId, active: true, sort };
+  return {
+    id, employer_id: employerId, name: p.name, color: p.color, amount_type: p.amount_type, amount: p.amount, min_per_hour: p.min_per_hour,
+    days: [...p.days], start_time: p.start_time, end_time: p.end_time, active: true, sort,
+  };
 }
 
 /** Colours for employers, apart from the supplements' so the two never look alike. */
