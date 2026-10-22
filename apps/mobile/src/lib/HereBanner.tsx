@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,11 +7,11 @@ import { hereCandidate, type Dismissals } from '../core/proximity.ts';
 import { selectRegions } from '../core/regions.ts';
 import type { PoiCache } from '../core/pois.ts';
 import type { Region } from '../core/types.ts';
-import { Glass } from './glass';
 import { readSnapshot, storeKeys } from './reminders';
 import { useI18n } from './i18n';
 import { readJson, writeJson } from './store';
 import { font, useTheme } from './theme';
+import { Icon } from './ui';
 
 const DISMISS_KEY = 'hm.hereDismissed';
 
@@ -56,35 +56,27 @@ export function HereBanner() {
     setCandidate(null);
   };
 
+  // A slim, solid strip just above the "Add a to-do" bar (not glass, so the text stays easy to read). Tap "I'm here" to open the
+  // place's list, the cross to dismiss it for a while.
+  const go = () => {
+    remember();
+    router.push({ pathname: '/list/[placeId]', params: { placeId: region.placeId, label: region.label } });
+  };
   return (
-    <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 74 }}>
-      <Glass style={{ borderRadius: 30, padding: 16, gap: 14 }}>
-        <View style={{ gap: 2 }}>
-          <Text style={{ color: t.ink, fontSize: 22, lineHeight: 27, fontFamily: font.display }}>{tr('here.title', { place: region.label })}</Text>
-          <Text style={{ color: t.ink, opacity: 0.75, fontSize: 15, fontFamily: font.body }}>
-            {tn('here.detail', candidate.count, { d: Math.round(candidate.distanceM) })}
-          </Text>
-        </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              remember();
-              router.push({ pathname: '/list/[placeId]', params: { placeId: region.placeId, label: region.label } });
-            }}
-            style={{ flex: 1, height: 50, borderRadius: 25, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={{ color: '#FFFFFF', fontSize: 17, fontFamily: font.semi }}>{tr('here.imHere')}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={remember}
-            style={{ height: 50, paddingHorizontal: 22, borderRadius: 25, backgroundColor: t.dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={{ color: t.ink, fontSize: 16, fontFamily: font.semi }}>{tr('common.notNow')}</Text>
-          </Pressable>
-        </View>
-      </Glass>
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 74 + 58 + 8 }}>
+      <View accessibilityRole="alert" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 56, borderRadius: 18, paddingVertical: 8, paddingLeft: 14, paddingRight: 8, backgroundColor: t.card, borderWidth: StyleSheet.hairlineWidth * 2, borderColor: t.line, shadowColor: '#000', shadowOpacity: t.dark ? 0.35 : 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+        <Icon name="mappin" size={18} color={t.accent} />
+        <Pressable accessibilityRole="button" onPress={go} style={{ flex: 1 }}>
+          <Text numberOfLines={1} style={{ color: t.ink, fontSize: 15, fontFamily: font.semi }}>{tr('here.title', { place: region.label })}</Text>
+          <Text numberOfLines={1} style={{ color: t.muted, fontSize: 13, fontFamily: font.body }}>{tn('here.detail', candidate.count, { d: Math.round(candidate.distanceM) })}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={go} style={{ height: 38, paddingHorizontal: 16, borderRadius: 19, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 15, fontFamily: font.semi }}>{tr('here.imHere')}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={tr('common.notNow')} hitSlop={8} onPress={remember} style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="xmark" size={14} color={t.muted} />
+        </Pressable>
+      </View>
     </View>
   );
 }
