@@ -51,7 +51,7 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
 
   return (
     <div className="space-y-4">
-      <section className="hero relative overflow-hidden rounded-[28px] p-6 text-white shadow-float animate-rise">
+      <section data-tour="hero" className="hero relative overflow-hidden rounded-[28px] p-6 text-white shadow-float animate-rise">
         <div className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full bg-white/10" />
         <div className="pointer-events-none absolute -bottom-20 -left-10 size-40 rounded-full bg-white/10" />
         <p className="relative text-[14px] font-medium text-white/80">{heroLabel}</p>
@@ -86,9 +86,9 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
       </div>
 
       <div className="grid grid-cols-3 gap-3 animate-rise [animation-delay:120ms]">
-        <Tile icon={<CalendarClock className="size-4" />} label="Vakter" value={`${view.done.length}${view.left.length ? `/${view.list.length}` : ''}`} />
-        <Tile icon={<Clock className="size-4" />} label="Timer" value={hrs(Math.round(view.all.hours * 10) / 10)} />
-        <Tile icon={<Sparkles className="size-4" />} label="Tillegg" value={kr(view.all.supplementTotal)} accent />
+        <Tile icon={<CalendarClock className="size-4" />} tone="violet" label="Vakter" value={`${view.done.length}${view.left.length ? `/${view.list.length}` : ''}`} />
+        <Tile icon={<Clock className="size-4" />} tone="sky" label="Timer" value={hrs(Math.round(view.all.hours * 10) / 10)} />
+        <Tile icon={<Sparkles className="size-4" />} tone="green" label="Tillegg" value={kr(view.all.supplementTotal)} />
       </div>
 
       {view.next && current && (
@@ -143,11 +143,18 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
   );
 }
 
-function Tile({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent?: boolean }) {
+const TONES = {
+  violet: 'bg-accent-soft text-accent-ink',
+  sky: 'bg-sky-500/12 text-sky-600 dark:text-sky-300',
+  green: 'bg-ok-soft text-ok',
+};
+
+function Tile({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: keyof typeof TONES }) {
   return (
     <div className="rounded-3xl bg-surface p-3.5 shadow-card">
-      <div className={cn('mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold', accent ? 'text-ok' : 'text-ink-3')}>{icon}{label}</div>
-      <div className="tabular truncate text-[17px] font-bold">{value}</div>
+      <div className={cn('mb-2.5 grid size-8 place-items-center rounded-xl', TONES[tone])}>{icon}</div>
+      <div className="tabular truncate text-[17px] leading-tight font-bold">{value}</div>
+      <div className="mt-0.5 text-[12.5px] font-medium text-ink-3">{label}</div>
     </div>
   );
 }

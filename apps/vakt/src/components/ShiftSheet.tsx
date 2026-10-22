@@ -48,6 +48,7 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
     if (!ok) return;
     try { if (s.employer_id) localStorage.setItem(LAST_EMPLOYER, s.employer_id); } catch { /* only a convenience */ }
     if (!shift) confetti();
+    navigator.vibrate?.(12); // a small tap on Android; iPhones ignore it
     toast(shift ? 'Vakta er oppdatert' : `+${kr(pay.total)} lagt til 🎉`);
     if (andNext) setS({ ...s, id: newId(), date: addDays(s.date, 1), note: '' });
     else onClose();

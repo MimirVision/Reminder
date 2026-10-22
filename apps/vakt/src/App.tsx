@@ -14,6 +14,7 @@ import { Setup } from './pages/Setup';
 import { Year } from './pages/Year';
 import { ShiftSheet } from './components/ShiftSheet';
 import { ToastView, cn } from './components/ui';
+import { TOUR_EVENT, Tour, appTour } from './components/Tour';
 
 type Boot =
   | { state: 'loading' }
@@ -91,7 +92,7 @@ const tabFromHash = (): Tab => {
 };
 
 function Main() {
-  const { settings, local, employers } = useStore();
+  const { settings, local, employers, saveSettings } = useStore();
   const today = todayFn();
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [month, setMonth] = useState<MonthKey>(monthOf(today));
@@ -103,6 +104,33 @@ function Main() {
   const setFilter = (id: string | null) => {
     setFilterState(id);
     try { if (id) localStorage.setItem(FILTER, id); else localStorage.removeItem(FILTER); } catch { /* only a convenience */ }
+  };
+
+  // A hairline under the header once the page scrolls under it.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 4);
+    window.addEventListener('scroll', on, { passive: true });
+    return () => window.removeEventListener('scroll', on);
+  }, []);
+
+  // The walkthrough: once, the first time the overview opens, and again when asked for from Oppsett.
+  const [touring, setTouring] = useState(false);
+  useEffect(() => {
+    if (settings.toured) return;
+    const t = window.setTimeout(() => { setTabState('oversikt'); setTouring(true); }, 700);
+    return () => window.clearTimeout(t);
+    // Only on the first visit; finishing it sets toured.
+  }, []);
+  useEffect(() => {
+    const start = () => { setTab('oversikt'); window.setTimeout(() => setTouring(true), 250); };
+    window.addEventListener(TOUR_EVENT, start);
+    return () => window.removeEventListener(TOUR_EVENT, start);
+  });
+  const endTour = (finished: boolean) => {
+    setTouring(false);
+    if (!settings.toured) void saveSettings({ ...settings, toured: true });
+    if (finished) setSheet({});
   };
 
   const setTab = (t: Tab) => {
@@ -126,26 +154,26 @@ function Main() {
 
   return (
     <div className="mx-auto min-h-full max-w-lg">
-      <header className="pt-safe sticky top-0 z-20 bg-canvas/85 px-5 pb-3 backdrop-blur-xl">
+      <header className={cn('pt-safe sticky top-0 z-20 bg-canvas/85 px-5 pb-3 backdrop-blur-xl transition-shadow', scrolled && 'shadow-[0_1px_0_var(--c-line),0_8px_20px_-14px_rgb(40_20_50/0.3)]')}>
         <div className="flex items-center justify-between pt-3">
           {showMonth ? (
             <>
               <div>
                 <p className="text-[13px] font-medium text-ink-3">{greeting} 👋</p>
-                <h1 className="font-display text-[28px] leading-tight font-semibold">{monthName(month, month.slice(0, 4) !== today.slice(0, 4))}</h1>
+                <h1 className="font-display text-[27px] leading-tight font-semibold">{monthName(month, month.slice(0, 4) !== today.slice(0, 4))}</h1>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5" data-tour="month">
                 {month !== monthOf(today) && <button onClick={() => setMonth(monthOf(today))} className="mr-1 rounded-full bg-accent-soft px-3 py-1.5 text-[13px] font-semibold text-accent-ink">I dag</button>}
-                <button aria-label="Forrige måned" onClick={() => setMonth(addMonths(month, -1))} className="grid size-10 place-items-center rounded-full bg-surface shadow-card"><ChevronLeft className="size-5" /></button>
-                <button aria-label="Neste måned" onClick={() => setMonth(addMonths(month, 1))} className="grid size-10 place-items-center rounded-full bg-surface shadow-card"><ChevronRight className="size-5" /></button>
+                <button aria-label="Forrige måned" onClick={() => setMonth(addMonths(month, -1))} className="grid size-9 place-items-center rounded-full bg-surface shadow-card transition active:scale-90"><ChevronLeft className="size-5" /></button>
+                <button aria-label="Neste måned" onClick={() => setMonth(addMonths(month, 1))} className="grid size-9 place-items-center rounded-full bg-surface shadow-card transition active:scale-90"><ChevronRight className="size-5" /></button>
               </div>
             </>
           ) : (
-            <h1 className="font-display text-[28px] leading-tight font-semibold">{tab === 'aar' ? 'Året' : 'Oppsett'}</h1>
+            <h1 className="font-display text-[27px] leading-tight font-semibold">{tab === 'aar' ? 'Året' : 'Oppsett'}</h1>
           )}
         </div>
         {employers.length > 1 && tab !== 'oppsett' && (
-          <div className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-0.5 [scrollbar-width:none]" role="group" aria-label="Vis arbeidsgiver">
+          <div className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-0.5 [scrollbar-width:none]" role="group" aria-label="Vis arbeidsgiver" data-tour="filter">
             <FilterChip on={!filter} onClick={() => setFilter(null)}>Alle</FilterChip>
             {employers.map((e) => (
               <FilterChip key={e.id} on={filter === e.id} onClick={() => setFilter(e.id)}><span className="size-2.5 rounded-full" style={{ background: e.color }} />{e.name}</FilterChip>
@@ -155,26 +183,26 @@ function Main() {
         {local && <p className="mt-2 rounded-xl bg-accent-soft px-3 py-1.5 text-[12px] text-accent-ink">Prøvemodus – lagres bare i denne nettleseren</p>}
       </header>
 
-      <main className="px-5 pt-1 pb-36">
+      <main key={tab} className="animate-fade-in px-5 pt-1 pb-32">
         {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} onSeeAll={() => setTab('vakter')} />}
         {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} />}
         {tab === 'aar' && <Year year={year} setYear={setYear} today={today} filter={filter} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
         {tab === 'oppsett' && <Setup />}
       </main>
 
-      <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/90 backdrop-blur-xl">
-        <div className="relative mx-auto grid max-w-lg grid-cols-5 px-2 pt-1.5">
+      {/* A slim floating bar, with the add button inside it. */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 px-4" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}>
+        <div className="mx-auto flex h-15 max-w-[380px] items-center justify-between rounded-[22px] border border-line/70 bg-surface/95 px-1.5 shadow-[0_8px_30px_-8px_rgb(40_20_50/0.25)] backdrop-blur-xl">
           {TABS.slice(0, 2).map((t) => <NavButton key={t.key} t={t} active={tab === t.key} onClick={() => setTab(t.key)} />)}
-          <div className="flex justify-center">
-            <button aria-label="Ny vakt" onClick={() => setSheet({})}
-              className="hero -mt-6 grid size-15 place-items-center rounded-full text-white shadow-float ring-4 ring-canvas transition active:scale-95">
-              <Plus className="size-7" strokeWidth={2.5} />
-            </button>
-          </div>
+          <button aria-label="Ny vakt" data-tour="add" onClick={() => setSheet({})}
+            className="hero mx-1 grid size-11 shrink-0 place-items-center rounded-2xl text-white shadow-float transition active:scale-90">
+            <Plus className="size-6" strokeWidth={2.5} />
+          </button>
           {TABS.slice(2).map((t) => <NavButton key={t.key} t={t} active={tab === t.key} onClick={() => setTab(t.key)} />)}
         </div>
       </nav>
 
+      {touring && <Tour steps={appTour(settings.name, employers.length)} onDone={endTour} finalLabel="Legg inn første vakt" />}
       {sheet && <ShiftSheet shift={sheet.shift} defaultDate={defaultDate} employerId={filter} onClose={() => setSheet(null)} />}
     </div>
   );
@@ -183,9 +211,10 @@ function Main() {
 function NavButton({ t, active, onClick }: { t: (typeof TABS)[number]; active: boolean; onClick: () => void }) {
   const Icon = t.icon;
   return (
-    <button onClick={onClick} aria-current={active ? 'page' : undefined}
-      className={cn('flex flex-col items-center gap-0.5 py-1.5 text-[11px] font-semibold transition', active ? 'text-accent-ink' : 'text-ink-3')}>
-      <Icon className="size-6" strokeWidth={active ? 2.4 : 2} />
+    <button onClick={onClick} aria-current={active ? 'page' : undefined} data-tour={`tab-${t.key}`}
+      className={cn('flex h-12 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl text-[10.5px] font-semibold transition active:scale-95',
+        active ? 'bg-accent-soft text-accent-ink' : 'text-ink-3')}>
+      <Icon className="size-[19px]" strokeWidth={active ? 2.4 : 2} />
       {t.label}
     </button>
   );

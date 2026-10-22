@@ -67,9 +67,11 @@ export interface Settings {
   /** Tax deduction (skattetrekk) in percent, to show roughly what lands in the account. */
   tax_percent: number | null;
   onboarded: boolean;
+  /** Has seen the walkthrough of the app. */
+  toured: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', goal: null, tax_percent: null, onboarded: false };
+export const DEFAULT_SETTINGS: Settings = { name: '', goal: null, tax_percent: null, onboarded: false, toured: false };
 
 export const DEFAULT_TEMPLATES: ShiftTemplate[] = [
   { id: 'dag', name: 'Dag', start_time: '07:30', end_time: '15:30', break_minutes: 0 },
