@@ -4,7 +4,7 @@ import { Moon, Sun, Sunset, Trash2 } from 'lucide-react';
 import { useStore } from '../data/store';
 import { newId } from '../data/repo';
 import { addDays, toMinutes } from '../lib/dates';
-import { calcShift, shiftKind } from '../lib/pay';
+import { employerOf, payOf, shiftKind } from '../lib/pay';
 import { hrs, kr, longDate } from '../lib/format';
 import { eveName, holidayName } from '../lib/holidays';
 import type { Shift } from '../lib/types';
@@ -16,25 +16,37 @@ const OVERTIME = [0, 50, 100];
 export const KindIcon = ({ kind, className }: { kind: string; className?: string }) =>
   kind === 'Natt' ? <Moon className={className} /> : kind === 'Kveld' ? <Sunset className={className} /> : <Sun className={className} />;
 
-export function ShiftSheet({ shift, defaultDate, onClose }: { shift?: Shift; defaultDate: string; onClose: () => void }) {
-  const { settings, supplements, saveShift, deleteShift, toast } = useStore();
-  const [s, setS] = useState<Shift>(() => shift ?? {
-    id: newId(), date: defaultDate, start_time: settings.templates[0]?.start_time ?? '07:30', end_time: settings.templates[0]?.end_time ?? '15:30',
-    break_minutes: settings.templates[0]?.break_minutes ?? 0, overtime_percent: 0, note: '',
+const LAST_EMPLOYER = 'vakt-last-employer';
+const lastEmployer = () => { try { return localStorage.getItem(LAST_EMPLOYER); } catch { return null; } };
+
+/** `employerId` is the employer to start with for a new shift (the one she is looking at); else the last one used. */
+export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?: Shift; defaultDate: string; employerId?: string | null; onClose: () => void }) {
+  const { setup, employers, saveShift, deleteShift, toast } = useStore();
+  const [s, setS] = useState<Shift>(() => {
+    if (shift) return { ...shift, employer_id: employerOf(shift, employers)?.id ?? null };
+    const emp = employers.find((e) => e.id === employerId) ?? employers.find((e) => e.id === lastEmployer()) ?? employers[0];
+    const t = emp?.templates[0];
+    return {
+      id: newId(), employer_id: emp?.id ?? null, date: defaultDate, start_time: t?.start_time ?? '07:30', end_time: t?.end_time ?? '15:30',
+      break_minutes: t?.break_minutes ?? 0, overtime_percent: 0, note: '',
+    };
   });
+  const employer = employerOf(s, employers);
+  const templates = employer?.templates ?? [];
   const [more, setMore] = useState(Boolean(shift && (shift.overtime_percent || shift.note)));
   const set = (patch: Partial<Shift>) => setS((x) => ({ ...x, ...patch }));
 
   const valid = toMinutes(s.start_time) !== null && toMinutes(s.end_time) !== null && s.start_time !== s.end_time && /^\d{4}-\d{2}-\d{2}$/.test(s.date);
-  const pay = useMemo(() => valid ? calcShift(s, supplements, settings.wages) : null, [s, supplements, settings.wages, valid]);
-  const noWage = settings.wages.length === 0;
+  const pay = useMemo(() => valid ? payOf(s, setup) : null, [s, setup, valid]);
+  const noWage = !employer || employer.wages.length === 0;
   const special = holidayName(s.date) ?? eveName(s.date);
-  const activeTemplate = settings.templates.find((t) => t.start_time === s.start_time && t.end_time === s.end_time);
+  const activeTemplate = templates.find((t) => t.start_time === s.start_time && t.end_time === s.end_time);
 
   const save = async (andNext: boolean) => {
     if (!valid || !pay) return;
     const ok = await saveShift(s);
     if (!ok) return;
+    try { if (s.employer_id) localStorage.setItem(LAST_EMPLOYER, s.employer_id); } catch { /* only a convenience */ }
     if (!shift) confetti();
     toast(shift ? 'Vakta er oppdatert' : `+${kr(pay.total)} lagt til 🎉`);
     if (andNext) setS({ ...s, id: newId(), date: addDays(s.date, 1), note: '' });
@@ -65,11 +77,26 @@ export function ShiftSheet({ shift, defaultDate, onClose }: { shift?: Shift; def
         </div>
       }
     >
-      {settings.templates.length > 0 && (
+      {employers.length > 1 && (
+        <div className="mb-5">
+          <Label>Hvor jobber du?</Label>
+          <div className="flex flex-wrap gap-2">
+            {employers.map((e) => (
+              <button key={e.id} type="button" aria-pressed={employer?.id === e.id} onClick={() => set({ employer_id: e.id })}
+                className={cn('flex min-h-11 items-center gap-2 rounded-2xl border-2 px-4 text-[14.5px] font-semibold transition active:scale-[0.97]',
+                  employer?.id === e.id ? 'border-accent bg-accent-soft text-ink' : 'border-transparent bg-surface text-ink-2 shadow-card')}>
+                <span className="size-3 rounded-full" style={{ background: e.color }} />{e.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {templates.length > 0 && (
         <div className="mb-5">
           <Label>Vakttype</Label>
           <div className="grid grid-cols-3 gap-2">
-            {settings.templates.map((t) => {
+            {templates.map((t) => {
               const on = activeTemplate?.id === t.id;
               return (
                 <button key={t.id} type="button" aria-pressed={on}
@@ -103,9 +130,9 @@ export function ShiftSheet({ shift, defaultDate, onClose }: { shift?: Shift; def
       </div>
 
       <div className="mb-4">
-        <Label hint={pay ? `${hrs(pay.paidHours)} betalt` : undefined}>Ubetalt pause</Label>
+        <Label hint={pay ? `${hrs(pay.paidHours)} betalt` : undefined}>Ubetalt pause (min)</Label>
         <div className="grid grid-cols-5 gap-1.5">
-          {BREAKS.map((b) => <Chip key={b} className="px-0" active={s.break_minutes === b} onClick={() => set({ break_minutes: b })}>{b === 0 ? 'Ingen' : `${b} min`}</Chip>)}
+          {BREAKS.map((b) => <Chip key={b} className="px-0" active={s.break_minutes === b} onClick={() => set({ break_minutes: b })}>{b === 0 ? 'Ingen' : b}</Chip>)}
         </div>
       </div>
 
@@ -138,7 +165,7 @@ export function ShiftSheet({ shift, defaultDate, onClose }: { shift?: Shift; def
             {pay.overtime > 0 && <Row label={`Overtid ${s.overtime_percent} %`} value={pay.overtime} />}
             {pay.supplements.map((x) => <Row key={x.id} label={`${x.name} · ${hrs(Math.round(x.hours * 100) / 100)}`} value={x.amount} dot={x.color} />)}
           </div>
-          {noWage && <p className="mt-3 rounded-xl bg-white/15 px-3 py-2 text-[13px]">Legg inn timelønna di under Innstillinger, så blir tallet riktig.</p>}
+          {noWage && <p className="mt-3 rounded-xl bg-white/15 px-3 py-2 text-[13px]">Legg inn timelønna for denne jobben under Oppsett, så blir tallet riktig.</p>}
         </div>
       )}
       {!valid && <p className="text-[14px] text-danger">Fra og til kan ikke være samme klokkeslett.</p>}

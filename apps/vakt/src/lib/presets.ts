@@ -4,7 +4,7 @@ import { WEEKDAYS, type DayKey, type Supplement } from './types';
 
 export const COLORS = ['#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6', '#6366f1'];
 
-export type Preset = Omit<Supplement, 'id' | 'sort' | 'active'> & { hint: string };
+export type Preset = Omit<Supplement, 'id' | 'sort' | 'active' | 'employer_id'> & { hint: string };
 
 const ALL: DayKey[] = [...WEEKDAYS];
 
@@ -40,3 +40,12 @@ export function describeAmount(s: Pick<Supplement, 'amount_type' | 'amount' | 'm
   if (s.amount_type === 'kr_per_shift') return `${n(s.amount)} kr per vakt`;
   return `${n(s.amount)} kr/t`;
 }
+
+/** A preset as a real supplement for an employer. */
+export function fromPreset(p: Preset, employerId: string, id: string, sort: number): Supplement {
+  const { hint: _hint, ...rest } = p;
+  return { ...rest, days: [...rest.days], id, employer_id: employerId, active: true, sort };
+}
+
+/** Colours for employers, apart from the supplements' so the two never look alike. */
+export const EMPLOYER_COLORS = ['#7c3aed', '#0ea5e9', '#f97316', '#16a34a', '#db2777', '#475569'];

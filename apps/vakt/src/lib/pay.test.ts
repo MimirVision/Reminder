@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { calcShift, overlapMinutes, shiftKind, summarize, wageOn } from './pay';
+import { calcShift, copySetup, overlapMinutes, payOf, shiftKind, summarize, wageOn } from './pay';
 import { eveName, holidayName, isHoliday } from './holidays';
 import { isoWeek, toMinutes } from './dates';
-import type { Shift, Supplement } from './types';
+import type { Employer, Shift, Supplement } from './types';
 
 const shift = (date: string, start_time: string, end_time: string, extra: Partial<Shift> = {}): Shift =>
-  ({ id: 's', date, start_time, end_time, break_minutes: 0, overtime_percent: 0, note: '', ...extra });
+  ({ id: 's', employer_id: null, date, start_time, end_time, break_minutes: 0, overtime_percent: 0, note: '', ...extra });
 
 const sup = (x: Partial<Supplement>): Supplement => ({
-  id: x.name ?? 'x', name: 'x', color: '#000', amount_type: 'kr_per_hour', amount: 0, min_per_hour: null,
+  id: x.name ?? 'x', employer_id: 'e1', name: 'x', color: '#000', amount_type: 'kr_per_hour', amount: 0, min_per_hour: null,
   days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], start_time: '00:00', end_time: '00:00', active: true, sort: 0, ...x,
 });
 
@@ -91,13 +91,37 @@ describe('a single shift', () => {
   });
 });
 
-describe('a month', () => {
+describe('a month and several employers', () => {
+  const e1: Employer = { id: 'e1', name: 'Avd. A', color: '#000', wages, templates: [], sort: 0 };
+  const e2: Employer = { id: 'e2', name: 'Avd. B', color: '#111', wages: [{ from: '2020-01-01', hourly: 250 }], templates: [{ id: 't', name: 'Dag', start_time: '08:00', end_time: '16:00', break_minutes: 0 }], sort: 1 };
+
   it('adds up shifts and ranks supplements by what they gave', () => {
-    const s = summarize([shift('2026-10-24', '08:00', '16:00'), shift('2026-10-21', '15:00', '22:30')], [evening, weekend], wages);
+    const s = summarize([shift('2026-10-24', '08:00', '16:00'), shift('2026-10-21', '15:00', '22:30')], { employers: [e1], supplements: [evening, weekend] });
     expect(s.count).toBe(2);
     expect(s.hours).toBe(15.5);
     expect(s.bySupplement.map((x) => x.name)).toEqual(['Helg', 'Kveld']);
     expect(s.total).toBeCloseTo(15.5 * 300 + 480 + 300);
+  });
+
+  it('pays each shift with its own employer’s wage and supplements, and old shifts as the first employer', () => {
+    const setup = { employers: [e1, e2], supplements: [weekend, { ...weekend, id: 'w2', employer_id: 'e2', amount: 100 }] };
+    expect(payOf(shift('2026-10-24', '08:00', '16:00', { employer_id: 'e2' }), setup).total).toBe(8 * 250 + 8 * 100);
+    expect(payOf(shift('2026-10-24', '08:00', '16:00'), setup).total).toBe(8 * 300 + 8 * 60);
+    const sum = summarize([shift('2026-10-24', '08:00', '16:00', { employer_id: 'e2' }), shift('2026-10-24', '08:00', '16:00', { employer_id: 'e1' })], setup);
+    expect(sum.byEmployer.get('e2')).toBe(2800);
+    expect(sum.bySupplement).toHaveLength(1); // both called Helg
+    expect(sum.bySupplement[0].amount).toBe(1280);
+  });
+
+  it('copies a setup to another employer as independent copies', () => {
+    let n = 0;
+    const out = copySetup(e1, [weekend, evening, { ...night, employer_id: 'e2' }], e2, () => `new${n++}`);
+    expect(out.employer.name).toBe('Avd. B');
+    expect(out.employer.wages).toEqual(wages);
+    expect(out.employer.wages).not.toBe(wages);
+    expect(out.employer.templates).toEqual([]);
+    expect(out.supplements.map((x) => [x.name, x.employer_id])).toEqual([['Helg', 'e2'], ['Kveld', 'e2']]);
+    expect(new Set(out.supplements.map((x) => x.id)).size).toBe(2);
   });
 });
 

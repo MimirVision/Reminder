@@ -3,14 +3,15 @@ import { useStore } from '../data/store';
 import { parts, weekday, type ISODate } from '../lib/dates';
 import { WEEKDAY_SHORT, hrs, kr } from '../lib/format';
 import { eveName, holidayName } from '../lib/holidays';
-import { calcShift, shiftEnd, shiftKind } from '../lib/pay';
+import { employerOf, payOf, shiftEnd, shiftKind } from '../lib/pay';
 import type { Shift } from '../lib/types';
 import { KindIcon } from './ShiftSheet';
 import { cn } from './ui';
 
 export function ShiftRow({ shift, today, onOpen }: { shift: Shift; today: ISODate; onOpen: () => void }) {
-  const { supplements, settings } = useStore();
-  const pay = calcShift(shift, supplements, settings.wages);
+  const { setup, employers } = useStore();
+  const pay = payOf(shift, setup);
+  const employer = employers.length > 1 ? employerOf(shift, employers) : undefined;
   const done = shiftEnd(shift) <= new Date();
   const kind = shiftKind(shift);
   const special = holidayName(shift.date) ?? eveName(shift.date);
@@ -29,6 +30,7 @@ export function ShiftRow({ shift, today, onOpen }: { shift: Shift; today: ISODat
           {done && <Check className="size-4 text-ok" aria-label="Ferdig" />}
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 truncate text-[12.5px] text-ink-3">
+          {employer && <span className="flex items-center gap-1 font-medium text-ink-2"><span className="size-2 rounded-sm" style={{ background: employer.color }} />{employer.name} ·</span>}
           <span>{hrs(pay.paidHours)}</span>
           {special && <span className="font-medium text-rose">· {special}</span>}
           {shift.overtime_percent > 0 && <span className="font-medium text-accent-ink">· Overtid</span>}

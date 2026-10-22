@@ -10,11 +10,14 @@ progress towards a monthly goal and what the supplements added. The UI is in Nor
 | Oversikt | The month: earned so far, planned, total (and roughly after tax), progress towards the goal, a motivating line, next shift, where the money comes from. |
 | Vakter | The month's shifts week by week, each with its pay and supplements. Tap to change or delete (with undo). |
 | År | Month-by-month bars (earned and planned), best month, the year's supplements. |
-| Innstillinger | Hourly wage with dates (a pay rise never changes earlier months), supplements, shift types, monthly goal, tax, account. |
-| + | New shift: one tap on a shift type (Dag, Kveld, Natt …), the date, a live breakdown of what it pays. *Lagre + ny* keeps the times and moves to the next day, for entering a whole roster. |
+| Oppsett | Set up once: each employer or department with its own hourly wage (with dates, so a pay rise never changes earlier months), supplements and shift types, a "Klar / Mangler …" status, a table of what each shift type pays on a weekday, Saturday and Sunday, and *Kopier oppsettet til …* another employer. Below: monthly goal, tax, account. |
+| + | New shift: where (only asked with more than one employer), one tap on a shift type (Dag, Kveld, Natt …), the date, a live breakdown of what it pays. *Lagre + ny* keeps the times and moves to the next day, for entering a whole roster. |
 
-The first sign-in asks for the hourly wage, which common supplements she gets (amounts to check against the pay
-slip) and a goal.
+With more than one employer, chips under the header show all of them or one (Oversikt, Vakter, År), shift rows show
+the employer, and the overview splits the month per employer. The goal is for all of them together.
+
+The first sign-in asks where she works and the hourly wage, which common supplements she gets (amounts to check
+against the pay slip), whether she works at more places (they get a copy of the same setup), and a goal.
 
 ## How pay is calculated (`src/lib/pay.ts`)
 
@@ -24,7 +27,7 @@ slip) and a goal.
 - Amounts: kr per hour, percent of the hourly wage per hour (with an optional minimum kr per hour), or kr per shift.
 - The unpaid break is taken evenly off every supplement's hours, since its time of day isn't recorded.
 - Norwegian public holidays and their eves are computed (`src/lib/holidays.ts`).
-- The hourly wage is the one in effect on the shift's date.
+- The hourly wage is the one in effect on the shift's date, at the shift's own employer, with that employer's supplements.
 
 ## Same infrastructure as the other apps
 
@@ -38,7 +41,8 @@ Like Ledger, Vakt lives in this repository and uses the **same Supabase project*
 
 ## Setup
 
-1. Supabase → **SQL Editor → New query**, paste all of `apps/vakt/supabase/vakt.sql`, **Run**. Safe to run again.
+1. Supabase → **SQL Editor → New query**, paste all of `apps/vakt/supabase/vakt.sql`, **Run**. Safe to run again; run it
+   again after updates (version 2 adds employers and moves earlier data to one called "Jobben min").
 2. Deploy the site as usual. Open `https://<the site>/vakt/` on her phone, create an account (or sign in), then in
    Safari **Del → Legg til på Hjem-skjerm**.
 

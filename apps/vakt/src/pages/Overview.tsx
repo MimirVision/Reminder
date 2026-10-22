@@ -5,36 +5,39 @@ import { useStore } from '../data/store';
 import { monthOf, type ISODate, type MonthKey } from '../lib/dates';
 import { hrs, kr, monthName, relDate } from '../lib/format';
 import { motivation } from '../lib/motivation';
-import { calcShift, inMonth, shiftEnd, summarize } from '../lib/pay';
+import { employerOf, inMonth, payOf, shiftEnd, summarize } from '../lib/pay';
 import type { Shift } from '../lib/types';
 import { ShiftRow } from '../components/ShiftRow';
 import { Button, Card, CountUp, cn } from '../components/ui';
 
-export function Overview({ month, today, onOpenShift, onAdd, onSeeAll }: {
-  month: MonthKey; today: ISODate; onOpenShift: (s: Shift) => void; onAdd: () => void; onSeeAll: () => void;
+/** `filter` is an employer id to show only that job, or null for all of them. */
+export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }: {
+  month: MonthKey; today: ISODate; filter: string | null; onOpenShift: (s: Shift) => void; onAdd: () => void; onSeeAll: () => void;
 }) {
-  const { shifts, supplements, settings } = useStore();
+  const { shifts: allShifts, setup, employers, settings } = useStore();
   const now = new Date();
   const view = useMemo(() => {
+    const shifts = filter ? allShifts.filter((s) => employerOf(s, employers)?.id === filter) : allShifts;
     const list = inMonth(shifts, month).sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
     const done = list.filter((s) => shiftEnd(s) <= now);
     const left = list.filter((s) => shiftEnd(s) > now);
     const totals = new Map<string, number>();
-    for (const s of shifts) if (monthOf(s.date) < month) totals.set(monthOf(s.date), (totals.get(monthOf(s.date)) ?? 0) + calcShift(s, supplements, settings.wages).total);
+    for (const s of shifts) if (monthOf(s.date) < month) totals.set(monthOf(s.date), (totals.get(monthOf(s.date)) ?? 0) + payOf(s, setup).total);
     const next = shifts.filter((s) => shiftEnd(s) > now).sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time))[0];
     return {
       list, done, left, next,
-      earned: summarize(done, supplements, settings.wages),
-      planned: summarize(left, supplements, settings.wages),
-      all: summarize(list, supplements, settings.wages),
+      earned: summarize(done, setup),
+      planned: summarize(left, setup),
+      all: summarize(list, setup),
       bestBefore: Math.max(0, ...totals.values()),
     };
     // `now` changes every render; the minute it is read in is close enough.
-  }, [shifts, supplements, settings.wages, month]);
+  }, [allShifts, setup, employers, filter, month]);
 
   const current = month === monthOf(today);
   const past = month < monthOf(today);
-  const goal = settings.goal;
+  // The goal is for all jobs together, so it only shows with all of them.
+  const goal = filter ? null : settings.goal;
   const earned = view.earned.total, planned = view.planned.total, total = earned + planned;
   const msg = motivation({
     earned, planned, supplements: view.all.supplementTotal, goal, bestBefore: view.bestBefore,
@@ -93,6 +96,17 @@ export function Overview({ month, today, onOpenShift, onAdd, onSeeAll }: {
           <p className="mb-2 px-1 text-[13px] font-semibold text-ink-3">Neste vakt · {relDate(view.next.date, today)}</p>
           <ShiftRow shift={view.next} today={today} onOpen={() => onOpenShift(view.next!)} />
         </section>
+      )}
+
+      {!filter && employers.length > 1 && view.all.total > 0 && (
+        <Card className="animate-rise [animation-delay:180ms]">
+          <h3 className="mb-3 text-[16px] font-bold">Per arbeidsgiver</h3>
+          <ul className="space-y-2.5 text-[14.5px]">
+            {employers.filter((e) => view.all.byEmployer.has(e.id)).map((e) => (
+              <Line key={e.id} color={e.color} label={e.name} sub={`${Math.round(((view.all.byEmployer.get(e.id) ?? 0) / view.all.total) * 100)} %`} value={view.all.byEmployer.get(e.id) ?? 0} />
+            ))}
+          </ul>
+        </Card>
       )}
 
       {view.all.total > 0 && (

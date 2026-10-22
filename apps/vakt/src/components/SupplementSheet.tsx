@@ -13,10 +13,12 @@ const TYPES: { key: AmountType; label: string; suffix: string }[] = [
   { key: 'kr_per_shift', label: 'kr per vakt', suffix: 'kr' },
 ];
 
-export function SupplementSheet({ supplement, onClose }: { supplement?: Supplement; onClose: () => void }) {
+/** `supplement` to change one (also a preset not saved yet); else a new one for `employerId`. */
+export function SupplementSheet({ supplement, employerId, onClose }: { supplement?: Supplement; employerId: string; onClose: () => void }) {
   const { supplements, saveSupplement, deleteSupplement, toast } = useStore();
+  const saved = supplement && supplements.some((x) => x.id === supplement.id);
   const [s, setS] = useState<Supplement>(() => supplement ?? {
-    id: newId(), name: '', color: COLORS[supplements.length % COLORS.length], amount_type: 'kr_per_hour', amount: 0, min_per_hour: null,
+    id: newId(), employer_id: employerId, name: '', color: COLORS[supplements.length % COLORS.length], amount_type: 'kr_per_hour', amount: 0, min_per_hour: null,
     days: [...WEEKDAYS], start_time: '17:00', end_time: '21:00', active: true, sort: supplements.length,
   });
   const set = (patch: Partial<Supplement>) => setS((x) => ({ ...x, ...patch }));
@@ -29,12 +31,12 @@ export function SupplementSheet({ supplement, onClose }: { supplement?: Suppleme
   const save = async () => {
     if (!valid) return;
     if (await saveSupplement({ ...s, name: s.name.trim(), min_per_hour: s.amount_type === 'percent' ? s.min_per_hour : null })) {
-      toast(supplement ? 'Tillegget er oppdatert' : 'Tillegget er lagt til ✨');
+      toast(saved ? 'Tillegget er oppdatert' : 'Tillegget er lagt til ✨');
       onClose();
     }
   };
   const remove = async () => {
-    if (!supplement) return;
+    if (!supplement || !saved) return;
     const copy = supplement;
     if (await deleteSupplement(supplement.id)) {
       toast(`${supplement.name} er slettet`, { undo: () => void saveSupplement(copy) });
@@ -43,9 +45,9 @@ export function SupplementSheet({ supplement, onClose }: { supplement?: Suppleme
   };
 
   return (
-    <Sheet title={supplement ? 'Endre tillegg' : 'Nytt tillegg'} onClose={onClose} footer={
+    <Sheet title={saved ? 'Endre tillegg' : 'Nytt tillegg'} onClose={onClose} footer={
       <div className="flex gap-2">
-        {supplement && <Button variant="danger" aria-label="Slett tillegg" className="px-4" onClick={remove}><Trash2 className="size-5" /></Button>}
+        {saved && <Button variant="danger" aria-label="Slett tillegg" className="px-4" onClick={remove}><Trash2 className="size-5" /></Button>}
         <Button variant="primary" className="flex-1" disabled={!valid} onClick={() => void save()}>Lagre</Button>
       </div>
     }>

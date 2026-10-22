@@ -4,25 +4,27 @@ import { ChevronLeft, ChevronRight, Trophy } from 'lucide-react';
 import { useStore } from '../data/store';
 import { monthOf, type ISODate, type MonthKey } from '../lib/dates';
 import { MONTHS, hrs, kr, monthName } from '../lib/format';
-import { shiftEnd, summarize } from '../lib/pay';
+import { employerOf, shiftEnd, summarize } from '../lib/pay';
 import { Card, CountUp, cn } from '../components/ui';
 
-export function Year({ year, setYear, today, onPickMonth }: { year: number; setYear: (y: number) => void; today: ISODate; onPickMonth: (m: MonthKey) => void }) {
-  const { shifts, supplements, settings } = useStore();
+export function Year({ year, setYear, today, filter, onPickMonth }: { year: number; setYear: (y: number) => void; today: ISODate; filter: string | null; onPickMonth: (m: MonthKey) => void }) {
+  const { shifts: allShifts, setup, employers, settings } = useStore();
   const data = useMemo(() => {
+    const shifts = filter ? allShifts.filter((s) => employerOf(s, employers)?.id === filter) : allShifts;
     const now = new Date();
     const months = MONTHS.map((_, i) => {
       const key = `${year}-${String(i + 1).padStart(2, '0')}`;
       const list = shifts.filter((s) => monthOf(s.date) === key);
-      const done = summarize(list.filter((s) => shiftEnd(s) <= now), supplements, settings.wages);
-      const left = summarize(list.filter((s) => shiftEnd(s) > now), supplements, settings.wages);
+      const done = summarize(list.filter((s) => shiftEnd(s) <= now), setup);
+      const left = summarize(list.filter((s) => shiftEnd(s) > now), setup);
       return { key, earned: done.total, planned: left.total };
     });
-    const all = summarize(shifts.filter((s) => s.date.startsWith(`${year}-`)), supplements, settings.wages);
+    const all = summarize(shifts.filter((s) => s.date.startsWith(`${year}-`)), setup);
     return { months, all };
-  }, [shifts, supplements, settings.wages, year]);
+  }, [allShifts, setup, employers, filter, year]);
+  const goal = filter ? null : settings.goal;
 
-  const max = Math.max(1, ...data.months.map((m) => m.earned + m.planned), settings.goal ?? 0);
+  const max = Math.max(1, ...data.months.map((m) => m.earned + m.planned), goal ?? 0);
   const withShifts = data.months.filter((m) => m.earned + m.planned > 0);
   const best = withShifts.reduce<(typeof data.months)[number] | null>((b, m) => (!b || m.earned + m.planned > b.earned + b.planned ? m : b), null);
   const avg = withShifts.length ? data.all.total / withShifts.length : 0;
@@ -52,7 +54,7 @@ export function Year({ year, setYear, today, onPickMonth }: { year: number; setY
           {avg > 0 && <span className="text-[13px] text-ink-3">snitt {kr(avg)}</span>}
         </div>
         <div className="relative flex h-44 items-end gap-1.5">
-          {settings.goal ? <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-rose/60" style={{ bottom: `${(settings.goal / max) * 100}%` }} /> : null}
+          {goal ? <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-rose/60" style={{ bottom: `${(goal / max) * 100}%` }} /> : null}
           {data.months.map((m, i) => {
             const isBest = best?.key === m.key;
             return (
@@ -70,7 +72,7 @@ export function Year({ year, setYear, today, onPickMonth }: { year: number; setY
         <div className="mt-3 flex gap-4 text-[12px] text-ink-3">
           <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-accent" />Tjent</span>
           <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-accent/30" />Planlagt</span>
-          {settings.goal ? <span className="flex items-center gap-1.5"><span className="w-3 border-t border-dashed border-rose" />Mål</span> : null}
+          {goal ? <span className="flex items-center gap-1.5"><span className="w-3 border-t border-dashed border-rose" />Mål</span> : null}
         </div>
       </Card>
 

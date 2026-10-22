@@ -2,7 +2,7 @@
 // Pure functions, so the same numbers show everywhere and are easy to test.
 import { addDays, monthOf, toMinutes, weekday, type ISODate, type MonthKey } from './dates';
 import { isHoliday, isHolidayEve } from './holidays';
-import { WEEKDAYS, type DayKey, type Shift, type Supplement, type Wage } from './types';
+import { WEEKDAYS, type DayKey, type Employer, type Setup, type Shift, type Supplement, type Wage } from './types';
 
 export interface SupplementPay { id: string; name: string; color: string; hours: number; amount: number }
 export interface ShiftPay {
@@ -91,6 +91,18 @@ export function calcShift(shift: Shift, supplements: Supplement[], wages: Wage[]
   return { hours: minutes / 60, paidHours, wage, base, overtime, supplements: pays, supplementTotal, total: base + overtime + supplementTotal };
 }
 
+/** The employer a shift is for; shifts from before employers existed count as the first one. */
+export function employerOf(shift: Pick<Shift, 'employer_id'>, employers: Employer[]): Employer | undefined {
+  return employers.find((e) => e.id === shift.employer_id) ?? employers[0];
+}
+
+/** A shift's pay with its own employer's wage and supplements. */
+export function payOf(shift: Shift, setup: Setup): ShiftPay {
+  const emp = employerOf(shift, setup.employers);
+  if (!emp) return calcShift(shift, [], []);
+  return calcShift(shift, setup.supplements.filter((x) => x.employer_id === emp.id), emp.wages);
+}
+
 export interface Summary {
   count: number;
   hours: number;
@@ -98,30 +110,48 @@ export interface Summary {
   overtime: number;
   supplementTotal: number;
   total: number;
-  /** Per supplement, largest first. */
+  /** Per supplement, largest first. Supplements with the same name at different employers are added together. */
   bySupplement: SupplementPay[];
+  /** Total per employer id. */
+  byEmployer: Map<string, number>;
 }
 
-export function summarize(shifts: Shift[], supplements: Supplement[], wages: Wage[]): Summary {
+export function summarize(shifts: Shift[], setup: Setup): Summary {
   const by = new Map<string, SupplementPay>();
-  const sum: Summary = { count: 0, hours: 0, base: 0, overtime: 0, supplementTotal: 0, total: 0, bySupplement: [] };
+  const sum: Summary = { count: 0, hours: 0, base: 0, overtime: 0, supplementTotal: 0, total: 0, bySupplement: [], byEmployer: new Map() };
   for (const s of shifts) {
-    const p = calcShift(s, supplements, wages);
+    const p = payOf(s, setup);
     sum.count++;
     sum.hours += p.paidHours;
     sum.base += p.base;
     sum.overtime += p.overtime;
     sum.supplementTotal += p.supplementTotal;
     sum.total += p.total;
+    const emp = employerOf(s, setup.employers);
+    if (emp) sum.byEmployer.set(emp.id, (sum.byEmployer.get(emp.id) ?? 0) + p.total);
     for (const x of p.supplements) {
-      const acc = by.get(x.id) ?? { ...x, hours: 0, amount: 0 };
+      const key = x.name.trim().toLowerCase();
+      const acc = by.get(key) ?? { ...x, hours: 0, amount: 0 };
       acc.hours += x.hours;
       acc.amount += x.amount;
-      by.set(x.id, acc);
+      by.set(key, acc);
     }
   }
   sum.bySupplement = [...by.values()].sort((a, b) => b.amount - a.amount);
   return sum;
+}
+
+/** The target employer with the source's wages, shift types and supplements: copies with new ids, so changing
+ *  one employer later never changes the other. The target keeps its own name and colour. */
+export function copySetup(source: Employer, supplements: Supplement[], target: Employer, newId: () => string): { employer: Employer; supplements: Supplement[] } {
+  return {
+    employer: {
+      ...target,
+      wages: source.wages.map((w) => ({ ...w })),
+      templates: source.templates.map((t) => ({ ...t, id: newId() })),
+    },
+    supplements: supplements.filter((x) => x.employer_id === source.id).map((x) => ({ ...x, days: [...x.days], id: newId(), employer_id: target.id })),
+  };
 }
 
 /** When a shift is over, as a local Date: worked shifts count as earned, the rest as planned. */

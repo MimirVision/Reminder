@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, Home, List, Plus, Settings as Cog } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Home, List, Plus, SlidersHorizontal } from 'lucide-react';
 import { isNotInstalled, friendlyError, supabase, wantsLocal } from './data/config';
 import { localRepo, supabaseRepo, type Data, type Repo } from './data/repo';
 import { StoreProvider, useStore } from './data/store';
@@ -10,7 +10,7 @@ import { LoadError, NotInstalled, SignIn } from './pages/Auth';
 import { Onboarding } from './pages/Onboarding';
 import { Overview } from './pages/Overview';
 import { Shifts } from './pages/Shifts';
-import { Settings } from './pages/Settings';
+import { Setup } from './pages/Setup';
 import { Year } from './pages/Year';
 import { ShiftSheet } from './components/ShiftSheet';
 import { ToastView, cn } from './components/ui';
@@ -76,25 +76,34 @@ function Gate() {
   return settings.onboarded ? <Main /> : <Onboarding />;
 }
 
-type Tab = 'oversikt' | 'vakter' | 'aar' | 'innstillinger';
+type Tab = 'oversikt' | 'vakter' | 'aar' | 'oppsett';
 const TABS: { key: Tab; label: string; icon: typeof Home }[] = [
   { key: 'oversikt', label: 'Oversikt', icon: Home },
   { key: 'vakter', label: 'Vakter', icon: List },
   { key: 'aar', label: 'År', icon: BarChart3 },
-  { key: 'innstillinger', label: 'Innstillinger', icon: Cog },
+  { key: 'oppsett', label: 'Oppsett', icon: SlidersHorizontal },
 ];
+const FILTER = 'vakt-filter';
 const tabFromHash = (): Tab => {
-  const t = location.hash.replace(/^#\/?/, '') as Tab;
+  const raw = location.hash.replace(/^#\/?/, '');
+  const t = (raw === 'innstillinger' ? 'oppsett' : raw) as Tab;
   return TABS.some((x) => x.key === t) ? t : 'oversikt';
 };
 
 function Main() {
-  const { settings, local } = useStore();
+  const { settings, local, employers } = useStore();
   const today = todayFn();
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [month, setMonth] = useState<MonthKey>(monthOf(today));
   const [year, setYear] = useState(Number(today.slice(0, 4)));
   const [sheet, setSheet] = useState<{ shift?: Shift } | null>(null);
+  // Show one employer or all; remembered on this phone.
+  const [filterState, setFilterState] = useState<string | null>(() => { try { return localStorage.getItem(FILTER); } catch { return null; } });
+  const filter = employers.some((e) => e.id === filterState) ? filterState : null;
+  const setFilter = (id: string | null) => {
+    setFilterState(id);
+    try { if (id) localStorage.setItem(FILTER, id); else localStorage.removeItem(FILTER); } catch { /* only a convenience */ }
+  };
 
   const setTab = (t: Tab) => {
     setTabState(t);
@@ -132,17 +141,25 @@ function Main() {
               </div>
             </>
           ) : (
-            <h1 className="font-display text-[28px] leading-tight font-semibold">{tab === 'aar' ? 'Året' : 'Innstillinger'}</h1>
+            <h1 className="font-display text-[28px] leading-tight font-semibold">{tab === 'aar' ? 'Året' : 'Oppsett'}</h1>
           )}
         </div>
+        {employers.length > 1 && tab !== 'oppsett' && (
+          <div className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-0.5 [scrollbar-width:none]" role="group" aria-label="Vis arbeidsgiver">
+            <FilterChip on={!filter} onClick={() => setFilter(null)}>Alle</FilterChip>
+            {employers.map((e) => (
+              <FilterChip key={e.id} on={filter === e.id} onClick={() => setFilter(e.id)}><span className="size-2.5 rounded-full" style={{ background: e.color }} />{e.name}</FilterChip>
+            ))}
+          </div>
+        )}
         {local && <p className="mt-2 rounded-xl bg-accent-soft px-3 py-1.5 text-[12px] text-accent-ink">Prøvemodus – lagres bare i denne nettleseren</p>}
       </header>
 
       <main className="px-5 pt-1 pb-36">
-        {tab === 'oversikt' && <Overview month={month} today={today} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} onSeeAll={() => setTab('vakter')} />}
-        {tab === 'vakter' && <Shifts month={month} today={today} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} />}
-        {tab === 'aar' && <Year year={year} setYear={setYear} today={today} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
-        {tab === 'innstillinger' && <Settings />}
+        {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} onSeeAll={() => setTab('vakter')} />}
+        {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} />}
+        {tab === 'aar' && <Year year={year} setYear={setYear} today={today} filter={filter} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
+        {tab === 'oppsett' && <Setup />}
       </main>
 
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/90 backdrop-blur-xl">
@@ -158,7 +175,7 @@ function Main() {
         </div>
       </nav>
 
-      {sheet && <ShiftSheet shift={sheet.shift} defaultDate={defaultDate} onClose={() => setSheet(null)} />}
+      {sheet && <ShiftSheet shift={sheet.shift} defaultDate={defaultDate} employerId={filter} onClose={() => setSheet(null)} />}
     </div>
   );
 }
@@ -170,6 +187,16 @@ function NavButton({ t, active, onClick }: { t: (typeof TABS)[number]; active: b
       className={cn('flex flex-col items-center gap-0.5 py-1.5 text-[11px] font-semibold transition', active ? 'text-accent-ink' : 'text-ink-3')}>
       <Icon className="size-6" strokeWidth={active ? 2.4 : 2} />
       {t.label}
+    </button>
+  );
+}
+
+function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} aria-pressed={on}
+      className={cn('flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13.5px] font-semibold transition',
+        on ? 'bg-ink text-canvas' : 'bg-surface text-ink-2 shadow-card')}>
+      {children}
     </button>
   );
 }

@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Data, Repo } from './repo';
 import { friendlyError } from './config';
-import type { Settings, Shift, Supplement } from '../lib/types';
+import type { Employer, Settings, Setup, Shift, Supplement } from '../lib/types';
 
 interface Store extends Data {
   local: boolean;
@@ -13,6 +13,13 @@ interface Store extends Data {
   deleteShift(id: string): Promise<boolean>;
   saveSupplement(s: Supplement): Promise<boolean>;
   deleteSupplement(id: string): Promise<boolean>;
+  saveEmployer(e: Employer): Promise<boolean>;
+  /** Refused (false, with a message) while the employer still has shifts. */
+  deleteEmployer(id: string): Promise<boolean>;
+  /** Saves an employer with exactly these supplements, replacing the ones it had (adding or copying a setup). */
+  replaceSetup(e: Employer, supplements: Supplement[]): Promise<boolean>;
+  /** Wage, supplements and employers: everything a calculation needs. */
+  setup: Setup;
   toast(text: string, opts?: { celebrate?: boolean; undo?: () => void }): void;
   toastState: Toast | null;
 }
@@ -65,8 +72,22 @@ export function StoreProvider({ repo, initial, local, email, children }: { repo:
     saveSettings: (s) => run((d) => ({ ...d, settings: s }), () => repo.saveSettings(s)),
     saveShift: (s) => run((d) => ({ ...d, shifts: upsert(d.shifts, s) }), () => repo.saveShift(s)),
     deleteShift: (id) => run((d) => ({ ...d, shifts: d.shifts.filter((x) => x.id !== id) }), () => repo.deleteShift(id)),
-    saveSupplement: (s) => run((d) => ({ ...d, supplements: upsert(d.supplements, s) }), () => repo.saveSupplement(s)),
-    deleteSupplement: (id) => run((d) => ({ ...d, supplements: d.supplements.filter((x) => x.id !== id) }), () => repo.deleteSupplement(id)),
+    setup: { employers: data.employers, supplements: data.supplements },
+    saveSupplement: (s) => run((d) => ({ ...d, supplements: upsert(d.supplements, s) }), () => repo.saveSupplements([s])),
+    deleteSupplement: (id) => run((d) => ({ ...d, supplements: d.supplements.filter((x) => x.id !== id) }), () => repo.deleteSupplements([id])),
+    saveEmployer: (e) => run((d) => ({ ...d, employers: upsert(d.employers, e) }), () => repo.saveEmployer(e)),
+    deleteEmployer: async (id) => {
+      const n = dataRef.current.shifts.filter((s) => s.employer_id === id).length;
+      if (n > 0) { toast(`Har ${n} vakter. Flytt eller slett dem først.`, { error: true }); return false; }
+      return run((d) => ({ ...d, employers: d.employers.filter((x) => x.id !== id), supplements: d.supplements.filter((x) => x.employer_id !== id) }), () => repo.deleteEmployer(id));
+    },
+    replaceSetup: (e, sups) => {
+      const old = dataRef.current.supplements.filter((x) => x.employer_id === e.id && !sups.some((y) => y.id === x.id)).map((x) => x.id);
+      return run(
+        (d) => ({ ...d, employers: upsert(d.employers, e), supplements: [...d.supplements.filter((x) => x.employer_id !== e.id), ...sups] }),
+        async () => { await repo.saveEmployer(e); await repo.deleteSupplements(old); await repo.saveSupplements(sups); },
+      );
+    },
   }), [data, local, email, toast, toastState, run, repo]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
