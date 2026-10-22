@@ -16,3 +16,4 @@ principles, data model and roadmap.
 | `docs/CAPTURE.md` | Siri / Action button / share-sheet capture recipe |
 | `supabase` | Milestone 1: database schema, RLS and tests |
 | `apps/ledger` | **Ledger**, a separate accounting workspace (clients, recurring work, missing-task detection) at `/ledger/` on the same site, like Post. Same Supabase project, its own `ledger_*` tables and setup file; see `apps/ledger/README.md` |
+| `apps/vakt` | **Vakt**, a phone app (PWA) at `/vakt/` that works out pay for health-care shifts with all supplements (tillegg), with a monthly overview and goal. Same Supabase project, its own `vakt_*` tables; see `apps/vakt/README.md` |

@@ -1,0 +1,85 @@
+-- Vakt: shifts, supplements (tillegg) and settings for one person's pay.
+--
+-- Vakt shares a Supabase project with Home Memory, Post and Ledger but nothing else. Every object it creates is named
+-- vakt_*, it never alters another app's tables, and it has no foreign keys to auth.users: the rows are tied to the
+-- user id, so deleting a Home Memory account can neither delete Vakt data nor be blocked by it. Safe to run again.
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Settings: one row per person. Hourly wages, goal, tax and shift templates (see src/lib/types.ts Settings).
+create table if not exists public.vakt_profiles (
+  owner_id uuid primary key default auth.uid(),
+  settings jsonb not null default '{}'::jsonb check (jsonb_typeof(settings) = 'object' and pg_column_size(settings) < 16384),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Supplements (tillegg). A window whose end is at or before its start runs past midnight; equal means all day.
+create table if not exists public.vakt_supplements (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null default auth.uid(),
+  name text not null check (char_length(btrim(name)) between 1 and 60),
+  color text not null default '#8b5cf6' check (color ~ '^#[0-9a-fA-F]{6}$'),
+  amount_type text not null check (amount_type in ('kr_per_hour', 'percent', 'kr_per_shift')),
+  amount numeric(10, 2) not null check (amount >= 0 and amount <= 100000),
+  min_per_hour numeric(10, 2) check (min_per_hour is null or (min_per_hour >= 0 and min_per_hour <= 10000)),
+  days text[] not null check (cardinality(days) between 1 and 9
+    and days <@ array['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun', 'holiday', 'holiday_eve']),
+  start_time text not null check (start_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+  end_time text not null check (end_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+  active boolean not null default true,
+  sort integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists vakt_supplements_owner on public.vakt_supplements (owner_id);
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Shifts. An end at or before the start means the shift ends the next day.
+create table if not exists public.vakt_shifts (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null default auth.uid(),
+  date date not null check (date between '2000-01-01' and '2100-12-31'),
+  start_time text not null check (start_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+  end_time text not null check (end_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+  break_minutes integer not null default 0 check (break_minutes between 0 and 600),
+  overtime_percent integer not null default 0 check (overtime_percent between 0 and 300),
+  note text not null default '' check (char_length(note) <= 500),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists vakt_shifts_owner_date on public.vakt_shifts (owner_id, date);
+
+-- ---------------------------------------------------------------------------------------------------------------
+create or replace function public.vakt_touch() returns trigger language plpgsql set search_path = public as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['vakt_profiles', 'vakt_supplements', 'vakt_shifts'] loop
+    execute format('drop trigger if exists %I on public.%I', t || '_touch', t);
+    execute format('create trigger %I before update on public.%I for each row execute function public.vakt_touch()', t || '_touch', t);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Row level security: a person sees and changes only their own rows; signed-out visitors see nothing.
+alter table public.vakt_profiles enable row level security;
+alter table public.vakt_supplements enable row level security;
+alter table public.vakt_shifts enable row level security;
+
+revoke all on public.vakt_profiles, public.vakt_supplements, public.vakt_shifts from anon;
+grant select, insert, update, delete on public.vakt_profiles, public.vakt_supplements, public.vakt_shifts to authenticated;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['vakt_profiles', 'vakt_supplements', 'vakt_shifts'] loop
+    execute format('drop policy if exists %I on public.%I', t || '_own', t);
+    execute format('create policy %I on public.%I for all to authenticated using (owner_id = auth.uid()) with check (owner_id = auth.uid())', t || '_own', t);
+  end loop;
+end $$;

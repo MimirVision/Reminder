@@ -1,0 +1,104 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/fraunces';
+
+/* Vakt's design tokens: a warm paper ground, white cards, plum ink, and a violet-to-rose accent for money moments.
+   Dark follows the phone's setting. Components use these names only. */
+@theme {
+  --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Fraunces Variable', Georgia, serif;
+
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-sunken: var(--c-sunken);
+  --color-line: var(--c-line);
+  --color-ink: var(--c-ink);
+  --color-ink-2: var(--c-ink-2);
+  --color-ink-3: var(--c-ink-3);
+  --color-accent: var(--c-accent);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-accent-ink: var(--c-accent-ink);
+  --color-rose: var(--c-rose);
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+
+  --shadow-card: 0 1px 2px rgb(40 20 50 / 0.04), 0 4px 16px -6px rgb(40 20 50 / 0.08);
+  --shadow-float: 0 10px 30px -8px rgb(124 58 237 / 0.45);
+
+  --animate-sheet-in: sheet-in 260ms cubic-bezier(0.2, 0.9, 0.25, 1);
+  --animate-fade-in: fade-in 180ms ease-out;
+  --animate-pop-in: pop-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  --animate-rise: rise 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes sheet-in { from { transform: translateY(100%) } to { transform: none } }
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(0.96) } to { opacity: 1; transform: none } }
+@keyframes rise { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+
+:root {
+  --c-canvas: #faf6f3;
+  --c-surface: #ffffff;
+  --c-sunken: #f3eeea;
+  --c-line: #ece5df;
+  --c-ink: #1f1a24;
+  --c-ink-2: #514857;
+  --c-ink-3: #8a8090;
+  --c-accent: #7c3aed;
+  --c-accent-soft: #f1eafe;
+  --c-accent-ink: #6d28d9;
+  --c-rose: #ec4899;
+  --c-ok: #059669;
+  --c-ok-soft: #e3f6ee;
+  --c-danger: #dc2626;
+  --c-danger-soft: #fdecec;
+  --hero: linear-gradient(135deg, #7c3aed 0%, #a23ee0 45%, #ec4899 100%);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-canvas: #141118;
+    --c-surface: #1e1a23;
+    --c-sunken: #262029;
+    --c-line: #332b38;
+    --c-ink: #f6f1f8;
+    --c-ink-2: #cdc3d3;
+    --c-ink-3: #968c9c;
+    --c-accent: #a78bfa;
+    --c-accent-soft: #2c2340;
+    --c-accent-ink: #c4b5fd;
+    --c-rose: #f472b6;
+    --c-ok: #34d399;
+    --c-ok-soft: #133027;
+    --c-danger: #f87171;
+    --c-danger-soft: #3a1c1f;
+    --hero: linear-gradient(135deg, #5b21b6 0%, #86198f 55%, #be185d 100%);
+    color-scheme: dark;
+  }
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--c-canvas);
+  color: var(--c-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+/* 16px inputs, or iOS zooms in on every tap. */
+input, select, textarea { font-size: 16px; }
+button { cursor: pointer; }
+.tabular { font-variant-numeric: tabular-nums; }
+.hero { background: var(--hero); }
+.pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 8px); }
+input[type='date'], input[type='time'] { -webkit-appearance: none; appearance: none; min-height: 48px; }
+input[type='date']::-webkit-date-and-time-value, input[type='time']::-webkit-date-and-time-value { text-align: left; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
