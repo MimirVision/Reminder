@@ -5,6 +5,7 @@ import { completeTask, listTaskEvents, listTasks, retireTask, seedHouseTemplate 
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
 import { AddTaskForm } from '@/lib/AddTaskForm';
+import { ConditionView } from '@/lib/ConditionView';
 import { FactsView } from '@/lib/FactsView';
 import { ReportImport } from '@/lib/ReportImport';
 import { MovingView } from '@/lib/MovingView';
@@ -57,7 +58,7 @@ export default function House() {
   const [showLater, setShowLater] = useState(false);
   const [importing, setImporting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving'>('calendar');
+  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report'>('calendar');
   const [addingTask, setAddingTask] = useState(false);
 
   const load = useCallback(async () => {
@@ -91,7 +92,7 @@ export default function House() {
 
   const toggle2 = (
     <View style={styles.row}>
-      {(['calendar', 'facts', 'moving'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
+      {(['calendar', 'facts', 'moving', 'report'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
     </View>
   );
 
@@ -101,6 +102,16 @@ export default function House() {
         <Title>{tr('house.title')}</Title>
         {toggle2}
         <MovingView />
+      </ScrollView>
+    );
+  }
+
+  if (mode === 'report') {
+    return (
+      <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
+        <Title>{tr('house.title')}</Title>
+        {toggle2}
+        <ConditionView />
       </ScrollView>
     );
   }

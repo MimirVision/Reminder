@@ -10,6 +10,7 @@ import { Icon } from './icons';
 import { AddTaskForm } from './AddTaskForm';
 import { FactsView } from './FactsView';
 import { MovingView } from './MovingView';
+import { ConditionView } from './ConditionView';
 import { ReportImport } from './ReportImport';
 import { useToast } from './Toast';
 
@@ -41,7 +42,7 @@ export function House({ household }: { household: Household }) {
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
-  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving'>(() => {
+  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report'>(() => {
     // The setup checklist can send you straight to the Facts tab (once).
     try { const m = sessionStorage.getItem('hm.houseMode'); sessionStorage.removeItem('hm.houseMode'); return m === 'Facts' ? 'facts' : 'calendar'; } catch { return 'calendar'; }
   });
@@ -69,13 +70,14 @@ export function House({ household }: { household: Household }) {
 
   const switcher = (
     <div className="seg glass" role="group">
-      {(['calendar', 'facts', 'moving'] as const).map((m) => <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`house.${m}` as const)}</button>)}
+      {(['calendar', 'facts', 'moving', 'report'] as const).map((m) => <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`house.${m}` as const)}</button>)}
     </div>
   );
   const head = <div className="head"><h1>{t('house.title')}</h1>{switcher}</div>;
 
   if (mode === 'moving') return <main className="page">{head}<MovingView household={household} /></main>;
   if (mode === 'facts') return <main className="page">{head}<FactsView household={household} /></main>;
+  if (mode === 'report') return <main className="page house-page">{head}<ConditionView household={household} /></main>;
 
   if (tasks.length === 0) {
     return (

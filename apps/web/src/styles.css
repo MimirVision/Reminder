@@ -534,3 +534,33 @@ input.switch:checked::after { transform: translateX(20px); }
 .wsub { font-size: 12px; }
 .wcol.strip .whead { flex-direction: row; gap: 6px; align-items: baseline; }
 .wcol header .row { flex-shrink: 0; }
+
+/* House > Report */
+.cond-summary { display: grid; gap: 10px; }
+.cond-bar { height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; } .cond-bar span { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
+.cond-counts { display: flex; gap: 8px; flex-wrap: wrap; }
+.cond-count { display: inline-flex; align-items: baseline; gap: 8px; border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 8px 14px; cursor: pointer; font: 600 13px var(--font-body); color: var(--muted); }
+.cond-count b { font-size: 22px; color: var(--ink); } .cond-count.on { border-color: var(--ink); }
+.cond-sep { width: 1px; background: var(--line); align-self: stretch; margin: 4px 2px; }
+.tg-badge { display: inline-block; border-radius: 8px; padding: 2px 9px; font: 700 12px var(--font-body); color: #fff; background: #6b7280; white-space: nowrap; }
+.tg-badge.tg-TG3, .cond-count.tg-TG3 b { background: #d6341f; } .tg-badge.tg-TG2 { background: #e08a00; } .tg-badge.tg-HMS { background: #7c3aed; } .tg-badge.tg-LOV { background: #2563eb; }
+.cond-count b { background: none !important; }
+.cond-count.tg-TG3 b { color: #d6341f; } .cond-count.tg-TG2 b { color: #e08a00; } .cond-count.tg-HMS b { color: #7c3aed; } .cond-count.tg-LOV b { color: #2563eb; }
+.chipbtn.tg-TG3.on { background: #d6341f; border-color: #d6341f; } .chipbtn.tg-TG2.on { background: #e08a00; border-color: #e08a00; } .chipbtn.tg-HMS.on { background: #7c3aed; border-color: #7c3aed; } .chipbtn.tg-LOV.on { background: #2563eb; border-color: #2563eb; }
+.cond-item { display: flex; flex-direction: column; gap: 8px; border-left: 4px solid var(--line); }
+.cond-item.tg-TG3 { border-left-color: #d6341f; } .cond-item.tg-TG2 { border-left-color: #e08a00; } .cond-item.tg-HMS { border-left-color: #7c3aed; } .cond-item.tg-LOV { border-left-color: #2563eb; }
+.cond-item.finished { opacity: 0.62; }
+.cond-head { display: flex; gap: 10px; align-items: baseline; } .cond-head h3 { margin: 0; font-size: 17px; line-height: 1.3; }
+.cond-what, .cond-advice, .cond-note { margin: 0; font-size: 14.5px; line-height: 1.45; }
+.cond-note { color: var(--muted); display: flex; gap: 6px; align-items: flex-start; }
+.cond-actions { margin-top: 2px; }
+.when-now { color: #b42318; font-weight: 700; }
+.cond-empty { display: grid; gap: 12px; }
+
+/* The House switch has four words now: let it use the full width on a narrow phone */
+@media (max-width: 420px) {
+  .head > .seg.glass:not(.wide) { width: 100%; }
+  .head > .seg.glass:not(.wide) button { flex: 1; padding: 8px 4px; font-size: 13px; }
+  .page:not(.map-mode) .head:has(> .seg) { flex-direction: column; align-items: stretch; }
+}
+@media (max-width: 700px) { .cond-sep { display: none; } }

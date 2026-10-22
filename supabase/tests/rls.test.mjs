@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -522,6 +522,21 @@ for (const t of ['post_alert_accounts', 'post_alert_seen', 'post_alert_devices',
     assert.equal((await db.query(`select place_trigger from memories where id = $1`, [next])).rows[0].place_trigger, 'leave', 'the trigger carries over');
     assert.equal((await db.query(`select place_trigger from memories where body = 'buy paracetamol'`)).rows[0].place_trigger, 'arrive', 'arrive by default');
     await rejects(() => db.query(`insert into memories (household_id, body, place_trigger) values ($1, 'x', 'sideways')`, [hid]), /memories_place_trigger_valid|check constraint/);
+  });
+}
+
+// 0020: condition report items.
+{
+  await as(A, async () => {
+    await db.query(`insert into condition_items (household_id, source_key, part, tg, area) values ($1, 'r/wall', 'Retaining wall', 'TG3', 'plot')`, [hid]);
+    await rejects(() => db.query(`insert into condition_items (household_id, source_key, part, tg) values ($1, 'r/dup', 'x', 'TG9')`, [hid]), /condition_items_tg_check|check constraint/);
+    await rejects(() => db.query(`insert into condition_items (household_id, source_key, part, tg) values ($1, 'r/wall', 'again', 'TG2')`, [hid]), /duplicate key|unique/);
+    await db.query(`update condition_items set status = 'done', done_at = now() where source_key = 'r/wall'`);
+    assert.equal((await db.query(`select status from condition_items where source_key = 'r/wall'`)).rows[0].status, 'done');
+  });
+  await as(C, async () => {
+    assert.equal((await db.query(`select * from condition_items`)).rows.length, 0, 'a stranger sees no report items');
+    await rejects(() => db.query(`insert into condition_items (household_id, source_key, part, tg) values ($1, 'r/x', 'x', 'TG2')`, [hid]), /row-level security/);
   });
 }
 

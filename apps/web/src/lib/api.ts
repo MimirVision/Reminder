@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import type { Fact, FactCategory } from './facts';
 import type { ReportSummary } from './report';
+import type { ConditionItem, ConditionSeedItem } from './condition.ts';
 import type { Hit } from './placeSearch';
 import { enqueue, flushQueue, isNetworkError, pendingFor, type KV, type QueuedTodo } from './outbox.ts';
 import type { DetailFields } from './details.ts';
@@ -153,6 +154,26 @@ type Patch = Partial<Pick<Memory, 'body' | 'status' | 'place_id' | 'place_catego
 
 export async function updateMemory(id: string, patch: Patch) {
   check(await supabase.from('memories').update(patch).eq('id', id));
+}
+
+// ---- Condition report (House > Report): findings kept apart from the to-do list ----
+export async function listConditionItems(householdId: string): Promise<ConditionItem[]> {
+  return check(await supabase.from('condition_items').select('*').eq('household_id', householdId).limit(500));
+}
+
+/** Adds the findings of a report once (running it again changes nothing: the key identifies each one). */
+export async function seedConditionItems(householdId: string, items: ConditionSeedItem[], source: string): Promise<void> {
+  const rows = items.map((i) => ({
+    household_id: householdId, source, source_key: `${source}/${i.key}`, area: i.area, part: i.part, tg: i.tg, when_kind: i.when, what: i.what, action: i.action,
+    cost_min: i.cost_min ?? null, cost_max: i.cost_max ?? null, page: i.page ?? null,
+  }));
+  check(await supabase.from('condition_items').upsert(rows, { onConflict: 'household_id,source_key', ignoreDuplicates: true }));
+}
+
+export async function updateConditionItem(id: string, patch: Partial<Pick<ConditionItem, 'status' | 'notes' | 'memory_id'>>): Promise<void> {
+  const { data } = await supabase.auth.getUser();
+  const done = patch.status === 'done';
+  check(await supabase.from('condition_items').update({ ...patch, ...(patch.status ? { done_at: done ? new Date().toISOString() : null, done_by: done ? data.user?.id ?? null : null } : {}) }).eq('id', id));
 }
 
 /** Saves a new manual order (see lib/order). */
