@@ -16,6 +16,7 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return; // Supabase, fonts, map tiles: never cached here
   if (url.pathname.startsWith('/post/')) return; // the Post mail app has its own service worker
   if (url.pathname.startsWith('/ledger/')) return; // Ledger (accounting) is a separate app; never cache it as Home Memory's shell
+  if (url.pathname.startsWith('/vakt/')) return; // so is Vakt (shift pay)
   if (url.pathname.startsWith('/api/') || url.pathname.endsWith('.ics')) return;
   if (req.mode === 'navigate') {
     // Network first so a new version arrives at once; the cached shell opens the app with no connection.
