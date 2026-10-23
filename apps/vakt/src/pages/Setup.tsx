@@ -13,6 +13,7 @@ import { EMPLOYER_COLORS, PRESETS, describeAmount, describeWhen, fromPreset } fr
 import { DEFAULT_TEMPLATES, type Employer, type Settings, type ShiftTemplate, type Supplement } from '../lib/types';
 import { SupplementSheet } from '../components/SupplementSheet';
 import { TOUR_EVENT } from '../components/Tour';
+import { Notifications } from '../components/Notifications';
 import { KindIcon } from '../components/ShiftSheet';
 import { Button, Card, Chip, Label, NumberInput, Sheet, Switch, cn, inputClass } from '../components/ui';
 
@@ -92,12 +93,14 @@ function General() {
   const store = useStore();
   const { email, local } = store;
   // Only this form's fields go on top of the newest settings, so a flag saved elsewhere (the walkthrough) isn't undone.
-  const [draft, set] = useDraft<Settings>(store.settings, (s) => void store.saveSettings({ ...store.settings, name: s.name, goal: s.goal, tax_percent: s.tax_percent }));
+  const [draft, set] = useDraft<Settings>(store.settings, (s) => void store.saveSettings({
+    ...store.settings, name: s.name, goal: s.goal, tax_percent: s.tax_percent, holiday_pay_percent: s.holiday_pay_percent, sick_percent: s.sick_percent,
+  }));
   const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
   const standalone = matchMedia('(display-mode: standalone)').matches;
   return (
     <>
-      <Section title="Mål og skatt" hint={store.employers.length > 1 ? 'Gjelder alle jobbene samlet.' : undefined}>
+      <Section title="Mål, skatt og feriepenger" hint={store.employers.length > 1 ? 'Gjelder alle jobbene samlet.' : undefined}>
         <Card className="space-y-4">
           <div>
             <Label hint="før skatt">Månedsmål</Label>
@@ -106,6 +109,18 @@ function General() {
           <div>
             <Label hint="står på skattekortet">Skattetrekk</Label>
             <NumberInput ariaLabel="Skattetrekk" value={draft.tax_percent} onChange={(n) => set((d) => ({ ...d, tax_percent: n && n > 0 && n < 100 ? n : null }))} suffix="%" placeholder="F.eks. 30" />
+          </div>
+          <div>
+            <Label hint="av fjorårets lønn, utbetales i juni">Feriepenger</Label>
+            <div className="flex gap-2">
+              {[10.2, 12, 14.3].map((p) => (
+                <Chip key={p} active={draft.holiday_pay_percent === p} onClick={() => set((d) => ({ ...d, holiday_pay_percent: p }))}>{p.toLocaleString('nb-NO')} %</Chip>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Label hint="av vanlig lønn når du er syk">Sykelønn</Label>
+            <NumberInput ariaLabel="Sykelønn" value={draft.sick_percent} onChange={(n) => set((d) => ({ ...d, sick_percent: n !== null && n >= 0 && n <= 100 ? n : d.sick_percent }))} suffix="%" />
           </div>
           <div>
             <Label>Navnet ditt</Label>
@@ -123,6 +138,8 @@ function General() {
           </Card>
         </Section>
       )}
+
+      <Notifications />
 
       <Section title="Hjelp">
         <Button variant="soft" className="w-full" onClick={() => window.dispatchEvent(new Event(TOUR_EVENT))}><Sparkles className="size-5" /> Vis gjennomgangen igjen</Button>
@@ -255,6 +272,25 @@ function EmployerView({ employer, onBack }: { employer: Employer; onBack: () => 
         </div>
       </Section>
 
+      <Section step={4} title="Utbetaling" hint="Når lønna kommer på konto. Brukes i «Lønn på konto» på Oversikt.">
+        <Card className="space-y-4">
+          <div>
+            <Label>Lønningsdag</Label>
+            <NumberInput ariaLabel="Lønningsdag" value={e.pay_day} onChange={(n) => n && n >= 1 && n <= 31 && set((x) => ({ ...x, pay_day: Math.round(n) }))} suffix=". i måneden" />
+          </div>
+          <div className="space-y-2">
+            <Label>Hva utbetales når</Label>
+            {([
+              ['supplements', 'Tillegg måneden etter', 'Timelønn for måneden du jobber, tillegg og overtid måneden etter. Vanligst i helse.'],
+              ['none', 'Alt samme måned', 'Alt for måneden du jobber utbetales samme måned.'],
+              ['all', 'Alt måneden etter', 'Alt du jobber i en måned utbetales måneden etter.'],
+            ] as const).map(([k, title, text]) => (
+              <Option key={k} on={e.pay_delay === k} onClick={() => set((x) => ({ ...x, pay_delay: k }))} title={title} text={text} />
+            ))}
+          </div>
+        </Card>
+      </Section>
+
       <Preview employer={e} supplements={mine} />
 
       <div className="space-y-2">
@@ -300,7 +336,7 @@ function Preview({ employer, supplements }: { employer: Employer; supplements: S
             <div key={t.id} className="contents">
               <span className="truncate font-semibold">{t.name}</span>
               {days.map((d) => {
-                const pay = calcShift({ id: '', employer_id: employer.id, date: d.date, start_time: t.start_time, end_time: t.end_time, break_minutes: t.break_minutes, overtime_percent: 0, note: '' }, supplements, employer.wages);
+                const pay = calcShift({ id: '', employer_id: employer.id, date: d.date, start_time: t.start_time, end_time: t.end_time, break_minutes: t.break_minutes, overtime_percent: 0, note: '', status: 'worked' }, supplements, employer.wages);
                 return <span key={d.label} className="tabular text-right font-semibold">{kr(pay.total)}</span>;
               })}
             </div>
@@ -318,7 +354,7 @@ function AddEmployerSheet({ onClose, onCreated }: { onClose: () => void; onCreat
   const color = EMPLOYER_COLORS.find((c) => !employers.some((e) => e.color === c)) ?? EMPLOYER_COLORS[employers.length % EMPLOYER_COLORS.length];
 
   const create = async () => {
-    const blank: Employer = { id: newId(), name: name.trim(), color, wages: [], templates: DEFAULT_TEMPLATES.map((t) => ({ ...t, id: newId() })), sort: employers.length };
+    const blank: Employer = { id: newId(), name: name.trim(), color, wages: [], templates: DEFAULT_TEMPLATES.map((t) => ({ ...t, id: newId() })), sort: employers.length, pay_day: employers[0]?.pay_day ?? 12, pay_delay: employers[0]?.pay_delay ?? 'supplements' };
     const source = employers.find((e) => e.id === start);
     const { employer, supplements: sups } = source
       ? copySetup(source, supplements, blank, newId)

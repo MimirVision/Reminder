@@ -1,5 +1,10 @@
 // Every shift in the month, week by week, with what each one pays.
+import { useState } from 'react';
+import { Repeat2 } from 'lucide-react';
 import { useStore } from '../data/store';
+import { DayOffSheet } from '../components/DayOffSheet';
+import { RepeatSheet } from '../components/RepeatSheet';
+import { DAY_OFF_LABEL, type DayOff } from '../lib/types';
 import { isoWeek, type ISODate, type MonthKey } from '../lib/dates';
 import { kr, monthName } from '../lib/format';
 import { holidayName } from '../lib/holidays';
@@ -13,7 +18,9 @@ import { Button, Card } from '../components/ui';
 const KIND_COLOR = { Dag: '#f59e0b', Kveld: '#8b5cf6', Natt: '#4f46e5' } as const;
 
 export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: MonthKey; today: ISODate; filter: string | null; onOpenShift: (s: Shift) => void; onAdd: (date?: ISODate) => void }) {
-  const { shifts, setup, employers } = useStore();
+  const { shifts, setup, employers, daysOff } = useStore();
+  const [dayOff, setDayOff] = useState<DayOff | null>(null);
+  const [repeat, setRepeat] = useState(false);
   const list = inMonth(filter ? shifts.filter((s) => employerOf(s, employers)?.id === filter) : shifts, month).sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
   const weeks = new Map<number, Shift[]>();
   for (const s of list) weeks.set(isoWeek(s.date), [...(weeks.get(isoWeek(s.date)) ?? []), s]);
@@ -25,17 +32,19 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
     <Card className="p-3.5">
       <CalendarGrid month={month} renderDay={(d) => {
         const day = list.filter((s) => s.date === d);
+        const off = daysOff.find((x) => x.date === d);
         const isToday = d === today;
         return (
-          <button type="button" aria-label={day.length ? `${d}: ${day.length} vakt` : `Legg til vakt ${d}`}
-            onClick={() => (day.length ? onOpenShift(day[0]) : onAdd(d))}
+          <button type="button" aria-label={day.length ? `${d}: ${day.length} vakt` : off ? `${d}: ${DAY_OFF_LABEL[off.kind]}` : `Legg til vakt ${d}`}
+            onClick={() => (day.length ? onOpenShift(day[0]) : off ? setDayOff(off) : onAdd(d))}
             className={cn('flex h-13 w-full flex-col items-center rounded-xl pt-1.5 transition active:scale-90',
-              day.length ? 'bg-sunken' : 'active:bg-sunken', isToday && 'ring-2 ring-accent/50')}>
+              day.length ? 'bg-sunken' : off ? 'bg-teal-500/15' : 'active:bg-sunken', isToday && 'ring-2 ring-accent/50')}>
             <span className={cn('text-[13px] font-semibold', isToday ? 'text-accent-ink' : holidayName(d) ? 'text-rose' : day.length ? 'text-ink' : 'text-ink-3')}>{Number(d.slice(8))}</span>
             <span className="mt-1 flex w-full flex-col items-center gap-0.5 px-1.5">
               {day.slice(0, 2).map((s) => (
-                <span key={s.id} className={cn('h-1.5 w-full rounded-full', shiftEnd(s) > now && 'opacity-45')} style={{ background: KIND_COLOR[shiftKind(s)] }} />
+                <span key={s.id} className={cn('h-1.5 w-full rounded-full', shiftEnd(s) > now && 'opacity-45')} style={{ background: s.status === 'sick' ? 'var(--c-danger)' : KIND_COLOR[shiftKind(s)] }} />
               ))}
+              {!day.length && off && <span className="text-[9.5px] leading-none font-bold text-teal-700 dark:text-teal-300">{DAY_OFF_LABEL[off.kind].slice(0, 5)}</span>}
             </span>
           </button>
         );
@@ -44,26 +53,41 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
         {(Object.keys(KIND_COLOR) as (keyof typeof KIND_COLOR)[]).map((k) => (
           <span key={k} className="flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: KIND_COLOR[k] }} />{k}</span>
         ))}
+        <span className="flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full bg-danger" />Syk</span>
       </div>
     </Card>
+  );
+  const sheets = (
+    <>
+      {dayOff && <DayOffSheet day={dayOff} onClose={() => setDayOff(null)} />}
+      {repeat && <RepeatSheet from={list[0]?.date ?? `${month}-01`} onClose={() => setRepeat(false)} />}
+    </>
   );
 
   if (list.length === 0) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-5 md:space-y-0">
         {calendar}
         <Card className="text-center">
           <p className="mb-1 text-[17px] font-bold">Ingen vakter i {monthName(month).toLowerCase()} ennå</p>
           <p className="mb-4 text-[14px] text-ink-3">Trykk på dagene i kalenderen, eller legg inn flere dager på én gang med +.</p>
           <Button variant="primary" onClick={() => onAdd()} className="w-full">Legg inn vakter</Button>
+          <Button variant="ghost" onClick={() => setRepeat(true)} className="mt-1 w-full"><Repeat2 className="size-5" /> Gjenta vakter fra en annen uke</Button>
         </Card>
+        {sheets}
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
-      {calendar}
+    <div className="space-y-5 md:grid md:grid-cols-2 md:items-start md:gap-5 md:space-y-0">
+      {/* On iPad the calendar stays in view on the left while the list scrolls. */}
+      <div className="space-y-3 md:sticky md:top-28">
+        {calendar}
+        <Button variant="soft" className="w-full" onClick={() => setRepeat(true)}><Repeat2 className="size-5" /> Gjenta uke eller turnus</Button>
+        {sheets}
+      </div>
+      <div className="space-y-5">
       <div className="flex items-baseline justify-between px-1">
         <span className="text-[14px] text-ink-3">{list.length} vakter</span>
         <span className="tabular text-[15px] font-bold">{kr(sum.total)}</span>
@@ -79,6 +103,7 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
           </div>
         </section>
       ))}
+      </div>
     </div>
   );
 }

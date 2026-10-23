@@ -83,3 +83,15 @@ it('rejects impossible values', async () => {
   await expect(as(A, () => rows(`insert into vakt_supplements (name, amount_type, amount, days, start_time, end_time) values ('X', 'kr_per_hour', 60, '{funday}', '00:00', '00:00')`))).rejects.toThrow(/check/);
   await expect(as(A, () => rows(`insert into vakt_supplements (name, amount_type, amount, days, start_time, end_time) values ('X', 'bonus', 60, '{mon}', '00:00', '00:00')`))).rejects.toThrow(/check/);
 });
+
+it('version 3: days off and pay slips are private and one per day/month; pay settings are checked', async () => {
+  await as(A, () => rows(`insert into vakt_days_off (date, kind) values ('2026-07-01', 'ferie')`));
+  await expect(as(A, () => rows(`insert into vakt_days_off (date, kind) values ('2026-07-01', 'fri')`))).rejects.toThrow(/duplicate/);
+  await as(A, () => rows(`insert into vakt_payslips (month, gross) values ('2026-10', 31250.5)`));
+  await expect(as(A, () => rows(`insert into vakt_payslips (month, gross) values ('2026-13', 1)`))).rejects.toThrow(/check/);
+  expect(await as(B, () => rows('select * from vakt_days_off'))).toHaveLength(0);
+  expect(await as(B, () => rows('select * from vakt_payslips'))).toHaveLength(0);
+  await expect(as(A, () => rows(`insert into vakt_employers (name, pay_day) values ('X', 32)`))).rejects.toThrow(/check/);
+  await expect(as(A, () => rows(`insert into vakt_shifts (date, start_time, end_time, status) values ('2026-10-21', '07:30', '15:30', 'away')`))).rejects.toThrow(/check/);
+  await expect(as(A, () => rows('select * from vakt_push_sent'))).rejects.toThrow(/permission denied/);
+});

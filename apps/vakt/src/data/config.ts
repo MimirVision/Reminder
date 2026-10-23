@@ -28,6 +28,13 @@ export function isNotInstalled(e: unknown): boolean {
   return ['PGRST202', 'PGRST205', '42P01', '42883'].includes(err?.code ?? '') || /vakt_\w+.*(does not exist|schema cache)/.test(err?.message ?? '');
 }
 
+/** True when Vakt's tables exist but miss columns or tables a newer version needs (vakt.sql not run again). */
+export function isOutdated(e: unknown): boolean {
+  const err = e as { code?: string; message?: string };
+  return err?.code === '42703' || err?.code === 'PGRST204' || /column .*vakt_\w+.* does not exist|Could not find the .* column of 'vakt_/.test(err?.message ?? '')
+    || (['PGRST205', '42P01'].includes(err?.code ?? '') && /vakt_(days_off|payslips|push_devices)/.test(err?.message ?? ''));
+}
+
 export function friendlyError(e: unknown): string {
   const msg = (e as { message?: string })?.message ?? String(e);
   if (/Failed to fetch|NetworkError|network/i.test(msg)) return 'Får ikke kontakt med serveren. Sjekk nettet og prøv igjen.';

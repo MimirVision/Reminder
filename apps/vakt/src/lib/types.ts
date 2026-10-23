@@ -39,7 +39,20 @@ export interface Shift {
   /** Overtime on top of the hourly wage for the whole shift: 0, 50 or 100 (percent). */
   overtime_percent: number;
   note: string;
+  /** 'sick': she was sick for this shift; it pays the sick-pay share from Oppsett. */
+  status: 'worked' | 'sick';
 }
+
+export type DayOffKind = 'ferie' | 'fri' | 'avspasering';
+export const DAY_OFF_LABEL: Record<DayOffKind, string> = { ferie: 'Ferie', fri: 'Fri', avspasering: 'Avspasering' };
+/** A day she isn't working: shown in the calendar, pays nothing. */
+export interface DayOff { id: string; date: ISODate; kind: DayOffKind; note: string }
+
+/** What the pay slip for a month said, to compare with what Vakt worked out. `month` is the month it was paid. */
+export interface Payslip { id: string; month: string; gross: number; net: number | null; note: string }
+
+/** When pay is paid: the hourly wage for the month worked, supplements and overtime the month after ('supplements'). */
+export type PayDelay = 'none' | 'supplements' | 'all';
 
 /** The hourly wage from a date on, so a pay rise never changes what earlier months were worth. */
 export interface Wage { from: ISODate; hourly: number }
@@ -55,10 +68,18 @@ export interface Employer {
   wages: Wage[];
   templates: ShiftTemplate[];
   sort: number;
+  /** Day of the month pay lands in the account. */
+  pay_day: number;
+  pay_delay: PayDelay;
 }
 
 /** What she set up once and every calculation reads. */
-export interface Setup { employers: Employer[]; supplements: Supplement[] }
+export interface Setup {
+  employers: Employer[];
+  supplements: Supplement[];
+  /** Share of normal pay for a sick shift, in percent (100 when left out). */
+  sickPercent?: number;
+}
 
 export interface Settings {
   name: string;
@@ -69,9 +90,18 @@ export interface Settings {
   onboarded: boolean;
   /** Has seen the walkthrough of the app. */
   toured: boolean;
+  /** Holiday pay (feriepenger) in percent of last year's pay, paid in June: 10.2, 12 or 14.3. */
+  holiday_pay_percent: number;
+  /** Share of normal pay for a shift she was sick for. */
+  sick_percent: number;
+  /** Which reminders the notification server sends. */
+  reminders: { after_shift: boolean; weekly: boolean; month: boolean };
 }
 
-export const DEFAULT_SETTINGS: Settings = { name: '', goal: null, tax_percent: null, onboarded: false, toured: false };
+export const DEFAULT_SETTINGS: Settings = {
+  name: '', goal: null, tax_percent: null, onboarded: false, toured: false,
+  holiday_pay_percent: 12, sick_percent: 100, reminders: { after_shift: true, weekly: true, month: true },
+};
 
 export const DEFAULT_TEMPLATES: ShiftTemplate[] = [
   { id: 'dag', name: 'Dag', start_time: '07:30', end_time: '15:30', break_minutes: 0 },

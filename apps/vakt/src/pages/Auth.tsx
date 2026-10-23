@@ -57,12 +57,12 @@ export function SignIn() {
 }
 
 /** Shown when the Supabase project is reachable but Vakt's tables have not been created yet. */
-export function NotInstalled() {
+export function NotInstalled({ upgrade }: { upgrade?: boolean }) {
   return (
     <Frame>
-      <h1 className="flex items-center gap-2 text-[20px] font-bold"><Database className="size-5 text-ink-3" /> Databasen må settes opp</h1>
+      <h1 className="flex items-center gap-2 text-[20px] font-bold"><Database className="size-5 text-ink-3" /> {upgrade ? 'Databasen må oppdateres' : 'Databasen må settes opp'}</h1>
       <p className="mt-2 text-[14px] leading-relaxed text-ink-2">
-        Du er logget inn, men Vakt sine tabeller finnes ikke i Supabase ennå. Åpne <strong>Supabase → SQL Editor → New query</strong>,
+        {upgrade ? 'Denne versjonen av Vakt trenger noen nye felt i databasen. Ingenting av det du har lagt inn forsvinner.' : 'Du er logget inn, men Vakt sine tabeller finnes ikke i Supabase ennå.'} Åpne <strong>Supabase → SQL Editor → New query</strong>,
         lim inn innholdet i <code className="rounded bg-sunken px-1">apps/vakt/supabase/vakt.sql</code> og trykk <strong>Run</strong>.
       </p>
       <p className="mt-2 text-[13px] text-ink-3">Den lager bare tabeller som heter vakt_* og rører ikke de andre appene.</p>

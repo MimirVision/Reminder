@@ -196,3 +196,71 @@ test('several days at once, and adding from the calendar on Vakter', async ({ pa
   await page.getByRole('button', { name: 'Lagre vakt' }).click();
   await expect(page.getByText('4 vakter', { exact: true })).toBeVisible();
 });
+
+const seed = (page: Page, extra: Record<string, unknown> = {}) => page.evaluate((x) => localStorage.setItem('vakt-local-data', JSON.stringify({
+  settings: { onboarded: true, toured: true, tax_percent: 30 },
+  employers: [{ id: 'e1', name: 'Jobben', color: '#7c3aed', wages: [{ from: '2000-01-01', hourly: 200 }], templates: [{ id: 'd', name: 'Dag', start_time: '08:00', end_time: '16:00', break_minutes: 0 }], sort: 0, pay_day: 12, pay_delay: 'supplements' }],
+  supplements: [{ id: 'h', employer_id: 'e1', name: 'Helg', color: '#ec4899', amount_type: 'kr_per_hour', amount: 50, min_per_hour: null, days: ['sat', 'sun'], start_time: '00:00', end_time: '00:00', active: true, sort: 0 }],
+  shifts: [
+    { id: 's1', employer_id: 'e1', date: '2026-09-26', start_time: '08:00', end_time: '16:00', break_minutes: 0, overtime_percent: 0, note: '', status: 'worked' },
+    { id: 's2', employer_id: 'e1', date: '2026-10-05', start_time: '08:00', end_time: '16:00', break_minutes: 0, overtime_percent: 0, note: '', status: 'worked' },
+  ],
+  ...x,
+})), extra);
+
+test('pay day, pay slip check, brutto/netto', async ({ page }) => {
+  await page.goto('/');
+  await seed(page);
+  await page.reload();
+  // October 12th: October's wage (1 600) and September's weekend supplement (400).
+  await expect(page.getByText('Lønn på konto i oktober')).toBeVisible();
+  await expect(page.getByTestId('payout-total')).toHaveText(/2\s000 kr/);
+  await page.getByRole('button', { name: 'Sjekk mot lønnsslippen' }).click();
+  await page.getByLabel('Brutto på lønnsslippen').fill('1800');
+  await page.getByRole('button', { name: 'Lagre' }).click();
+  await expect(page.getByTestId('slip-result')).toContainText('200 kr mindre');
+
+  await expect(page.getByTestId('hero-total')).toHaveText(/1\s600 kr/);
+  await page.getByRole('button', { name: 'Netto' }).click();
+  await expect(page.getByTestId('hero-total')).toHaveText(/1\s120 kr/);
+});
+
+test('days off, a sick shift, and repeating a week', async ({ page }) => {
+  await page.goto('/');
+  await seed(page);
+  await page.reload();
+  await page.getByRole('button', { name: 'Ny vakt', exact: true }).click();
+  await page.getByRole('button', { name: 'Fri / ferie' }).click();
+  await pickOnly(page, 14);
+  await page.getByTestId('date-picker').getByRole('button', { name: /\b15\. oktober/ }).click();
+  await page.getByRole('button', { name: 'Lagre 2 dager' }).click();
+  await page.getByRole('button', { name: 'Vakter', exact: true }).click();
+  await expect(page.getByRole('button', { name: '2026-10-14: Ferie' })).toBeVisible();
+
+  await page.getByRole('button', { name: /08:00–16:00/ }).first().click();
+  await page.getByRole('switch', { name: 'Jeg var syk' }).click();
+  await page.getByRole('button', { name: 'Lagre', exact: true }).click();
+  await expect(page.getByText('· Syk')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Gjenta uke eller turnus' }).click();
+  await page.getByRole('button', { name: '2×' }).click();
+  await page.getByRole('button', { name: 'Legg inn 2 vakter' }).click();
+  await expect(page.getByText('3 vakter', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'År' }).click();
+  await expect(page.getByText('Feriepenger')).toBeVisible();
+});
+
+test('iPad: a side rail instead of the bottom bar, and the walkthrough finds it', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto('/');
+  await seed(page, { settings: { onboarded: true, toured: false } });
+  await page.reload();
+  const rail = page.getByRole('navigation', { name: 'Meny' });
+  await expect(rail).toBeVisible();
+  const tour = page.getByRole('dialog', { name: 'Gjennomgang' });
+  await expect(tour).toBeVisible();
+  await tour.getByRole('button', { name: 'Hopp over' }).click();
+  await rail.getByRole('button', { name: 'Ny vakt' }).click();
+  await expect(page.getByRole('dialog', { name: 'Ny vakt' })).toBeVisible();
+});

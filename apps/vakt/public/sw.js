@@ -1,7 +1,7 @@
 // Vakt's service worker: lets Vakt install as an app and open instantly. It caches the app itself (the page,
 // scripts, styles, fonts, icons), never data: every request to Supabase goes straight to the network, so what you
 // see is always the database's current state. Scoped to Vakt's own folder, so it never touches the other apps.
-const CACHE = 'vakt-shell-v1';
+const CACHE = 'vakt-shell-v2';
 const SHELL = ['./', './manifest.webmanifest', './icon.svg', './icon-192.png'];
 
 self.addEventListener('install', (e) => {
@@ -41,3 +41,24 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(fetch(req).catch(() => caches.match(req)));
 });
 
+
+// Reminders (Web Push from the vakt-notify function). The message is encrypted end to end: the push service that
+// carries it (Apple, Google, Mozilla, Microsoft) cannot read it.
+self.addEventListener('push', (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = { title: 'Vakt', body: e.data ? e.data.text() : '' }; }
+  const icon = new URL('icon-192.png', self.registration.scope).href;
+  e.waitUntil(self.registration.showNotification(m.title || 'Vakt', { body: m.body || '', tag: m.tag || undefined, icon, badge: icon, data: { url: m.url || '/' } }));
+});
+
+// A tap opens the app on the right tab (the tabs live after the #), in a window that is already open if there is one.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const path = (e.notification.data && e.notification.data.url) || '/';
+  const target = `${self.registration.scope}#${path}`;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const open = list.find((c) => c.url.startsWith(self.registration.scope));
+    if (open) return open.navigate(target).then((c) => (c || open).focus());
+    return self.clients.openWindow(target);
+  }));
+});

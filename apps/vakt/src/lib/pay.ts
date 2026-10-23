@@ -1,6 +1,6 @@
 // What a shift pays: the hourly wage for the paid hours, every supplement whose window the shift overlaps, and overtime.
 // Pure functions, so the same numbers show everywhere and are easy to test.
-import { addDays, monthOf, toMinutes, weekday, type ISODate, type MonthKey } from './dates';
+import { addDays, addMonths, daysInMonth, monthOf, toMinutes, weekday, type ISODate, type MonthKey } from './dates';
 import { isHoliday, isHolidayEve } from './holidays';
 import { WEEKDAYS, type DayKey, type Employer, type Setup, type Shift, type Supplement, type Wage } from './types';
 
@@ -96,11 +96,14 @@ export function employerOf(shift: Pick<Shift, 'employer_id'>, employers: Employe
   return employers.find((e) => e.id === shift.employer_id) ?? employers[0];
 }
 
-/** A shift's pay with its own employer's wage and supplements. */
+/** A shift's pay with its own employer's wage and supplements; a sick shift at the sick-pay share. */
 export function payOf(shift: Shift, setup: Setup): ShiftPay {
   const emp = employerOf(shift, setup.employers);
-  if (!emp) return calcShift(shift, [], []);
-  return calcShift(shift, setup.supplements.filter((x) => x.employer_id === emp.id), emp.wages);
+  const p = emp ? calcShift(shift, setup.supplements.filter((x) => x.employer_id === emp.id), emp.wages) : calcShift(shift, [], []);
+  if (shift.status !== 'sick') return p;
+  const k = (setup.sickPercent ?? 100) / 100;
+  const supplements = p.supplements.map((x) => ({ ...x, amount: x.amount * k }));
+  return { ...p, base: p.base * k, overtime: p.overtime * k, supplements, supplementTotal: p.supplementTotal * k, total: p.total * k };
 }
 
 export interface Summary {
@@ -141,7 +144,7 @@ export function summarize(shifts: Shift[], setup: Setup): Summary {
   return sum;
 }
 
-/** The target employer with the source's wages, shift types and supplements: copies with new ids, so changing
+/** The target employer with the source's wages, shift types, pay day and supplements: copies with new ids, so changing
  *  one employer later never changes the other. The target keeps its own name and colour. */
 export function copySetup(source: Employer, supplements: Supplement[], target: Employer, newId: () => string): { employer: Employer; supplements: Supplement[] } {
   return {
@@ -149,6 +152,8 @@ export function copySetup(source: Employer, supplements: Supplement[], target: E
       ...target,
       wages: source.wages.map((w) => ({ ...w })),
       templates: source.templates.map((t) => ({ ...t, id: newId() })),
+      pay_day: source.pay_day,
+      pay_delay: source.pay_delay,
     },
     supplements: supplements.filter((x) => x.employer_id === source.id).map((x) => ({ ...x, days: [...x.days], id: newId(), employer_id: target.id })),
   };
@@ -170,4 +175,73 @@ export function shiftKind(s: Pick<Shift, 'start_time' | 'end_time'>): 'Dag' | 'K
   if (span.end > 1440 + 120 || span.start >= 20 * 60) return 'Natt';
   if (span.start >= 12 * 60) return 'Kveld';
   return 'Dag';
+}
+
+/** One payment into the account: an employer's pay day in a month, and what it is for. */
+export interface Payout {
+  employerId: string;
+  date: ISODate;
+  /** Hourly wage for the shifts this payment covers. */
+  wage: number;
+  /** Supplements and overtime (often for the month before). */
+  variable: number;
+  /** Holiday pay (feriepenger), in June, for last year. */
+  holiday: number;
+  total: number;
+}
+
+/** What each employer pays in `month`: the wage and the supplements according to its pay delay, plus holiday pay in
+ *  June. Months are counted from the shift's date. */
+export function payoutsIn(month: MonthKey, shifts: Shift[], setup: Setup, holidayPercent: number): Payout[] {
+  const lines = new Map<string, Payout>();
+  const line = (e: Employer) => {
+    let l = lines.get(e.id);
+    if (!l) {
+      const day = Math.min(Math.max(1, e.pay_day || 12), daysInMonth(month));
+      l = { employerId: e.id, date: `${month}-${String(day).padStart(2, '0')}`, wage: 0, variable: 0, holiday: 0, total: 0 };
+      lines.set(e.id, l);
+    }
+    return l;
+  };
+  const prev = addMonths(month, -1);
+  const year = Number(month.slice(0, 4));
+  const june = month.slice(5) === '06';
+  for (const s of shifts) {
+    const m = monthOf(s.date);
+    const lastYear = june && s.date.startsWith(`${year - 1}-`);
+    if (m !== month && m !== prev && !lastYear) continue;
+    const emp = employerOf(s, setup.employers);
+    if (!emp) continue;
+    const p = payOf(s, setup);
+    if (lastYear) line(emp).holiday += (p.total * holidayPercent) / 100;
+    const delay = emp.pay_delay ?? 'supplements';
+    if (addMonths(m, delay === 'all' ? 1 : 0) === month) line(emp).wage += p.base;
+    if (addMonths(m, delay === 'none' ? 0 : 1) === month) line(emp).variable += p.total - p.base;
+  }
+  return [...lines.values()]
+    .map((l) => ({ ...l, total: l.wage + l.variable + l.holiday }))
+    .filter((l) => l.total > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Holiday pay earned in a year (paid in June the year after). */
+export function holidayPayEarned(year: number, shifts: Shift[], setup: Setup, holidayPercent: number): number {
+  return (summarize(shifts.filter((s) => s.date.startsWith(`${year}-`)), setup).total * holidayPercent) / 100;
+}
+
+/** The shifts in `source` repeated `times` more times, each `periodDays` later (a week, or a rota of several weeks).
+ *  A copy that would land on a shift she already has (same day, start and employer) is left out. */
+export function repeatShifts(source: Shift[], periodDays: number, times: number, existing: Shift[], newId: () => string): Shift[] {
+  const taken = new Set(existing.map((s) => `${s.date}|${s.start_time}|${s.employer_id}`));
+  const out: Shift[] = [];
+  for (let k = 1; k <= times; k++) {
+    for (const s of source) {
+      const date = addDays(s.date, k * periodDays);
+      const key = `${date}|${s.start_time}|${s.employer_id}`;
+      if (taken.has(key)) continue;
+      taken.add(key);
+      out.push({ ...s, id: newId(), date, status: 'worked', note: s.note });
+    }
+  }
+  return out;
 }

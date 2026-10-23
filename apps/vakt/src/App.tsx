@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight, Home, List, Plus, SlidersHorizontal } from 'lucide-react';
-import { isNotInstalled, friendlyError, supabase, wantsLocal } from './data/config';
+import { isNotInstalled, isOutdated, friendlyError, supabase, wantsLocal } from './data/config';
 import { localRepo, supabaseRepo, type Data, type Repo } from './data/repo';
 import { StoreProvider, useStore } from './data/store';
 import { addMonths, monthOf, today as todayFn, type MonthKey } from './lib/dates';
@@ -21,6 +21,7 @@ type Boot =
   | { state: 'loading' }
   | { state: 'signed-out' }
   | { state: 'not-installed' }
+  | { state: 'outdated' }
   | { state: 'error'; message: string }
   | { state: 'ready'; repo: Repo; data: Data; local: boolean; email: string | null };
 
@@ -40,7 +41,7 @@ export function App() {
     try {
       setBoot({ state: 'ready', repo, data: await repo.load(), local: false, email: session.user.email ?? null });
     } catch (e) {
-      setBoot(isNotInstalled(e) ? { state: 'not-installed' } : { state: 'error', message: friendlyError(e) });
+      setBoot(isOutdated(e) ? { state: 'outdated' } : isNotInstalled(e) ? { state: 'not-installed' } : { state: 'error', message: friendlyError(e) });
     }
   }, []);
 
@@ -56,6 +57,7 @@ export function App() {
   if (boot.state === 'loading') return <Splash />;
   if (boot.state === 'signed-out') return <SignIn />;
   if (boot.state === 'not-installed') return <NotInstalled />;
+  if (boot.state === 'outdated') return <NotInstalled upgrade />;
   if (boot.state === 'error') return <LoadError message={boot.message} retry={() => void load()} />;
   return (
     <StoreProvider repo={boot.repo} initial={boot.data} local={boot.local} email={boot.email}>
@@ -162,7 +164,7 @@ function Main() {
   })();
 
   return (
-    <div className="mx-auto min-h-full max-w-lg">
+    <div className="mx-auto min-h-full max-w-lg md:max-w-5xl md:pl-28 md:pr-6">
       <header className={cn('pt-safe sticky top-0 z-20 bg-canvas/85 px-5 pb-3 backdrop-blur-xl transition-shadow', scrolled && 'shadow-[0_1px_0_var(--c-line),0_8px_20px_-14px_rgb(40_20_50/0.3)]')}>
         <div className="flex items-center justify-between pt-3">
           {showMonth ? (
@@ -192,15 +194,24 @@ function Main() {
         {local && <p className="mt-2 rounded-xl bg-accent-soft px-3 py-1.5 text-[12px] text-accent-ink">Prøvemodus – lagres bare i denne nettleseren</p>}
       </header>
 
-      <main key={tab} className="animate-fade-in px-5 pt-1 pb-32">
+      <main key={tab} className="animate-fade-in px-5 pt-1 pb-32 md:pb-12">
         {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} onSeeAll={() => setTab('vakter')} />}
         {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} />}
         {tab === 'aar' && <Year year={year} setYear={setYear} today={today} filter={filter} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
-        {tab === 'oppsett' && <Setup />}
+        {tab === 'oppsett' && <div className="md:mx-auto md:max-w-2xl"><Setup /></div>}
       </main>
 
       {/* A slim floating bar, with the add button inside it. */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 px-4" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}>
+      {/* iPad: a rail down the left side instead of the bar at the bottom. */}
+      <nav className="fixed top-1/2 left-4 z-30 hidden -translate-y-1/2 flex-col items-center gap-1.5 rounded-[24px] border border-line/70 bg-surface/95 p-2 shadow-[0_8px_30px_-8px_rgb(40_20_50/0.25)] backdrop-blur-xl md:flex" aria-label="Meny">
+        <button aria-label="Ny vakt" data-tour="add" onClick={() => setSheet({})}
+          className="hero mb-1.5 grid size-14 place-items-center rounded-2xl text-white shadow-float transition active:scale-90">
+          <Plus className="size-7" strokeWidth={2.5} />
+        </button>
+        {TABS.map((t) => <NavButton key={t.key} t={t} active={tab === t.key} onClick={() => setTab(t.key)} rail />)}
+      </nav>
+
+      <nav className="fixed inset-x-0 bottom-0 z-30 px-4 md:hidden" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}>
         <div className="mx-auto flex h-15 max-w-[380px] items-center justify-between rounded-[22px] border border-line/70 bg-surface/95 px-1.5 shadow-[0_8px_30px_-8px_rgb(40_20_50/0.25)] backdrop-blur-xl">
           {TABS.slice(0, 2).map((t) => <NavButton key={t.key} t={t} active={tab === t.key} onClick={() => setTab(t.key)} />)}
           <button aria-label="Ny vakt" data-tour="add" onClick={() => setSheet({})}
@@ -224,11 +235,12 @@ function Main() {
   );
 }
 
-function NavButton({ t, active, onClick }: { t: (typeof TABS)[number]; active: boolean; onClick: () => void }) {
+function NavButton({ t, active, onClick, rail }: { t: (typeof TABS)[number]; active: boolean; onClick: () => void; rail?: boolean }) {
   const Icon = t.icon;
   return (
     <button onClick={onClick} aria-current={active ? 'page' : undefined} data-tour={`tab-${t.key}`}
-      className={cn('flex h-12 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl text-[10.5px] font-semibold transition active:scale-95',
+      className={cn('flex flex-col items-center justify-center gap-0.5 rounded-2xl text-[10.5px] font-semibold transition active:scale-95',
+        rail ? 'size-16 text-[11px]' : 'h-12 flex-1',
         active ? 'bg-accent-soft text-accent-ink' : 'text-ink-3')}>
       <Icon className="size-[19px]" strokeWidth={active ? 2.4 : 2} />
       {t.label}

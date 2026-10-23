@@ -10,20 +10,24 @@ export interface TourStep { target?: string; emoji: string; title: string; text:
 
 const PAD = 8;
 
+/** The element for a step that is actually on screen: the bottom bar on the phone, the side rail on iPad. */
+const find = (target: string) =>
+  [...document.querySelectorAll<HTMLElement>(`[data-tour="${target}"]`)].find((el) => el.getClientRects().length > 0) ?? null;
+
 export function Tour({ steps, onDone, finalLabel = 'Kom i gang' }: { steps: TourStep[]; onDone: (finished: boolean) => void; finalLabel?: string }) {
-  const visible = steps.filter((s) => !s.target || document.querySelector(`[data-tour="${s.target}"]`));
+  const visible = steps.filter((s) => !s.target || find(s.target));
   const [i, setI] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const step = visible[i];
   const last = i === visible.length - 1;
 
   const measure = useCallback(() => {
-    const el = step?.target ? document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`) : null;
+    const el = step?.target ? find(step.target) : null;
     setRect(el ? el.getBoundingClientRect() : null);
   }, [step]);
 
   useLayoutEffect(() => {
-    const el = step?.target ? document.querySelector<HTMLElement>(`[data-tour="${step.target}"]`) : null;
+    const el = step?.target ? find(step.target) : null;
     const r = el?.getBoundingClientRect();
     // Bring it into view first if it is off screen (the bar at the bottom is always in view).
     if (el && r && (r.top < 80 || r.bottom > innerHeight - 100)) el.scrollIntoView({ block: 'center' });

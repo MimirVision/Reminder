@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Data, Repo } from './repo';
 import { friendlyError } from './config';
-import type { Employer, Settings, Setup, Shift, Supplement } from '../lib/types';
+import type { DayOff, Employer, Payslip, Settings, Setup, Shift, Supplement } from '../lib/types';
 
 interface Store extends Data {
   local: boolean;
@@ -18,9 +18,13 @@ interface Store extends Data {
   deleteEmployer(id: string): Promise<boolean>;
   /** Saves an employer with exactly these supplements, replacing the ones it had (adding or copying a setup). */
   replaceSetup(e: Employer, supplements: Supplement[]): Promise<boolean>;
+  saveDayOff(d: DayOff): Promise<boolean>;
+  deleteDayOff(id: string): Promise<boolean>;
+  savePayslip(p: Payslip): Promise<boolean>;
+  deletePayslip(id: string): Promise<boolean>;
   /** Wage, supplements and employers: everything a calculation needs. */
   setup: Setup;
-  toast(text: string, opts?: { celebrate?: boolean; undo?: () => void }): void;
+  toast(text: string, opts?: { celebrate?: boolean; undo?: () => void; error?: boolean }): void;
   toastState: Toast | null;
 }
 
@@ -72,7 +76,11 @@ export function StoreProvider({ repo, initial, local, email, children }: { repo:
     saveSettings: (s) => run((d) => ({ ...d, settings: s }), () => repo.saveSettings(s)),
     saveShift: (s) => run((d) => ({ ...d, shifts: upsert(d.shifts, s) }), () => repo.saveShift(s)),
     deleteShift: (id) => run((d) => ({ ...d, shifts: d.shifts.filter((x) => x.id !== id) }), () => repo.deleteShift(id)),
-    setup: { employers: data.employers, supplements: data.supplements },
+    setup: { employers: data.employers, supplements: data.supplements, sickPercent: data.settings.sick_percent },
+    saveDayOff: (x) => run((d) => ({ ...d, daysOff: upsert(d.daysOff.filter((y) => y.date !== x.date || y.id === x.id), x) }), () => repo.saveDayOff(x)),
+    deleteDayOff: (id) => run((d) => ({ ...d, daysOff: d.daysOff.filter((x) => x.id !== id) }), () => repo.deleteDayOff(id)),
+    savePayslip: (x) => run((d) => ({ ...d, payslips: upsert(d.payslips.filter((y) => y.month !== x.month || y.id === x.id), x) }), () => repo.savePayslip(x)),
+    deletePayslip: (id) => run((d) => ({ ...d, payslips: d.payslips.filter((x) => x.id !== id) }), () => repo.deletePayslip(id)),
     saveSupplement: (s) => run((d) => ({ ...d, supplements: upsert(d.supplements, s) }), () => repo.saveSupplements([s])),
     deleteSupplement: (id) => run((d) => ({ ...d, supplements: d.supplements.filter((x) => x.id !== id) }), () => repo.deleteSupplements([id])),
     saveEmployer: (e) => run((d) => ({ ...d, employers: upsert(d.employers, e) }), () => repo.saveEmployer(e)),
