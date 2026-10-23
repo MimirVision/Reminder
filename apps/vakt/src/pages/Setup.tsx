@@ -136,7 +136,7 @@ function General() {
           {!local && <Button variant="soft" className="w-full" onClick={() => void supabase().auth.signOut().then(() => location.reload())}><LogOut className="size-5" /> Logg ut</Button>}
         </Card>
       </Section>
-      <p className="pb-4 text-center text-[12px] text-ink-3">Vakt regner ut brutto lønn fra det du legger inn. Sjekk gjerne mot lønnsslippen.</p>
+      <p className="pb-4 text-center text-[12px] text-ink-3">Vakt regner ut brutto lønn fra det du legger inn. Sjekk gjerne mot lønnsslippen.<br />Versjon {__BUILD__}</p>
     </>
   );
 }

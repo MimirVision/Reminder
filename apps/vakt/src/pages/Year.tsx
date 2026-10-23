@@ -48,7 +48,13 @@ export function Year({ year, setYear, today, filter, onPickMonth }: { year: numb
         </div>
       </section>
 
-      <Card>
+      {data.all.count === 0 ? (
+        <Card className="text-center">
+          <div className="mb-2 text-[36px]" aria-hidden>📈</div>
+          <p className="mb-1 text-[17px] font-bold">Ingen vakter i {year} ennå</p>
+          <p className="text-[14px] text-ink-3">Her ser du hvert år måned for måned når du har lagt inn vakter.</p>
+        </Card>
+      ) : <Card>
         <div className="mb-4 flex items-baseline justify-between">
           <h3 className="text-[16px] font-bold">Måned for måned</h3>
           {avg > 0 && <span className="text-[13px] text-ink-3">snitt {kr(avg)}</span>}
@@ -74,7 +80,7 @@ export function Year({ year, setYear, today, filter, onPickMonth }: { year: numb
           <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-accent/30" />Planlagt</span>
           {goal ? <span className="flex items-center gap-1.5"><span className="w-3 border-t border-dashed border-rose" />Mål</span> : null}
         </div>
-      </Card>
+      </Card>}
 
       {best && (
         <Card className="flex items-center gap-4">

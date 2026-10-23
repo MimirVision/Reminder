@@ -1,6 +1,16 @@
 // The whole flow in local mode (no database): onboarding, setup, adding shifts, and the numbers on each screen.
 import { expect, test, type Page } from '@playwright/test';
 
+// The calendars open on the current month: pin the date so the tests read the same any day.
+test.beforeEach(async ({ page }) => { await page.clock.setFixedTime(new Date('2026-10-23T12:00:00')); });
+
+/** In the shift sheet's calendar: only `day` (of October 2026) chosen. */
+async function pickOnly(page: Page, day: number) {
+  const cal = page.getByTestId('date-picker');
+  for (const b of await cal.locator('button[aria-pressed="true"]').all()) await b.click();
+  await cal.getByRole('button', { name: new RegExp(`\\b${day}\\. oktober`) }).click();
+}
+
 async function onboard(page: Page, opts: { others?: string[] } = {}) {
   await page.goto('/');
   await page.getByLabel('Navn').fill('Nikita');
@@ -26,17 +36,17 @@ async function onboard(page: Page, opts: { others?: string[] } = {}) {
 
 test('onboarding, adding shifts and seeing what they pay', async ({ page }) => {
   await onboard(page);
-  await expect(page.getByTestId('motivation')).toContainText('første vakt');
+  await expect(page.getByText('Ingen vakter i oktober ennå')).toBeVisible();
 
   // A weekday evening shift 15:00–22:30: 7.5 h × 300, 4 h evening and 1.5 h night supplement at 25 % (75 kr/t).
   await page.getByRole('button', { name: 'Ny vakt', exact: true }).click();
   await expect(page.getByText('Hvor jobber du?')).toHaveCount(0); // only one employer: no choice to make
   await page.getByRole('button', { name: /Kveld/ }).first().click();
-  await page.getByLabel('Dato').fill('2026-10-21');
+  await pickOnly(page, 21);
   await expect(page.getByTestId('shift-total')).toHaveText(/2\s663 kr/);
   await page.getByRole('button', { name: 'Lagre + ny' }).click();
   // The next day, already filled in: change it to a night shift.
-  await expect(page.getByLabel('Dato')).toHaveValue('2026-10-22');
+  await expect(page.getByTestId('date-picker').getByRole('button', { name: /\b22\. oktober/ })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: /Natt/ }).click();
   await page.getByRole('button', { name: 'Lagre vakt' }).click();
 
@@ -77,7 +87,7 @@ test('two departments: choose one per shift, filter, and copy a changed setup', 
   await page.getByRole('button', { name: 'Ny vakt', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Avdeling 2' }).click();
   await page.getByRole('button', { name: /Dag/ }).first().click();
-  await page.getByLabel('Dato').fill('2026-10-21');
+  await pickOnly(page, 21);
   await expect(page.getByTestId('shift-total')).toHaveText(/2\s400 kr/); // 8 × 300
   await page.getByRole('button', { name: 'Lagre + ny' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Avdeling 4' }).click();
@@ -119,7 +129,7 @@ test('a supplement added in setup counts on the next shift', async ({ page }) =>
   await expect(page.getByText('Helg, hele døgnet')).toBeVisible();
 
   await page.getByRole('button', { name: 'Ny vakt', exact: true }).click();
-  await page.getByLabel('Dato').fill('2026-10-24'); // Saturday
+  await pickOnly(page, 24); // Saturday
   await page.getByLabel('Fra', { exact: true }).fill('08:00');
   await page.getByLabel('Til', { exact: true }).fill('16:00');
   await expect(page.getByTestId('shift-total')).toHaveText(/2\s000 kr/); // 8 × 200 + 8 × 50
@@ -161,4 +171,28 @@ test('the walkthrough shows once, ends in a new shift, and can be started again'
   await page.getByRole('button', { name: 'Oppsett' }).click();
   await page.getByRole('button', { name: 'Vis gjennomgangen igjen' }).click();
   await expect(tour.getByText('Velkommen, Nikita!')).toBeVisible();
+});
+
+test('several days at once, and adding from the calendar on Vakter', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('vakt-local-data', JSON.stringify({
+    settings: { onboarded: true, toured: true },
+    employers: [{ id: 'e1', name: 'Jobben', color: '#7c3aed', wages: [{ from: '2000-01-01', hourly: 200 }], templates: [{ id: 'd', name: 'Dag', start_time: '08:00', end_time: '16:00', break_minutes: 0 }], sort: 0 }],
+    supplements: [], shifts: [],
+  })));
+  await page.reload();
+  await page.getByRole('button', { name: 'Ny vakt', exact: true }).click();
+  await pickOnly(page, 5);
+  const cal = page.getByTestId('date-picker');
+  await cal.getByRole('button', { name: /\b6\. oktober/ }).click();
+  await cal.getByRole('button', { name: /\b7\. oktober/ }).click();
+  await expect(page.getByTestId('shift-total')).toHaveText(/4\s800 kr/); // 3 × 8 × 200
+  await page.getByRole('button', { name: 'Lagre 3 vakter' }).click();
+
+  await page.getByRole('button', { name: 'Vakter', exact: true }).click();
+  await expect(page.getByText('3 vakter', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Legg til vakt 2026-10-12' }).click();
+  await expect(cal.getByRole('button', { name: /\b12\. oktober/ })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Lagre vakt' }).click();
+  await expect(page.getByText('4 vakter', { exact: true })).toBeVisible();
 });

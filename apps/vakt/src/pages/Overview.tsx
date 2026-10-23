@@ -80,16 +80,16 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
         ) : null}
       </section>
 
-      <div className="flex items-start gap-3 rounded-3xl bg-accent-soft p-4 animate-rise [animation-delay:60ms]">
+      {view.list.length > 0 && <div className="flex items-start gap-3 rounded-3xl bg-accent-soft p-4 animate-rise [animation-delay:60ms]">
         <span className="text-[26px] leading-none" aria-hidden>{msg.emoji}</span>
         <p className="text-[15px] leading-snug font-medium text-accent-ink" data-testid="motivation">{msg.text}</p>
-      </div>
+      </div>}
 
-      <div className="grid grid-cols-3 gap-3 animate-rise [animation-delay:120ms]">
+      {view.list.length > 0 && <div className="grid grid-cols-3 gap-3 animate-rise [animation-delay:120ms]">
         <Tile icon={<CalendarClock className="size-4" />} tone="violet" label="Vakter" value={`${view.done.length}${view.left.length ? `/${view.list.length}` : ''}`} />
         <Tile icon={<Clock className="size-4" />} tone="sky" label="Timer" value={hrs(Math.round(view.all.hours * 10) / 10)} />
         <Tile icon={<Sparkles className="size-4" />} tone="green" label="Tillegg" value={kr(view.all.supplementTotal)} />
-      </div>
+      </div>}
 
       {view.next && current && (
         <section className="animate-rise [animation-delay:160ms]">
@@ -130,8 +130,9 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
 
       {view.list.length === 0 ? (
         <Card className="text-center">
+          <div className="mb-2 text-[36px]" aria-hidden>{msg.emoji}</div>
           <p className="mb-1 text-[17px] font-bold">Ingen vakter i {monthName(month).toLowerCase()} ennå</p>
-          <p className="mb-4 text-[14px] text-ink-3">Legg inn vaktene dine, så ser du med en gang hva du tjener.</p>
+          <p className="mb-4 text-[14px] text-ink-3">Legg inn vaktene dine – gjerne hele turnusen på én gang – så ser du med en gang hva du tjener.</p>
           <Button variant="primary" onClick={onAdd} className="w-full">Legg inn vakt</Button>
         </Card>
       ) : (
