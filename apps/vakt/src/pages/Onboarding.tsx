@@ -31,6 +31,7 @@ export function Onboarding() {
       id: firstId.current, name: job.trim() || 'Jobben min', color: existing?.color ?? EMPLOYER_COLORS[0],
       wages: wage ? [{ from: '2000-01-01', hourly: wage }] : [],
       templates: existing?.templates.length ? existing.templates : DEFAULT_TEMPLATES.map((t) => ({ ...t, id: newId() })), sort: 0,
+      pay_day: existing?.pay_day ?? 12, pay_delay: existing?.pay_delay ?? 'supplements',
     };
     const sups = picked.filter((x) => x.on && x.amount > 0).map((p, i) => fromPreset(p, first.id, newId(), i));
     if (!(await replaceSetup(first, sups))) { setBusy(false); return; }
@@ -38,7 +39,7 @@ export function Onboarding() {
       const names = others.map((o) => o.trim()).filter(Boolean);
       for (const [i, n] of names.entries()) {
         otherIds.current[i] ??= newId();
-        const target: Employer = { id: otherIds.current[i], name: n, color: EMPLOYER_COLORS[(i + 1) % EMPLOYER_COLORS.length], wages: [], templates: [], sort: i + 1 };
+        const target: Employer = { id: otherIds.current[i], name: n, color: EMPLOYER_COLORS[(i + 1) % EMPLOYER_COLORS.length], wages: [], templates: [], sort: i + 1, pay_day: first.pay_day, pay_delay: first.pay_delay };
         const out = copySetup(first, sups, target, newId);
         if (!(await replaceSetup(out.employer, out.supplements))) { setBusy(false); return; }
       }

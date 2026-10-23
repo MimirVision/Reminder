@@ -33,6 +33,7 @@ export function ShiftRow({ shift, today, onOpen }: { shift: Shift; today: ISODat
           {employer && <span className="flex items-center gap-1 font-medium text-ink-2"><span className="size-2 rounded-sm" style={{ background: employer.color }} />{employer.name} ·</span>}
           <span>{hrs(pay.paidHours)}</span>
           {special && <span className="font-medium text-rose">· {special}</span>}
+          {shift.status === 'sick' && <span className="font-medium text-danger">· Syk</span>}
           {shift.overtime_percent > 0 && <span className="font-medium text-accent-ink">· Overtid</span>}
           {shift.note && <span className="truncate">· {shift.note}</span>}
           {pay.supplements.length > 0 && (

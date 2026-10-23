@@ -7,8 +7,8 @@ import { addDays, monthOf, toMinutes, today, type ISODate } from '../lib/dates';
 import { employerOf, payOf, shiftKind, summarize } from '../lib/pay';
 import { hrs, kr, longDate } from '../lib/format';
 import { eveName, holidayName } from '../lib/holidays';
-import type { Shift } from '../lib/types';
-import { Button, Chip, Label, Sheet, cn, confetti, inputClass } from './ui';
+import { DAY_OFF_LABEL, type DayOffKind, type Shift } from '../lib/types';
+import { Button, Chip, Label, Sheet, Switch, cn, confetti, inputClass } from './ui';
 import { CalendarGrid, MonthNav } from './Calendar';
 
 const BREAKS = [0, 15, 30, 45, 60];
@@ -22,14 +22,17 @@ const lastEmployer = () => { try { return localStorage.getItem(LAST_EMPLOYER); }
 
 /** `employerId` is the employer to start with for a new shift (the one she is looking at); else the last one used. */
 export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?: Shift; defaultDate: string; employerId?: string | null; onClose: () => void }) {
-  const { setup, employers, shifts, saveShift, deleteShift, toast } = useStore();
+  const { setup, employers, shifts, daysOff, saveShift, deleteShift, saveDayOff, toast } = useStore();
+  // A new entry can be a shift or a day off (holiday, a day off, time off in lieu).
+  const [mode, setMode] = useState<'shift' | 'off'>('shift');
+  const [offKind, setOffKind] = useState<DayOffKind>('ferie');
   const [s, setS] = useState<Shift>(() => {
     if (shift) return { ...shift, employer_id: employerOf(shift, employers)?.id ?? null };
     const emp = employers.find((e) => e.id === employerId) ?? employers.find((e) => e.id === lastEmployer()) ?? employers[0];
     const t = emp?.templates[0];
     return {
       id: newId(), employer_id: emp?.id ?? null, date: defaultDate, start_time: t?.start_time ?? '07:30', end_time: t?.end_time ?? '15:30',
-      break_minutes: t?.break_minutes ?? 0, overtime_percent: 0, note: '',
+      break_minutes: t?.break_minutes ?? 0, overtime_percent: 0, note: '', status: 'worked',
     };
   });
   // A new shift can go on several days at once (her roster): the same times on every date she taps.
@@ -65,6 +68,16 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
     } else onClose();
   };
 
+  const saveOff = async () => {
+    const list = [...dates].sort();
+    for (const date of list) {
+      const id = daysOff.find((x) => x.date === date)?.id ?? newId();
+      if (!(await saveDayOff({ id, date, kind: offKind, note: s.note }))) return;
+    }
+    toast(`${list.length} ${list.length === 1 ? 'dag' : 'dager'} ${DAY_OFF_LABEL[offKind].toLowerCase()} lagt inn 🌴`);
+    onClose();
+  };
+
   const remove = async () => {
     if (!shift) return;
     const copy = shift;
@@ -76,9 +89,13 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
 
   return (
     <Sheet
-      title={shift ? 'Endre vakt' : 'Ny vakt'}
+      title={shift ? 'Endre vakt' : mode === 'off' ? 'Fri eller ferie' : 'Ny vakt'}
       onClose={onClose}
-      footer={
+      footer={mode === 'off' ? (
+        <Button variant="primary" disabled={dates.length === 0} onClick={() => void saveOff()} className="w-full">
+          Lagre {dates.length > 1 ? `${dates.length} dager` : 'dagen'}
+        </Button>
+      ) : (
         <div className="flex gap-2">
           {shift
             ? <Button variant="danger" onClick={remove} aria-label="Slett vakt" className="px-4"><Trash2 className="size-5" /></Button>
@@ -87,9 +104,29 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
             {shift ? 'Lagre' : dates.length > 1 ? `Lagre ${dates.length} vakter` : 'Lagre vakt'}
           </Button>
         </div>
-      }
+      )}
     >
-      {employers.length > 1 && (
+      {!shift && (
+        <div className="mb-5 grid grid-cols-2 gap-1 rounded-2xl bg-sunken p-1" role="group" aria-label="Hva vil du legge inn">
+          {(['shift', 'off'] as const).map((m) => (
+            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
+              className={cn('min-h-10 rounded-xl text-[14px] font-semibold transition', mode === m ? 'bg-surface text-ink shadow-card' : 'text-ink-3')}>
+              {m === 'shift' ? 'Vakt' : 'Fri / ferie'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === 'off' && (
+        <div className="mb-5">
+          <Label>Hva slags dag</Label>
+          <div className="flex gap-2">
+            {(Object.keys(DAY_OFF_LABEL) as DayOffKind[]).map((k) => <Chip key={k} active={offKind === k} onClick={() => setOffKind(k)}>{DAY_OFF_LABEL[k]}</Chip>)}
+          </div>
+        </div>
+      )}
+
+      {mode === 'shift' && employers.length > 1 && (
         <div className="mb-5">
           <Label>Hvor jobber du?</Label>
           <div className="flex flex-wrap gap-2">
@@ -104,7 +141,7 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
         </div>
       )}
 
-      {templates.length > 0 && (
+      {mode === 'shift' && templates.length > 0 && (
         <div className="mb-5">
           <Label>Vakttype</Label>
           <div className="grid grid-cols-3 gap-2">
@@ -136,6 +173,7 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
           <CalendarGrid month={calMonth} renderDay={(d) => {
             const on = shift ? s.date === d : dates.includes(d);
             const has = shifts.some((x) => x.date === d && x.id !== shift?.id);
+            const off = daysOff.some((x) => x.date === d);
             const red = holidayName(d) !== null;
             return (
               <button type="button" aria-pressed={on} aria-label={longDate(d)}
@@ -147,13 +185,30 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
                 className={cn('relative grid aspect-square w-full place-items-center rounded-xl text-[14.5px] font-semibold transition active:scale-90',
                   on ? 'hero text-white shadow-float' : d === today() ? 'text-accent-ink ring-2 ring-accent/40' : red ? 'text-rose' : 'text-ink')}>
                 {Number(d.slice(8))}
-                {has && <span className={cn('absolute bottom-1 size-1 rounded-full', on ? 'bg-white' : 'bg-ink-3')} />}
+                {(has || off) && <span className={cn('absolute bottom-1 size-1 rounded-full', on ? 'bg-white' : off ? 'bg-teal-500' : 'bg-ink-3')} />}
               </button>
             );
           }} />
         </div>
         {!shift && special && dates.length === 1 && <p className="mt-1.5 text-[13px] font-semibold text-rose">{special}</p>}
       </div>
+
+      {mode === 'off' ? (
+        <div className="mb-4">
+          <Label hint="valgfritt">Notat</Label>
+          <input className={inputClass} aria-label="Notat" maxLength={200} value={s.note} onChange={(e) => set({ note: e.target.value })} placeholder="F.eks. sommerferie" />
+        </div>
+      ) : (
+      <>
+      {shift && (
+        <div className="mb-4 flex items-center justify-between rounded-2xl bg-surface px-4 py-3 shadow-card">
+          <span>
+            <span className="block text-[15px] font-medium">Jeg var syk 🤒</span>
+            <span className="block text-[12.5px] text-ink-3">Betales med sykelønn fra Oppsett ({setup.sickPercent ?? 100} %)</span>
+          </span>
+          <Switch label="Jeg var syk" on={s.status === 'sick'} onChange={(v) => set({ status: v ? 'sick' : 'worked' })} />
+        </div>
+      )}
 
       <div className="mb-4 grid grid-cols-2 gap-3">
         <div>
@@ -216,6 +271,8 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
         </div>
       )}
       {!valid && <p className="text-[14px] text-danger">{all.length === 0 ? 'Velg minst én dag i kalenderen.' : 'Fra og til kan ikke være samme klokkeslett.'}</p>}
+      </>
+      )}
     </Sheet>
   );
 }

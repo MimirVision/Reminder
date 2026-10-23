@@ -81,9 +81,10 @@ export function Sheet({ title, onClose, children, footer }: { title: string; onC
   };
   // In a portal on <body>, so no scrolled or animated parent can change where the sheet sits.
   return createPortal(
-    <div className="fixed inset-x-0 top-0 z-40 flex h-dvh flex-col justify-end" role="dialog" aria-modal aria-label={title}>
+    <div className="fixed inset-x-0 top-0 z-40 flex h-dvh flex-col justify-end md:items-center md:justify-center md:p-8" role="dialog" aria-modal aria-label={title}>
       <div className="absolute inset-0 animate-fade-in bg-black/40 backdrop-blur-[2px] transition-opacity" style={{ opacity: 1 - Math.min(drag / 400, 0.6) }} onClick={onClose} />
-      <div className="relative mx-auto flex max-h-[92dvh] w-full max-w-lg animate-sheet-in flex-col rounded-t-[28px] bg-canvas shadow-[0_-10px_40px_-12px_rgb(0_0_0/0.3)]"
+      {/* A sheet from the bottom on the phone; a centred dialog on iPad. */}
+      <div className="relative mx-auto flex max-h-[92dvh] w-full max-w-lg animate-sheet-in flex-col rounded-t-[28px] bg-canvas shadow-[0_-10px_40px_-12px_rgb(0_0_0/0.3)] md:max-h-[86dvh] md:animate-pop-in md:rounded-[28px] md:shadow-[0_30px_80px_-20px_rgb(0_0_0/0.45)]"
         style={{ transform: drag ? `translateY(${drag}px)` : undefined, transition: start.current === null ? 'transform 200ms ease-out' : 'none' }}>
         <div className="flex touch-none items-center justify-between px-5 pt-3 pb-2" {...handle}>
           <div className="absolute top-2 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-line" />
@@ -91,7 +92,7 @@ export function Sheet({ title, onClose, children, footer }: { title: string; onC
           <button onClick={onClose} aria-label="Lukk" className="mt-2 grid size-9 place-items-center rounded-full bg-sunken text-ink-2 transition active:scale-90"><X className="size-5" /></button>
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4">{children}</div>
-        {footer && <div className="pb-safe border-t border-line bg-canvas px-5 pt-3">{footer}</div>}
+        {footer && <div className="pb-safe border-t border-line bg-canvas px-5 pt-3 md:rounded-b-[28px] md:pb-4">{footer}</div>}
       </div>
     </div>,
     document.body,

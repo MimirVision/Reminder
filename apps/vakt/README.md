@@ -10,6 +10,7 @@ progress towards a monthly goal and what the supplements added. The UI is in Nor
 | Oversikt | The month: earned so far, planned, total (and roughly after tax), progress towards the goal, a motivating line, next shift, where the money comes from. |
 | Vakter | A month calendar (a bar per shift: day, evening, night; tap an empty day to add one there), then the month's shifts week by week, each with its pay and supplements. Tap to change or delete (with undo). |
 | År | Month-by-month bars (earned and planned), best month, the year's supplements. |
+| Oversikt (more) | *Lønn på konto*: what lands in the account that month and on which day (the wage for the month, supplements and overtime for the month before, holiday pay in June), with *Sjekk mot lønnsslippen* to enter the pay slip and see any difference. Brutto/Netto switch on the big number. |
 | Oppsett | Set up once: each employer or department with its own hourly wage (with dates, so a pay rise never changes earlier months), supplements and shift types, a "Klar / Mangler …" status, a table of what each shift type pays on a weekday, Saturday and Sunday, and *Kopier oppsettet til …* another employer. Below: monthly goal, tax, account. |
 | + | New shift: where (only asked with more than one employer), one tap on a shift type (Dag, Kveld, Natt …), the date, a live breakdown of what it pays. Tap several days in its calendar to add the same shift on all of them; *Lagre + ny* keeps the times and moves to the next day. |
 
@@ -18,6 +19,12 @@ the employer, and the overview splits the month per employer. The goal is for al
 
 The first sign-in asks where she works and the hourly wage, which common supplements she gets (amounts to check
 against the pay slip), whether she works at more places (they get a copy of the same setup), and a goal.
+
+**Also:** days off (ferie, fri, avspasering) from *Ny vakt → Fri / ferie*, shown in the calendar; *Jeg var syk* on a
+shift pays it at the sick-pay share from Oppsett; *Gjenta uke eller turnus* on Vakter copies a week or a 2–6 week rota
+forward; holiday pay (10.2 / 12 / 14.3 %) in the year view and in June's payout; reminders on the phone
+([NOTIFICATIONS.md](NOTIFICATIONS.md)). On iPad (768 px and wider) a rail on the left replaces the bottom bar, screens
+use two columns and sheets open as centred dialogs.
 
 ## How pay is calculated (`src/lib/pay.ts`)
 
@@ -42,7 +49,8 @@ Like Ledger, Vakt lives in this repository and uses the **same Supabase project*
 ## Setup
 
 1. Supabase → **SQL Editor → New query**, paste all of `apps/vakt/supabase/vakt.sql`, **Run**. Safe to run again; run it
-   again after updates (version 2 adds employers and moves earlier data to one called "Jobben min").
+   again after updates (version 2 adds employers and moves earlier data to one called "Jobben min"; version 3 adds pay
+   day, sick shifts, days off, pay slips and reminder devices). Until then the app shows *Databasen må oppdateres*.
 2. Deploy the site as usual. Open `https://<the site>/vakt/` on her phone, create an account (or sign in), then in
    Safari **Del → Legg til på Hjem-skjerm**.
 

@@ -1,14 +1,14 @@
 // The year: month by month, the best month, and how much the supplements added up to.
 import { useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Trophy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palmtree, Trophy } from 'lucide-react';
 import { useStore } from '../data/store';
 import { monthOf, type ISODate, type MonthKey } from '../lib/dates';
 import { MONTHS, hrs, kr, monthName } from '../lib/format';
-import { employerOf, shiftEnd, summarize } from '../lib/pay';
+import { employerOf, holidayPayEarned, shiftEnd, summarize } from '../lib/pay';
 import { Card, CountUp, cn } from '../components/ui';
 
 export function Year({ year, setYear, today, filter, onPickMonth }: { year: number; setYear: (y: number) => void; today: ISODate; filter: string | null; onPickMonth: (m: MonthKey) => void }) {
-  const { shifts: allShifts, setup, employers, settings } = useStore();
+  const { shifts: allShifts, setup, employers, settings, daysOff } = useStore();
   const data = useMemo(() => {
     const shifts = filter ? allShifts.filter((s) => employerOf(s, employers)?.id === filter) : allShifts;
     const now = new Date();
@@ -31,13 +31,14 @@ export function Year({ year, setYear, today, filter, onPickMonth }: { year: numb
   const thisMonth = monthOf(today);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-5 md:space-y-0">
+      <div className="flex items-center justify-between md:col-span-2">
         <button aria-label="Forrige år" onClick={() => setYear(year - 1)} className="grid size-10 place-items-center rounded-full bg-surface shadow-card"><ChevronLeft className="size-5" /></button>
         <h2 className="tabular text-[20px] font-bold">{year}</h2>
         <button aria-label="Neste år" onClick={() => setYear(year + 1)} className="grid size-10 place-items-center rounded-full bg-surface shadow-card"><ChevronRight className="size-5" /></button>
       </div>
 
+      <div className="space-y-4">
       <section className="hero rounded-[28px] p-6 text-white shadow-float">
         <p className="text-[14px] font-medium text-white/80">Totalt i {year}</p>
         <p className="tabular font-display text-[46px] leading-tight font-semibold"><CountUp value={data.all.total} format={kr} /></p>
@@ -82,6 +83,8 @@ export function Year({ year, setYear, today, filter, onPickMonth }: { year: numb
         </div>
       </Card>}
 
+      </div>
+      <div className="space-y-4">
       {best && (
         <Card className="flex items-center gap-4">
           <div className="grid size-12 place-items-center rounded-2xl bg-rose/15 text-rose"><Trophy className="size-6" /></div>
@@ -106,6 +109,20 @@ export function Year({ year, setYear, today, filter, onPickMonth }: { year: numb
           </ul>
         </Card>
       )}
+      <HolidayCard year={year} filter={filter} />
+      {(() => {
+        const sick = allShifts.filter((s) => s.status === 'sick' && s.date.startsWith(`${year}-`) && (!filter || employerOf(s, employers)?.id === filter)).length;
+        const off = daysOff.filter((d) => d.date.startsWith(`${year}-`));
+        if (!sick && !off.length) return null;
+        return (
+          <Card className="grid grid-cols-3 gap-2 text-center">
+            <Mini label="Feriedager" value={off.filter((d) => d.kind === 'ferie').length} />
+            <Mini label="Fridager" value={off.filter((d) => d.kind !== 'ferie').length} />
+            <Mini label="Syk (vakter)" value={sick} />
+          </Card>
+        );
+      })()}
+      </div>
     </div>
   );
 }
@@ -116,5 +133,30 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-white/75">{label}</div>
       <div className="tabular truncate text-[15px] font-bold">{value}</div>
     </div>
+  );
+}
+
+function Mini({ label, value }: { label: string; value: number }) {
+  return <div><div className="tabular text-[20px] font-bold">{value}</div><div className="text-[12.5px] text-ink-3">{label}</div></div>;
+}
+
+/** Holiday pay: earned this year (paid next June), and what last year's work pays this June. */
+function HolidayCard({ year, filter }: { year: number; filter: string | null }) {
+  const { shifts, setup, employers, settings } = useStore();
+  const mine = filter ? shifts.filter((s) => employerOf(s, employers)?.id === filter) : shifts;
+  const pct = settings.holiday_pay_percent;
+  const earned = holidayPayEarned(year, mine, setup, pct);
+  const paidNow = holidayPayEarned(year - 1, mine, setup, pct);
+  if (!earned && !paidNow) return null;
+  const n = (x: number) => x.toLocaleString('nb-NO', { maximumFractionDigits: 1 });
+  return (
+    <Card>
+      <h3 className="mb-1 flex items-center gap-2 text-[16px] font-bold"><Palmtree className="size-4.5 text-teal-600" /> Feriepenger</h3>
+      <p className="mb-3 text-[13px] text-ink-3">{n(pct)} % av det du tjener, utbetalt i juni året etter. Endre prosenten i Oppsett.</p>
+      <ul className="space-y-2 text-[14.5px]">
+        {paidNow > 0 && <li className="flex justify-between"><span>Utbetales juni {year} (for {year - 1})</span><span className="tabular font-semibold">{kr(paidNow)}</span></li>}
+        {earned > 0 && <li className="flex justify-between"><span>Opptjent i {year} (juni {year + 1})</span><span className="tabular font-semibold" data-testid="holiday-earned">{kr(earned)}</span></li>}
+      </ul>
+    </Card>
   );
 }

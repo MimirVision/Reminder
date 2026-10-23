@@ -1,5 +1,5 @@
 // The month at a glance: what she has earned, what is on the way, how close the goal is, and what the supplements gave.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { CalendarClock, Clock, Sparkles, Target } from 'lucide-react';
 import { useStore } from '../data/store';
 import { monthOf, type ISODate, type MonthKey } from '../lib/dates';
@@ -8,6 +8,7 @@ import { motivation } from '../lib/motivation';
 import { employerOf, inMonth, payOf, shiftEnd, summarize } from '../lib/pay';
 import type { Shift } from '../lib/types';
 import { ShiftRow } from '../components/ShiftRow';
+import { PayoutCard } from '../components/Payouts';
 import { Button, Card, CountUp, cn } from '../components/ui';
 
 /** `filter` is an employer id to show only that job, or null for all of them. */
@@ -45,25 +46,40 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
   });
   const tax = settings.tax_percent;
   const scale = Math.max(goal ?? 0, total, 1);
+  // Tap Brutto/Netto in the card to see roughly what lands in the account instead (remembered on this phone).
+  const [net, setNetState] = useState(() => { try { return localStorage.getItem('vakt-net') === '1'; } catch { return false; } });
+  const setNet = (v: boolean) => { setNetState(v); try { localStorage.setItem('vakt-net', v ? '1' : '0'); } catch { /* only a convenience */ } };
+  const k = net && tax ? 1 - tax / 100 : 1;
 
   const heroLabel = past ? `Tjent i ${monthName(month).toLowerCase()}` : view.done.length === 0 && view.left.length > 0 ? 'Planlagt denne måneden' : 'Tjent så langt';
   const heroValue = view.done.length === 0 && view.left.length > 0 && !past ? planned : earned;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-5 md:space-y-0">
+      <div className="space-y-4">
       <section data-tour="hero" className="hero relative overflow-hidden rounded-[28px] p-6 text-white shadow-float animate-rise">
         <div className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full bg-white/10" />
         <div className="pointer-events-none absolute -bottom-20 -left-10 size-40 rounded-full bg-white/10" />
-        <p className="relative text-[14px] font-medium text-white/80">{heroLabel}</p>
+        <div className="relative flex items-start justify-between gap-3">
+          <p className="text-[14px] font-medium text-white/80">{heroLabel}{k < 1 ? ', etter skatt' : ''}</p>
+          {tax ? (
+            <div className="flex rounded-full bg-white/15 p-0.5 text-[12px] font-semibold" role="group" aria-label="Brutto eller netto">
+              {[false, true].map((v) => (
+                <button key={String(v)} aria-pressed={net === v} onClick={() => setNet(v)}
+                  className={cn('rounded-full px-2.5 py-1 transition', net === v ? 'bg-white text-accent-ink' : 'text-white/85')}>{v ? 'Netto' : 'Brutto'}</button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <p className="tabular relative font-display text-[52px] leading-[1.05] font-semibold tracking-tight" data-testid="hero-total">
-          <CountUp value={heroValue} format={kr} />
+          <CountUp value={heroValue * k} format={kr} />
         </p>
         {planned > 0 && view.done.length > 0 && (
           <p className="relative mt-1 text-[14.5px] text-white/90">
-            + <span className="tabular font-semibold">{kr(planned)}</span> på vei · <span className="tabular font-semibold">{kr(total)}</span> totalt
+            + <span className="tabular font-semibold">{kr(planned * k)}</span> på vei · <span className="tabular font-semibold">{kr(total * k)}</span> totalt
           </p>
         )}
-        {tax ? <p className="relative mt-1 text-[13px] text-white/75">Totalt ca. {kr(total * (1 - tax / 100))} etter skatt ({tax} % trekk)</p> : null}
+        {tax ? <p className="relative mt-1 text-[13px] text-white/75">{k < 1 ? `Før skatt ${kr(total)}` : `Totalt ca. ${kr(total * (1 - tax / 100))} etter skatt`} ({tax} % trekk)</p> : null}
 
         {goal ? (
           <div className="relative mt-5">
@@ -97,6 +113,11 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
           <ShiftRow shift={view.next} today={today} onOpen={() => onOpenShift(view.next!)} />
         </section>
       )}
+
+      </div>
+      {/* The right column on iPad; one column on the phone. */}
+      <div className="space-y-4">
+      <PayoutCard month={month} today={today} filter={filter} />
 
       {!filter && employers.length > 1 && view.all.total > 0 && (
         <Card className="animate-rise [animation-delay:180ms]">
@@ -140,6 +161,7 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
           Se alle {view.list.length} vakter i {monthName(month).toLowerCase()} →
         </button>
       )}
+      </div>
     </div>
   );
 }
