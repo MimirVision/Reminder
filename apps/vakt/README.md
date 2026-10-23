@@ -8,10 +8,10 @@ progress towards a monthly goal and what the supplements added. The UI is in Nor
 | Screen | What it does |
 |---|---|
 | Oversikt | The month: earned so far, planned, total (and roughly after tax), progress towards the goal, a motivating line, next shift, where the money comes from. |
-| Vakter | The month's shifts week by week, each with its pay and supplements. Tap to change or delete (with undo). |
+| Vakter | A month calendar (a bar per shift: day, evening, night; tap an empty day to add one there), then the month's shifts week by week, each with its pay and supplements. Tap to change or delete (with undo). |
 | År | Month-by-month bars (earned and planned), best month, the year's supplements. |
 | Oppsett | Set up once: each employer or department with its own hourly wage (with dates, so a pay rise never changes earlier months), supplements and shift types, a "Klar / Mangler …" status, a table of what each shift type pays on a weekday, Saturday and Sunday, and *Kopier oppsettet til …* another employer. Below: monthly goal, tax, account. |
-| + | New shift: where (only asked with more than one employer), one tap on a shift type (Dag, Kveld, Natt …), the date, a live breakdown of what it pays. *Lagre + ny* keeps the times and moves to the next day, for entering a whole roster. |
+| + | New shift: where (only asked with more than one employer), one tap on a shift type (Dag, Kveld, Natt …), the date, a live breakdown of what it pays. Tap several days in its calendar to add the same shift on all of them; *Lagre + ny* keeps the times and moves to the next day. |
 
 With more than one employer, chips under the header show all of them or one (Oversikt, Vakter, År), shift rows show
 the employer, and the overview splits the month per employer. The goal is for all of them together.
@@ -60,3 +60,9 @@ npm run build      # type check and production build
 npm run build:sql  # regenerate supabase/vakt.sql from the migrations
 node scripts/icons.mjs  # regenerate the PNG icons from public/icon.svg
 ```
+
+## Updates on the phone
+
+A Home Screen app on the iPhone is often resumed from memory rather than reloaded. Each time Vakt comes to the front it
+fetches its own page and compares the script it names with the one running (`src/lib/update.ts`); when a new version
+is out, a banner offers to reload. The version (commit and build time) is at the bottom of Oppsett.

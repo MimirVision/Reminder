@@ -15,6 +15,7 @@ import { Year } from './pages/Year';
 import { ShiftSheet } from './components/ShiftSheet';
 import { ToastView, cn } from './components/ui';
 import { TOUR_EVENT, Tour, appTour } from './components/Tour';
+import { UPDATE_EVENT } from './lib/update';
 
 type Boot =
   | { state: 'loading' }
@@ -97,7 +98,7 @@ function Main() {
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [month, setMonth] = useState<MonthKey>(monthOf(today));
   const [year, setYear] = useState(Number(today.slice(0, 4)));
-  const [sheet, setSheet] = useState<{ shift?: Shift } | null>(null);
+  const [sheet, setSheet] = useState<{ shift?: Shift; date?: string } | null>(null);
   // Show one employer or all; remembered on this phone.
   const [filterState, setFilterState] = useState<string | null>(() => { try { return localStorage.getItem(FILTER); } catch { return null; } });
   const filter = employers.some((e) => e.id === filterState) ? filterState : null;
@@ -105,6 +106,14 @@ function Main() {
     setFilterState(id);
     try { if (id) localStorage.setItem(FILTER, id); else localStorage.removeItem(FILTER); } catch { /* only a convenience */ }
   };
+
+  // A new version has taken over in the background (see main.tsx): offer a reload rather than surprise her mid-edit.
+  const [updated, setUpdated] = useState(false);
+  useEffect(() => {
+    const on = () => setUpdated(true);
+    window.addEventListener(UPDATE_EVENT, on);
+    return () => window.removeEventListener(UPDATE_EVENT, on);
+  }, []);
 
   // A hairline under the header once the page scrolls under it.
   const [scrolled, setScrolled] = useState(false);
@@ -185,7 +194,7 @@ function Main() {
 
       <main key={tab} className="animate-fade-in px-5 pt-1 pb-32">
         {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} onSeeAll={() => setTab('vakter')} />}
-        {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} />}
+        {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} />}
         {tab === 'aar' && <Year year={year} setYear={setYear} today={today} filter={filter} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
         {tab === 'oppsett' && <Setup />}
       </main>
@@ -202,8 +211,15 @@ function Main() {
         </div>
       </nav>
 
+      {updated && (
+        <div className="fixed inset-x-0 top-0 z-50 flex justify-center px-4" style={{ paddingTop: 'max(env(safe-area-inset-top), 10px)' }}>
+          <button onClick={() => location.reload()} className="flex animate-pop-in items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-[14px] font-semibold text-canvas shadow-card">
+            ✨ Ny versjon av Vakt – trykk for å oppdatere
+          </button>
+        </div>
+      )}
       {touring && <Tour steps={appTour(settings.name, employers.length)} onDone={endTour} finalLabel="Legg inn første vakt" />}
-      {sheet && <ShiftSheet shift={sheet.shift} defaultDate={defaultDate} employerId={filter} onClose={() => setSheet(null)} />}
+      {sheet && <ShiftSheet shift={sheet.shift} defaultDate={sheet.date ?? defaultDate} employerId={filter} onClose={() => setSheet(null)} />}
     </div>
   );
 }
