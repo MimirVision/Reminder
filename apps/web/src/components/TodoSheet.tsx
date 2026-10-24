@@ -161,15 +161,18 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
   };
   const whoText = (who: ParsedTask['assignee']) => who === 'me' ? t('assign.me') : who === 'partner' ? partner?.display_name || t('common.partner') : who === 'both' ? t('assign.anyone') : '';
 
+  // Closing a half-written new to-do asks first, so a stray tap outside does not throw the text away.
+  const requestClose = () => { if (!editing && !saving && body.trim().length > 8 && !confirm(t('sheet.discard'))) return; onClose(); };
+
   return (
-    <Sheet label={editing ? t('sheet.edit') : t('sheet.new')} onClose={onClose}>
+    <Sheet label={editing ? t('sheet.edit') : t('sheet.new')} onClose={requestClose}>
       <form className="sheet-form" onSubmit={submit}>
         <div className="row spread">
           <h2>{editing ? t('sheet.edit') : t('sheet.new')}</h2>
-          <button type="button" className="btn small icon" onClick={onClose} aria-label={t('common.close')}><Icon name="x" size={16} /></button>
+          <button type="button" className="btn small icon" onClick={requestClose} aria-label={t('common.close')}><Icon name="x" size={16} /></button>
         </div>
         <textarea
-          ref={area} rows={2} className="bodyfield" placeholder={t('sheet.placeholder')} value={body} onChange={(e) => setBody(e.target.value)}
+          ref={area} rows={2} className="bodyfield" aria-label={editing ? t('sheet.edit') : t('sheet.new')} placeholder={t('sheet.placeholder')} value={body} onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit(); }}
         />
         {plan && kept && (

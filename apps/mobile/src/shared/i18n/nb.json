@@ -838,5 +838,21 @@
   "cond.status.done": "Ferdig",
   "cond.status.skipped": "Hoppet over",
   "cond.disclaimer": "Korte sammendrag av rapporten, på rapportens eget språk. Kostnadsbåndene er rapportens egne grove anslag, ikke tilbud. Les hele rapporten før du bestemmer noe.",
-  "cond.source": "Kilde"
+  "cond.source": "Kilde",
+  "set.theme": "Tema",
+  "more.trash": "Nylig slettet",
+  "trash.title": "Nylig slettet",
+  "trash.empty": "Ingenting slettet i det siste. Slettede oppgaver blir liggende her i 30 dager, så er de borte for godt.",
+  "trash.restore": "Gjenopprett",
+  "trash.restored": "Gjenopprettet",
+  "trash.ago_one": "Slettet for {n} dag siden",
+  "trash.ago_other": "Slettet for {n} dager siden",
+  "trash.today": "Slettet i dag",
+  "trash.keep": "De fjernes for godt 30 dager etter at du sletter dem.",
+  "sheet.discard": "Forkaste det du har skrevet?",
+  "sheet.discardBtn": "Forkast",
+  "sheet.keep": "Fortsett å skrive",
+  "housecard.due_one": "{n} husjobb er klar",
+  "housecard.due_other": "{n} husjobber er klare",
+  "housecard.open": "Åpne Hus"
 }

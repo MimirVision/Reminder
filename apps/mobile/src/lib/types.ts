@@ -35,6 +35,7 @@ export type Memory = MemoryRow & {
   sort_order?: number | null;
   assignee_id?: string | null; // who it is for (null = anyone)
   pinned?: boolean;
+  updated_at?: string;
   pending?: boolean; // saved on this phone, waiting for a connection
 };
 

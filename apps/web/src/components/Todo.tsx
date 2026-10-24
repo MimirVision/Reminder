@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   acceptSuggestion, cachedOpenMemories, deleteMemory, dismissSuggestion, flushOutbox, listMembers, listMemories, listPhotoUrls, listPlaces, markDone,
-  notifyPartnerIfSet, pendingTodos, schemaProblem, purgeDismissed, reopen, requestSuggestion, restoreMemory, setOrder, softDelete, subscribeHousehold, updateMemory,
+  listTasks, notifyPartnerIfSet, pendingTodos, schemaProblem, purgeDismissed, reopen, requestSuggestion, restoreMemory, setOrder, softDelete, subscribeHousehold, updateMemory,
 } from '../lib/api';
 import { tap } from '../lib/haptics';
 import { statusFor } from '../lib/api';
@@ -18,6 +18,7 @@ import { useHere } from '../lib/useHere';
 import { matchTodos } from '../lib/search';
 import { addDays, dueBucket, dueLabel, formatDay, todayISO } from '../lib/when';
 import { compareTodos, groupUpcoming, isLate } from '../lib/todoGroups';
+import { groupTasks } from '../lib/maintenance';
 import { moveStep } from '../lib/order';
 import { allTags } from '../lib/tags';
 import { activeCount, applyFilter, noFilter, type Filter } from '../lib/todoFilter';
@@ -37,6 +38,7 @@ import { RouteSheet, type RouteView } from './RouteSheet';
 import { RecapCard } from './RecapCard';
 import { Tour, tourKey } from './Tour';
 import { CommandPalette, type Command } from './CommandPalette';
+import { TrashSheet } from './TrashSheet';
 import { WeekBoard } from './WeekBoard';
 import { useDesktop } from '../lib/useDesktop';
 import { SetupChecklist } from './SetupChecklist';
@@ -66,6 +68,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const toast = useToast();
   const [mode, setMode] = useState<'list' | 'calendar' | 'week' | 'map'>('list');
   const [palette, setPalette] = useState(false);
+  const [trash, setTrash] = useState(false);
+  const [houseDue, setHouseDue] = useState(0);
   const [cursor, setCursor] = useState<string | null>(null);
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const [filter, setFilter] = useState<Filter>(noFilter);
@@ -123,6 +127,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   useEffect(() => { void load(); }, [load]);
   const checkSchema = useCallback(() => { schemaProblem().then((p) => setSchemaBad(!!p)).catch(() => {}); }, []);
   useEffect(() => { checkSchema(); }, [checkSchema]);
+  // House jobs that are due show as a small card on top, so they are not forgotten when you never open House.
+  useEffect(() => { listTasks(household.id).then((tasks) => setHouseDue(groupTasks(tasks, todayISO()).due.length)).catch(() => {}); }, [household.id]);
   useEffect(() => { loadPlaces(); listMembers(household.id).then(setMembers).catch(() => {}); }, [household.id, loadPlaces]);
   useEffect(() => { void purgeDismissed(household.id).catch(() => {}); }, [household.id]);
 
@@ -449,6 +455,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
     { id: 'select', label: t('bulk.select'), run: () => { setMode('list'); setShowDone(false); setPicking(true); } },
     { id: 'reorder', label: t('more.reorder'), run: () => { setMode('list'); setShowDone(false); setReordering(true); } },
     { id: 'route', label: t('more.route'), run: () => setPlanning(true) },
+    { id: 'trash', label: t('more.trash'), run: () => setTrash(true) },
     { id: 'done', label: t('more.done'), run: () => { setMode('list'); setShowDone(true); } },
     { id: 'house', label: t('nav.house'), run: () => onNavigate('house') },
     { id: 'places', label: t('nav.places'), run: () => onNavigate('places') },
@@ -552,6 +559,12 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
               <span className="muted">{t('todo.empty.body')}</span>
             </div>
           )}
+          {houseDue > 0 && !found && mode === 'list' && (
+            <div className="late-banner house-card" role="status">
+              <span>{tn('housecard.due', houseDue)}</span>
+              <button className="btn small" onClick={() => onNavigate('house')}>{t('housecard.open')}</button>
+            </div>
+          )}
           {lateOnes.length > 0 && (
             <div className="late-banner" role="status">
               <span>{tn('late.banner', lateOnes.length)}</span>
@@ -591,12 +604,14 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       {bulkMove && <RescheduleSheet title={tn('bulk.count', picked.size)} dueOn={null} onPick={bulkMoveTo} onClose={() => setBulkMove(false)} />}
       {!desktop && !showDone && !mapOn && !picking && <AddBar onClick={() => setAdding(true)} />}
       {adding && <TodoSheet household={household} places={places} members={members} userId={userId} initialBody={sharedText ?? undefined} initialDate={addDate} onClose={() => { setAdding(false); setSharedText(null); setAddDate(undefined); }} onSaved={saved} />}
+      {trash && <TrashSheet household={household} onClose={() => setTrash(false)} onRestored={() => void load()} />}
       {palette && <CommandPalette commands={commands} todos={memories.filter((m) => !m.pending).map((m) => ({ id: m.id, label: (m.body || t('todo.photo')).split('\n')[0], hint: [m.due_on ? dueLabel(m, t, locale) : '', placeName(m.place_id) ?? ''].filter(Boolean).join(' · ') }))} onOpenTodo={(id) => { const m = memories.find((x) => x.id === id); if (m) setEditing(m); }} onClose={() => setPalette(false)} />}
       {filtering && <FilterSheet value={filter} onChange={setFilter} partnerName={partner ? partner.display_name || t('common.partner') : null} tags={tagList} onClose={() => setFiltering(false)} />}
       {menu && (
         <Sheet label={t('more.label')} onClose={() => setMenu(false)}>
           <div className="resched">
             <button className="btn" onClick={() => { setMenu(false); setShowDone(true); setSearching(false); setQuery(''); }}><Icon name="check" size={16} /> {t('more.done')}</button>
+            <button className="btn" onClick={() => { setMenu(false); setTrash(true); }}><Icon name="trash" size={16} /> {t('more.trash')}</button>
             <button className="btn" onClick={() => { setMenu(false); setMode('list'); setReordering(false); setPicking(true); }}><Icon name="check" size={16} /> {t('bulk.select')}</button>
             <button className="btn" onClick={() => { setMenu(false); setMode('list'); setReordering(true); }}><Icon name="up" size={16} /> {t('more.reorder')}</button>
             <button className="btn" onClick={() => { setMenu(false); setPlanning(true); }}><Icon name="navigate" size={16} /> {t('more.route')}</button>

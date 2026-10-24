@@ -9,7 +9,7 @@ import { useI18n } from './i18n';
 import { font, useTheme } from './theme';
 import { Btn, Check, Field, Icon, SectionLabel, styles } from './ui';
 
-export const PRIO_COLOR: Record<number, string> = { 1: '#3B82F6', 2: '#E08A00', 3: '#D6341F' };
+export const PRIO_COLOR: Record<number, string> = { 1: '#2563EB', 2: '#B45309', 3: '#C62D1A' };
 
 // Priority, "remind me before", a checklist and notes: what makes a to-do more than a line of text.
 export function TodoDetails({ value, onChange }: { value: Details; onChange: (d: Details) => void }) {

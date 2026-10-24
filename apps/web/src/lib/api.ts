@@ -207,7 +207,7 @@ export async function restoreMemory(id: string, m: { place_id: string | null; du
 
 export async function purgeDismissed(householdId: string, olderThanDays = 30) {
   const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
-  await supabase.from('memories').delete().eq('household_id', householdId).eq('status', 'dismissed').lt('created_at', cutoff);
+  await supabase.from('memories').delete().eq('household_id', householdId).eq('status', 'dismissed').lt('updated_at', cutoff);
 }
 
 export async function deleteMemory(id: string) {

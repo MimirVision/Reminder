@@ -15,7 +15,7 @@ import {
 } from '../shared/lib/condition';
 import { CONDITION_SEED, CONDITION_SOURCE } from '../shared/lib/conditionSeed';
 
-const TG_COLOR: Record<Tg, string> = { TG3: '#D6341F', TG2: '#E08A00', HMS: '#7C3AED', LOV: '#2563EB' };
+const TG_COLOR: Record<Tg, string> = { TG3: '#C62D1A', TG2: '#B45309', HMS: '#7C3AED', LOV: '#2563EB' };
 
 // House > Report: the findings of the condition report (TG3, TG2, safety and legality notes), kept apart from the to-do list.
 export function ConditionView() {

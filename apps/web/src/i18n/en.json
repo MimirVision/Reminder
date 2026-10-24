@@ -838,5 +838,21 @@
   "cond.status.done": "Done",
   "cond.status.skipped": "Skipped",
   "cond.disclaimer": "Short summaries of the report, in its own language. The cost bands are the report's own rough estimates, not quotes. Read the full report before you decide anything.",
-  "cond.source": "Source"
+  "cond.source": "Source",
+  "set.theme": "Theme",
+  "more.trash": "Recently deleted",
+  "trash.title": "Recently deleted",
+  "trash.empty": "Nothing deleted lately. Deleted to-dos stay here for 30 days, then they are gone for good.",
+  "trash.restore": "Restore",
+  "trash.restored": "Restored",
+  "trash.ago_one": "Deleted {n} day ago",
+  "trash.ago_other": "Deleted {n} days ago",
+  "trash.today": "Deleted today",
+  "trash.keep": "They are removed for good 30 days after you delete them.",
+  "sheet.discard": "Discard what you typed?",
+  "sheet.discardBtn": "Discard",
+  "sheet.keep": "Keep writing",
+  "housecard.due_one": "{n} house job is due",
+  "housecard.due_other": "{n} house jobs are due",
+  "housecard.open": "Open House"
 }

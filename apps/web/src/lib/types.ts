@@ -57,6 +57,7 @@ export type Memory = {
   duration_min?: number | null; // how long it takes, in minutes
   remind_travel?: boolean; // ring when it is time to leave for the place
   sort_order?: number | null; // your own order inside a list (null = by priority and time)
+  updated_at?: string;
   pending?: boolean; // saved on this device, waiting for a connection
 };
 

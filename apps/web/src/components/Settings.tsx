@@ -46,19 +46,12 @@ export function Settings({ household }: { household: Household }) {
       {err && <p className="error">{err}</p>}
 
       <section className="card">
-        <h2>{t('set.language')}</h2>
-        <LanguageSwitch />
-        <h2 className="gap">{t('set.appearance')}</h2>
-        <ThemeSwitch />
-      </section>
-
-      <ReminderLinks household={household} />
-
-      <section className="card">
         <h2>{t('push.title')}</h2>
         <span className="muted">{t('push.intro')}</span>
         <NotificationsControl />
       </section>
+
+      <ReminderLinks household={household} />
 
       <section className="card">
         <h2>{t('set.todoList')}</h2>
@@ -69,7 +62,12 @@ export function Settings({ household }: { household: Household }) {
       </section>
 
       <section className="card">
-        <h2>{t('a11y.title')}</h2>
+        <h2>{t('set.appearance')}</h2>
+        <h3 className="sub">{t('set.language')}</h3>
+        <LanguageSwitch />
+        <h3 className="sub">{t('set.theme')}</h3>
+        <ThemeSwitch />
+        <h3 className="sub">{t('a11y.title')}</h3>
         <span className="muted">{t('a11y.textSize')}</span>
         <div className="row">
           {TEXT_SIZES.map((s) => (
@@ -82,10 +80,7 @@ export function Settings({ household }: { household: Household }) {
             <button key={c} className={`btn small${contrast === c ? ' primary' : ''}`} aria-pressed={contrast === c} onClick={() => { setContrast(c); applyContrast(c); }}>{c === 'high' ? t('a11y.on') : t('a11y.off')}</button>
           ))}
         </div>
-      </section>
-
-      <section className="card">
-        <h2>{t('glass.title')}</h2>
+        <h3 className="sub">{t('glass.title')}</h3>
         <span className="muted">{t('glass.help')}</span>
         <div className="row">
           {GLASS_LEVELS.map((g) => (

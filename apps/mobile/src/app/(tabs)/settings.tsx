@@ -64,56 +64,11 @@ export default function Settings() {
       <Title>{t('set.title')}</Title>
 
       <Card>
-        {h(t('set.language'))}
-        <LanguageSwitch />
-        {h(t('set.appearance'))}
-        <View style={styles.row}>
-          {(['system', 'light', 'dark'] as const).map((p) => <Btn key={p} small label={t(`theme.${p}` as 'theme.system')} primary={themePref === p} onPress={() => setThemePref(p)} />)}
-        </View>
-      </Card>
-
-      <Card>
-        {h(t('glass.title'))}
-        <Muted>{t('glass.help')}</Muted>
-        <View style={styles.row}>
-          {GLASS_LEVELS.map((g) => <Btn key={g.id} small label={t(g.key)} primary={level === g.id} onPress={() => setLevel(g.id)} />)}
-        </View>
-        <Glass style={{ borderRadius: 22, padding: 14 }}>
-          <Text style={{ color: th.ink, fontSize: 15, fontFamily: font.medium }}>{t('glass.preview')}</Text>
-        </Glass>
-      </Card>
-
-      <Card>
         {h(t('set.notif'))}
         <Muted>{notif === 'granted' ? t('set.notifOn') : notif === 'denied' ? t('set.notifDenied') : t('set.notifOff')}</Muted>
         {notif === 'undetermined' && <Btn primary label={t('set.notifTurnOn')} onPress={async () => { await ensureNotifyPermission(); await load(); }} />}
         {notif === 'denied' && <Btn primary label={t('set.openSettings')} onPress={() => void Linking.openSettings()} />}
         {notif === 'granted' && <Btn label={t('set.notifTest')} onPress={async () => { Alert.alert((await sendTestNotification()) ? t('set.notifTestSent') : t('set.notifDenied')); }} />}
-      </Card>
-
-      <Card>
-        {h(t('diag.title'))}
-        <Muted>{t('diag.lastSync')}: {lastSync ? new Date(lastSync).toLocaleString(locale) : t('diag.never')}</Muted>
-        <Muted>{t('diag.database')}: {readJson<boolean>('hm.schemaBad', false) ? t('diag.dbOutdated') : t('schema.ok')}</Muted>
-        <Muted>{t('diag.waiting')}: {pending().length} · {t('diag.failed')}: {failedItems().length}</Muted>
-        <SectionLabel>{t('diag.planned')}</SectionLabel>
-        {planned.length === 0 ? <Muted>{t('diag.nonePlanned')}</Muted> : planned.map((n) => (
-          <Text key={n.id} numberOfLines={2} style={{ color: th.ink, fontSize: 14, fontFamily: font.body }}>
-            {n.at.toLocaleString(locale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {n.title}
-          </Text>
-        ))}
-        <Btn small label={t('diag.refresh')} onPress={() => { setLastSync(readJson<number | null>('hm.lastSync', null)); void plannedNotifications().then(setPlanned); }} />
-      </Card>
-
-      <Card>
-        {h(t('set.todoList'))}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: th.ink, fontFamily: font.semi, fontSize: 16 }}>{t('set.recap')}</Text>
-            <Muted>{t('set.recapBody')}</Muted>
-          </View>
-          <Switch value={recap} accessibilityLabel={t('set.recap')} onValueChange={(v) => { setRecap(v); writeJson('hm.recap', v); }} />
-        </View>
       </Card>
 
       <Card>
@@ -143,6 +98,37 @@ export default function Settings() {
       </Card>
 
       <Card>
+        {h(t('set.todoList'))}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: th.ink, fontFamily: font.semi, fontSize: 16 }}>{t('set.recap')}</Text>
+            <Muted>{t('set.recapBody')}</Muted>
+          </View>
+          <Switch value={recap} accessibilityLabel={t('set.recap')} onValueChange={(v) => { setRecap(v); writeJson('hm.recap', v); }} />
+        </View>
+      </Card>
+
+      <Card>
+        {h(t('set.language'))}
+        <LanguageSwitch />
+        {h(t('set.appearance'))}
+        <View style={styles.row}>
+          {(['system', 'light', 'dark'] as const).map((p) => <Btn key={p} small label={t(`theme.${p}` as 'theme.system')} primary={themePref === p} onPress={() => setThemePref(p)} />)}
+        </View>
+      </Card>
+
+      <Card>
+        {h(t('glass.title'))}
+        <Muted>{t('glass.help')}</Muted>
+        <View style={styles.row}>
+          {GLASS_LEVELS.map((g) => <Btn key={g.id} small label={t(g.key)} primary={level === g.id} onPress={() => setLevel(g.id)} />)}
+        </View>
+        <Glass style={{ borderRadius: 22, padding: 14 }}>
+          <Text style={{ color: th.ink, fontSize: 15, fontFamily: font.medium }}>{t('glass.preview')}</Text>
+        </Glass>
+      </Card>
+
+      <Card>
         {h(t('quick.title'))}
         <Muted>{t('quick.intro')}</Muted>
         {keys.map((k) => (
@@ -158,6 +144,20 @@ export default function Settings() {
             <Text selectable style={{ color: th.ink, fontFamily: 'Menlo', fontSize: 12 }}>{newKey}</Text>
           </View>
         )}
+      </Card>
+
+      <Card>
+        {h(t('diag.title'))}
+        <Muted>{t('diag.lastSync')}: {lastSync ? new Date(lastSync).toLocaleString(locale) : t('diag.never')}</Muted>
+        <Muted>{t('diag.database')}: {readJson<boolean>('hm.schemaBad', false) ? t('diag.dbOutdated') : t('schema.ok')}</Muted>
+        <Muted>{t('diag.waiting')}: {pending().length} · {t('diag.failed')}: {failedItems().length}</Muted>
+        <SectionLabel>{t('diag.planned')}</SectionLabel>
+        {planned.length === 0 ? <Muted>{t('diag.nonePlanned')}</Muted> : planned.map((n) => (
+          <Text key={n.id} numberOfLines={2} style={{ color: th.ink, fontSize: 14, fontFamily: font.body }}>
+            {n.at.toLocaleString(locale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {n.title}
+          </Text>
+        ))}
+        <Btn small label={t('diag.refresh')} onPress={() => { setLastSync(readJson<number | null>('hm.lastSync', null)); void plannedNotifications().then(setPlanned); }} />
       </Card>
 
       <Card>
@@ -201,6 +201,7 @@ export default function Settings() {
           </>
         ) : <Btn danger label={t('acct.delete')} onPress={() => setDeleting(true)} />}
       </Card>
+
 
       <Btn danger label={t('auth.signOut')} onPress={() => supabase.auth.signOut()} />
       <Muted>{t('set.version')}: {Constants.expoConfig?.version ?? '?'}</Muted>

@@ -341,9 +341,9 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 /* To-do details: priority, checklist, notes, move-to, late banner */
 .check.prio-1 { border-color: #3B82F6; } .check.prio-2 { border-color: #E08A00; } .check.prio-3 { border-color: #D6341F; }
 .check.prio-1:not(.on) { background: rgba(59, 130, 246, 0.1); } .check.prio-2:not(.on) { background: rgba(224, 138, 0, 0.12); } .check.prio-3:not(.on) { background: rgba(214, 52, 31, 0.12); }
-.chip.prio-chip.prio-1 { color: #2563EB; } .chip.prio-chip.prio-2 { color: #B26A00; } .chip.prio-chip.prio-3 { color: #C22B18; }
+.chip.prio-chip.prio-1 { color: #2563EB; } .chip.prio-chip.prio-2 { color: #8F5200; } .chip.prio-chip.prio-3 { color: #C22B18; }
 :root[data-resolved='dark'] .chip.prio-chip.prio-1 { color: #7FB0FF; } :root[data-resolved='dark'] .chip.prio-chip.prio-2 { color: #F0B050; } :root[data-resolved='dark'] .chip.prio-chip.prio-3 { color: #FF8A78; }
-.chipbtn.prio-1.on { background: #3B82F6; border-color: #3B82F6; } .chipbtn.prio-2.on { background: #E08A00; border-color: #E08A00; } .chipbtn.prio-3.on { background: #D6341F; border-color: #D6341F; }
+.chipbtn.prio-1.on { background: #2563EB; border-color: #2563EB; } .chipbtn.prio-2.on { background: #B45309; border-color: #B45309; } .chipbtn.prio-3.on { background: #C62D1A; border-color: #C62D1A; }
 .chipbtn-lite { cursor: pointer; font: inherit; border: 0; }
 .chip.chipbtn-lite:hover { filter: brightness(0.96); }
 .check.small { width: 20px; height: 20px; border-width: 1.5px; margin-top: 0; }
@@ -543,10 +543,10 @@ input.switch:checked::after { transform: translateX(20px); }
 .cond-count b { font-size: 22px; color: var(--ink); } .cond-count.on { border-color: var(--ink); }
 .cond-sep { width: 1px; background: var(--line); align-self: stretch; margin: 4px 2px; }
 .tg-badge { display: inline-block; border-radius: 8px; padding: 2px 9px; font: 700 12px var(--font-body); color: #fff; background: #6b7280; white-space: nowrap; }
-.tg-badge.tg-TG3, .cond-count.tg-TG3 b { background: #d6341f; } .tg-badge.tg-TG2 { background: #e08a00; } .tg-badge.tg-HMS { background: #7c3aed; } .tg-badge.tg-LOV { background: #2563eb; }
+.tg-badge.tg-TG3, .cond-count.tg-TG3 b { background: #c62d1a; } .tg-badge.tg-TG2 { background: #b45309; } .tg-badge.tg-HMS { background: #7c3aed; } .tg-badge.tg-LOV { background: #2563eb; }
 .cond-count b { background: none !important; }
-.cond-count.tg-TG3 b { color: #d6341f; } .cond-count.tg-TG2 b { color: #e08a00; } .cond-count.tg-HMS b { color: #7c3aed; } .cond-count.tg-LOV b { color: #2563eb; }
-.chipbtn.tg-TG3.on { background: #d6341f; border-color: #d6341f; } .chipbtn.tg-TG2.on { background: #e08a00; border-color: #e08a00; } .chipbtn.tg-HMS.on { background: #7c3aed; border-color: #7c3aed; } .chipbtn.tg-LOV.on { background: #2563eb; border-color: #2563eb; }
+.cond-count.tg-TG3 b { color: #c62d1a; } .cond-count.tg-TG2 b { color: #b45309; } .cond-count.tg-HMS b { color: #7c3aed; } .cond-count.tg-LOV b { color: #2563eb; }
+.chipbtn.tg-TG3.on { background: #c62d1a; border-color: #c62d1a; } .chipbtn.tg-TG2.on { background: #b45309; border-color: #b45309; } .chipbtn.tg-HMS.on { background: #7c3aed; border-color: #7c3aed; } .chipbtn.tg-LOV.on { background: #2563eb; border-color: #2563eb; }
 .cond-item { display: flex; flex-direction: column; gap: 8px; border-left: 4px solid var(--line); }
 .cond-item.tg-TG3 { border-left-color: #d6341f; } .cond-item.tg-TG2 { border-left-color: #e08a00; } .cond-item.tg-HMS { border-left-color: #7c3aed; } .cond-item.tg-LOV { border-left-color: #2563eb; }
 .cond-item.finished { opacity: 0.62; }
@@ -564,3 +564,18 @@ input.switch:checked::after { transform: translateX(20px); }
   .page:not(.map-mode) .head:has(> .seg) { flex-direction: column; align-items: stretch; }
 }
 @media (max-width: 700px) { .cond-sep { display: none; } }
+
+/* Audit fixes: touch areas of about 44 px without changing how things look, native checkboxes in the app's colour */
+.check, .check.small { position: relative; }
+.check::after { content: ''; position: absolute; inset: -9px; }
+.check.small::after { inset: -12px; }
+.chipbtn-lite { position: relative; min-height: 32px; }
+.chipbtn-lite::after { content: ''; position: absolute; inset: -6px -4px; }
+.todo .body { padding-block: 5px; }
+input[type='checkbox']:not(.switch), input[type='radio'] { accent-color: var(--accent); width: 22px; height: 22px; flex-shrink: 0; }
+
+h3.sub { margin: 14px 0 0; font-size: 14px; font-weight: 700; color: var(--muted); letter-spacing: 0.2px; }
+h3.sub:first-of-type { margin-top: 4px; }
+
+.trash-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.trash-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }

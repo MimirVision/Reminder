@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { getMemory, listMembers, listPlaces, parseTasksAI, resolveWhere, softDelete, statusFor, updateMemory, updateMemoryFields, type Where, aiAvailable } from '@/lib/api';
@@ -195,6 +195,18 @@ export default function Add() {
     }
   }
 
+  // A half-written new to-do asks before it is thrown away; swiping the sheet down is switched off meanwhile.
+  const dirty = !editId && body.trim().length > 8 && !saving;
+  const navigation = useNavigation();
+  useEffect(() => { navigation.setOptions({ gestureEnabled: !dirty }); }, [navigation, dirty]);
+  function cancel() {
+    if (!dirty) { router.back(); return; }
+    Alert.alert(t('sheet.discard'), undefined, [
+      { text: t('sheet.keep'), style: 'cancel' },
+      { text: t('sheet.discardBtn'), style: 'destructive', onPress: () => router.back() },
+    ]);
+  }
+
   async function remove() {
     if (!memory) return;
     try {
@@ -281,7 +293,7 @@ export default function Add() {
       {err && <Text style={{ color: th.danger, fontFamily: font.body }}>{err}</Text>}
       <Btn primary label={label} onPress={save} disabled={saving} />
       {editId && <Btn danger label={t('sheet.delete')} onPress={remove} />}
-      <Btn label={t('common.cancel')} onPress={() => router.back()} />
+      <Btn label={t('common.cancel')} onPress={cancel} />
     </ScrollView>
   );
 }

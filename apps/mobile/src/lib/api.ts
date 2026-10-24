@@ -97,9 +97,14 @@ export async function softDelete(id: string) {
   await updateMemory(id, { status: 'dismissed' });
 }
 
+/** Brings a deleted to-do back (it goes where it belongs: the list with a place or date, otherwise the inbox). */
+export async function restoreMemoryRow(id: string, m: { place_id: string | null; due_on: string | null }) {
+  await updateMemory(id, { status: statusFor(m), done_at: null });
+}
+
 export async function purgeDismissed(householdId: string, olderThanDays = 30) {
   const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
-  await supabase.from('memories').delete().eq('household_id', householdId).eq('status', 'dismissed').lt('created_at', cutoff);
+  await supabase.from('memories').delete().eq('household_id', householdId).eq('status', 'dismissed').lt('updated_at', cutoff);
 }
 
 export async function deleteMemory(id: string) {
