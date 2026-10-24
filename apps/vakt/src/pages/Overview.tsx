@@ -6,6 +6,7 @@ import { addMonths, monthOf, parts, type ISODate, type MonthKey } from '../lib/d
 import { MONTHS, hrs, kr, monthName, relDate } from '../lib/format';
 import { motivation } from '../lib/motivation';
 import { useNow } from '../lib/useNow';
+import { wageCheckDue } from '../lib/wage';
 import { employerOf, inMonth, payOf, payoutsIn, shiftEnd, summarize } from '../lib/pay';
 import type { Shift } from '../lib/types';
 import { ShiftRow } from '../components/ShiftRow';
@@ -14,10 +15,12 @@ import { WeekStrip } from '../components/WeekStrip';
 import { Button, Card, CountUp, cn } from '../components/ui';
 
 /** `filter` is an employer id to show only that job, or null for all of them. */
-export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }: {
+export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll, onSetup }: {
   month: MonthKey; today: ISODate; filter: string | null; onOpenShift: (s: Shift) => void; onAdd: (date?: ISODate) => void; onSeeAll: () => void;
+  onSetup?: () => void;
 }) {
-  const { shifts: allShifts, setup, employers, settings } = useStore();
+  const { shifts: allShifts, setup, employers, settings, saveSettings } = useStore();
+  const wageYear = wageCheckDue(employers, today, settings.wage_checked_year);
   const now = useNow();
   const view = useMemo(() => {
     const shifts = filter ? allShifts.filter((s) => employerOf(s, employers)?.id === filter) : allShifts;
@@ -118,6 +121,17 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
         <span className="text-[26px] leading-none" aria-hidden>{msg.emoji}</span>
         <p className="text-[15px] leading-snug font-medium text-accent-ink" data-testid="motivation">{msg.text}</p>
       </div>}
+
+      {current && wageYear && (
+        <div className="rounded-3xl bg-surface p-4 shadow-card" data-testid="wage-check">
+          <p className="text-[15px] font-bold">💼 Lønnsoppgjøret {wageYear}</p>
+          <p className="mt-0.5 mb-3 text-[13.5px] text-ink-3">Har du fått ny timelønn? Den gjelder ofte fra 1. mai, og etterbetales. Legg den inn, så blir vaktene etter det riktige.</p>
+          <div className="flex gap-2">
+            <Button variant="primary" className="min-h-10 flex-1 px-3 text-[14px]" onClick={() => { void saveSettings({ ...settings, wage_checked_year: wageYear }); onSetup?.(); }}>Legg inn ny timelønn</Button>
+            <Button variant="soft" className="min-h-10 px-3 text-[14px]" onClick={() => void saveSettings({ ...settings, wage_checked_year: wageYear })}>Ingen endring</Button>
+          </div>
+        </div>
+      )}
 
       {current && <WeekStrip today={today} filter={filter} onOpenShift={onOpenShift} onAdd={(d) => onAdd(d)} />}
 

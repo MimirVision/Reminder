@@ -1,6 +1,7 @@
 // Every shift in the month, week by week, with what each one pays.
 import { useState } from 'react';
-import { Check, Paintbrush, Repeat2 } from 'lucide-react';
+import { Camera, Check, Paintbrush, Repeat2 } from 'lucide-react';
+import { ImportSheet } from '../components/ImportSheet';
 import { newId } from '../data/repo';
 import { KindIcon } from '../components/ShiftSheet';
 import { useStore } from '../data/store';
@@ -23,6 +24,7 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
   const { shifts, setup, employers, daysOff, saveShift, deleteShift, saveDayOff, deleteDayOff } = useStore();
   const [dayOff, setDayOff] = useState<DayOff | null>(null);
   const [repeat, setRepeat] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   // Quick entry ("trykk-modus"): pick a shift type or a day off once, then every tap on a day adds it, and a second
   // tap takes it away again. The fastest way to put in a whole roster.
@@ -143,6 +145,7 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
     <>
       {dayOff && <DayOffSheet day={dayOff} onClose={() => setDayOff(null)} />}
       {repeat && <RepeatSheet from={list[0]?.date ?? `${month}-01`} onClose={() => setRepeat(false)} />}
+      {importing && <ImportSheet month={month} onClose={() => setImporting(false)} />}
     </>
   );
 
@@ -154,6 +157,7 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
           <p className="mb-1 text-[17px] font-bold">Ingen vakter i {monthName(month).toLowerCase()} ennå</p>
           <p className="mb-4 text-[14px] text-ink-3">Trykk på dagene i kalenderen, eller legg inn flere dager på én gang med +.</p>
           <Button variant="primary" onClick={() => onAdd()} className="w-full">Legg inn vakter</Button>
+          <Button variant="soft" onClick={() => setImporting(true)} className="mt-2 w-full"><Camera className="size-5" /> Importer turnus fra GAT (bilde)</Button>
           <Button variant="ghost" onClick={() => setRepeat(true)} className="mt-1 w-full"><Repeat2 className="size-5" /> Gjenta vakter fra en annen uke</Button>
         </Card>
         {sheets}
@@ -166,7 +170,10 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
       {/* On iPad the calendar stays in view on the left while the list scrolls. */}
       <div className="space-y-3 md:sticky md:top-28">
         {calendar}
-        <Button variant="soft" className="w-full" onClick={() => setRepeat(true)}><Repeat2 className="size-5" /> Gjenta uke eller turnus</Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="soft" className="px-3" onClick={() => setImporting(true)}><Camera className="size-5" /> Importer fra GAT</Button>
+          <Button variant="soft" className="px-3" onClick={() => setRepeat(true)}><Repeat2 className="size-5" /> Gjenta uker</Button>
+        </div>
         {sheets}
       </div>
       <div className="space-y-5">

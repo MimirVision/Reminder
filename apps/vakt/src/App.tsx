@@ -98,6 +98,7 @@ const TABS: { key: Tab; label: string; icon: typeof Home }[] = [
 const FILTER = 'vakt-filter';
 const tabFromHash = (): Tab => {
   const raw = location.hash.replace(/^#\/?/, '');
+  if (raw === 'ny') return 'oversikt';
   const t = (raw === 'innstillinger' ? 'oppsett' : raw) as Tab;
   return TABS.some((x) => x.key === t) ? t : 'oversikt';
 };
@@ -109,7 +110,8 @@ function Main() {
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [month, setMonth] = useState<MonthKey>(monthOf(today));
   const [year, setYear] = useState(Number(today.slice(0, 4)));
-  const [sheet, setSheet] = useState<{ shift?: Shift; date?: string } | null>(null);
+  // "#/ny" (the Ny vakt shortcut on the app icon, or a bookmark) opens a new shift straight away.
+  const [sheet, setSheet] = useState<{ shift?: Shift; date?: string } | null>(() => (location.hash === '#/ny' ? {} : null));
   // Show one employer or all; remembered on this phone.
   const [filterState, setFilterState] = useState<string | null>(() => { try { return localStorage.getItem(FILTER); } catch { return null; } });
   const filter = employers.some((e) => e.id === filterState) ? filterState : null;
@@ -159,7 +161,13 @@ function Main() {
     window.scrollTo({ top: 0 });
   };
   useEffect(() => {
-    const onHash = () => setTabState(tabFromHash());
+    if (location.hash === '#/ny') history.replaceState(null, '', location.pathname + location.search);
+  }, []);
+  useEffect(() => {
+    const onHash = () => {
+      if (location.hash === '#/ny') { setSheet({}); history.replaceState(null, '', location.pathname + location.search); }
+      setTabState(tabFromHash());
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -204,7 +212,7 @@ function Main() {
       </header>
 
       <main key={tab} className="animate-fade-in px-5 pt-1 pb-32 md:pb-12">
-        {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} onSeeAll={() => setTab('vakter')} />}
+        {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} onSeeAll={() => setTab('vakter')} onSetup={() => setTab('oppsett')} />}
         {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} />}
         {tab === 'aar' && <Year year={year} setYear={setYear} today={today} filter={filter} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
         {tab === 'oppsett' && <div className="md:mx-auto md:max-w-2xl"><Setup /></div>}

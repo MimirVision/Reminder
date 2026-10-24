@@ -208,12 +208,22 @@ export interface Settings {
   /** Share of normal pay for a shift she was sick for. */
   sick_percent: number;
   /** Which reminders the notification server sends. */
-  reminders: { after_shift: boolean; weekly: boolean; month: boolean };
+  reminders: { after_shift: boolean; weekly: boolean; month: boolean; wage: boolean };
+  /** Her name as it stands in the roster (GAT), so the import finds her row. */
+  roster_name: string;
+  /** What each roster code means, learnt from imports: 'D' → 07:30–15:30, 'FE' → ferie, 'X' → skip. */
+  roster_codes: Record<string, CodeRule>;
+  /** The year she last answered the pay-settlement question (lønnsoppgjør), so it is asked once a year. */
+  wage_checked_year: number | null;
 }
+
+/** What a roster code stands for. */
+export type CodeRule = { start_time: string; end_time: string; break_minutes: number } | { off: DayOffKind } | { skip: true };
 
 export const DEFAULT_SETTINGS: Settings = {
   name: '', goal: null, tax_percent: null, onboarded: false, toured: false,
-  holiday_pay_percent: 12, sick_percent: 100, reminders: { after_shift: true, weekly: true, month: true },
+  holiday_pay_percent: 12, sick_percent: 100, reminders: { after_shift: true, weekly: true, month: true, wage: true },
+  roster_name: '', roster_codes: {}, wage_checked_year: null,
 };
 
 export const DEFAULT_TEMPLATES: ShiftTemplate[] = [
@@ -506,6 +516,17 @@ export function repeatShifts(source: Shift[], periodDays: number, times: number,
   return out;
 }
 
+// ---- src/lib/wage.ts ----
+// The yearly pay settlement (lønnsoppgjør). In health care the new hourly wage usually applies from 1 May and is
+// known by early summer. From June on, until she has a wage from this spring or answered, the app asks once a year.
+
+export function wageCheckDue(employers: Employer[], today: ISODate, checkedYear: number | null): number | null {
+  const year = Number(today.slice(0, 4));
+  if (today < `${year}-06-01` || checkedYear === year || employers.length === 0) return null;
+  const updated = employers.every((e) => e.wages.some((w) => w.from >= `${year}-04-01`));
+  return updated ? null : year;
+}
+
 // ---- plan.ts ----
 // Which reminders are due now, worked out from the rows alone so it is easy to test. Times are Norwegian wall-clock
 // time (Europe/Oslo), the same as the shifts. Every reminder has a key; the function claims a key before sending, so
@@ -540,9 +561,9 @@ const AFTER = 30; // minutes after a shift ends
 const LATE = 180; // a reminder more than this late is skipped rather than sent
 
 export function planOwner(o: OwnerRows, now: number): Message[] {
-  const s = (o.settings ?? {}) as { onboarded?: boolean; reminders?: Record<string, boolean>; sick_percent?: number };
+  const s = (o.settings ?? {}) as { onboarded?: boolean; reminders?: Record<string, boolean>; sick_percent?: number; wage_checked_year?: number | null };
   if (!s.onboarded) return [];
-  const rules = { after_shift: true, weekly: true, month: true, ...(s.reminders ?? {}) };
+  const rules = { after_shift: true, weekly: true, month: true, wage: true, ...(s.reminders ?? {}) };
   const { date: today, minutes } = osloNow(now);
   const nowAt = at(today, minutes);
   const out: Message[] = [];
@@ -578,6 +599,11 @@ export function planOwner(o: OwnerRows, now: number): Message[] {
       const name = MONTHS[Number(next.slice(5)) - 1];
       out.push({ key: `month:${next}`, title: `Turnusen for ${name}? ✨`, body: `Legg inn vaktene for ${name}, så ser du hva måneden gir.`, url: '/vakter', tag: 'month' });
     }
+  }
+  // The pay settlement: on 1 September, if the year's new wage still isn't in (and she hasn't said there is none).
+  if (rules.wage && evening && today.slice(5) === '09-01') {
+    const year = wageCheckDue(o.employers, today, s.wage_checked_year ?? null);
+    if (year) out.push({ key: `wage:${year}`, title: `Ny timelønn i ${year}? 💼`, body: 'Lønnsoppgjøret gjelder ofte fra 1. mai. Legg inn den nye timelønna, så blir vaktene riktige.', url: '/oppsett', tag: 'wage' });
   }
   return out;
 }

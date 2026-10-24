@@ -59,3 +59,9 @@ describe('reminders', () => {
     expect(planOwner(rows({ settings: {} }), oslo('2026-10-21T21:05:00Z'))).toEqual([]);
   });
 });
+
+it('reminds about the pay settlement on 1 September when this year’s wage is missing', () => {
+  const sept = Date.parse('2026-09-01T17:00:00Z'); // 19:00 in Oslo
+  expect(planOwner(rows(), sept).map((m) => m.key)).toContain('wage:2026');
+  expect(planOwner(rows({ settings: { onboarded: true, wage_checked_year: 2026 } }), sept).map((m) => m.key)).not.toContain('wage:2026');
+});

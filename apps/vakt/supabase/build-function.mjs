@@ -8,7 +8,7 @@ const read = (rel) => readFileSync(new URL(rel, dir), 'utf8').trimEnd().split('\
 const isLocalImport = (l) => /^import\b.*from '\.{1,2}\/[^']+';\s*$/.test(l);
 
 export function bundleNotify() {
-  const lib = ['dates', 'holidays', 'types', 'format', 'pay'].map((f) => [`src/lib/${f}.ts`, `../../../src/lib/${f}.ts`]);
+  const lib = ['dates', 'holidays', 'types', 'format', 'pay', 'wage'].map((f) => [`src/lib/${f}.ts`, `../../../src/lib/${f}.ts`]);
   const parts = [...lib, ['plan.ts', 'plan.ts'], ['push.ts', 'push.ts']];
   const index = read('index.ts');
   const header = index.filter((l, i) => i < 4 && l.startsWith('//'));

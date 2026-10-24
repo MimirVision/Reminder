@@ -242,7 +242,7 @@ test('days off, a sick shift, and repeating a week', async ({ page }) => {
   await page.getByRole('button', { name: 'Lagre', exact: true }).click();
   await expect(page.getByText('· Syk')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Gjenta uke eller turnus' }).click();
+  await page.getByRole('button', { name: 'Gjenta uker' }).click();
   await page.getByRole('button', { name: '2×' }).click();
   await page.getByRole('button', { name: 'Legg inn 2 vakter' }).click();
   await expect(page.getByText('3 vakter', { exact: true })).toBeVisible();
@@ -318,4 +318,24 @@ test('this week and the next pay day on the overview', async ({ page }) => {
   await expect(page.getByTestId('next-pay')).toContainText('Neste lønning 12. nov');
   await page.getByRole('button', { name: 'Legg til vakt 2026-10-20' }).click();
   await expect(page.getByTestId('date-picker').getByRole('button', { name: /\b20\. oktober/ })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('the pay settlement question, the Ny vakt shortcut, and the import sheet', async ({ page }) => {
+  await page.goto('/');
+  await seed(page);
+  await page.reload();
+  const card = page.getByTestId('wage-check');
+  await expect(card).toContainText('Lønnsoppgjøret 2026');
+  await card.getByRole('button', { name: 'Ingen endring' }).click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('wage-check')).toHaveCount(0);
+
+  await page.goto('/?fra=ikon#/ny'); // a fresh start from the shortcut
+  await expect(page.getByRole('dialog', { name: 'Ny vakt' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Vakter', exact: true }).click();
+  await page.getByRole('button', { name: 'Importer fra GAT' }).click();
+  await expect(page.getByText('Import krever at du er logget inn.')).toBeVisible();
 });

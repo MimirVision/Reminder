@@ -28,6 +28,9 @@ const settingsFrom = (raw: unknown): Settings => {
     holiday_pay_percent: Number(r.holiday_pay_percent) || DEFAULT_SETTINGS.holiday_pay_percent,
     sick_percent: Number.isFinite(Number(r.sick_percent)) ? Number(r.sick_percent) : DEFAULT_SETTINGS.sick_percent,
     reminders: { ...DEFAULT_SETTINGS.reminders, ...(r.reminders ?? {}) },
+    roster_name: typeof r.roster_name === 'string' ? r.roster_name : '',
+    roster_codes: r.roster_codes && typeof r.roster_codes === 'object' ? r.roster_codes : {},
+    wage_checked_year: typeof r.wage_checked_year === 'number' ? r.wage_checked_year : null,
   };
 };
 
