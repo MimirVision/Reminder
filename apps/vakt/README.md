@@ -26,6 +26,11 @@ forward; holiday pay (10.2 / 12 / 14.3 %) in the year view and in June's payout;
 ([NOTIFICATIONS.md](NOTIFICATIONS.md)). On iPad (768 px and wider) a rail on the left replaces the bottom bar, screens
 use two columns and sheets open as centred dialogs.
 
+**Fast entry:** on Vakter, *Legg inn raskt*: pick Dag, Kveld, Natt, Ferie or Fri once, then each tap on a day adds it
+and a second tap removes it (with a running count and sum). Oversikt has *Denne uka* (the seven days, each day's pay,
+tap to open or add) and the next pay day in the big card. *Ny vakt* starts on the shift type she usually has on that
+weekday.
+
 **Appearance and data:** Oppsett → Utseende chooses Auto (follow the phone), Lys or Mørk, per device
 (`public/theme.js` applies it before the first paint). Oppsett → Dine data downloads every shift as a CSV for Excel or
 Numbers. The sign-in screen has *Glemt passord?*; the reset link returns to the app, which asks for a new password

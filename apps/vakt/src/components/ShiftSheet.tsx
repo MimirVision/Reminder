@@ -3,11 +3,11 @@ import { useMemo, useState } from 'react';
 import { Moon, Sun, Sunset, Trash2 } from 'lucide-react';
 import { useStore } from '../data/store';
 import { newId } from '../data/repo';
-import { addDays, monthOf, toMinutes, today, type ISODate } from '../lib/dates';
+import { addDays, monthOf, toMinutes, today, weekday, type ISODate } from '../lib/dates';
 import { employerOf, payOf, shiftKind, summarize } from '../lib/pay';
 import { hrs, kr, longDate } from '../lib/format';
 import { eveName, holidayName } from '../lib/holidays';
-import { DAY_OFF_LABEL, type DayOffKind, type Shift } from '../lib/types';
+import { DAY_OFF_LABEL, type DayOffKind, type Shift, type ShiftTemplate } from '../lib/types';
 import { Button, Chip, Label, Sheet, Switch, cn, confetti, inputClass } from './ui';
 import { CalendarGrid, MonthNav } from './Calendar';
 
@@ -18,6 +18,17 @@ export const KindIcon = ({ kind, className }: { kind: string; className?: string
   kind === 'Natt' ? <Moon className={className} /> : kind === 'Kveld' ? <Sunset className={className} /> : <Sun className={className} />;
 
 const LAST_EMPLOYER = 'vakt-last-employer';
+
+/** The shift type she usually has on that weekday (most often in her shifts), else the first one. */
+export function usualTemplate(templates: ShiftTemplate[], shifts: Shift[], date: ISODate): ShiftTemplate | undefined {
+  const wd = weekday(date);
+  let best: ShiftTemplate | undefined, most = 0;
+  for (const t of templates) {
+    const n = shifts.filter((s) => weekday(s.date) === wd && s.start_time === t.start_time && s.end_time === t.end_time).length;
+    if (n > most) { most = n; best = t; }
+  }
+  return best ?? templates[0];
+}
 const lastEmployer = () => { try { return localStorage.getItem(LAST_EMPLOYER); } catch { return null; } };
 
 /** `employerId` is the employer to start with for a new shift (the one she is looking at); else the last one used. */
@@ -29,7 +40,7 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
   const [s, setS] = useState<Shift>(() => {
     if (shift) return { ...shift, employer_id: employerOf(shift, employers)?.id ?? null };
     const emp = employers.find((e) => e.id === employerId) ?? employers.find((e) => e.id === lastEmployer()) ?? employers[0];
-    const t = emp?.templates[0];
+    const t = usualTemplate(emp?.templates ?? [], shifts.filter((x) => employerOf(x, employers)?.id === emp?.id), defaultDate);
     return {
       id: newId(), employer_id: emp?.id ?? null, date: defaultDate, start_time: t?.start_time ?? '07:30', end_time: t?.end_time ?? '15:30',
       break_minutes: t?.break_minutes ?? 0, overtime_percent: 0, note: '', status: 'worked',

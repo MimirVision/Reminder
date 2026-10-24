@@ -204,7 +204,7 @@ function Main() {
       </header>
 
       <main key={tab} className="animate-fade-in px-5 pt-1 pb-32 md:pb-12">
-        {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} onSeeAll={() => setTab('vakter')} />}
+        {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} onSeeAll={() => setTab('vakter')} />}
         {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} />}
         {tab === 'aar' && <Year year={year} setYear={setYear} today={today} filter={filter} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
         {tab === 'oppsett' && <div className="md:mx-auto md:max-w-2xl"><Setup /></div>}

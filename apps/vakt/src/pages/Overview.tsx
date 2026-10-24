@@ -2,19 +2,20 @@
 import { useMemo, useState } from 'react';
 import { CalendarClock, Clock, Sparkles, Target } from 'lucide-react';
 import { useStore } from '../data/store';
-import { monthOf, type ISODate, type MonthKey } from '../lib/dates';
-import { hrs, kr, monthName, relDate } from '../lib/format';
+import { addMonths, monthOf, parts, type ISODate, type MonthKey } from '../lib/dates';
+import { MONTHS, hrs, kr, monthName, relDate } from '../lib/format';
 import { motivation } from '../lib/motivation';
 import { useNow } from '../lib/useNow';
-import { employerOf, inMonth, payOf, shiftEnd, summarize } from '../lib/pay';
+import { employerOf, inMonth, payOf, payoutsIn, shiftEnd, summarize } from '../lib/pay';
 import type { Shift } from '../lib/types';
 import { ShiftRow } from '../components/ShiftRow';
 import { PayoutCard } from '../components/Payouts';
+import { WeekStrip } from '../components/WeekStrip';
 import { Button, Card, CountUp, cn } from '../components/ui';
 
 /** `filter` is an employer id to show only that job, or null for all of them. */
 export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }: {
-  month: MonthKey; today: ISODate; filter: string | null; onOpenShift: (s: Shift) => void; onAdd: () => void; onSeeAll: () => void;
+  month: MonthKey; today: ISODate; filter: string | null; onOpenShift: (s: Shift) => void; onAdd: (date?: ISODate) => void; onSeeAll: () => void;
 }) {
   const { shifts: allShifts, setup, employers, settings } = useStore();
   const now = useNow();
@@ -51,6 +52,17 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
   const setNet = (v: boolean) => { setNetState(v); try { localStorage.setItem('vakt-net', v ? '1' : '0'); } catch { /* only a convenience */ } };
   const k = net && tax ? 1 - tax / 100 : 1;
 
+  // The next pay day from today: this month's if it hasn't come yet, else next month's.
+  const nextPay = (() => {
+    const mine = filter ? allShifts.filter((s) => employerOf(s, employers)?.id === filter) : allShifts;
+    const m = monthOf(today);
+    const coming = [...payoutsIn(m, mine, setup, settings.holiday_pay_percent), ...payoutsIn(addMonths(m, 1), mine, setup, settings.holiday_pay_percent)]
+      .filter((p) => p.date >= today);
+    if (!coming.length) return null;
+    const date = coming[0].date;
+    return { date, total: coming.filter((p) => p.date === date).reduce((n, p) => n + p.total, 0) };
+  })();
+
   const heroLabel = past ? `Tjent i ${monthName(month).toLowerCase()}` : view.done.length === 0 && view.left.length > 0 ? 'Planlagt denne måneden' : 'Tjent så langt';
   const heroValue = view.done.length === 0 && view.left.length > 0 && !past ? planned : earned;
 
@@ -81,6 +93,12 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
         )}
         {tax ? <p className="relative mt-1 text-[13px] text-white/75">{k < 1 ? `Før skatt ${kr(total)}` : `Totalt ca. ${kr(total * (1 - tax / 100))} etter skatt`} ({tax} % trekk)</p> : null}
 
+        {current && nextPay ? (
+          <p className="relative mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[13px] font-medium" data-testid="next-pay">
+            💰 Neste lønning {parts(nextPay.date)[2]}. {MONTHS[parts(nextPay.date)[1] - 1].slice(0, 3)} · {k < 1 ? 'ca. ' : ''}{kr(nextPay.total * k)}
+          </p>
+        ) : null}
+
         {goal ? (
           <div className="relative mt-5">
             <div className="relative h-3.5 overflow-hidden rounded-full bg-white/20">
@@ -100,6 +118,8 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
         <span className="text-[26px] leading-none" aria-hidden>{msg.emoji}</span>
         <p className="text-[15px] leading-snug font-medium text-accent-ink" data-testid="motivation">{msg.text}</p>
       </div>}
+
+      {current && <WeekStrip today={today} filter={filter} onOpenShift={onOpenShift} onAdd={(d) => onAdd(d)} />}
 
       {view.list.length > 0 && <div className="grid grid-cols-3 gap-3 animate-rise [animation-delay:120ms]">
         <Tile icon={<CalendarClock className="size-4" />} tone="violet" label="Vakter" value={`${view.done.length}${view.left.length ? `/${view.list.length}` : ''}`} />
@@ -154,7 +174,7 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
           <div className="mb-2 text-[36px]" aria-hidden>{msg.emoji}</div>
           <p className="mb-1 text-[17px] font-bold">Ingen vakter i {monthName(month).toLowerCase()} ennå</p>
           <p className="mb-4 text-[14px] text-ink-3">Legg inn vaktene dine – gjerne hele turnusen på én gang – så ser du med en gang hva du tjener.</p>
-          <Button variant="primary" onClick={onAdd} className="w-full">Legg inn vakt</Button>
+          <Button variant="primary" onClick={() => onAdd()} className="w-full">Legg inn vakt</Button>
         </Card>
       ) : (
         <button onClick={onSeeAll} className="w-full rounded-2xl py-3 text-[14.5px] font-semibold text-accent-ink">

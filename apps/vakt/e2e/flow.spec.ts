@@ -292,3 +292,30 @@ test('the same shift on a day that already has it is not added twice', async ({ 
   await page.getByRole('button', { name: 'Vakter', exact: true }).click();
   await expect(page.getByText('2 vakter', { exact: true })).toBeVisible();
 });
+
+test('quick entry: pick a shift type, tap the days, tap again to take one away', async ({ page }) => {
+  await page.goto('/');
+  await seed(page);
+  await page.reload();
+  await page.getByRole('button', { name: 'Vakter', exact: true }).click();
+  await page.getByRole('group', { name: 'Legg inn raskt' }).getByRole('button', { name: 'Dag' }).click();
+  for (const d of ['2026-10-12', '2026-10-13', '2026-10-14']) await page.getByRole('button', { name: `Legg til vakt ${d}` }).click();
+  await expect(page.getByTestId('quick-added')).toHaveText(/\+3 vakter · \+4\s800 kr/);
+  await page.getByRole('button', { name: /^2026-10-14: 1 vakt/ }).click(); // a second tap removes it
+  await expect(page.getByTestId('quick-added')).toHaveText(/\+2 vakter/);
+  await page.getByRole('group', { name: 'Legg inn raskt' }).getByRole('button', { name: 'Ferie' }).click();
+  await page.getByRole('button', { name: 'Legg til vakt 2026-10-19' }).click();
+  await expect(page.getByRole('button', { name: '2026-10-19: Ferie' })).toBeVisible();
+  await page.getByTestId('quick-entry').getByRole('button', { name: 'Ferdig' }).click();
+  await expect(page.getByText('3 vakter', { exact: true })).toBeVisible(); // the seeded October shift and two new ones
+});
+
+test('this week and the next pay day on the overview', async ({ page }) => {
+  await page.goto('/');
+  await seed(page, { shifts: [{ id: 's1', employer_id: 'e1', date: '2026-10-24', start_time: '08:00', end_time: '16:00', break_minutes: 0, overtime_percent: 0, note: '', status: 'worked' }] });
+  await page.reload();
+  await expect(page.getByTestId('week-total')).toHaveText(/2\s000 kr/); // Saturday: 1 600 + 400 weekend
+  await expect(page.getByTestId('next-pay')).toContainText('Neste lønning 12. nov');
+  await page.getByRole('button', { name: 'Legg til vakt 2026-10-20' }).click();
+  await expect(page.getByTestId('date-picker').getByRole('button', { name: /\b20\. oktober/ })).toHaveAttribute('aria-pressed', 'true');
+});

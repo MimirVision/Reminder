@@ -1,14 +1,16 @@
 // Every shift in the month, week by week, with what each one pays.
 import { useState } from 'react';
-import { Repeat2 } from 'lucide-react';
+import { Check, Paintbrush, Repeat2 } from 'lucide-react';
+import { newId } from '../data/repo';
+import { KindIcon } from '../components/ShiftSheet';
 import { useStore } from '../data/store';
 import { DayOffSheet } from '../components/DayOffSheet';
 import { RepeatSheet } from '../components/RepeatSheet';
-import { DAY_OFF_LABEL, type DayOff } from '../lib/types';
+import { DAY_OFF_LABEL, type DayOff, type DayOffKind, type ShiftTemplate } from '../lib/types';
 import { isoWeek, type ISODate, type MonthKey } from '../lib/dates';
 import { kr, monthName } from '../lib/format';
 import { holidayName } from '../lib/holidays';
-import { employerOf, inMonth, shiftEnd, shiftKind, summarize } from '../lib/pay';
+import { employerOf, inMonth, payOf, shiftEnd, shiftKind, summarize } from '../lib/pay';
 import { CalendarGrid } from '../components/Calendar';
 import { cn } from '../components/ui';
 import type { Shift } from '../lib/types';
@@ -18,9 +20,39 @@ import { Button, Card } from '../components/ui';
 const KIND_COLOR = { Dag: '#f59e0b', Kveld: '#8b5cf6', Natt: '#4f46e5' } as const;
 
 export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: MonthKey; today: ISODate; filter: string | null; onOpenShift: (s: Shift) => void; onAdd: (date?: ISODate) => void }) {
-  const { shifts, setup, employers, daysOff } = useStore();
+  const { shifts, setup, employers, daysOff, saveShift, deleteShift, saveDayOff, deleteDayOff } = useStore();
   const [dayOff, setDayOff] = useState<DayOff | null>(null);
   const [repeat, setRepeat] = useState(false);
+
+  // Quick entry ("trykk-modus"): pick a shift type or a day off once, then every tap on a day adds it, and a second
+  // tap takes it away again. The fastest way to put in a whole roster.
+  type Brush = { shift: ShiftTemplate } | { off: DayOffKind };
+  const [brush, setBrush] = useState<Brush | null>(null);
+  const lastEmployer = (() => { try { return localStorage.getItem('vakt-last-employer'); } catch { return null; } })();
+  const [brushEmp, setBrushEmp] = useState<string | undefined>(() => (employers.find((e) => e.id === (filter ?? lastEmployer)) ?? employers[0])?.id);
+  const emp = employers.find((e) => e.id === (filter ?? brushEmp)) ?? employers[0];
+  const [added, setAdded] = useState({ count: 0, total: 0 });
+  const paint = async (d: ISODate) => {
+    if (!brush || !emp) return;
+    if ('off' in brush) {
+      const had = daysOff.find((x) => x.date === d);
+      if (had && had.kind === brush.off) await deleteDayOff(had.id);
+      else await saveDayOff({ id: had?.id ?? newId(), date: d, kind: brush.off, note: '' });
+      return;
+    }
+    const t = brush.shift;
+    const had = shifts.find((s) => s.date === d && s.start_time === t.start_time && s.end_time === t.end_time && employerOf(s, employers)?.id === emp.id);
+    if (had) {
+      if (await deleteShift(had.id)) setAdded((a) => ({ count: a.count - 1, total: a.total - payOf(had, setup).total }));
+      return;
+    }
+    const s: Shift = { id: newId(), employer_id: emp.id, date: d, start_time: t.start_time, end_time: t.end_time, break_minutes: t.break_minutes, overtime_percent: 0, note: '', status: 'worked' };
+    if (await saveShift(s)) {
+      navigator.vibrate?.(8);
+      setAdded((a) => ({ count: a.count + 1, total: a.total + payOf(s, setup).total }));
+    }
+  };
+  const brushName = brush ? ('off' in brush ? DAY_OFF_LABEL[brush.off] : `${brush.shift.name} ${brush.shift.start_time}–${brush.shift.end_time}`) : '';
   const list = inMonth(filter ? shifts.filter((s) => employerOf(s, employers)?.id === filter) : shifts, month).sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
   const weeks = new Map<number, Shift[]>();
   for (const s of list) weeks.set(isoWeek(s.date), [...(weeks.get(isoWeek(s.date)) ?? []), s]);
@@ -28,15 +60,65 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
 
   const now = new Date();
   // The month as a calendar: a coloured bar per shift (day, evening, night). Tap a day to add or open its shift.
+  const brushes = (
+    <div className={cn('mb-3 rounded-2xl p-2.5 transition', brush ? 'bg-accent-soft' : 'bg-sunken')} data-testid="quick-entry">
+      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+          <Paintbrush className="size-4" />{brush ? `Trykk på dagene: ${brushName}` : 'Legg inn raskt – velg, og trykk på dagene'}
+        </span>
+        {brush && (
+          <button type="button" onClick={() => { setBrush(null); setAdded({ count: 0, total: 0 }); }}
+            className="flex items-center gap-1 rounded-full bg-ink px-3 py-1 text-[13px] font-semibold text-canvas"><Check className="size-3.5" /> Ferdig</button>
+        )}
+      </div>
+      {!filter && employers.length > 1 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {employers.map((e) => (
+            <button key={e.id} type="button" aria-pressed={emp?.id === e.id} onClick={() => setBrushEmp(e.id)}
+              className={cn('flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-semibold', emp?.id === e.id ? 'bg-surface text-ink shadow-card' : 'text-ink-3')}>
+              <span className="size-2 rounded-full" style={{ background: e.color }} />{e.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-1.5 overflow-x-auto [scrollbar-width:none]" role="group" aria-label="Legg inn raskt">
+        {(emp?.templates ?? []).map((t) => {
+          const on = Boolean(brush && 'shift' in brush && brush.shift.id === t.id);
+          return (
+            <button key={t.id} type="button" aria-pressed={on} onClick={() => setBrush(on ? null : { shift: t })}
+              className={cn('flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition active:scale-95',
+                on ? 'hero text-white shadow-float' : 'bg-surface text-ink shadow-card')}>
+              <KindIcon kind={shiftKind(t)} className="size-4" />{t.name}
+            </button>
+          );
+        })}
+        {(['ferie', 'fri'] as DayOffKind[]).map((k) => {
+          const on = Boolean(brush && 'off' in brush && brush.off === k);
+          return (
+            <button key={k} type="button" aria-pressed={on} onClick={() => setBrush(on ? null : { off: k })}
+              className={cn('shrink-0 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition active:scale-95',
+                on ? 'bg-teal-600 text-white' : 'bg-surface text-teal-700 shadow-card dark:text-teal-300')}>
+              {DAY_OFF_LABEL[k]}
+            </button>
+          );
+        })}
+      </div>
+      {brush && added.count > 0 && (
+        <p className="mt-2 px-1 text-[13px] font-semibold text-accent-ink" data-testid="quick-added">+{added.count} {added.count === 1 ? 'vakt' : 'vakter'} · +{kr(added.total)}</p>
+      )}
+    </div>
+  );
+
   const calendar = (
     <Card className="p-3.5">
+      {brushes}
       <CalendarGrid month={month} renderDay={(d) => {
         const day = list.filter((s) => s.date === d);
         const off = daysOff.find((x) => x.date === d);
         const isToday = d === today;
         return (
           <button type="button" aria-label={day.length ? `${d}: ${day.length} vakt` : off ? `${d}: ${DAY_OFF_LABEL[off.kind]}` : `Legg til vakt ${d}`}
-            onClick={() => (day.length ? onOpenShift(day[0]) : off ? setDayOff(off) : onAdd(d))}
+            onClick={() => (brush ? void paint(d) : day.length ? onOpenShift(day[0]) : off ? setDayOff(off) : onAdd(d))}
             className={cn('flex h-13 w-full flex-col items-center rounded-xl pt-1.5 transition active:scale-90',
               day.length ? 'bg-sunken' : off ? 'bg-teal-500/15' : 'active:bg-sunken', isToday && 'ring-2 ring-accent/50')}>
             <span className={cn('text-[13px] font-semibold', isToday ? 'text-accent-ink' : holidayName(d) ? 'text-rose' : day.length ? 'text-ink' : 'text-ink-3')}>{Number(d.slice(8))}</span>
