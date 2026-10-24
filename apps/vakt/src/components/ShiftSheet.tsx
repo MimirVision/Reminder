@@ -3,11 +3,11 @@ import { useMemo, useState } from 'react';
 import { Moon, Sun, Sunset, Trash2 } from 'lucide-react';
 import { useStore } from '../data/store';
 import { newId } from '../data/repo';
-import { addDays, monthOf, toMinutes, today, type ISODate } from '../lib/dates';
+import { addDays, monthOf, toMinutes, today, weekday, type ISODate } from '../lib/dates';
 import { employerOf, payOf, shiftKind, summarize } from '../lib/pay';
 import { hrs, kr, longDate } from '../lib/format';
 import { eveName, holidayName } from '../lib/holidays';
-import { DAY_OFF_LABEL, type DayOffKind, type Shift } from '../lib/types';
+import { DAY_OFF_LABEL, type DayOffKind, type Shift, type ShiftTemplate } from '../lib/types';
 import { Button, Chip, Label, Sheet, Switch, cn, confetti, inputClass } from './ui';
 import { CalendarGrid, MonthNav } from './Calendar';
 
@@ -18,18 +18,29 @@ export const KindIcon = ({ kind, className }: { kind: string; className?: string
   kind === 'Natt' ? <Moon className={className} /> : kind === 'Kveld' ? <Sunset className={className} /> : <Sun className={className} />;
 
 const LAST_EMPLOYER = 'vakt-last-employer';
+
+/** The shift type she usually has on that weekday (most often in her shifts), else the first one. */
+export function usualTemplate(templates: ShiftTemplate[], shifts: Shift[], date: ISODate): ShiftTemplate | undefined {
+  const wd = weekday(date);
+  let best: ShiftTemplate | undefined, most = 0;
+  for (const t of templates) {
+    const n = shifts.filter((s) => weekday(s.date) === wd && s.start_time === t.start_time && s.end_time === t.end_time).length;
+    if (n > most) { most = n; best = t; }
+  }
+  return best ?? templates[0];
+}
 const lastEmployer = () => { try { return localStorage.getItem(LAST_EMPLOYER); } catch { return null; } };
 
 /** `employerId` is the employer to start with for a new shift (the one she is looking at); else the last one used. */
 export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?: Shift; defaultDate: string; employerId?: string | null; onClose: () => void }) {
-  const { setup, employers, shifts, daysOff, saveShift, deleteShift, saveDayOff, toast } = useStore();
+  const { setup, employers, shifts, daysOff, saveShift, saveShifts, deleteShift, saveDayOff, toast } = useStore();
   // A new entry can be a shift or a day off (holiday, a day off, time off in lieu).
   const [mode, setMode] = useState<'shift' | 'off'>('shift');
   const [offKind, setOffKind] = useState<DayOffKind>('ferie');
   const [s, setS] = useState<Shift>(() => {
     if (shift) return { ...shift, employer_id: employerOf(shift, employers)?.id ?? null };
     const emp = employers.find((e) => e.id === employerId) ?? employers.find((e) => e.id === lastEmployer()) ?? employers[0];
-    const t = emp?.templates[0];
+    const t = usualTemplate(emp?.templates ?? [], shifts.filter((x) => employerOf(x, employers)?.id === emp?.id), defaultDate);
     return {
       id: newId(), employer_id: emp?.id ?? null, date: defaultDate, start_time: t?.start_time ?? '07:30', end_time: t?.end_time ?? '15:30',
       break_minutes: t?.break_minutes ?? 0, overtime_percent: 0, note: '', status: 'worked',
@@ -53,13 +64,19 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
 
   const save = async (andNext: boolean) => {
     if (!valid || !pay) return;
-    const list = all.map((x, i) => (i === 0 ? x : { ...x, id: newId() }));
-    for (const x of list) if (!(await saveShift(x))) return;
+    // A new shift on a day that already has the same one (same start, same employer) would be counted twice: skip it.
+    const twin = (x: Shift) => shifts.some((y) => y.id !== x.id && y.date === x.date && y.start_time === x.start_time && employerOf(y, employers)?.id === x.employer_id);
+    const fresh = all.map((x, i) => (i === 0 ? x : { ...x, id: newId() }));
+    const list = shift ? fresh : fresh.filter((x) => !twin(x));
+    const skipped = fresh.length - list.length;
+    if (list.length === 0) { toast('Du har allerede denne vakta på den dagen.', { error: true }); return; }
+    if (!(await saveShifts(list))) return;
     try { if (s.employer_id) localStorage.setItem(LAST_EMPLOYER, s.employer_id); } catch { /* only a convenience */ }
     if (!shift) confetti();
     navigator.vibrate?.(12); // a small tap on Android; iPhones ignore it
     const total = sum ? sum.total : pay.total;
-    toast(shift ? 'Vakta er oppdatert' : list.length > 1 ? `${list.length} vakter lagt til · +${kr(total)} 🎉` : `+${kr(total)} lagt til 🎉`);
+    const extra = skipped ? ` (${skipped} fantes fra før)` : '';
+    toast(shift ? 'Vakta er oppdatert' : list.length > 1 ? `${list.length} vakter lagt til${extra} 🎉` : `+${kr(skipped ? payOf(list[0], setup).total : total)} lagt til${extra} 🎉`);
     if (andNext) {
       const next = addDays(list[list.length - 1].date, 1);
       setS({ ...s, id: newId(), date: next, note: '' });

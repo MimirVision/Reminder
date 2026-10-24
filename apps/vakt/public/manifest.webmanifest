@@ -8,6 +8,10 @@
   "display": "standalone",
   "background_color": "#faf6f3",
   "theme_color": "#faf6f3",
+  "shortcuts": [
+    { "name": "Ny vakt", "short_name": "Ny vakt", "url": "./#/ny" },
+    { "name": "Vakter", "url": "./#/vakter" }
+  ],
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },

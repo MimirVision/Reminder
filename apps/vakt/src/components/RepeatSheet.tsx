@@ -10,7 +10,7 @@ import { Button, Chip, Label, Sheet, confetti } from './ui';
 const mondayOf = (d: ISODate) => addDays(d, 1 - weekday(d));
 
 export function RepeatSheet({ from, onClose }: { from: ISODate; onClose: () => void }) {
-  const { shifts, setup, saveShift, toast } = useStore();
+  const { shifts, setup, saveShifts, toast } = useStore();
   const [start, setStart] = useState(mondayOf(from));
   const [weeks, setWeeks] = useState(1);
   const [times, setTimes] = useState(3);
@@ -20,7 +20,7 @@ export function RepeatSheet({ from, onClose }: { from: ISODate; onClose: () => v
   const sum = summarize(plan, setup);
 
   const save = async () => {
-    for (const s of plan) if (!(await saveShift(s))) return;
+    if (!(await saveShifts(plan))) return;
     confetti();
     toast(`${plan.length} vakter lagt inn · +${kr(sum.total)} 🎉`);
     onClose();

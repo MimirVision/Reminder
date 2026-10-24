@@ -4,14 +4,15 @@ import { ChevronLeft, ChevronRight, Palmtree, Trophy } from 'lucide-react';
 import { useStore } from '../data/store';
 import { monthOf, type ISODate, type MonthKey } from '../lib/dates';
 import { MONTHS, hrs, kr, monthName } from '../lib/format';
+import { useNow } from '../lib/useNow';
 import { employerOf, holidayPayEarned, shiftEnd, summarize } from '../lib/pay';
 import { Card, CountUp, cn } from '../components/ui';
 
 export function Year({ year, setYear, today, filter, onPickMonth }: { year: number; setYear: (y: number) => void; today: ISODate; filter: string | null; onPickMonth: (m: MonthKey) => void }) {
   const { shifts: allShifts, setup, employers, settings, daysOff } = useStore();
+  const now = useNow();
   const data = useMemo(() => {
     const shifts = filter ? allShifts.filter((s) => employerOf(s, employers)?.id === filter) : allShifts;
-    const now = new Date();
     const months = MONTHS.map((_, i) => {
       const key = `${year}-${String(i + 1).padStart(2, '0')}`;
       const list = shifts.filter((s) => monthOf(s.date) === key);
@@ -21,7 +22,7 @@ export function Year({ year, setYear, today, filter, onPickMonth }: { year: numb
     });
     const all = summarize(shifts.filter((s) => s.date.startsWith(`${year}-`)), setup);
     return { months, all };
-  }, [allShifts, setup, employers, filter, year]);
+  }, [allShifts, setup, employers, filter, year, now]);
   const goal = filter ? null : settings.goal;
 
   const max = Math.max(1, ...data.months.map((m) => m.earned + m.planned), goal ?? 0);

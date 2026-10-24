@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './index.css';
 import { watchForUpdates } from './lib/update';
+import { watchTheme } from './lib/theme';
+
+watchTheme();
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
 

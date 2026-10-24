@@ -26,6 +26,25 @@ forward; holiday pay (10.2 / 12 / 14.3 %) in the year view and in June's payout;
 ([NOTIFICATIONS.md](NOTIFICATIONS.md)). On iPad (768 px and wider) a rail on the left replaces the bottom bar, screens
 use two columns and sheets open as centred dialogs.
 
+**Fast entry:** on Vakter, *Legg inn raskt*: pick Dag, Kveld, Natt, Ferie or Fri once, then each tap on a day adds it
+and a second tap removes it (with a running count and sum). Oversikt has *Denne uka* (the seven days, each day's pay,
+tap to open or add) and the next pay day in the big card. *Ny vakt* starts on the shift type she usually has on that
+weekday.
+
+**Import from GAT:** *Vakter → Importer fra GAT* reads a photo, screenshot or PDF of the roster with AI and shows the
+shifts to check before saving; see [IMPORT.md](IMPORT.md) (needs `ANTHROPIC_API_KEY` and the `vakt-import` function).
+**Pay settlement:** from June, until this year's new hourly wage is in, the overview asks once (and a reminder comes
+on 1 September). **Shortcut:** `#/ny` opens *Ny vakt* straight away; on Android a long press on the icon offers it.
+
+**Appearance and data:** Oppsett → Utseende chooses Auto (follow the phone), Lys or Mørk, per device
+(`public/theme.js` applies it before the first paint). Oppsett → Dine data downloads every shift as a CSV for Excel or
+Numbers. The sign-in screen has *Glemt passord?*; the reset link returns to the app, which asks for a new password
+(add the app's address under Supabase → Authentication → URL Configuration → Redirect URLs).
+
+**Staying current:** the app fetches everything again when it comes back to the front after a while (changes made on
+another device show up), the clock behind "earned so far" and "next shift" moves on by itself, a failed save never
+undoes other changes, and adding the same shift twice on a day is skipped.
+
 ## How pay is calculated (`src/lib/pay.ts`)
 
 - Paid hours = end − start − unpaid break. An end at or before the start is the next day (night shift).
@@ -50,7 +69,7 @@ Like Ledger, Vakt lives in this repository and uses the **same Supabase project*
 
 1. Supabase → **SQL Editor → New query**, paste all of `apps/vakt/supabase/vakt.sql`, **Run**. Safe to run again; run it
    again after updates (version 2 adds employers and moves earlier data to one called "Jobben min"; version 3 adds pay
-   day, sick shifts, days off, pay slips and reminder devices). Until then the app shows *Databasen må oppdateres*.
+   day, sick shifts, days off, pay slips and reminder devices; version 4 the daily allowance for roster imports). Until then the app shows *Databasen må oppdateres*.
 2. Deploy the site as usual. Open `https://<the site>/vakt/` on her phone, create an account (or sign in), then in
    Safari **Del → Legg til på Hjem-skjerm**.
 

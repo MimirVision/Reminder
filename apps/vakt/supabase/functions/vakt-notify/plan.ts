@@ -5,6 +5,7 @@ import { addDays, addMonths, daysInMonth, monthOf, weekday, type ISODate } from 
 import { MONTHS, kr } from '../../../src/lib/format.ts';
 import { payOf, shiftSpan } from '../../../src/lib/pay.ts';
 import type { Employer, Shift, Supplement } from '../../../src/lib/types.ts';
+import { wageCheckDue } from '../../../src/lib/wage.ts';
 
 export interface OwnerRows {
   ownerId: string;
@@ -35,9 +36,9 @@ const AFTER = 30; // minutes after a shift ends
 const LATE = 180; // a reminder more than this late is skipped rather than sent
 
 export function planOwner(o: OwnerRows, now: number): Message[] {
-  const s = (o.settings ?? {}) as { onboarded?: boolean; reminders?: Record<string, boolean>; sick_percent?: number };
+  const s = (o.settings ?? {}) as { onboarded?: boolean; reminders?: Record<string, boolean>; sick_percent?: number; wage_checked_year?: number | null };
   if (!s.onboarded) return [];
-  const rules = { after_shift: true, weekly: true, month: true, ...(s.reminders ?? {}) };
+  const rules = { after_shift: true, weekly: true, month: true, wage: true, ...(s.reminders ?? {}) };
   const { date: today, minutes } = osloNow(now);
   const nowAt = at(today, minutes);
   const out: Message[] = [];
@@ -73,6 +74,11 @@ export function planOwner(o: OwnerRows, now: number): Message[] {
       const name = MONTHS[Number(next.slice(5)) - 1];
       out.push({ key: `month:${next}`, title: `Turnusen for ${name}? ✨`, body: `Legg inn vaktene for ${name}, så ser du hva måneden gir.`, url: '/vakter', tag: 'month' });
     }
+  }
+  // The pay settlement: on 1 September, if the year's new wage still isn't in (and she hasn't said there is none).
+  if (rules.wage && evening && today.slice(5) === '09-01') {
+    const year = wageCheckDue(o.employers, today, s.wage_checked_year ?? null);
+    if (year) out.push({ key: `wage:${year}`, title: `Ny timelønn i ${year}? 💼`, body: 'Lønnsoppgjøret gjelder ofte fra 1. mai. Legg inn den nye timelønna, så blir vaktene riktige.', url: '/oppsett', tag: 'wage' });
   }
   return out;
 }

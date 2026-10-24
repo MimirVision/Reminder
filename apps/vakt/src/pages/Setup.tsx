@@ -1,7 +1,7 @@
 // Oppsett: everything the calculations need, entered once. Each employer (or department) has its own hourly wage,
 // supplements and shift types; a setup can be copied to another employer. Below: goal, tax and the account.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, Share, Sparkles, Trash2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Copy, Download, LogOut, Monitor, Moon, Plus, Share, Sparkles, Sun, Trash2 } from 'lucide-react';
 import { useStore } from '../data/store';
 import { supabase } from '../data/config';
 import { newId } from '../data/repo';
@@ -14,6 +14,8 @@ import { DEFAULT_TEMPLATES, type Employer, type Settings, type ShiftTemplate, ty
 import { SupplementSheet } from '../components/SupplementSheet';
 import { TOUR_EVENT } from '../components/Tour';
 import { Notifications } from '../components/Notifications';
+import { getTheme, setTheme, type Theme } from '../lib/theme';
+import { saveFile, shiftsCsv } from '../lib/export';
 import { KindIcon } from '../components/ShiftSheet';
 import { Button, Card, Chip, Label, NumberInput, Sheet, Switch, cn, inputClass } from '../components/ui';
 
@@ -139,7 +141,17 @@ function General() {
         </Section>
       )}
 
+      <Section title="Utseende">
+        <Card><ThemePicker /></Card>
+      </Section>
+
       <Notifications />
+
+      <Section title="Dine data" hint="Alle vaktene som regneark (åpnes i Excel og Numbers) – til å sjekke lønnsslippen eller sende videre.">
+        <Button variant="soft" className="w-full" disabled={!store.shifts.length} onClick={() => void saveFile(`vakter-${today()}.csv`, shiftsCsv(store.shifts, store.setup))}>
+          <Download className="size-5" /> Last ned vaktene ({store.shifts.length})
+        </Button>
+      </Section>
 
       <Section title="Hjelp">
         <Button variant="soft" className="w-full" onClick={() => window.dispatchEvent(new Event(TOUR_EVENT))}><Sparkles className="size-5" /> Vis gjennomgangen igjen</Button>
@@ -459,5 +471,22 @@ function TemplateSheet({ template, onSave, onDelete, onClose }: { template?: Shi
         {[0, 15, 30, 45, 60].map((b) => <Chip key={b} className="px-0" active={t.break_minutes === b} onClick={() => setT({ ...t, break_minutes: b })}>{b === 0 ? 'Ingen' : b}</Chip>)}
       </div>
     </Sheet>
+  );
+}
+
+function ThemePicker() {
+  const [theme, set] = useState<Theme>(getTheme);
+  const options: [Theme, string, typeof Sun][] = [['auto', 'Auto', Monitor], ['light', 'Lys', Sun], ['dark', 'Mørk', Moon]];
+  return (
+    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Lys eller mørk">
+      {options.map(([t, label, Icon]) => (
+        <button key={t} type="button" aria-pressed={theme === t} onClick={() => { setTheme(t); set(t); }}
+          className={cn('flex flex-col items-center gap-1.5 rounded-2xl border-2 py-3 text-[14px] font-semibold transition active:scale-95',
+            theme === t ? 'border-accent bg-accent-soft text-accent-ink' : 'border-transparent bg-sunken text-ink-2')}>
+          <Icon className="size-5" />{label}
+        </button>
+      ))}
+      <p className="col-span-3 text-[12.5px] text-ink-3">Auto følger telefonen. Valget gjelder denne enheten.</p>
+    </div>
   );
 }

@@ -23,6 +23,7 @@ const RULES: { key: keyof Settings['reminders']; title: string; text: string }[]
   { key: 'after_shift', title: 'Etter hver vakt', text: 'Hva vakta ga, og om tidene stemmer.' },
   { key: 'weekly', title: 'Søndag kveld', text: 'Hvis neste uke ikke har noen vakter ennå.' },
   { key: 'month', title: 'Slutten av måneden', text: 'Hvis neste måned ikke har noen vakter ennå.' },
+  { key: 'wage', title: 'Lønnsoppgjøret', text: '1. september, hvis årets nye timelønn ikke er lagt inn.' },
 ];
 
 export function Notifications() {

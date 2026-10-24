@@ -95,12 +95,22 @@ export interface Settings {
   /** Share of normal pay for a shift she was sick for. */
   sick_percent: number;
   /** Which reminders the notification server sends. */
-  reminders: { after_shift: boolean; weekly: boolean; month: boolean };
+  reminders: { after_shift: boolean; weekly: boolean; month: boolean; wage: boolean };
+  /** Her name as it stands in the roster (GAT), so the import finds her row. */
+  roster_name: string;
+  /** What each roster code means, learnt from imports: 'D' → 07:30–15:30, 'FE' → ferie, 'X' → skip. */
+  roster_codes: Record<string, CodeRule>;
+  /** The year she last answered the pay-settlement question (lønnsoppgjør), so it is asked once a year. */
+  wage_checked_year: number | null;
 }
+
+/** What a roster code stands for. */
+export type CodeRule = { start_time: string; end_time: string; break_minutes: number } | { off: DayOffKind } | { skip: true };
 
 export const DEFAULT_SETTINGS: Settings = {
   name: '', goal: null, tax_percent: null, onboarded: false, toured: false,
-  holiday_pay_percent: 12, sick_percent: 100, reminders: { after_shift: true, weekly: true, month: true },
+  holiday_pay_percent: 12, sick_percent: 100, reminders: { after_shift: true, weekly: true, month: true, wage: true },
+  roster_name: '', roster_codes: {}, wage_checked_year: null,
 };
 
 export const DEFAULT_TEMPLATES: ShiftTemplate[] = [

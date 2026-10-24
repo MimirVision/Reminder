@@ -1,6 +1,6 @@
 // The app's state: everything is loaded once, changed here first so the screen answers at once, then saved.
 // If a save fails the change is rolled back and a message says so, so the screen never shows what isn't stored.
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Data, Repo } from './repo';
 import { friendlyError } from './config';
 import type { DayOff, Employer, Payslip, Settings, Setup, Shift, Supplement } from '../lib/types';
@@ -10,6 +10,8 @@ interface Store extends Data {
   email: string | null;
   saveSettings(s: Settings): Promise<boolean>;
   saveShift(s: Shift): Promise<boolean>;
+  /** Several shifts in one request (a roster, a repeated rota). */
+  saveShifts(list: Shift[]): Promise<boolean>;
   deleteShift(id: string): Promise<boolean>;
   saveSupplement(s: Supplement): Promise<boolean>;
   deleteSupplement(id: string): Promise<boolean>;
@@ -53,19 +55,51 @@ export function StoreProvider({ repo, initial, local, email, children }: { repo:
     timer.current = window.setTimeout(() => setToast(null), opts.undo || opts.error ? 6000 : 3200);
   }, []);
 
+  // Saves in flight. While any is, a refresh from the database waits, so it can't undo a change that is on its way.
+  const pending = useRef(0);
+  const stale = useRef(false);
+
+  /** Fetches everything again: when the app comes back to the front (she may have changed something on the iPad). */
+  const refresh = useCallback(async () => {
+    if (pending.current) return;
+    try {
+      const fresh = await repo.load();
+      if (!pending.current) setData(fresh);
+    } catch { /* offline: keep what is on screen */ }
+  }, [repo]);
+
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVisible = () => {
+      if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 15_000) void refresh();
+    };
+    const onOnline = () => void refresh();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onOnline);
+    return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onOnline); };
+  }, [refresh]);
+
   /** Apply a change now, save it, and put things back if the save fails. */
   const run = useCallback(async (change: (d: Data) => Data, save: () => Promise<void>) => {
     const before = dataRef.current;
-    setData(change(before));
+    const after = change(before);
+    dataRef.current = after;
+    setData(after);
+    pending.current++;
     try {
       await save();
       return true;
     } catch (e) {
-      setData(before);
+      // Undo just this change; if something else changed meanwhile, ask the database what is actually stored.
+      if (dataRef.current === after) { dataRef.current = before; setData(before); } else stale.current = true;
       toast(`Ble ikke lagret: ${friendlyError(e)}`, { error: true });
       return false;
+    } finally {
+      pending.current--;
+      if (!pending.current && stale.current) { stale.current = false; void refresh(); }
     }
-  }, [toast]);
+  }, [toast, refresh]);
 
   const store = useMemo<Store>(() => ({
     ...data,
@@ -74,7 +108,8 @@ export function StoreProvider({ repo, initial, local, email, children }: { repo:
     toast,
     toastState,
     saveSettings: (s) => run((d) => ({ ...d, settings: s }), () => repo.saveSettings(s)),
-    saveShift: (s) => run((d) => ({ ...d, shifts: upsert(d.shifts, s) }), () => repo.saveShift(s)),
+    saveShift: (s) => run((d) => ({ ...d, shifts: upsert(d.shifts, s) }), () => repo.saveShifts([s])),
+    saveShifts: (list) => run((d) => ({ ...d, shifts: list.reduce(upsert, d.shifts) }), () => repo.saveShifts(list)),
     deleteShift: (id) => run((d) => ({ ...d, shifts: d.shifts.filter((x) => x.id !== id) }), () => repo.deleteShift(id)),
     setup: { employers: data.employers, supplements: data.supplements, sickPercent: data.settings.sick_percent },
     saveDayOff: (x) => run((d) => ({ ...d, daysOff: upsert(d.daysOff.filter((y) => y.date !== x.date || y.id === x.id), x) }), () => repo.saveDayOff(x)),

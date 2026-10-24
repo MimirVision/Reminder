@@ -95,3 +95,13 @@ it('version 3: days off and pay slips are private and one per day/month; pay set
   await expect(as(A, () => rows(`insert into vakt_shifts (date, start_time, end_time, status) values ('2026-10-21', '07:30', '15:30', 'away')`))).rejects.toThrow(/check/);
   await expect(as(A, () => rows('select * from vakt_push_sent'))).rejects.toThrow(/permission denied/);
 });
+
+it('version 4: AI reads are counted per person and day, and stop at the limit', async () => {
+  const take = () => as(A, async () => (await rows(`select vakt_ai_take('import', 2) as ok`))[0].ok);
+  expect(await take()).toBe(true);
+  expect(await take()).toBe(true);
+  expect(await take()).toBe(false);
+  expect(await as(B, async () => (await rows(`select vakt_ai_take('import', 2) as ok`))[0].ok)).toBe(true);
+  expect(await as(null, async () => (await rows(`select vakt_ai_take('import', 2) as ok`).catch(() => [{ ok: 'denied' }]))[0].ok)).toBe('denied');
+  await expect(as(A, () => rows('select * from vakt_ai_usage'))).rejects.toThrow(/permission denied/);
+});

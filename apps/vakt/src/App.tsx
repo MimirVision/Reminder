@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight, Home, List, Plus, SlidersHorizontal } from 'lucide-react';
 import { isNotInstalled, isOutdated, friendlyError, supabase, wantsLocal } from './data/config';
 import { localRepo, supabaseRepo, type Data, type Repo } from './data/repo';
 import { StoreProvider, useStore } from './data/store';
-import { addMonths, monthOf, today as todayFn, type MonthKey } from './lib/dates';
+import { addMonths, monthOf, toISO, type MonthKey } from './lib/dates';
+import { useNow } from './lib/useNow';
 import { monthName } from './lib/format';
 import type { Shift } from './lib/types';
-import { LoadError, NotInstalled, SignIn } from './pages/Auth';
+import { LoadError, NewPassword, NotInstalled, SignIn } from './pages/Auth';
 import { Onboarding } from './pages/Onboarding';
 import { Overview } from './pages/Overview';
 import { Shifts } from './pages/Shifts';
@@ -23,10 +24,14 @@ type Boot =
   | { state: 'not-installed' }
   | { state: 'outdated' }
   | { state: 'error'; message: string }
+  | { state: 'recovery' }
   | { state: 'ready'; repo: Repo; data: Data; local: boolean; email: string | null };
 
 export function App() {
   const [boot, setBoot] = useState<Boot>({ state: 'loading' });
+  // Who is signed in now. Supabase also reports SIGNED_IN when a tab comes back to the front; reloading then would
+  // throw away whatever she was in the middle of, so the app only reloads when the person actually changes.
+  const user = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setBoot({ state: 'loading' });
@@ -36,6 +41,7 @@ export function App() {
       return;
     }
     const { data: { session } } = await supabase().auth.getSession();
+    user.current = session?.user.id ?? null;
     if (!session) { setBoot({ state: 'signed-out' }); return; }
     const repo = supabaseRepo();
     try {
@@ -48,14 +54,16 @@ export function App() {
   useEffect(() => {
     void load();
     if (wantsLocal()) return;
-    const { data } = supabase().auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') void load();
+    const { data } = supabase().auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setBoot({ state: 'recovery' });
+      else if (event === 'SIGNED_OUT' || (event === 'SIGNED_IN' && session?.user.id !== user.current)) void load();
     });
     return () => data.subscription.unsubscribe();
   }, [load]);
 
   if (boot.state === 'loading') return <Splash />;
   if (boot.state === 'signed-out') return <SignIn />;
+  if (boot.state === 'recovery') return <NewPassword onDone={() => void load()} />;
   if (boot.state === 'not-installed') return <NotInstalled />;
   if (boot.state === 'outdated') return <NotInstalled upgrade />;
   if (boot.state === 'error') return <LoadError message={boot.message} retry={() => void load()} />;
@@ -90,17 +98,20 @@ const TABS: { key: Tab; label: string; icon: typeof Home }[] = [
 const FILTER = 'vakt-filter';
 const tabFromHash = (): Tab => {
   const raw = location.hash.replace(/^#\/?/, '');
+  if (raw === 'ny') return 'oversikt';
   const t = (raw === 'innstillinger' ? 'oppsett' : raw) as Tab;
   return TABS.some((x) => x.key === t) ? t : 'oversikt';
 };
 
 function Main() {
   const { settings, local, employers, saveSettings } = useStore();
-  const today = todayFn();
+  const now = useNow();
+  const today = toISO(now);
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [month, setMonth] = useState<MonthKey>(monthOf(today));
   const [year, setYear] = useState(Number(today.slice(0, 4)));
-  const [sheet, setSheet] = useState<{ shift?: Shift; date?: string } | null>(null);
+  // "#/ny" (the Ny vakt shortcut on the app icon, or a bookmark) opens a new shift straight away.
+  const [sheet, setSheet] = useState<{ shift?: Shift; date?: string } | null>(() => (location.hash === '#/ny' ? {} : null));
   // Show one employer or all; remembered on this phone.
   const [filterState, setFilterState] = useState<string | null>(() => { try { return localStorage.getItem(FILTER); } catch { return null; } });
   const filter = employers.some((e) => e.id === filterState) ? filterState : null;
@@ -150,7 +161,13 @@ function Main() {
     window.scrollTo({ top: 0 });
   };
   useEffect(() => {
-    const onHash = () => setTabState(tabFromHash());
+    if (location.hash === '#/ny') history.replaceState(null, '', location.pathname + location.search);
+  }, []);
+  useEffect(() => {
+    const onHash = () => {
+      if (location.hash === '#/ny') { setSheet({}); history.replaceState(null, '', location.pathname + location.search); }
+      setTabState(tabFromHash());
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -158,7 +175,7 @@ function Main() {
   const defaultDate = month === monthOf(today) ? today : `${month}-01`;
   const showMonth = tab === 'oversikt' || tab === 'vakter';
   const greeting = (() => {
-    const h = new Date().getHours();
+    const h = now.getHours();
     const part = h < 5 ? 'God natt' : h < 10 ? 'God morgen' : h < 17 ? 'Hei' : 'God kveld';
     return settings.name ? `${part}, ${settings.name}` : part;
   })();
@@ -195,7 +212,7 @@ function Main() {
       </header>
 
       <main key={tab} className="animate-fade-in px-5 pt-1 pb-32 md:pb-12">
-        {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={() => setSheet({})} onSeeAll={() => setTab('vakter')} />}
+        {tab === 'oversikt' && <Overview month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} onSeeAll={() => setTab('vakter')} onSetup={() => setTab('oppsett')} />}
         {tab === 'vakter' && <Shifts month={month} today={today} filter={filter} onOpenShift={(s) => setSheet({ shift: s })} onAdd={(date) => setSheet({ date })} />}
         {tab === 'aar' && <Year year={year} setYear={setYear} today={today} filter={filter} onPickMonth={(m) => { setMonth(m); setTab('oversikt'); }} />}
         {tab === 'oppsett' && <div className="md:mx-auto md:max-w-2xl"><Setup /></div>}
