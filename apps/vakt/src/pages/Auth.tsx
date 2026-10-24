@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AlertCircle, Database } from 'lucide-react';
 import { friendlyError, supabase } from '../data/config';
-import { Button, Label, cn, inputClass } from '../components/ui';
+import { Button, Label, inputClass } from '../components/ui';
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -19,7 +19,7 @@ function Frame({ children }: { children: React.ReactNode }) {
 }
 
 export function SignIn() {
-  const [mode, setMode] = useState<'in' | 'up'>('in');
+  const [mode, setMode] = useState<'in' | 'up' | 'forgot'>('in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +29,15 @@ export function SignIn() {
   const submit = async () => {
     setError(null); setInfo(null);
     if (!/^\S+@\S+\.\S+$/.test(email)) { setError('Skriv inn e-postadressen din.'); return; }
+    if (mode === 'forgot') {
+      setBusy(true);
+      // The link in the email comes back here; the app then asks for a new password.
+      const { error } = await supabase().auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+      setBusy(false);
+      if (error) setError(friendlyError(error));
+      else setInfo('Sjekk e-posten din: der er en lenke for å lage nytt passord.');
+      return;
+    }
     if (password.length < (mode === 'up' ? 8 : 1)) { setError(mode === 'up' ? 'Passordet må ha minst 8 tegn.' : 'Skriv inn passordet.'); return; }
     setBusy(true);
     const auth = supabase().auth;
@@ -40,18 +49,51 @@ export function SignIn() {
 
   return (
     <Frame>
-      <h1 className="text-[22px] font-bold">{mode === 'in' ? 'Logg inn' : 'Lag en konto'}</h1>
-      <p className="mt-1 mb-6 text-[14px] text-ink-3">{mode === 'in' ? 'Vaktene dine lagres på kontoen, så de aldri forsvinner.' : 'Gratis. Vaktene dine lagres trygt, og bare du ser dem.'}</p>
+      <h1 className="text-[22px] font-bold">{mode === 'in' ? 'Logg inn' : mode === 'up' ? 'Lag en konto' : 'Glemt passordet?'}</h1>
+      <p className="mt-1 mb-6 text-[14px] text-ink-3">
+        {mode === 'in' ? 'Vaktene dine lagres på kontoen, så de aldri forsvinner.' : mode === 'up' ? 'Gratis. Vaktene dine lagres trygt, og bare du ser dem.' : 'Skriv inn e-posten din, så sender vi en lenke for å lage nytt passord.'}
+      </p>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <div><Label>E-post</Label><input className={inputClass} type="email" autoComplete="email" aria-label="E-post" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-        <div><Label>Passord</Label><input className={inputClass} type="password" autoComplete={mode === 'in' ? 'current-password' : 'new-password'} aria-label="Passord" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+        {mode !== 'forgot' && (
+          <div><Label>Passord</Label><input className={inputClass} type="password" autoComplete={mode === 'in' ? 'current-password' : 'new-password'} aria-label="Passord" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+        )}
         {error && <p role="alert" className="flex items-center gap-1.5 text-[14px] text-danger"><AlertCircle className="size-4 shrink-0" />{error}</p>}
         {info && <p role="status" className="rounded-2xl bg-ok-soft px-4 py-3 text-[14px] text-ok">{info}</p>}
-        <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Et øyeblikk …' : mode === 'in' ? 'Logg inn' : 'Lag konto'}</Button>
+        <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Et øyeblikk …' : mode === 'in' ? 'Logg inn' : mode === 'up' ? 'Lag konto' : 'Send lenke'}</Button>
       </form>
-      <button className={cn('mt-5 text-[14.5px] font-semibold text-accent-ink')} onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setError(null); setInfo(null); }}>
-        {mode === 'in' ? 'Ny her? Lag en konto' : 'Har du konto? Logg inn'}
-      </button>
+      <div className="mt-5 flex flex-col items-start gap-3 text-[14.5px] font-semibold text-accent-ink">
+        <button onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setError(null); setInfo(null); }}>
+          {mode === 'in' ? 'Ny her? Lag en konto' : 'Har du konto? Logg inn'}
+        </button>
+        {mode === 'in' && <button className="text-ink-3" onClick={() => { setMode('forgot'); setError(null); setInfo(null); }}>Glemt passord?</button>}
+      </div>
+    </Frame>
+  );
+}
+
+/** After the link in the reset email: choose a new password. */
+export function NewPassword({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (password.length < 8) { setError('Passordet må ha minst 8 tegn.'); return; }
+    setBusy(true);
+    const { error } = await supabase().auth.updateUser({ password });
+    setBusy(false);
+    if (error) setError(friendlyError(error));
+    else { history.replaceState(null, '', location.pathname); onDone(); }
+  };
+  return (
+    <Frame>
+      <h1 className="text-[22px] font-bold">Nytt passord</h1>
+      <p className="mt-1 mb-6 text-[14px] text-ink-3">Velg et nytt passord for kontoen din.</p>
+      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <div><Label>Nytt passord</Label><input className={inputClass} type="password" autoComplete="new-password" aria-label="Nytt passord" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+        {error && <p role="alert" className="flex items-center gap-1.5 text-[14px] text-danger"><AlertCircle className="size-4 shrink-0" />{error}</p>}
+        <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Et øyeblikk …' : 'Lagre passord'}</Button>
+      </form>
     </Frame>
   );
 }

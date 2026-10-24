@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight, Home, List, Plus, SlidersHorizontal } from 'lucide-react';
 import { isNotInstalled, isOutdated, friendlyError, supabase, wantsLocal } from './data/config';
 import { localRepo, supabaseRepo, type Data, type Repo } from './data/repo';
 import { StoreProvider, useStore } from './data/store';
-import { addMonths, monthOf, today as todayFn, type MonthKey } from './lib/dates';
+import { addMonths, monthOf, toISO, type MonthKey } from './lib/dates';
+import { useNow } from './lib/useNow';
 import { monthName } from './lib/format';
 import type { Shift } from './lib/types';
-import { LoadError, NotInstalled, SignIn } from './pages/Auth';
+import { LoadError, NewPassword, NotInstalled, SignIn } from './pages/Auth';
 import { Onboarding } from './pages/Onboarding';
 import { Overview } from './pages/Overview';
 import { Shifts } from './pages/Shifts';
@@ -23,10 +24,14 @@ type Boot =
   | { state: 'not-installed' }
   | { state: 'outdated' }
   | { state: 'error'; message: string }
+  | { state: 'recovery' }
   | { state: 'ready'; repo: Repo; data: Data; local: boolean; email: string | null };
 
 export function App() {
   const [boot, setBoot] = useState<Boot>({ state: 'loading' });
+  // Who is signed in now. Supabase also reports SIGNED_IN when a tab comes back to the front; reloading then would
+  // throw away whatever she was in the middle of, so the app only reloads when the person actually changes.
+  const user = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setBoot({ state: 'loading' });
@@ -36,6 +41,7 @@ export function App() {
       return;
     }
     const { data: { session } } = await supabase().auth.getSession();
+    user.current = session?.user.id ?? null;
     if (!session) { setBoot({ state: 'signed-out' }); return; }
     const repo = supabaseRepo();
     try {
@@ -48,14 +54,16 @@ export function App() {
   useEffect(() => {
     void load();
     if (wantsLocal()) return;
-    const { data } = supabase().auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') void load();
+    const { data } = supabase().auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setBoot({ state: 'recovery' });
+      else if (event === 'SIGNED_OUT' || (event === 'SIGNED_IN' && session?.user.id !== user.current)) void load();
     });
     return () => data.subscription.unsubscribe();
   }, [load]);
 
   if (boot.state === 'loading') return <Splash />;
   if (boot.state === 'signed-out') return <SignIn />;
+  if (boot.state === 'recovery') return <NewPassword onDone={() => void load()} />;
   if (boot.state === 'not-installed') return <NotInstalled />;
   if (boot.state === 'outdated') return <NotInstalled upgrade />;
   if (boot.state === 'error') return <LoadError message={boot.message} retry={() => void load()} />;
@@ -96,7 +104,8 @@ const tabFromHash = (): Tab => {
 
 function Main() {
   const { settings, local, employers, saveSettings } = useStore();
-  const today = todayFn();
+  const now = useNow();
+  const today = toISO(now);
   const [tab, setTabState] = useState<Tab>(tabFromHash);
   const [month, setMonth] = useState<MonthKey>(monthOf(today));
   const [year, setYear] = useState(Number(today.slice(0, 4)));
@@ -158,7 +167,7 @@ function Main() {
   const defaultDate = month === monthOf(today) ? today : `${month}-01`;
   const showMonth = tab === 'oversikt' || tab === 'vakter';
   const greeting = (() => {
-    const h = new Date().getHours();
+    const h = now.getHours();
     const part = h < 5 ? 'God natt' : h < 10 ? 'God morgen' : h < 17 ? 'Hei' : 'God kveld';
     return settings.name ? `${part}, ${settings.name}` : part;
   })();

@@ -2,8 +2,11 @@
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/fraunces';
 
+/* Tailwind's dark: follows the theme chosen in the app (Oppsett → Utseende), not only the phone's setting. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 /* Vakt's design tokens: a warm paper ground, white cards, plum ink, and a violet-to-rose accent for money moments.
-   Dark follows the phone's setting. Components use these names only. */
+   Light or dark is chosen in Oppsett (Auto follows the phone). Components use these names only. */
 @theme {
   --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   --font-display: 'Fraunces Variable', Georgia, serif;
@@ -58,8 +61,29 @@
   color-scheme: light;
 }
 
+/* Dark: chosen in Oppsett (data-theme="dark"), or by the phone when set to Auto. public/theme.js sets data-theme before
+   the first paint, so the page never flashes the wrong colours. */
+:root[data-theme='dark'] {
+  --c-canvas: #141118;
+  --c-surface: #1e1a23;
+  --c-sunken: #262029;
+  --c-line: #332b38;
+  --c-ink: #f6f1f8;
+  --c-ink-2: #cdc3d3;
+  --c-ink-3: #968c9c;
+  --c-accent: #a78bfa;
+  --c-accent-soft: #2c2340;
+  --c-accent-ink: #c4b5fd;
+  --c-rose: #f472b6;
+  --c-ok: #34d399;
+  --c-ok-soft: #133027;
+  --c-danger: #f87171;
+  --c-danger-soft: #3a1c1f;
+  --hero: linear-gradient(135deg, #5b21b6 0%, #86198f 55%, #be185d 100%);
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']):not([data-theme='dark']) {
     --c-canvas: #141118;
     --c-surface: #1e1a23;
     --c-sunken: #262029;

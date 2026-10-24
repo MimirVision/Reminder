@@ -264,3 +264,31 @@ test('iPad: a side rail instead of the bottom bar, and the walkthrough finds it'
   await rail.getByRole('button', { name: 'Ny vakt' }).click();
   await expect(page.getByRole('dialog', { name: 'Ny vakt' })).toBeVisible();
 });
+
+test('light, dark or auto from Oppsett, remembered after a reload', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  await seed(page);
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByRole('button', { name: 'Oppsett' }).click();
+  await page.getByRole('group', { name: 'Lys eller mørk' }).getByRole('button', { name: 'Mørk' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.getByRole('group', { name: 'Lys eller mørk' }).getByRole('button', { name: 'Auto' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
+test('the same shift on a day that already has it is not added twice', async ({ page }) => {
+  await page.goto('/');
+  await seed(page);
+  await page.reload();
+  await page.getByRole('button', { name: 'Ny vakt', exact: true }).click();
+  await pickOnly(page, 5); // already has the 08:00 shift
+  await page.getByTestId('date-picker').getByRole('button', { name: /\b6\. oktober/ }).click();
+  await page.getByRole('button', { name: 'Lagre 2 vakter' }).click();
+  await expect(page.getByText('(1 fantes fra før)')).toBeVisible();
+  await page.getByRole('button', { name: 'Vakter', exact: true }).click();
+  await expect(page.getByText('2 vakter', { exact: true })).toBeVisible();
+});

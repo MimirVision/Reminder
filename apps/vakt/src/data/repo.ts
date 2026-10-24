@@ -7,7 +7,7 @@ export interface Data { settings: Settings; employers: Employer[]; supplements: 
 export interface Repo {
   load(): Promise<Data>;
   saveSettings(s: Settings): Promise<void>;
-  saveShift(s: Shift): Promise<void>;
+  saveShifts(list: Shift[]): Promise<void>;
   deleteShift(id: string): Promise<void>;
   saveSupplements(list: Supplement[]): Promise<void>;
   deleteSupplements(ids: string[]): Promise<void>;
@@ -79,7 +79,7 @@ export function supabaseRepo(): Repo {
       const { data } = await db.auth.getUser();
       check(await db.from('vakt_profiles').upsert({ owner_id: data.user?.id, settings }));
     },
-    async saveShift(s) { check(await db.from('vakt_shifts').upsert(pick(s, SHIFT_COLS))); },
+    async saveShifts(list) { if (list.length) check(await db.from('vakt_shifts').upsert(list.map((s) => pick(s, SHIFT_COLS)))); },
     async deleteShift(id) { check(await db.from('vakt_shifts').delete().eq('id', id)); },
     async saveSupplements(list) { if (list.length) check(await db.from('vakt_supplements').upsert(list.map((x) => pick(x, SUP_COLS)))); },
     async deleteSupplements(ids) { if (ids.length) check(await db.from('vakt_supplements').delete().in('id', ids)); },
@@ -116,7 +116,7 @@ export function localRepo(): Repo {
     load: () => Promise.resolve(read()),
     saveSettings: (settings) => write((d) => ({ ...d, settings })),
     // Stored the way the database stores them, so a field the tables don't have shows up in local mode too.
-    saveShift: (s) => write((d) => ({ ...d, shifts: upsert(d.shifts, pick(s, SHIFT_COLS)) })),
+    saveShifts: (list) => write((d) => ({ ...d, shifts: list.map((s) => pick(s, SHIFT_COLS)).reduce(upsert, d.shifts) })),
     deleteShift: (id) => write((d) => ({ ...d, shifts: d.shifts.filter((x) => x.id !== id) })),
     saveSupplements: (list) => write((d) => ({ ...d, supplements: list.map((x) => pick(x, SUP_COLS)).reduce(upsert, d.supplements) })),
     deleteSupplements: (ids) => write((d) => ({ ...d, supplements: d.supplements.filter((x) => !ids.includes(x.id)) })),

@@ -5,6 +5,7 @@ import { useStore } from '../data/store';
 import { monthOf, type ISODate, type MonthKey } from '../lib/dates';
 import { hrs, kr, monthName, relDate } from '../lib/format';
 import { motivation } from '../lib/motivation';
+import { useNow } from '../lib/useNow';
 import { employerOf, inMonth, payOf, shiftEnd, summarize } from '../lib/pay';
 import type { Shift } from '../lib/types';
 import { ShiftRow } from '../components/ShiftRow';
@@ -16,7 +17,7 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
   month: MonthKey; today: ISODate; filter: string | null; onOpenShift: (s: Shift) => void; onAdd: () => void; onSeeAll: () => void;
 }) {
   const { shifts: allShifts, setup, employers, settings } = useStore();
-  const now = new Date();
+  const now = useNow();
   const view = useMemo(() => {
     const shifts = filter ? allShifts.filter((s) => employerOf(s, employers)?.id === filter) : allShifts;
     const list = inMonth(shifts, month).sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
@@ -32,8 +33,7 @@ export function Overview({ month, today, filter, onOpenShift, onAdd, onSeeAll }:
       all: summarize(list, setup),
       bestBefore: Math.max(0, ...totals.values()),
     };
-    // `now` changes every render; the minute it is read in is close enough.
-  }, [allShifts, setup, employers, filter, month]);
+  }, [allShifts, setup, employers, filter, month, now]);
 
   const current = month === monthOf(today);
   const past = month < monthOf(today);

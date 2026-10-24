@@ -1,8 +1,8 @@
 // Vakt's service worker: lets Vakt install as an app and open instantly. It caches the app itself (the page,
 // scripts, styles, fonts, icons), never data: every request to Supabase goes straight to the network, so what you
 // see is always the database's current state. Scoped to Vakt's own folder, so it never touches the other apps.
-const CACHE = 'vakt-shell-v2';
-const SHELL = ['./', './manifest.webmanifest', './icon.svg', './icon-192.png'];
+const CACHE = 'vakt-shell-v3';
+const SHELL = ['./', './manifest.webmanifest', './icon.svg', './icon-192.png', './theme.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

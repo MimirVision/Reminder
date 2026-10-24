@@ -26,6 +26,15 @@ forward; holiday pay (10.2 / 12 / 14.3 %) in the year view and in June's payout;
 ([NOTIFICATIONS.md](NOTIFICATIONS.md)). On iPad (768 px and wider) a rail on the left replaces the bottom bar, screens
 use two columns and sheets open as centred dialogs.
 
+**Appearance and data:** Oppsett → Utseende chooses Auto (follow the phone), Lys or Mørk, per device
+(`public/theme.js` applies it before the first paint). Oppsett → Dine data downloads every shift as a CSV for Excel or
+Numbers. The sign-in screen has *Glemt passord?*; the reset link returns to the app, which asks for a new password
+(add the app's address under Supabase → Authentication → URL Configuration → Redirect URLs).
+
+**Staying current:** the app fetches everything again when it comes back to the front after a while (changes made on
+another device show up), the clock behind "earned so far" and "next shift" moves on by itself, a failed save never
+undoes other changes, and adding the same shift twice on a day is skipped.
+
 ## How pay is calculated (`src/lib/pay.ts`)
 
 - Paid hours = end − start − unpaid break. An end at or before the start is the next day (night shift).
