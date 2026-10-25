@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Camera, Check, Paintbrush, Repeat2 } from 'lucide-react';
 import { ImportSheet } from '../components/ImportSheet';
+import { timesFor } from '../lib/templates';
 import { newId } from '../data/repo';
 import { KindIcon } from '../components/ShiftSheet';
 import { useStore } from '../data/store';
@@ -42,7 +43,7 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
       else await saveDayOff({ id: had?.id ?? newId(), date: d, kind: brush.off, note: '' });
       return;
     }
-    const t = brush.shift;
+    const t = timesFor(brush.shift, d);
     const had = shifts.find((s) => s.date === d && s.start_time === t.start_time && s.end_time === t.end_time && employerOf(s, employers)?.id === emp.id);
     if (had) {
       if (await deleteShift(had.id)) setAdded((a) => ({ count: a.count - 1, total: a.total - payOf(had, setup).total }));
@@ -54,7 +55,9 @@ export function Shifts({ month, today, filter, onOpenShift, onAdd }: { month: Mo
       setAdded((a) => ({ count: a.count + 1, total: a.total + payOf(s, setup).total }));
     }
   };
-  const brushName = brush ? ('off' in brush ? DAY_OFF_LABEL[brush.off] : `${brush.shift.name} ${brush.shift.start_time}–${brush.shift.end_time}`) : '';
+  // A shift type with its own times on some days says so instead of one time that isn't always right.
+  const brushName = brush ? ('off' in brush ? DAY_OFF_LABEL[brush.off]
+    : brush.shift.days && Object.keys(brush.shift.days).length ? `${brush.shift.name} (tider etter dag)` : `${brush.shift.name} ${brush.shift.start_time}–${brush.shift.end_time}`) : '';
   const list = inMonth(filter ? shifts.filter((s) => employerOf(s, employers)?.id === filter) : shifts, month).sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
   const weeks = new Map<number, Shift[]>();
   for (const s of list) weeks.set(isoWeek(s.date), [...(weeks.get(isoWeek(s.date)) ?? []), s]);

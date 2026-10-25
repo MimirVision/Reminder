@@ -8,9 +8,10 @@ import { newId } from '../data/repo';
 import { addDays, today, weekday, type ISODate } from '../lib/dates';
 import { kr } from '../lib/format';
 import { isHoliday, isHolidayEve } from '../lib/holidays';
-import { calcShift, copySetup, shiftKind, wageOn } from '../lib/pay';
+import { calcShift, copySetup, employerOf, shiftKind, wageOn } from '../lib/pay';
 import { EMPLOYER_COLORS, PRESETS, describeAmount, describeWhen, fromPreset } from '../lib/presets';
-import { DEFAULT_TEMPLATES, type Employer, type Settings, type ShiftTemplate, type Supplement } from '../lib/types';
+import { DEFAULT_TEMPLATES, type Employer, type Settings, type ShiftTemplate, type Supplement, type TemplateDay, type Times } from '../lib/types';
+import { TEMPLATE_DAYS, dayLabel, overnight, templateOf, timesFor } from '../lib/templates';
 import { SupplementSheet } from '../components/SupplementSheet';
 import { TOUR_EVENT } from '../components/Tour';
 import { Notifications } from '../components/Notifications';
@@ -179,6 +180,18 @@ function EmployerView({ employer, onBack }: { employer: Employer; onBack: () => 
   const [template, setTemplate] = useState<ShiftTemplate | 'new' | null>(null);
   const [copying, setCopying] = useState(false);
   const mine = supplements.filter((s) => s.employer_id === e.id);
+
+  /** After a shift type's times change: offer to move her coming shifts of that type to the new times. */
+  const updateUpcoming = async (old: ShiftTemplate, next: ShiftTemplate) => {
+    const from = today();
+    const moved = store.shifts
+      .filter((s) => s.date >= from && employerOf(s, employers)?.id === e.id && templateOf([old], s))
+      .map((s) => ({ ...s, ...timesFor(next, s.date) }))
+      .filter((s) => { const o = store.shifts.find((x) => x.id === s.id)!; return o.start_time !== s.start_time || o.end_time !== s.end_time || o.break_minutes !== s.break_minutes; });
+    if (!moved.length) return;
+    if (!confirm(`Oppdatere ${moved.length} kommende ${next.name}-vakter til de nye tidene?`)) return;
+    if (await store.saveShifts(moved)) store.toast(`${moved.length} vakter oppdatert`);
+  };
   const presets = PRESETS.filter((p) => !mine.some((s) => s.name.toLowerCase() === p.name.toLowerCase()));
   const wages = [...e.wages].sort((a, b) => b.from.localeCompare(a.from));
   const gaps = missing(e, supplements);
@@ -276,7 +289,12 @@ function EmployerView({ employer, onBack }: { employer: Employer; onBack: () => 
             <button key={t.id} onClick={() => setTemplate(t)} className="flex w-full items-center gap-3 rounded-2xl bg-surface p-3.5 text-left shadow-card">
               <KindIcon kind={shiftKind(t)} className="size-5 text-ink-3" />
               <span className="flex-1 text-[15px] font-semibold">{t.name}</span>
-              <span className="tabular text-[14px] text-ink-3">{t.start_time}–{t.end_time}{t.break_minutes ? ` · ${t.break_minutes} min pause` : ''}</span>
+              <span className="text-right">
+                <span className="tabular block text-[14px] text-ink-3">{t.start_time}–{t.end_time}{t.break_minutes ? ` · ${t.break_minutes} min pause` : ''}</span>
+                {t.days && Object.keys(t.days).length > 0 && (
+                  <span className="block text-[12px] font-medium text-accent-ink">egne tider: {TEMPLATE_DAYS.filter((d) => t.days![d]).map((d) => dayLabel(d, false, true)).join(', ')}</span>
+                )}
+              </span>
               <ChevronRight className="size-4 text-ink-3" />
             </button>
           ))}
@@ -320,7 +338,11 @@ function EmployerView({ employer, onBack }: { employer: Employer; onBack: () => 
       {template && (
         <TemplateSheet
           template={template === 'new' ? undefined : template}
-          onSave={(t) => set((x) => ({ ...x, templates: x.templates.some((y) => y.id === t.id) ? x.templates.map((y) => y.id === t.id ? t : y) : [...x.templates, t] }))}
+          onSave={(t) => {
+            const old = e.templates.find((y) => y.id === t.id);
+            set((x) => ({ ...x, templates: x.templates.some((y) => y.id === t.id) ? x.templates.map((y) => y.id === t.id ? t : y) : [...x.templates, t] }));
+            if (old) void updateUpcoming(old, t);
+          }}
           onDelete={(id) => set((x) => ({ ...x, templates: x.templates.filter((y) => y.id !== id) }))}
           onClose={() => setTemplate(null)}
         />
@@ -348,7 +370,7 @@ function Preview({ employer, supplements }: { employer: Employer; supplements: S
             <div key={t.id} className="contents">
               <span className="truncate font-semibold">{t.name}</span>
               {days.map((d) => {
-                const pay = calcShift({ id: '', employer_id: employer.id, date: d.date, start_time: t.start_time, end_time: t.end_time, break_minutes: t.break_minutes, overtime_percent: 0, note: '', status: 'worked' }, supplements, employer.wages);
+                const pay = calcShift({ id: '', employer_id: employer.id, date: d.date, ...timesFor(t, d.date), overtime_percent: 0, note: '', status: 'worked' }, supplements, employer.wages);
                 return <span key={d.label} className="tabular text-right font-semibold">{kr(pay.total)}</span>;
               })}
             </div>
@@ -453,7 +475,14 @@ function Section({ title, hint, step, children }: { title: string; hint?: string
 
 function TemplateSheet({ template, onSave, onDelete, onClose }: { template?: ShiftTemplate; onSave: (t: ShiftTemplate) => void; onDelete: (id: string) => void; onClose: () => void }) {
   const [t, setT] = useState<ShiftTemplate>(template ?? { id: newId(), name: '', start_time: '07:30', end_time: '15:30', break_minutes: 0 });
-  const valid = t.name.trim() && t.start_time !== t.end_time;
+  const days = TEMPLATE_DAYS.filter((d) => t.days?.[d]);
+  const free = TEMPLATE_DAYS.filter((d) => !t.days?.[d]);
+  const setDay = (d: TemplateDay, x: Times | null) => {
+    const next = { ...(t.days ?? {}) };
+    if (x) next[d] = x; else delete next[d];
+    setT({ ...t, days: next });
+  };
+  const valid = t.name.trim() && t.start_time !== t.end_time && days.every((d) => t.days![d]!.start_time !== t.days![d]!.end_time);
   return (
     <Sheet title={template ? 'Endre vakttype' : 'Ny vakttype'} onClose={onClose} footer={
       <div className="flex gap-2">
@@ -462,15 +491,51 @@ function TemplateSheet({ template, onSave, onDelete, onClose }: { template?: Shi
       </div>
     }>
       <div className="mb-4"><Label>Navn</Label><input className={inputClass} aria-label="Navn" placeholder="F.eks. Langvakt" maxLength={20} value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} /></div>
-      <div className="mb-4 grid grid-cols-2 gap-3">
-        <div><Label>Fra</Label><input type="time" aria-label="Fra" className={inputClass} value={t.start_time} onChange={(e) => e.target.value && setT({ ...t, start_time: e.target.value })} /></div>
-        <div><Label>Til</Label><input type="time" aria-label="Til" className={inputClass} value={t.end_time} onChange={(e) => e.target.value && setT({ ...t, end_time: e.target.value })} /></div>
-      </div>
-      <Label>Ubetalt pause (min)</Label>
-      <div className="grid grid-cols-5 gap-1.5">
-        {[0, 15, 30, 45, 60].map((b) => <Chip key={b} className="px-0" active={t.break_minutes === b} onClick={() => setT({ ...t, break_minutes: b })}>{b === 0 ? 'Ingen' : b}</Chip>)}
+
+      <Label hint={days.length ? 'alle andre dager' : 'alle dager'}>Vanlige tider</Label>
+      <TimesRow value={t} onChange={(x) => setT({ ...t, ...x })} label="Vanlige tider" />
+
+      <div className="mt-5">
+        <Label>Andre tider på enkelte dager</Label>
+        <p className="mb-3 text-[13px] text-ink-3">For eksempel en natt fra fredag til lørdag, eller helg og helligdager. Velger du {t.name || 'vakttypen'} på en slik dag, får vakta disse tidene av seg selv.</p>
+        <div className="space-y-3">
+          {days.map((d) => (
+            <div key={d} className="rounded-2xl bg-surface p-3 shadow-card">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[14.5px] font-semibold capitalize">{dayLabel(d, overnight(t.days![d]!))}</span>
+                <button type="button" aria-label={`Fjern ${dayLabel(d, false)}`} className="grid size-8 place-items-center rounded-full text-ink-3" onClick={() => setDay(d, null)}><Trash2 className="size-4" /></button>
+              </div>
+              <TimesRow value={t.days![d]!} onChange={(x) => setDay(d, { ...t.days![d]!, ...x })} label={dayLabel(d, false)} />
+            </div>
+          ))}
+        </div>
+        {free.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {free.map((d) => (
+              <Chip key={d} onClick={() => setDay(d, { start_time: t.start_time, end_time: t.end_time, break_minutes: t.break_minutes })}>
+                + {dayLabel(d, overnight(t), true)}
+              </Chip>
+            ))}
+          </div>
+        )}
       </div>
     </Sheet>
+  );
+}
+
+/** From, to and unpaid break for one set of times. */
+function TimesRow({ value, onChange, label }: { value: Times; onChange: (x: Partial<Times>) => void; label: string }) {
+  return (
+    <>
+      <div className="mb-2 grid grid-cols-2 gap-3">
+        <input type="time" aria-label={`Fra (${label})`} className={inputClass} value={value.start_time} onChange={(e) => e.target.value && onChange({ start_time: e.target.value })} />
+        <input type="time" aria-label={`Til (${label})`} className={inputClass} value={value.end_time} onChange={(e) => e.target.value && onChange({ end_time: e.target.value })} />
+      </div>
+      <p className="mb-1 text-[12px] text-ink-3">Ubetalt pause (min)</p>
+      <div className="grid grid-cols-5 gap-1.5" role="group" aria-label={`Pause (${label})`}>
+        {[0, 15, 30, 45, 60].map((b) => <Chip key={b} className="min-h-9 px-0 text-[13px]" active={value.break_minutes === b} onClick={() => onChange({ break_minutes: b })}>{b === 0 ? 'Ingen' : b}</Chip>)}
+      </div>
+    </>
   );
 }
 

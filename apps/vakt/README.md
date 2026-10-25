@@ -26,6 +26,11 @@ forward; holiday pay (10.2 / 12 / 14.3 %) in the year view and in June's payout;
 ([NOTIFICATIONS.md](NOTIFICATIONS.md)). On iPad (768 px and wider) a rail on the left replaces the bottom bar, screens
 use two columns and sheets open as centred dialogs.
 
+**Times by day:** a shift type (Oppsett → arbeidsgiver → Vakttyper) has its usual times and, if needed, its own times
+on particular days (fre → lør, lør → søn, søn → man …, helligdager). Choosing the type on a date uses that day's times
+everywhere: Ny vakt (each of several dates gets its own), quick entry, GAT import codes and the pay preview. Changing a
+type's times offers to move her coming shifts of that type.
+
 **Fast entry:** on Vakter, *Legg inn raskt*: pick Dag, Kveld, Natt, Ferie or Fri once, then each tap on a day adds it
 and a second tap removes it (with a running count and sum). Oversikt has *Denne uka* (the seven days, each day's pay,
 tap to open or add) and the next pay day in the big card. *Ny vakt* starts on the shift type she usually has on that

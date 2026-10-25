@@ -58,7 +58,19 @@ export type PayDelay = 'none' | 'supplements' | 'all';
 export interface Wage { from: ISODate; hourly: number }
 
 /** A shift she works often, one tap to fill in the times. */
-export interface ShiftTemplate { id: string; name: string; start_time: string; end_time: string; break_minutes: number }
+/** Clock times for a shift. */
+export interface Times { start_time: string; end_time: string; break_minutes: number }
+
+/** A shift she works often, one tap to fill in the times. The times are for ordinary weekdays; `days` holds other
+ *  times for particular days (a night from Friday to Saturday, a Sunday day shift, public holidays). */
+export interface ShiftTemplate extends Times {
+  id: string;
+  name: string;
+  days?: Partial<Record<TemplateDay, Times>>;
+}
+
+/** The days a shift type can have its own times on: the day the shift starts, or any public holiday. */
+export type TemplateDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun' | 'holiday';
 
 /** A job: an employer, or a department with its own pay setup. Each has its own wage, supplements and shift types. */
 export interface Employer {
@@ -105,7 +117,7 @@ export interface Settings {
 }
 
 /** What a roster code stands for. */
-export type CodeRule = { start_time: string; end_time: string; break_minutes: number } | { off: DayOffKind } | { skip: true };
+export type CodeRule = { template_id: string } | { start_time: string; end_time: string; break_minutes: number } | { off: DayOffKind } | { skip: true };
 
 export const DEFAULT_SETTINGS: Settings = {
   name: '', goal: null, tax_percent: null, onboarded: false, toured: false,

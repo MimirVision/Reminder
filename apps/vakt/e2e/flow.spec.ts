@@ -339,3 +339,40 @@ test('the pay settlement question, the Ny vakt shortcut, and the import sheet', 
   await page.getByRole('button', { name: 'Importer fra GAT' }).click();
   await expect(page.getByText('Import krever at du er logget inn.')).toBeVisible();
 });
+
+test('a shift type with its own times on Fridays: set up once, used automatically, coming shifts updated', async ({ page }) => {
+  page.on('dialog', (d) => void d.accept());
+  await page.goto('/');
+  await seed(page, {
+    employers: [{ id: 'e1', name: 'Jobben', color: '#7c3aed', wages: [{ from: '2000-01-01', hourly: 200 }], sort: 0, pay_day: 12, pay_delay: 'supplements',
+      templates: [{ id: 'n', name: 'Natt', start_time: '21:45', end_time: '07:45', break_minutes: 0 }] }],
+    shifts: [{ id: 'f1', employer_id: 'e1', date: '2026-10-30', start_time: '21:45', end_time: '07:45', break_minutes: 0, overtime_percent: 0, note: '', status: 'worked' }],
+  });
+  await page.reload();
+
+  await page.getByRole('button', { name: 'Oppsett' }).click();
+  await page.getByRole('button', { name: /Jobben/ }).click();
+  await page.getByRole('button', { name: /^Natt/ }).click();
+  await page.getByRole('button', { name: '+ fre → lør' }).click();
+  await page.getByLabel('Fra (fredag)').fill('21:30');
+  await page.getByLabel('Til (fredag)').fill('08:15');
+  await page.getByRole('button', { name: 'Lagre' }).click();
+  await expect(page.getByText('egne tider: fre')).toBeVisible();
+  await expect(page.getByText('1 vakter oppdatert')).toBeVisible(); // Friday 30 October moved to the Friday times
+
+  // A new Natt on a Wednesday and a Friday: each gets its own times.
+  await page.getByRole('button', { name: 'Ny vakt', exact: true }).click();
+  await pickOnly(page, 28);
+  await page.getByTestId('date-picker').getByRole('button', { name: /\b23\. oktober/ }).click();
+  await expect(page.getByText('Natt har egne tider på noen av dagene')).toBeVisible();
+  await page.getByRole('button', { name: 'Lagre 2 vakter' }).click();
+  await page.getByRole('button', { name: 'Vakter', exact: true }).click();
+  await expect(page.getByRole('button', { name: /21:30–08:15/ })).toHaveCount(2); // 23rd and 30th
+  await expect(page.getByRole('button', { name: /21:45–07:45/ })).toHaveCount(1); // 28th
+
+  // Quick entry on a Friday uses the Friday times too.
+  await page.getByRole('group', { name: 'Legg inn raskt' }).getByRole('button', { name: 'Natt' }).click();
+  await page.getByRole('button', { name: 'Legg til vakt 2026-10-16' }).click();
+  await page.getByTestId('quick-entry').getByRole('button', { name: 'Ferdig' }).click();
+  await expect(page.getByRole('button', { name: /21:30–08:15/ })).toHaveCount(3);
+});

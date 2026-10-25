@@ -44,3 +44,10 @@ describe('reading a roster', () => {
     expect(skipA[1].type).toBe('skip');
   });
 });
+
+it('a code that means a shift type gets that type’s times for each day', () => {
+  const natt = { id: 'n', name: 'Natt', start_time: '21:45', end_time: '07:45', break_minutes: 0, days: { fri: { start_time: '21:30', end_time: '08:15', break_minutes: 0 } } };
+  const e = cleanEntries([{ date: '2026-11-04', code: 'N', start: '', end: '', kind: 'shift' }, { date: '2026-11-06', code: 'N', start: '', end: '', kind: 'shift' }]);
+  const plan = planImport(e, { N: { template_id: 'n' } }, 'e', [], [], id, [natt]);
+  expect(plan.map((p) => p.type === 'shift' && `${p.shift.start_time}-${p.shift.end_time}`)).toEqual(['21:45-07:45', '21:30-08:15']);
+});
