@@ -83,7 +83,7 @@ export function ImportSheet({ month, onClose }: { month: MonthKey; onClose: () =
 
   const entries = step.at === 'review' ? step.entries : [];
   const unknown = unknownCodes(entries, rules);
-  const plan = useMemo(() => planImport(entries, rules, emp?.id ?? '', shifts, daysOff, newId), [entries, rules, emp, shifts, daysOff]);
+  const plan = useMemo(() => planImport(entries, rules, emp?.id ?? '', shifts, daysOff, newId, emp?.templates ?? []), [entries, rules, emp, shifts, daysOff]);
   const chosen = plan.map((p, i) => ({ p, i })).filter(({ p, i }) => p.type !== 'skip' && !p.duplicate && !off.has(i));
   const total = chosen.reduce((n, { p }) => n + (p.type === 'shift' ? payOf(p.shift, setup).total : 0), 0);
 
@@ -165,9 +165,7 @@ export function ImportSheet({ month, onClose }: { month: MonthKey; onClose: () =
                       <p className="mb-1.5 text-[14px] font-bold">{code} <span className="font-normal text-ink-3">· {entries.filter((e) => e.code === code).length} dager</span></p>
                       <div className="flex flex-wrap gap-1.5">
                         {(emp?.templates ?? []).map((t) => (
-                          <Chip key={t.id} onClick={() => setRules({ ...rules, [code]: { start_time: t.start_time, end_time: t.end_time, break_minutes: t.break_minutes } })}>
-                            {t.name} {t.start_time}–{t.end_time}
-                          </Chip>
+                          <Chip key={t.id} onClick={() => setRules({ ...rules, [code]: { template_id: t.id } })}>{t.name}</Chip>
                         ))}
                         <Chip onClick={() => setRules({ ...rules, [code]: { off: 'fri' } })}>Fri</Chip>
                         <Chip onClick={() => setRules({ ...rules, [code]: { off: 'ferie' } })}>Ferie</Chip>

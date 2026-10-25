@@ -2,7 +2,8 @@
 // rules, so it is tested and the same every time: codes with times become shifts, known codes use what they meant last
 // time, and nothing she already has is added twice.
 import { toMinutes, fromMinutes, type ISODate } from './dates';
-import type { CodeRule, DayOff, DayOffKind, Shift } from './types';
+import type { CodeRule, DayOff, DayOffKind, Shift, ShiftTemplate } from './types';
+import { timesFor } from './templates';
 
 export type EntryKind = 'shift' | 'ferie' | 'fri' | 'avspasering' | 'syk' | 'annet';
 export interface RosterEntry { date: ISODate; code: string; start: string; end: string; kind: EntryKind }
@@ -55,6 +56,16 @@ export function learnCodes(entries: RosterEntry[], rules: Record<string, CodeRul
   return out;
 }
 
+/** The times a code stands for on a date. A code that means one of her shift types follows that type's day-specific
+ *  times, like everywhere else in the app. */
+export function codeTimes(rule: CodeRule | undefined, templates: ShiftTemplate[], date: string) {
+  if (!rule) return null;
+  if ('template_id' in rule) { const t = templates.find((x) => x.id === rule.template_id); return t ? timesFor(t, date) : null; }
+  if ('start_time' in rule) return rule;
+  return null;
+}
+
+
 export type PlanItem =
   | { type: 'shift'; entry: RosterEntry; shift: Shift; duplicate: boolean }
   | { type: 'off'; entry: RosterEntry; day: DayOff; duplicate: boolean }
@@ -63,7 +74,7 @@ export type PlanItem =
 /** What saving would do, entry by entry. Duplicates (the same shift, or a day off already there) are marked. */
 export function planImport(
   entries: RosterEntry[], rules: Record<string, CodeRule>, employerId: string,
-  shifts: Shift[], daysOff: DayOff[], newId: () => string,
+  shifts: Shift[], daysOff: DayOff[], newId: () => string, templates: ShiftTemplate[] = [],
 ): PlanItem[] {
   return entries.map((entry): PlanItem => {
     const rule = entry.code ? rules[entry.code] : undefined;
@@ -73,11 +84,13 @@ export function planImport(
       const day: DayOff = { id: newId(), date: entry.date, kind: off, note: entry.code };
       return { type: 'off', entry, day, duplicate: daysOff.some((d) => d.date === entry.date) };
     }
-    const times = entry.start ? { start_time: entry.start, end_time: entry.end, break_minutes: rule && 'start_time' in rule ? rule.break_minutes : 0 }
-      : rule && 'start_time' in rule ? rule : null;
+    const known = codeTimes(rule, templates, entry.date);
+    // Times printed in the roster win: they are what that day actually says.
+    const times = entry.start ? { start_time: entry.start, end_time: entry.end, break_minutes: known?.break_minutes ?? 0 } : known;
     if (!times) return { type: 'skip', entry, reason: entry.code ? `Ukjent kode ${entry.code}` : 'Ingen tider' };
     const shift: Shift = {
-      id: newId(), employer_id: employerId, date: entry.date, ...times, overtime_percent: 0,
+      id: newId(), employer_id: employerId, date: entry.date,
+      start_time: times.start_time, end_time: times.end_time, break_minutes: times.break_minutes, overtime_percent: 0,
       note: entry.code ? `GAT ${entry.code}` : '', status: entry.kind === 'syk' ? 'sick' : 'worked',
     };
     const duplicate = shifts.some((s) => s.date === shift.date && s.start_time === shift.start_time && (s.employer_id ?? employerId) === employerId);

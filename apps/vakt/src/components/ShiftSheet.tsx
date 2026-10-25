@@ -10,6 +10,7 @@ import { eveName, holidayName } from '../lib/holidays';
 import { DAY_OFF_LABEL, type DayOffKind, type Shift, type ShiftTemplate } from '../lib/types';
 import { Button, Chip, Label, Sheet, Switch, cn, confetti, inputClass } from './ui';
 import { CalendarGrid, MonthNav } from './Calendar';
+import { templateOf, timesFor } from '../lib/templates';
 
 const BREAKS = [0, 15, 30, 45, 60];
 const OVERTIME = [0, 50, 100];
@@ -24,7 +25,7 @@ export function usualTemplate(templates: ShiftTemplate[], shifts: Shift[], date:
   const wd = weekday(date);
   let best: ShiftTemplate | undefined, most = 0;
   for (const t of templates) {
-    const n = shifts.filter((s) => weekday(s.date) === wd && s.start_time === t.start_time && s.end_time === t.end_time).length;
+    const n = shifts.filter((s) => weekday(s.date) === wd && templateOf([t], s)).length;
     if (n > most) { most = n; best = t; }
   }
   return best ?? templates[0];
@@ -41,26 +42,31 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
     if (shift) return { ...shift, employer_id: employerOf(shift, employers)?.id ?? null };
     const emp = employers.find((e) => e.id === employerId) ?? employers.find((e) => e.id === lastEmployer()) ?? employers[0];
     const t = usualTemplate(emp?.templates ?? [], shifts.filter((x) => employerOf(x, employers)?.id === emp?.id), defaultDate);
-    return {
-      id: newId(), employer_id: emp?.id ?? null, date: defaultDate, start_time: t?.start_time ?? '07:30', end_time: t?.end_time ?? '15:30',
-      break_minutes: t?.break_minutes ?? 0, overtime_percent: 0, note: '', status: 'worked',
-    };
+    const times = t ? timesFor(t, defaultDate) : { start_time: '07:30', end_time: '15:30', break_minutes: 0 };
+    return { id: newId(), employer_id: emp?.id ?? null, date: defaultDate, ...times, overtime_percent: 0, note: '', status: 'worked' };
   });
   // A new shift can go on several days at once (her roster): the same times on every date she taps.
   const [dates, setDates] = useState<ISODate[]>([s.date]);
   const [calMonth, setCalMonth] = useState(monthOf(s.date));
   const employer = employerOf(s, employers);
   const templates = employer?.templates ?? [];
+  // The chosen shift type. Each date then gets that type's times for its own day (a Friday night has Friday's times);
+  // typing times by hand leaves the type and uses those times on every date.
+  const [tplId, setTplId] = useState<string | null>(() => templateOf(templates, s)?.id ?? null);
+  const tpl = templates.find((t) => t.id === tplId);
+  const useTemplate = (t: ShiftTemplate | undefined, date = s.date) => { setTplId(t?.id ?? null); if (t) set(timesFor(t, date)); };
   const [more, setMore] = useState(Boolean(shift && (shift.overtime_percent || shift.note)));
   const set = (patch: Partial<Shift>) => setS((x) => ({ ...x, ...patch }));
 
-  const all = useMemo(() => (shift ? [s] : [...dates].sort().map((date, i) => ({ ...s, id: i === 0 ? s.id : `${s.id}-${i}`, date }))), [s, dates, shift]);
+  const all = useMemo(() => (shift ? [s] : [...dates].sort().map((date, i) => ({ ...s, ...(tpl ? timesFor(tpl, date) : {}), id: i === 0 ? s.id : `${s.id}-${i}`, date }))), [s, dates, shift, tpl]);
   const valid = toMinutes(s.start_time) !== null && toMinutes(s.end_time) !== null && s.start_time !== s.end_time && all.length > 0;
   const pay = useMemo(() => valid ? payOf(all[0], setup) : null, [all, setup, valid]);
   const sum = useMemo(() => valid && all.length > 1 ? summarize(all, setup) : null, [all, setup, valid]);
   const noWage = !employer || employer.wages.length === 0;
   const special = holidayName(s.date) ?? eveName(s.date);
-  const activeTemplate = templates.find((t) => t.start_time === s.start_time && t.end_time === s.end_time);
+  const activeTemplate = tpl;
+  // When the dates chosen give the shift type different times (a Friday among weekdays), say so.
+  const mixed = !shift && tpl && new Set(all.map((x) => `${x.start_time}-${x.end_time}`)).size > 1;
 
   const save = async (andNext: boolean) => {
     if (!valid || !pay) return;
@@ -79,7 +85,7 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
     toast(shift ? 'Vakta er oppdatert' : list.length > 1 ? `${list.length} vakter lagt til${extra} 🎉` : `+${kr(skipped ? payOf(list[0], setup).total : total)} lagt til${extra} 🎉`);
     if (andNext) {
       const next = addDays(list[list.length - 1].date, 1);
-      setS({ ...s, id: newId(), date: next, note: '' });
+      setS({ ...s, ...(tpl ? timesFor(tpl, next) : {}), id: newId(), date: next, note: '' });
       setDates([next]);
       setCalMonth(monthOf(next));
     } else onClose();
@@ -148,7 +154,7 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
           <Label>Hvor jobber du?</Label>
           <div className="flex flex-wrap gap-2">
             {employers.map((e) => (
-              <button key={e.id} type="button" aria-pressed={employer?.id === e.id} onClick={() => set({ employer_id: e.id })}
+              <button key={e.id} type="button" aria-pressed={employer?.id === e.id} onClick={() => { set({ employer_id: e.id }); useTemplate(usualTemplate(e.templates, shifts.filter((x) => employerOf(x, employers)?.id === e.id), s.date)); }}
                 className={cn('flex min-h-11 items-center gap-2 rounded-2xl border-2 px-4 text-[14.5px] font-semibold transition active:scale-[0.97]',
                   employer?.id === e.id ? 'border-accent bg-accent-soft text-ink' : 'border-transparent bg-surface text-ink-2 shadow-card')}>
                 <span className="size-3 rounded-full" style={{ background: e.color }} />{e.name}
@@ -166,12 +172,12 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
               const on = activeTemplate?.id === t.id;
               return (
                 <button key={t.id} type="button" aria-pressed={on}
-                  onClick={() => set({ start_time: t.start_time, end_time: t.end_time, break_minutes: t.break_minutes })}
+                  onClick={() => useTemplate(t)}
                   className={cn('flex flex-col items-start rounded-2xl border-2 p-3 text-left transition active:scale-[0.97]',
                     on ? 'border-accent bg-accent-soft' : 'border-transparent bg-surface shadow-card')}>
                   <KindIcon kind={shiftKind(t)} className={cn('mb-1.5 size-5', on ? 'text-accent' : 'text-ink-3')} />
                   <span className="text-[15px] font-semibold">{t.name}</span>
-                  <span className="tabular text-[12.5px] text-ink-3">{t.start_time}–{t.end_time}</span>
+                  <span className="tabular text-[12.5px] text-ink-3">{timesFor(t, s.date).start_time}–{timesFor(t, s.date).end_time}</span>
                 </button>
               );
             })}
@@ -195,9 +201,9 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
             return (
               <button type="button" aria-pressed={on} aria-label={longDate(d)}
                 onClick={() => {
-                  if (shift) set({ date: d });
+                  if (shift) { set({ date: d }); if (tpl) set(timesFor(tpl, d)); }
                   else setDates(on ? dates.filter((x) => x !== d) : [...dates, d]);
-                  if (!shift && !on) set({ date: d });
+                  if (!shift && !on) { set({ date: d }); if (tpl) set(timesFor(tpl, d)); }
                 }}
                 className={cn('relative grid aspect-square w-full place-items-center rounded-xl text-[14.5px] font-semibold transition active:scale-90',
                   on ? 'hero text-white shadow-float' : d === today() ? 'text-accent-ink ring-2 ring-accent/40' : red ? 'text-rose' : 'text-ink')}>
@@ -227,21 +233,26 @@ export function ShiftSheet({ shift, defaultDate, employerId, onClose }: { shift?
         </div>
       )}
 
+      {mixed && tpl && (
+        <p className="mb-3 rounded-2xl bg-accent-soft px-4 py-2.5 text-[13px] text-accent-ink">
+          {tpl.name} har egne tider på noen av dagene du har valgt – hver dag får sine tider. Tidene under gjelder {longDate(s.date)}.
+        </p>
+      )}
       <div className="mb-4 grid grid-cols-2 gap-3">
         <div>
           <Label>Fra</Label>
-          <input type="time" aria-label="Fra" className={inputClass} value={s.start_time} onChange={(e) => e.target.value && set({ start_time: e.target.value })} />
+          <input type="time" aria-label="Fra" className={inputClass} value={s.start_time} onChange={(e) => { if (e.target.value) { setTplId(null); set({ start_time: e.target.value }); } }} />
         </div>
         <div>
           <Label hint={pay && toMinutes(s.end_time)! <= toMinutes(s.start_time)! ? 'neste dag' : undefined}>Til</Label>
-          <input type="time" aria-label="Til" className={inputClass} value={s.end_time} onChange={(e) => e.target.value && set({ end_time: e.target.value })} />
+          <input type="time" aria-label="Til" className={inputClass} value={s.end_time} onChange={(e) => { if (e.target.value) { setTplId(null); set({ end_time: e.target.value }); } }} />
         </div>
       </div>
 
       <div className="mb-4">
         <Label hint={pay ? `${hrs(pay.paidHours)} betalt` : undefined}>Ubetalt pause (min)</Label>
         <div className="grid grid-cols-5 gap-1.5">
-          {BREAKS.map((b) => <Chip key={b} className="px-0" active={s.break_minutes === b} onClick={() => set({ break_minutes: b })}>{b === 0 ? 'Ingen' : b}</Chip>)}
+          {BREAKS.map((b) => <Chip key={b} className="px-0" active={s.break_minutes === b} onClick={() => { setTplId(null); set({ break_minutes: b }); }}>{b === 0 ? 'Ingen' : b}</Chip>)}
         </div>
       </div>
 
