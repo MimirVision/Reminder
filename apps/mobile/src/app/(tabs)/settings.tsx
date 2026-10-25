@@ -6,6 +6,7 @@ import { shareExport } from '@/lib/exportData';
 import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { Select } from '@/lib/Select';
+import { checkAndFetch, restartApp, runningUpdate, type UpdateResult } from '@/lib/appUpdate';
 import { WeatherRules } from '@/lib/WeatherRules';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
 import { failedItems, pending } from '@/lib/outbox';
@@ -34,6 +35,9 @@ export default function Settings() {
   const [confirmText, setConfirmText] = useState('');
   const [acctBusy, setAcctBusy] = useState(false);
   const [brief, setBrief] = useState(readBriefing);
+  const run = runningUpdate();
+  const [upd, setUpd] = useState<UpdateResult | null>(null);
+  const [checking, setChecking] = useState(false);
   const [lastSync, setLastSync] = useState(() => readJson<number | null>('hm.lastSync', null));
   const [planned, setPlanned] = useState<{ id: string; at: Date; title: string }[]>([]);
   const [recap, setRecap] = useState(() => readJson<boolean>('hm.recap', false));
@@ -207,7 +211,15 @@ export default function Settings() {
 
 
       <Btn danger label={t('auth.signOut')} onPress={() => supabase.auth.signOut()} />
-      <Muted>{t('set.version')}: {Constants.expoConfig?.version ?? '?'}</Muted>
+      <Card>
+        {h(t('update.title'))}
+        <Muted>{t('update.body')}</Muted>
+        <Muted>{t('set.version')}: {Constants.expoConfig?.version ?? '?'} · {run.embedded || !run.createdAt ? t('update.original') : t('update.running', { date: run.createdAt.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' }) })}</Muted>
+        {upd !== null && <Muted>{t(upd === 'none' ? 'update.none' : upd === 'off' ? 'update.off' : upd === 'failed' ? 'update.failed' : 'update.ready')}</Muted>}
+        {upd === 'ready'
+          ? <Btn primary label={t('update.restart')} onPress={() => void restartApp()} />
+          : <Btn label={checking ? t('update.checking') : t('update.check')} disabled={checking} onPress={async () => { setChecking(true); setUpd(await checkAndFetch()); setChecking(false); }} />}
+      </Card>
     </ScrollView>
   );
 }

@@ -943,5 +943,18 @@
   "weather.summary.spell": "{when}, once per spell",
   "weather.summary.every": "{when}, every matching day",
   "weather.summary.evening_before": "the evening before at {time}",
-  "weather.summary.same_morning": "that morning at {time}"
+  "weather.summary.same_morning": "that morning at {time}",
+  "update.title": "App updates",
+  "update.body": "Small changes arrive by themselves. You only need to install the app again when something bigger changes.",
+  "update.check": "Check for updates",
+  "update.checking": "Checking…",
+  "update.none": "You have the latest version.",
+  "update.ready": "An update is ready",
+  "update.readyBody": "Restart the app to use it.",
+  "update.restart": "Restart now",
+  "update.later": "Later",
+  "update.off": "Updates are not on in this build.",
+  "update.failed": "Could not check for updates. Try again with a connection.",
+  "update.original": "Running the version you installed",
+  "update.running": "Running the update from {date}"
 }

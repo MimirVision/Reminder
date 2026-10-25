@@ -943,5 +943,18 @@
   "weather.summary.spell": "{when}, én gang per periode",
   "weather.summary.every": "{when}, hver dag det treffer",
   "weather.summary.evening_before": "kvelden før kl. {time}",
-  "weather.summary.same_morning": "samme morgen kl. {time}"
+  "weather.summary.same_morning": "samme morgen kl. {time}",
+  "update.title": "Appoppdateringer",
+  "update.body": "Små endringer kommer av seg selv. Du må bare installere appen på nytt når noe større endres.",
+  "update.check": "Se etter oppdateringer",
+  "update.checking": "Ser etter…",
+  "update.none": "Du har den nyeste versjonen.",
+  "update.ready": "En oppdatering er klar",
+  "update.readyBody": "Start appen på nytt for å bruke den.",
+  "update.restart": "Start på nytt nå",
+  "update.later": "Senere",
+  "update.off": "Oppdateringer er ikke slått på i denne versjonen.",
+  "update.failed": "Kunne ikke se etter oppdateringer. Prøv igjen med nett.",
+  "update.original": "Kjører versjonen du installerte",
+  "update.running": "Kjører oppdateringen fra {date}"
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Pressable, Text, View } from 'react-native';
 import { Stack, useRouter, useSegments, type ErrorBoundaryProps } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
@@ -9,6 +9,7 @@ import { configured } from '@/lib/supabase';
 import { capture, flush } from '@/lib/outbox';
 import { uuid } from '@/lib/id';
 import { markDone } from '@/lib/api';
+import { checkAndFetch, restartApp } from '@/lib/appUpdate';
 import { refreshRegions, setupNotificationCategories } from '@/lib/reminders';
 import { useTheme } from '@/lib/theme';
 import { I18nProvider, useI18n } from '@/lib/i18n';
@@ -38,16 +39,26 @@ function Gate() {
     else if (session && household && (top === 'login' || top === 'onboarding')) router.replace('/');
   }, [ready, fontsLoaded, session, household, segments, router]);
 
-  // Retry queued captures and re-pick geofences whenever the app comes to the foreground.
+  // Retry queued captures and re-pick geofences whenever the app comes to the foreground; look for an app update at most every 15 minutes.
+  const lastUpdateCheck = useRef(0);
   useEffect(() => {
+    const lookForUpdate = () => {
+      if (Date.now() - lastUpdateCheck.current < 15 * 60_000) return;
+      lastUpdateCheck.current = Date.now();
+      void checkAndFetch().then((r) => {
+        if (r === 'ready') Alert.alert(tr('update.ready'), tr('update.readyBody'), [{ text: tr('update.later'), style: 'cancel' }, { text: tr('update.restart'), onPress: () => void restartApp() }]);
+      });
+    };
+    lookForUpdate();
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') {
         void flush();
         void refreshRegions().catch(() => {});
+        lookForUpdate();
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [tr]);
 
   // Notification taps: "Done" completes the memories; anything else ("I'm here" or tapping it) opens the list.
   const last = Notifications.useLastNotificationResponse();

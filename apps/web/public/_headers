@@ -21,3 +21,13 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+
+# Over-the-air updates for the phone app (scripts/publish-ota.mjs). The manifest is always fetched fresh; bundles and assets are named by their content.
+/ota/*/manifest.json
+  Cache-Control: no-cache
+  expo-protocol-version: 1
+  expo-sfv-version: 0
+/ota/*/bundles/*
+  Cache-Control: public, max-age=31536000, immutable
+/ota/*/assets/*
+  Cache-Control: public, max-age=31536000, immutable

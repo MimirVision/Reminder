@@ -2,7 +2,7 @@
   "expo": {
     "name": "Home Memory",
     "slug": "home-memory",
-    "version": "0.13.0",
+    "version": "0.14.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "homememory",
@@ -36,7 +36,14 @@
           "photosPermission": "Attach photos to your memories.",
           "cameraPermission": "Take photos of things you want to remember."
         }
-      ]
-    ]
+      ],
+      "expo-updates"
+    ],
+    "runtimeVersion": "1",
+    "updates": {
+      "url": "https://reminder.casks-cause-85.workers.dev/ota/1/manifest.json",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }
