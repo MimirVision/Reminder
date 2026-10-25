@@ -6,6 +6,7 @@ import { shareExport } from '@/lib/exportData';
 import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode } from '@/lib/api';
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { Select } from '@/lib/Select';
+import { WeatherRules } from '@/lib/WeatherRules';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
 import { failedItems, pending } from '@/lib/outbox';
 import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, plannedNotifications, readBriefing, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
@@ -87,6 +88,8 @@ export default function Settings() {
             onChange={(time) => { const next = { ...brief, time }; setBrief(next); writeBriefing(next); if (household) void replanNotifications(household.id); }} />
         )}
       </Card>
+
+      {household && <WeatherRules householdId={household.id} onChanged={() => void replanNotifications(household.id)} />}
 
       <Card>
         {h(t('set.reminders'))}

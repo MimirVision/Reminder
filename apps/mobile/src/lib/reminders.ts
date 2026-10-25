@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import { listMemories, listPlaces } from './api';
+import { listMemories, listPlaces, listWeatherDone, listWeatherRules } from './api';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
 import { pickDueReminders, type DueMemory } from '../core/dueReminders.ts';
@@ -9,6 +9,7 @@ import { leadShort } from '../shared/lib/details';
 import { planBriefings } from '../shared/lib/briefing';
 import { pickLeaveReminders, travelMinutes, type LeaveCandidate } from '../shared/lib/leave';
 import { driveMatrix } from '../shared/lib/routing';
+import { forecastPlace, isoOf, loadForecast, notificationsFor, notificationBody, planWeather, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherRule } from '../shared/lib/weather';
 import { needsRefresh, overpassQuery, parseOverpass, type PoiCache } from '../core/pois.ts';
 import { MAX_REGIONS, selectRegions } from '../core/regions.ts';
 import type { LatLon, MemoryRow, PlaceRow, Region } from '../core/types.ts';
@@ -295,6 +296,42 @@ export async function scheduleBriefings(all: (DueMemory & { assignee_id?: string
   } catch { /* the briefing is a nicety */ }
 }
 
+// ---- Weather reminders ---------------------------------------------------------------------------------------------------------
+export const WEATHER_PLACE_KEY = 'hm.weatherPlace';
+export type WeatherState = { rules: WeatherRule[]; done: WeatherDone[]; days: DayForecast[]; alerts: WeatherAlert[]; placeName: string | null; placeId: string | null };
+
+/** Rules, ticks and the forecast for the chosen (or home) place; the phone's position when no fixed place is saved. No forecast request without a rule. */
+export async function weatherState(householdId: string, places?: PlaceRow[]): Promise<WeatherState> {
+  const today = isoOf(new Date());
+  const [rules, done, pl] = await Promise.all([listWeatherRules(householdId), listWeatherDone(householdId, today), places ?? listPlaces(householdId)]);
+  const place = forecastPlace(pl, readJson<string | null>(WEATHER_PLACE_KEY, null));
+  let days: DayForecast[] = [];
+  if (rules.some((r) => r.enabled)) {
+    const at = place ? { lat: place.lat as number, lon: place.lon as number } : await currentPosition();
+    if (at) days = await loadForecast(at.lat, at.lon);
+  }
+  return { rules, done, days, alerts: rules.flatMap((r) => planWeather(r, days, today)), placeName: place?.name ?? null, placeId: place?.id ?? null };
+}
+
+/** The weather checklists ring at their time (the evening before, or that morning), plus one follow-up if not ticked off. Planned again on every load.
+ *  At most 4 so the 64 notifications iOS allows are not used up. */
+export async function scheduleWeather(householdId: string): Promise<void> {
+  try {
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    const w = await weatherState(householdId);
+    for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
+      if (n.identifier.startsWith('wx-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    for (const n of notificationsFor(w.alerts, new Date(), w.done, 4)) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: n.id,
+        content: { title: n.alert.rule.name, body: notificationBody(tNow, n.alert, w.done) },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: n.at },
+      });
+    }
+  } catch { /* weather is a nicety: stays silent when offline */ }
+}
+
 /** Plan every local notification again from the server (after changing a setting). */
 export async function replanNotifications(householdId: string): Promise<void> {
   try {
@@ -303,6 +340,7 @@ export async function replanNotifications(householdId: string): Promise<void> {
     await scheduleBriefings(m);
     const mp = await mapPins();
     await scheduleLeaveReminders(m, p, mp.here, mp.pins);
+    await scheduleWeather(householdId);
   } catch { /* offline */ }
 }
 

@@ -3,6 +3,7 @@ import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, r
 import { applyGlass, getGlass, GLASS_LEVELS, type GlassLevel } from '../lib/glass';
 import { downloadExport } from '../lib/exportZip';
 import { ReminderLinks } from './ReminderLinks';
+import { WeatherRules } from './WeatherRules';
 import { inviteLink } from '../lib/invite';
 import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
@@ -52,6 +53,8 @@ export function Settings({ household }: { household: Household }) {
       </section>
 
       <ReminderLinks household={household} />
+
+      <WeatherRules household={household} />
 
       <section className="card">
         <h2>{t('set.todoList')}</h2>

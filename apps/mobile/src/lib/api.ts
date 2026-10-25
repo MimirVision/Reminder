@@ -7,6 +7,7 @@ import type { Hit } from '../shared/lib/placeSearch';
 import type { DetailFields } from '../shared/lib/details';
 import type { ConditionItem, ConditionSeedItem } from '../shared/lib/condition';
 import type { CaptureKey, HouseFact, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place, Suggestion } from './types';
+import type { WeatherDone, WeatherRule } from '../shared/lib/weather';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -452,4 +453,31 @@ export async function importReport(householdId: string, uri: string): Promise<im
     throw new Error(`report:${['not_configured', 'too_large', 'incomplete', 'unreadable', 'limit'].includes(code) ? (code === 'unreadable' ? 'incomplete' : code) : 'failed'}`);
   }
   return (data as { report: import('../shared/lib/report').ReportSummary }).report;
+}
+
+// ---- Weather reminders -------------------------------------------------------------------------------------------------------
+const toRule = (r: Record<string, unknown>): WeatherRule => ({ ...(r as unknown as WeatherRule), threshold: r.threshold == null ? null : Number(r.threshold), items: Array.isArray(r.items) ? (r.items as string[]) : [], quiet_days: (r.quiet_days as number[] | null) ?? [] });
+
+export async function listWeatherRules(householdId: string): Promise<WeatherRule[]> {
+  return check(await supabase.from('weather_rules').select('*').eq('household_id', householdId).order('created_at', { ascending: true }).limit(50)).map((r: Record<string, unknown>) => toRule(r));
+}
+
+export async function saveWeatherRule(householdId: string, rule: Omit<WeatherRule, 'id' | 'household_id'> & { id?: string }): Promise<void> {
+  const { id, ...rest } = rule;
+  const row = { ...rest, household_id: householdId };
+  check(id ? await supabase.from('weather_rules').update(row).eq('id', id) : await supabase.from('weather_rules').insert(row));
+}
+
+export async function deleteWeatherRule(id: string): Promise<void> {
+  check(await supabase.from('weather_rules').delete().eq('id', id));
+}
+
+/** What has been ticked off for days from `fromDate` on (older ones are of no use). */
+export async function listWeatherDone(householdId: string, fromDate: string): Promise<WeatherDone[]> {
+  return check(await supabase.from('weather_done').select('rule_id, for_date, items').eq('household_id', householdId).gte('for_date', fromDate).limit(200))
+    .map((r: Record<string, unknown>) => ({ rule_id: r.rule_id as string, for_date: r.for_date as string, items: Array.isArray(r.items) ? (r.items as string[]) : [] }));
+}
+
+export async function setWeatherDone(householdId: string, ruleId: string, forDate: string, items: string[]): Promise<void> {
+  check(await supabase.from('weather_done').upsert({ rule_id: ruleId, household_id: householdId, for_date: forDate, items, updated_at: new Date().toISOString() }, { onConflict: 'rule_id,for_date' }));
 }

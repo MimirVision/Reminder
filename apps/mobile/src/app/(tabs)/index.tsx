@@ -17,7 +17,9 @@ import { useI18n } from '@/lib/i18n';
 import { failedItems, flush, pending, queuedToMemory, retryFailed } from '@/lib/outbox';
 import { RecapCard } from '@/lib/RecapCard';
 import { TrashSheet } from '@/lib/TrashSheet';
-import { ensureNotifyPermission, mapPins, refreshRegions, scheduleBriefings, scheduleDueReminders, scheduleLeaveReminders, setBadge, type Pin } from '@/lib/reminders';
+import { WeatherCard } from '@/lib/WeatherCard';
+import { useWeatherCard } from '@/lib/useWeather';
+import { ensureNotifyPermission, mapPins, refreshRegions, scheduleBriefings, scheduleWeather, scheduleDueReminders, scheduleLeaveReminders, setBadge, type Pin } from '@/lib/reminders';
 import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
@@ -59,6 +61,7 @@ export default function Todo() {
   const [picking, setPicking] = useState(false);
   const [trash, setTrash] = useState(false);
   const [houseDue, setHouseDue] = useState(0);
+  const weather = useWeatherCard(household?.id);
   const [schemaBad, setSchemaBad] = useState(false);
   const [offline, setOffline] = useState(false);
   const [recapOn, setRecapOn] = useState(() => readJson<boolean>('hm.recap', false));
@@ -98,6 +101,7 @@ export default function Todo() {
       listPhotoUrls(m.map((x) => x.id)).then(setPhotos).catch(() => {}); // photos never hold up the list or the reminders
       void scheduleDueReminders([...waiting, ...m]); // to-dos still waiting to be sent ring too
       void scheduleBriefings([...waiting, ...m]);
+      void scheduleWeather(household.id).then(() => weather.refresh());
       latest = { m, p };
       void setBadge(m, todayISO());
       await refreshRegions().catch(() => {});
@@ -564,6 +568,7 @@ export default function Todo() {
         ) : mode === 'calendar' ? (
           <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => router.push({ pathname: '/add', params: { date: d } })} />
         ) : (<>
+        <WeatherCard alerts={weather.active} done={weather.done} onTick={(a, item) => void weather.tick(a, item)} />
         {houseDue > 0 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.card }}>
             <Text style={{ flex: 1, color: th.ink, fontSize: 14, fontFamily: font.semi }}>{tn('housecard.due', houseDue)}</Text>

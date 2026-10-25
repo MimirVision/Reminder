@@ -19,6 +19,8 @@ import { matchTodos } from '../lib/search';
 import { addDays, dueBucket, dueLabel, formatDay, todayISO } from '../lib/when';
 import { compareTodos, groupUpcoming, isLate } from '../lib/todoGroups';
 import { groupTasks } from '../lib/maintenance';
+import { WeatherCard } from './WeatherCard';
+import { useWeather } from '../lib/useWeather';
 import { moveStep } from '../lib/order';
 import { allTags } from '../lib/tags';
 import { activeCount, applyFilter, noFilter, type Filter } from '../lib/todoFilter';
@@ -70,6 +72,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [palette, setPalette] = useState(false);
   const [trash, setTrash] = useState(false);
   const [houseDue, setHouseDue] = useState(0);
+  const weather = useWeather(household.id);
   const [cursor, setCursor] = useState<string | null>(null);
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const [filter, setFilter] = useState<Filter>(noFilter);
@@ -559,6 +562,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
               <span className="muted">{t('todo.empty.body')}</span>
             </div>
           )}
+          {!found && mode === 'list' && <WeatherCard alerts={weather.active} done={weather.done} onTick={(a, item) => void weather.tick(a, item)} />}
           {houseDue > 0 && !found && mode === 'list' && (
             <div className="late-banner house-card" role="status">
               <span>{tn('housecard.due', houseDue)}</span>
