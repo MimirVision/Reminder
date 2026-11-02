@@ -7,6 +7,7 @@ import { enqueue, flushQueue, isNetworkError, pendingFor, type KV, type QueuedTo
 import type { DetailFields } from './details.ts';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, RepeatRule, Suggestion } from './types';
 import type { WeatherDone, WeatherRule } from './weather';
+import type { Appliance, Contact, CostEvent, HouseCost } from './register';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -544,7 +545,9 @@ export async function listWeatherRules(householdId: string): Promise<WeatherRule
 
 export async function saveWeatherRule(householdId: string, rule: Omit<WeatherRule, 'id' | 'household_id'> & { id?: string }): Promise<void> {
   const { id, ...rest } = rule;
-  const row = { ...rest, household_id: householdId };
+  const row: Record<string, unknown> = { ...rest, household_id: householdId };
+  // Columns added by migration 0022 are only sent when used, so rules still save before upgrade.sql has been run again.
+  if (!id) { if (row.owner_id == null) delete row.owner_id; if (row.lead !== 'hours_before') delete row.lead_hours; }
   check(id ? await supabase.from('weather_rules').update(row).eq('id', id) : await supabase.from('weather_rules').insert(row));
 }
 
@@ -560,4 +563,47 @@ export async function listWeatherDone(householdId: string, fromDate: string): Pr
 
 export async function setWeatherDone(householdId: string, ruleId: string, forDate: string, items: string[]): Promise<void> {
   check(await supabase.from('weather_done').upsert({ rule_id: ruleId, household_id: householdId, for_date: forDate, items, updated_at: new Date().toISOString() }, { onConflict: 'rule_id,for_date' }));
+}
+
+// ---- House register: appliances, tradespeople, cost log ------------------------------------------------------------------------
+export async function listContacts(householdId: string): Promise<Contact[]> {
+  return check(await supabase.from('contacts').select('*').eq('household_id', householdId).order('name', { ascending: true }).limit(300));
+}
+export async function saveContact(householdId: string, c: Omit<Contact, 'id' | 'household_id'> & { id?: string }): Promise<void> {
+  const { id, ...rest } = c;
+  check(id ? await supabase.from('contacts').update(rest).eq('id', id) : await supabase.from('contacts').insert({ ...rest, household_id: householdId }));
+}
+export async function deleteContact(id: string): Promise<void> {
+  check(await supabase.from('contacts').delete().eq('id', id));
+}
+
+export async function listAppliances(householdId: string): Promise<Appliance[]> {
+  return check(await supabase.from('appliances').select('*').eq('household_id', householdId).limit(500)).map((r: Appliance) => ({ ...r, price_nok: r.price_nok == null ? null : Number(r.price_nok) }));
+}
+export async function saveAppliance(householdId: string, a: Omit<Appliance, 'id' | 'household_id' | 'created_at'> & { id?: string }): Promise<void> {
+  const { id, ...rest } = a;
+  check(id ? await supabase.from('appliances').update(rest).eq('id', id) : await supabase.from('appliances').insert({ ...rest, household_id: householdId }));
+}
+export async function deleteAppliance(id: string): Promise<void> {
+  check(await supabase.from('appliances').delete().eq('id', id));
+}
+
+export async function listHouseCosts(householdId: string): Promise<HouseCost[]> {
+  return check(await supabase.from('house_costs').select('*').eq('household_id', householdId).order('spent_on', { ascending: false }).limit(1000)).map((r: HouseCost) => ({ ...r, amount_nok: Number(r.amount_nok) }));
+}
+export async function addHouseCost(householdId: string, c: Pick<HouseCost, 'title' | 'amount_nok' | 'spent_on'> & Partial<Pick<HouseCost, 'contact_id' | 'appliance_id' | 'task_id' | 'item_id' | 'notes'>>): Promise<void> {
+  check(await supabase.from('house_costs').insert({ ...c, household_id: householdId }));
+}
+export async function deleteHouseCost(id: string): Promise<void> {
+  check(await supabase.from('house_costs').delete().eq('id', id));
+}
+/** The costs written down when finishing recurring jobs, over all jobs. */
+export async function listCostEvents(householdId: string): Promise<CostEvent[]> {
+  return check(await supabase.from('maintenance_events').select('id, task_id, done_at, cost_nok, note').eq('household_id', householdId).not('cost_nok', 'is', null).order('done_at', { ascending: false }).limit(1000));
+}
+export async function setTaskContact(taskId: string, contactId: string | null): Promise<void> {
+  check(await supabase.from('maintenance_tasks').update({ contact_id: contactId }).eq('id', taskId));
+}
+export async function setItemContact(itemId: string, contactId: string | null): Promise<void> {
+  check(await supabase.from('condition_items').update({ contact_id: contactId }).eq('id', itemId));
 }

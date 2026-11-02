@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { listConditionItems, seedConditionItems, updateConditionItem } from './api';
+import { listConditionItems, listContacts, listHouseCosts, seedConditionItems, setItemContact, updateConditionItem } from './api';
+import { CostModal } from './RegisterView';
+import { Select } from './Select';
+import { spentByItem, telHref, type Contact, type HouseCost } from '../shared/lib/register';
+import { Linking } from 'react-native';
 import { Chip } from './Chip';
 import { uuid } from './id';
 import { useI18n } from './i18n';
@@ -29,10 +33,15 @@ export function ConditionView() {
   const [busy, setBusy] = useState(false);
   const [noteOpen, setNoteOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [costs, setCosts] = useState<HouseCost[]>([]);
+  const [costFor, setCostFor] = useState<ConditionItem | null>(null);
   const missing = (m: string) => (/condition_items|schema cache|does not exist/i.test(m) ? t('cond.noTable') : m);
 
   const load = useCallback(async () => {
     if (!household) return;
+    listContacts(household.id).then(setContacts).catch(() => setContacts([]));
+    listHouseCosts(household.id).then(setCosts).catch(() => setCosts([]));
     try { setItems(await listConditionItems(household.id)); setErr(null); }
     catch (e) { setErr(missing(e instanceof Error ? e.message : String(e))); setItems([]); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -40,6 +49,8 @@ export function ConditionView() {
   useEffect(() => { void load(); }, [load]);
 
   const summary = useMemo(() => summarize(items ?? []), [items]);
+  const spent = useMemo(() => spentByItem(costs), [costs]);
+  const spentTotal = useMemo(() => [...spent.values()].reduce((a, b) => a + b, 0), [spent]);
   const groups = useMemo(() => groupByArea(filterItems(items ?? [], filter)), [items, filter]);
 
   async function loadReport() {
@@ -100,6 +111,7 @@ export function ConditionView() {
             </Pressable>
           ))}
         </View>
+        {spentTotal > 0 && <Muted>{t('cond.spent')}: {nok(Math.round(spentTotal))} kr</Muted>}
         {summary.costOpen.max > 0 && <Muted>{t('cond.estimate')}: {nok(summary.costOpen.min)}–{nok(summary.costOpen.max)} kr</Muted>}
       </Card>
 
@@ -134,9 +146,17 @@ export function ConditionView() {
                   {i.page ? <Text style={{ color: th.muted, fontSize: 13, fontFamily: font.body }}>· {t('cond.page', { p: i.page })}</Text> : null}
                   {i.status !== 'open' ? <Text style={{ color: th.ink, fontSize: 13, fontFamily: font.semi }}>· {t(`cond.status.${i.status}` as 'cond.status.done')}</Text> : null}
                   {i.memory_id ? <Text style={{ color: th.muted, fontSize: 13, fontFamily: font.body }}>· {t('cond.inTodos')}</Text> : null}
+                  {spent.get(i.id) ? <Text style={{ color: th.muted, fontSize: 13, fontFamily: font.body }}>· {t('cond.spent')}: {nok(Math.round(spent.get(i.id) as number))} kr</Text> : null}
                 </View>
                 <Text style={{ color: th.ink, fontSize: 15, lineHeight: 21, fontFamily: font.body }}><Text style={{ color: th.muted }}>{t('cond.finding')}: </Text>{i.what}</Text>
                 <Text style={{ color: th.ink, fontSize: 15, lineHeight: 21, fontFamily: font.body }}><Text style={{ fontFamily: font.semi }}>{t('cond.advice')}: </Text>{i.action}</Text>
+                {contacts.length > 0 && (
+                  <View style={{ gap: 4 }}>
+                    <Select<string | null> label={t('trade.pick')} value={i.contact_id ?? null} options={[{ value: null, label: t('trade.none') }, ...contacts.map((c) => ({ value: c.id as string | null, label: c.name }))]}
+                      onChange={(v) => { setItems((cur) => (cur ?? []).map((x) => (x.id === i.id ? { ...x, contact_id: v } : x))); void setItemContact(i.id, v).catch((e) => setErr(e instanceof Error ? e.message : String(e))); }} />
+                    {(() => { const c = contacts.find((x) => x.id === i.contact_id); const tel = telHref(c?.phone); return tel ? <View style={styles.row}><Btn small label={`${t('trade.call')} ${c?.name}`} onPress={() => void Linking.openURL(tel).catch(() => {})} /></View> : null; })()}
+                  </View>
+                )}
                 {i.notes && noteOpen !== i.id ? <Muted>{i.notes}</Muted> : null}
                 {noteOpen === i.id && (
                   <View style={{ gap: 8 }}>
@@ -148,6 +168,7 @@ export function ConditionView() {
                   {i.status === 'open' ? <Btn small primary label={t('cond.done')} onPress={() => void patch(i, { status: 'done' })} /> : <Btn small label={t('cond.reopen')} onPress={() => void patch(i, { status: 'open' })} />}
                   {!i.memory_id && i.status === 'open' ? <Btn small label={t('cond.toTodo')} onPress={() => void toTodo(i)} /> : null}
                   {i.status === 'open' ? <Btn small label={t('cond.skip')} onPress={() => void patch(i, { status: 'skipped' })} /> : null}
+                  <Btn small label={t('cond.logCost')} onPress={() => setCostFor(i)} />
                   <Btn small label={t('cond.note')} onPress={() => { setDraft(i.notes ?? ''); setNoteOpen(noteOpen === i.id ? null : i.id); }} />
                 </View>
               </View>
@@ -156,6 +177,7 @@ export function ConditionView() {
         </View>
       ))}
       <Muted>{t('cond.disclaimer')}</Muted>
+      {costFor && household ? <CostModal householdId={household.id} contacts={contacts} appliances={[]} prefill={{ title: costFor.part, item_id: costFor.id, contact_id: costFor.contact_id ?? null }} onClose={() => setCostFor(null)} onSaved={async () => setCosts(await listHouseCosts(household.id))} /> : null}
     </View>
   );
 }

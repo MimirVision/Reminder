@@ -45,7 +45,9 @@ export type Member = { user_id: string; display_name: string | null };
 
 export type CaptureKey = { id: string; label: string; created_at: string; last_used_at: string | null };
 
-export type MaintenanceTask = CoreTask & { household_id: string; template_key?: string | null };
+export type MaintenanceTask = CoreTask & { household_id: string; template_key?: string | null 
+  contact_id?: string | null;
+};
 
 export type MaintenanceEvent = { id: string; done_at: string; cost_nok: number | null; note: string | null };
 

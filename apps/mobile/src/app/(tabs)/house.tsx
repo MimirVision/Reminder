@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { completeTask, listTaskEvents, listTasks, retireTask, seedHouseTemplate } from '@/lib/api';
+import { completeTask, listContacts, listTaskEvents, listTasks, retireTask, seedHouseTemplate, setTaskContact } from '@/lib/api';
+import { RegisterView } from '@/lib/RegisterView';
+import { Select } from '@/lib/Select';
+import { readJson, writeJson } from '@/lib/store';
+import { telHref, type Contact } from '../../shared/lib/register';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
 import { AddTaskForm } from '@/lib/AddTaskForm';
@@ -58,10 +63,14 @@ export default function House() {
   const [showLater, setShowLater] = useState(false);
   const [importing, setImporting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report'>('calendar');
+  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report' | 'register'>('calendar');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  // The warranty card on the to-do list sends you straight to the Register (once).
+  useFocusEffect(useCallback(() => { const m = readJson<string | null>('hm.houseMode', null); if (m === 'register') { writeJson('hm.houseMode', null); setMode('register'); } }, []));
   const [addingTask, setAddingTask] = useState(false);
 
   const load = useCallback(async () => {
+    if (household) listContacts(household.id).then(setContacts).catch(() => setContacts([]));
     if (household) setTasks(await listTasks(household.id).catch(() => []));
   }, [household]);
 
@@ -92,7 +101,7 @@ export default function House() {
 
   const toggle2 = (
     <View style={styles.row}>
-      {(['calendar', 'facts', 'moving', 'report'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
+      {(['calendar', 'facts', 'moving', 'report', 'register'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
     </View>
   );
 
@@ -102,6 +111,16 @@ export default function House() {
         <Title>{tr('house.title')}</Title>
         {toggle2}
         <MovingView />
+      </ScrollView>
+    );
+  }
+
+  if (mode === 'register') {
+    return (
+      <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
+        <Title>{tr('house.title')}</Title>
+        {toggle2}
+        {household ? <RegisterView householdId={household.id} /> : null}
       </ScrollView>
     );
   }
@@ -174,6 +193,13 @@ export default function House() {
             {openId === task.id && (
               <View style={{ gap: 10 }}>
                 {taskNotes(task, lang) ? <Text style={{ color: t.muted, fontSize: 15, lineHeight: 21, fontFamily: font.body }}>{taskNotes(task, lang)}</Text> : null}
+                {contacts.length > 0 && (
+                  <View style={{ gap: 4 }}>
+                    <Select<string | null> label={tr('trade.pick')} value={task.contact_id ?? null} options={[{ value: null, label: tr('trade.none') }, ...contacts.map((c) => ({ value: c.id as string | null, label: c.name }))]}
+                      onChange={(v) => { setTasks((cur) => (cur ?? []).map((x) => (x.id === task.id ? { ...x, contact_id: v } : x))); void setTaskContact(task.id, v).catch((e) => Alert.alert(e instanceof Error ? e.message : String(e))); }} />
+                    {(() => { const c = contacts.find((x) => x.id === task.contact_id); const tel = telHref(c?.phone); return tel ? <View style={styles.row}><Btn small label={`${tr('trade.call')} ${c?.name}`} onPress={() => void Linking.openURL(tel).catch(() => {})} /></View> : null; })()}
+                  </View>
+                )}
                 <Field placeholder={tr('house.cost')} keyboardType="decimal-pad" value={cost} onChangeText={setCost} />
                 <Field placeholder={tr('house.note')} value={note} onChangeText={setNote} />
                 <Btn primary label={tr('house.markDone')} onPress={() => done(task)} />

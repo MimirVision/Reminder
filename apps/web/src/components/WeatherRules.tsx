@@ -17,6 +17,7 @@ export function WeatherRules({ household }: { household: Household }) {
   const [picking, setPicking] = useState(false);
   const fixed = w.places.filter((p) => p.kind === 'fixed' && p.lat != null);
 
+  const nameOf = (id: string) => (id === w.userId ? t('weather.ownerMe') : w.members.find((m) => m.user_id === id)?.display_name ?? '?');
   const toggle = async (r: WeatherRule) => { await saveWeatherRule(household.id, { ...r, enabled: !r.enabled }); void w.reload(); };
 
   return (
@@ -30,7 +31,7 @@ export function WeatherRules({ household }: { household: Household }) {
           <li key={r.id}>
             <button className="wx-rule" onClick={() => setDraft(r)} aria-label={`${t('weather.edit')}: ${r.name}`}>
               <strong>{r.name}</strong>
-              <span className="muted">{ruleSummary(t, r)}</span>
+              <span className="muted">{ruleSummary(t, r)}{r.owner_id ? ` · ${t('weather.ownerChip', { name: nameOf(r.owner_id) })}` : ''}</span>
             </button>
             <input type="checkbox" className="switch" checked={r.enabled} aria-label={`${t('weather.enabled')}: ${r.name}`} onChange={() => void toggle(r)} />
           </li>
@@ -53,12 +54,12 @@ export function WeatherRules({ household }: { household: Household }) {
           </div>
         </Sheet>
       )}
-      {draft && <RuleSheet draft={draft} onClose={() => setDraft(null)} onSave={async (d) => { await saveWeatherRule(household.id, d); setDraft(null); void w.reload(); }} onDelete={draft.id ? async () => { if (confirm(t('weather.deleteAsk'))) { await deleteWeatherRule(draft.id as string); setDraft(null); void w.reload(); } } : undefined} />}
+      {draft && <RuleSheet draft={draft} members={w.members} userId={w.userId} onClose={() => setDraft(null)} onSave={async (d) => { await saveWeatherRule(household.id, d); setDraft(null); void w.reload(); }} onDelete={draft.id ? async () => { if (confirm(t('weather.deleteAsk'))) { await deleteWeatherRule(draft.id as string); setDraft(null); void w.reload(); } } : undefined} />}
     </section>
   );
 }
 
-function RuleSheet({ draft, onClose, onSave, onDelete }: { draft: RuleDraft; onClose: () => void; onSave: (d: RuleDraft) => Promise<void>; onDelete?: () => Promise<void> }) {
+function RuleSheet({ draft, members, userId, onClose, onSave, onDelete }: { draft: RuleDraft; members: { user_id: string; display_name: string | null }[]; userId: string | null; onClose: () => void; onSave: (d: RuleDraft) => Promise<void>; onDelete?: () => Promise<void> }) {
   const { t } = useI18n();
   const [d, setD] = useState<RuleDraft>(draft);
   const [items, setItems] = useState(draft.items.join('\n'));
@@ -89,10 +90,16 @@ function RuleSheet({ draft, onClose, onSave, onDelete }: { draft: RuleDraft; onC
       )}
       <label className="field"><span>{t('weather.items')}</span><textarea rows={5} value={items} onChange={(e) => setItems(e.target.value)} /></label>
       <div className="field"><span>{t('weather.lead')}</span>
-        <div className="chips">{(['evening_before', 'same_morning'] as Lead[]).map((l) => <button key={l} className={`chipbtn${d.lead === l ? ' on' : ''}`} aria-pressed={d.lead === l} onClick={() => set('lead', l)}>{t(`weather.lead.${l}` as 'weather.lead.same_morning')}</button>)}</div>
+        <div className="chips">{(['evening_before', 'same_morning', 'hours_before'] as Lead[]).map((l) => <button key={l} className={`chipbtn${d.lead === l ? ' on' : ''}`} aria-pressed={d.lead === l} onClick={() => set('lead', l)}>{t(`weather.lead.${l}` as 'weather.lead.same_morning')}</button>)}</div>
       </div>
+      {d.lead === 'hours_before' ? (
+        <label className="field"><span>{t('weather.leadHours')}</span>
+          <select value={d.lead_hours} onChange={(e) => set('lead_hours', Number(e.target.value))}>{[1, 2, 3, 4, 6, 8, 12].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+          <span className="muted">{t('weather.leadHoursHelp')}</span></label>
+      ) : (
       <label className="field"><span>{t('weather.at')}</span>
         <select value={d.at_time} onChange={(e) => set('at_time', e.target.value)}>{[...new Set([...TIMES, d.at_time])].sort().map((x) => <option key={x}>{x}</option>)}</select></label>
+      )}
       <div className="field"><span>{t('weather.freq')}</span>
         <div className="chips">{(['spell', 'every'] as Frequency[]).map((f) => <button key={f} className={`chipbtn${d.frequency === f ? ' on' : ''}`} aria-pressed={d.frequency === f} onClick={() => set('frequency', f)}>{t(`weather.freq.${f}` as 'weather.freq.spell')}</button>)}</div>
       </div>
@@ -107,6 +114,11 @@ function RuleSheet({ draft, onClose, onSave, onDelete }: { draft: RuleDraft; onC
       </div>
       <label className="field"><span>{t('weather.pause')}</span>
         <div className="row"><input type="date" value={d.paused_until ?? ''} onChange={(e) => set('paused_until', e.target.value || null)} />{d.paused_until && <button className="btn small" onClick={() => set('paused_until', null)}>{t('weather.pauseClear')}</button>}</div></label>
+      <label className="field"><span>{t('weather.owner')}</span>
+        <select value={d.owner_id ?? ''} onChange={(e) => set('owner_id', e.target.value || null)}>
+          <option value="">{t('weather.owner.both')}</option>
+          {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.user_id === userId ? t('weather.owner.me') : t('weather.owner.other', { name: m.display_name ?? '?' })}</option>)}
+        </select></label>
       <label className="row spread"><span>{t('weather.followUp')}</span><input type="checkbox" className="switch" checked={d.follow_up} onChange={(e) => set('follow_up', e.target.checked)} /></label>
       <div className="row spread">
         {onDelete ? <button className="btn danger" onClick={() => void onDelete()}>{t('weather.delete')}</button> : <span />}

@@ -586,3 +586,19 @@ h3.sub:first-of-type { margin-top: 4px; }
 .wx-done { text-decoration: line-through; color: var(--muted); }
 .wx-rules li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .wx-rule { flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; color: inherit; padding: 8px 0; min-height: 44px; display: flex; flex-direction: column; gap: 2px; cursor: pointer; font: inherit; }
+
+.reg-tabs { margin-bottom: 4px; }
+.reg-item { display: flex; flex-direction: column; gap: 6px; }
+.reg-item h3 { margin: 0; font-size: 17px; }
+.chip.warr-soon, .chip.warr-expired { font-weight: 700; }
+.chip.warr-soon { color: #8F5200; background: #FFF1D6; }
+.chip.warr-expired { color: #C62D1A; background: #FBEAE4; }
+:root[data-theme='dark'] .chip.warr-soon { color: #F0B35A; background: #3A2B12; }
+:root[data-theme='dark'] .chip.warr-expired { color: #FF8A78; background: #3A1A15; }
+.cost-total { display: flex; flex-direction: column; gap: 6px; }
+.cost-big { font: 700 32px var(--font-display); letter-spacing: -0.5px; }
+.cost-bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; height: 56px; align-items: end; }
+.cost-bars span { display: flex; align-items: flex-end; height: 100%; background: var(--chip); border-radius: 6px; overflow: hidden; }
+.cost-bars i { display: block; width: 100%; background: var(--accent); border-radius: 6px 6px 0 0; min-height: 2px; }
+.cost-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cost-amount { font-weight: 700; white-space: nowrap; }

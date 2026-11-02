@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActionSheetIOS, Alert, Modal, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { deleteWeatherRule, listPlaces, saveWeatherRule } from './api';
+import { deleteWeatherRule, listMembers, listPlaces, saveWeatherRule } from './api';
 import { Chip } from './Chip';
 import { useI18n } from './i18n';
 import { weatherState, WEATHER_PLACE_KEY, type WeatherState } from './reminders';
@@ -22,11 +22,14 @@ export function WeatherRules({ householdId, onChanged }: { householdId: string; 
   const [places, setPlaces] = useState<PlaceRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [draft, setDraft] = useState<RuleDraft | null>(null);
+  const [members, setMembers] = useState<{ user_id: string; display_name: string | null }[]>([]);
+  const me = readJson<string | null>('hm.userId', null);
 
   const load = useCallback(async () => {
     try {
       const p = await listPlaces(householdId);
       setPlaces(p.filter((x) => x.kind === 'fixed' && x.lat != null));
+      listMembers(householdId).then(setMembers).catch(() => {});
       setW(await weatherState(householdId, p));
       setErr(null);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -49,7 +52,7 @@ export function WeatherRules({ householdId, onChanged }: { householdId: string; 
         <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Pressable accessibilityRole="button" accessibilityLabel={`${t('weather.edit')}: ${r.name}`} onPress={() => setDraft(r)} style={{ flex: 1, minHeight: 44, justifyContent: 'center', gap: 2 }}>
             <Text style={{ color: th.ink, fontSize: 16, fontFamily: font.semi }}>{r.name}</Text>
-            <Muted>{ruleSummary(t, r)}</Muted>
+            <Muted>{ruleSummary(t, r)}{r.owner_id ? ` · ${t('weather.ownerChip', { name: r.owner_id === me ? t('weather.ownerMe') : members.find((m) => m.user_id === r.owner_id)?.display_name ?? '?' })}` : ''}</Muted>
           </Pressable>
           <Switch value={r.enabled} accessibilityLabel={`${t('weather.enabled')}: ${r.name}`} onValueChange={() => void toggle(r)} />
         </View>
@@ -60,7 +63,7 @@ export function WeatherRules({ householdId, onChanged }: { householdId: string; 
           options={places.map((p) => ({ value: p.id, label: p.name }))}
           onChange={(id) => { writeJson(WEATHER_PLACE_KEY, id); void changed(); }} />
       )}
-      {draft ? <RuleModal draft={draft} onClose={() => setDraft(null)}
+      {draft ? <RuleModal draft={draft} members={members} me={me} onClose={() => setDraft(null)}
         onSave={async (d) => { await saveWeatherRule(householdId, d); setDraft(null); await changed(); }}
         onDelete={draft.id ? () => Alert.alert(t('weather.deleteAsk'), undefined, [
           { text: t('common.cancel'), style: 'cancel' },
@@ -74,7 +77,7 @@ function ActionSheetPick(labels: string[], title: string, cancel: string, dark: 
   ActionSheetIOS.showActionSheetWithOptions({ title, options: [...labels, cancel], cancelButtonIndex: labels.length, userInterfaceStyle: dark ? 'dark' : 'light' }, (i) => { if (i < labels.length) pick(i); });
 }
 
-function RuleModal({ draft, onClose, onSave, onDelete }: { draft: RuleDraft; onClose: () => void; onSave: (d: RuleDraft) => Promise<void>; onDelete?: () => void }) {
+function RuleModal({ draft, members, me, onClose, onSave, onDelete }: { draft: RuleDraft; members: { user_id: string; display_name: string | null }[]; me: string | null; onClose: () => void; onSave: (d: RuleDraft) => Promise<void>; onDelete?: () => void }) {
   const th = useTheme();
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
@@ -113,9 +116,11 @@ function RuleModal({ draft, onClose, onSave, onDelete }: { draft: RuleDraft; onC
           <Field multiline value={items} onChangeText={setItems} accessibilityLabel={t('weather.items')} />
           {label(t('weather.lead'))}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {(['evening_before', 'same_morning'] as Lead[]).map((l) => <Chip key={l} label={t(`weather.lead.${l}` as 'weather.lead.same_morning')} on={d.lead === l} onPress={() => set('lead', l)} />)}
+            {(['evening_before', 'same_morning', 'hours_before'] as Lead[]).map((l) => <Chip key={l} label={t(`weather.lead.${l}` as 'weather.lead.same_morning')} on={d.lead === l} onPress={() => set('lead', l)} />)}
           </View>
-          <Select<string> label={t('weather.at')} value={d.at_time} options={[...new Set([...TIMES, d.at_time])].sort().map((v) => ({ value: v, label: v }))} onChange={(v) => set('at_time', v)} />
+          {d.lead === 'hours_before'
+            ? <><Select<number> label={t('weather.leadHours')} value={d.lead_hours} options={[1, 2, 3, 4, 6, 8, 12].map((n) => ({ value: n, label: String(n) }))} onChange={(n) => set('lead_hours', n)} /><Muted>{t('weather.leadHoursHelp')}</Muted></>
+            : <Select<string> label={t('weather.at')} value={d.at_time} options={[...new Set([...TIMES, d.at_time])].sort().map((v) => ({ value: v, label: v }))} onChange={(v) => set('at_time', v)} />}
           {label(t('weather.freq'))}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {(['spell', 'every'] as Frequency[]).map((f) => <Chip key={f} label={t(`weather.freq.${f}` as 'weather.freq.spell')} on={d.frequency === f} onPress={() => set('frequency', f)} />)}
@@ -125,6 +130,7 @@ function RuleModal({ draft, onClose, onSave, onDelete }: { draft: RuleDraft; onC
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {[1, 2, 3, 4, 5, 6, 0].map((wd) => <Chip key={wd} label={t(`weather.dow.${wd}` as 'weather.dow.0')} on={d.quiet_days.includes(wd)} onPress={() => set('quiet_days', d.quiet_days.includes(wd) ? d.quiet_days.filter((x) => x !== wd) : [...d.quiet_days, wd])} />)}
           </View>
+          {members.length > 1 && <Select<string | null> label={t('weather.owner')} value={d.owner_id ?? null} options={[{ value: null, label: t('weather.owner.both') }, ...members.map((m) => ({ value: m.user_id as string | null, label: m.user_id === me ? t('weather.owner.me') : t('weather.owner.other', { name: m.display_name ?? '?' }) }))]} onChange={(v) => set('owner_id', v)} />}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, marginTop: 6 }}>
             <Text style={{ flex: 1, color: th.ink, fontFamily: font.body, fontSize: 16 }}>{t('weather.followUp')}</Text>
             <Switch value={d.follow_up} accessibilityLabel={t('weather.followUp')} onValueChange={(v) => set('follow_up', v)} />

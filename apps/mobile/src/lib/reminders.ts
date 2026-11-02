@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import { listMemories, listPlaces, listWeatherDone, listWeatherRules } from './api';
+import { listAppliances, listMemories, listPlaces, listWeatherDone, listWeatherRules } from './api';
+import { warrantyReminders } from '../shared/lib/register';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
 import { pickDueReminders, type DueMemory } from '../core/dueReminders.ts';
@@ -9,7 +10,7 @@ import { leadShort } from '../shared/lib/details';
 import { planBriefings } from '../shared/lib/briefing';
 import { pickLeaveReminders, travelMinutes, type LeaveCandidate } from '../shared/lib/leave';
 import { driveMatrix } from '../shared/lib/routing';
-import { forecastPlace, isoOf, loadForecast, notificationsFor, notificationBody, planWeather, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherRule } from '../shared/lib/weather';
+import { forecastPlace, isoOf, loadForecast, notificationsFor, notificationBody, planWeather, ruleIsFor, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherRule } from '../shared/lib/weather';
 import { needsRefresh, overpassQuery, parseOverpass, type PoiCache } from '../core/pois.ts';
 import { MAX_REGIONS, selectRegions } from '../core/regions.ts';
 import type { LatLon, MemoryRow, PlaceRow, Region } from '../core/types.ts';
@@ -204,7 +205,7 @@ export async function scheduleDueReminders(all: (DueMemory & { assignee_id?: str
     for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
       if (n.identifier.startsWith('due-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
     }
-    for (const r of pickDueReminders(memories, new Date(), 40)) {
+    for (const r of pickDueReminders(memories, new Date(), 36)) {
       await Notifications.scheduleNotificationAsync({
         identifier: `due-${r.id}`,
         content: { title: r.lead > 0 ? tNow('notif.dueIn', { lead: leadShort(r.lead, currentLang()) }) : tNow('notif.due'), body: r.body, data: { memoryIds: [r.id] } },
@@ -310,7 +311,8 @@ export async function weatherState(householdId: string, places?: PlaceRow[]): Pr
     const at = place ? { lat: place.lat as number, lon: place.lon as number } : await currentPosition();
     if (at) days = await loadForecast(at.lat, at.lon);
   }
-  return { rules, done, days, alerts: rules.flatMap((r) => planWeather(r, days, today)), placeName: place?.name ?? null, placeId: place?.id ?? null };
+  const me = readJson<string | null>(K.user, null);
+  return { rules, done, days, alerts: rules.filter((r) => ruleIsFor(r, me)).flatMap((r) => planWeather(r, days, today)), placeName: place?.name ?? null, placeId: place?.id ?? null };
 }
 
 /** The weather checklists ring at their time (the evening before, or that morning), plus one follow-up if not ticked off. Planned again on every load.
@@ -332,6 +334,25 @@ export async function scheduleWeather(householdId: string): Promise<void> {
   } catch { /* weather is a nicety: stays silent when offline */ }
 }
 
+/** One reminder 30 days before an appliance's warranty ends (at most 3), at 09:00. Part of the same budget as the other reminders (iOS keeps 64). */
+export async function scheduleWarranties(householdId: string): Promise<void> {
+  try {
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    const list = await listAppliances(householdId);
+    for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
+      if (n.identifier.startsWith('warr-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    for (const r of warrantyReminders(list, new Date(), 30, 3)) {
+      const date = list.find((a) => a.id === r.id)?.warranty_until ?? '';
+      await Notifications.scheduleNotificationAsync({
+        identifier: `warr-${r.id}`,
+        content: { title: tNow('notif.warrantyTitle'), body: tNow('notif.warrantyBody', { name: r.name, date }) },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: r.at },
+      });
+    }
+  } catch { /* a nicety: stays silent when offline or before the database update */ }
+}
+
 /** Plan every local notification again from the server (after changing a setting). */
 export async function replanNotifications(householdId: string): Promise<void> {
   try {
@@ -341,6 +362,7 @@ export async function replanNotifications(householdId: string): Promise<void> {
     const mp = await mapPins();
     await scheduleLeaveReminders(m, p, mp.here, mp.pins);
     await scheduleWeather(householdId);
+    await scheduleWarranties(householdId);
   } catch { /* offline */ }
 }
 

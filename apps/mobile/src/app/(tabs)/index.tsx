@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   acceptSuggestion, completeMemory, deleteMemory, dismissSuggestion, listMembers, listMemories, listPhotoUrls, listPlaces, purgeDismissed, reopenMemory,
-  listTasks, requestSuggestion, schemaProblem, setOrder, softDelete, statusFor, subscribeHousehold, updateMemory,
+  listAppliances, listTasks, requestSuggestion, schemaProblem, setOrder, softDelete, statusFor, subscribeHousehold, updateMemory,
 } from '@/lib/api';
 import { AddBar } from '@/lib/AddBar';
 import { CalendarView } from '@/lib/CalendarView';
@@ -18,8 +18,9 @@ import { failedItems, flush, pending, queuedToMemory, retryFailed } from '@/lib/
 import { RecapCard } from '@/lib/RecapCard';
 import { TrashSheet } from '@/lib/TrashSheet';
 import { WeatherCard } from '@/lib/WeatherCard';
+import { warrantiesEnding } from '../../shared/lib/register';
 import { useWeatherCard } from '@/lib/useWeather';
-import { ensureNotifyPermission, mapPins, refreshRegions, scheduleBriefings, scheduleWeather, scheduleDueReminders, scheduleLeaveReminders, setBadge, type Pin } from '@/lib/reminders';
+import { ensureNotifyPermission, mapPins, refreshRegions, scheduleBriefings, scheduleWeather, scheduleDueReminders, scheduleLeaveReminders, scheduleWarranties, setBadge, type Pin } from '@/lib/reminders';
 import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { font, useTheme } from '@/lib/theme';
@@ -61,6 +62,7 @@ export default function Todo() {
   const [picking, setPicking] = useState(false);
   const [trash, setTrash] = useState(false);
   const [houseDue, setHouseDue] = useState(0);
+  const [warranties, setWarranties] = useState<{ name: string; days: number }[]>([]);
   const weather = useWeatherCard(household?.id);
   const [schemaBad, setSchemaBad] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -102,6 +104,7 @@ export default function Todo() {
       void scheduleDueReminders([...waiting, ...m]); // to-dos still waiting to be sent ring too
       void scheduleBriefings([...waiting, ...m]);
       void scheduleWeather(household.id).then(() => weather.refresh());
+      void scheduleWarranties(household.id);
       latest = { m, p };
       void setBadge(m, todayISO());
       await refreshRegions().catch(() => {});
@@ -122,7 +125,8 @@ export default function Todo() {
   const checkSchema = useCallback(() => { schemaProblem().then((p) => { setSchemaBad(!!p); writeJson('hm.schemaBad', !!p); }).catch(() => {}); }, []);
   useEffect(() => { checkSchema(); }, [checkSchema]);
   // House jobs that are due show as a small card on top, so they are not forgotten when you never open House.
-  useFocusEffect(useCallback(() => { if (household) listTasks(household.id).then((tasks) => setHouseDue(groupTasks(tasks, todayISO()).due.length)).catch(() => {}); }, [household]));
+  useFocusEffect(useCallback(() => { if (household) listTasks(household.id).then((tasks) => setHouseDue(groupTasks(tasks, todayISO()).due.length)).catch(() => {});
+    if (household) listAppliances(household.id).then((list) => setWarranties(warrantiesEnding(list, todayISO(), 30).slice(0, 3))).catch(() => {}); }, [household]));
   const loadDone = useCallback(async () => { if (household) setDoneList(await listMemories(household.id, ['done']).catch(() => [])); }, [household]);
   useEffect(() => { if (showDone) void loadDone(); }, [showDone, loadDone]);
   useFocusEffect(useCallback(() => { setRecapOn(readJson<boolean>('hm.recap', false)); void load(); }, [load])); // after the add screen closes or a setting changes
@@ -569,6 +573,12 @@ export default function Todo() {
           <CalendarView memories={visible} row={(m) => row(m, { place: true })} onAdd={(d) => router.push({ pathname: '/add', params: { date: d } })} />
         ) : (<>
         <WeatherCard alerts={weather.active} done={weather.done} onTick={(a, item) => void weather.tick(a, item)} />
+        {warranties.length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.card }}>
+            <Text style={{ flex: 1, color: th.ink, fontSize: 14, fontFamily: font.semi }}>{t('warr.card', { names: warranties.map((w) => t('warr.cardDays', { name: w.name, n: w.days })).join(', ') })}</Text>
+            <Btn small label={t('housecard.open')} onPress={() => { writeJson('hm.houseMode', 'register'); router.navigate('/house'); }} />
+          </View>
+        )}
         {houseDue > 0 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderRadius: 16, padding: 12, paddingLeft: 16, backgroundColor: th.card }}>
             <Text style={{ flex: 1, color: th.ink, fontSize: 14, fontFamily: font.semi }}>{tn('housecard.due', houseDue)}</Text>

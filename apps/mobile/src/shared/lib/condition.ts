@@ -16,7 +16,7 @@ export type ConditionSeedItem = {
 export type ConditionItem = {
   id: string; household_id: string; source: string; source_key: string; area: string; part: string; tg: Tg; when_kind: When;
   what: string; action: string; cost_min: number | null; cost_max: number | null; page: number | null; status: ConditionStatus;
-  notes: string | null; memory_id: string | null; done_at: string | null; created_at: string;
+  notes: string | null; memory_id: string | null; done_at: string | null; created_at: string; contact_id?: string | null;
 };
 
 /** Most serious first. */

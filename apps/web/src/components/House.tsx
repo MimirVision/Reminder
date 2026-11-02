@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { completeTask, listTaskEvents, listTasks, retireTask, seedHouseTemplate } from '../lib/api';
+import { completeTask, listContacts, listTaskEvents, listTasks, retireTask, seedHouseTemplate, setTaskContact } from '../lib/api';
+import { telHref, type Contact } from '../lib/register';
 import { groupTasks } from '../lib/maintenance';
 import { ribbonMonths } from '../lib/ribbon';
 import { scheduleLabel, taskNotes, taskTitle } from '../lib/labels';
@@ -11,6 +12,7 @@ import { AddTaskForm } from './AddTaskForm';
 import { FactsView } from './FactsView';
 import { MovingView } from './MovingView';
 import { ConditionView } from './ConditionView';
+import { Register } from './Register';
 import { ReportImport } from './ReportImport';
 import { useToast } from './Toast';
 
@@ -42,14 +44,16 @@ export function House({ household }: { household: Household }) {
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MaintenanceEvent[]>([]);
   const [showLater, setShowLater] = useState(false);
-  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report'>(() => {
+  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report' | 'register'>(() => {
     // The setup checklist can send you straight to the Facts tab (once).
-    try { const m = sessionStorage.getItem('hm.houseMode'); sessionStorage.removeItem('hm.houseMode'); return m === 'Facts' ? 'facts' : 'calendar'; } catch { return 'calendar'; }
+    try { const m = sessionStorage.getItem('hm.houseMode'); sessionStorage.removeItem('hm.houseMode'); return m === 'Facts' ? 'facts' : m === 'Register' ? 'register' : 'calendar'; } catch { return 'calendar'; }
   });
   const [addingTask, setAddingTask] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
+    listContacts(household.id).then(setContacts).catch(() => setContacts([]));
     try { setTasks(await listTasks(household.id)); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setTasks([]); }
   }, [household.id]);
   useEffect(() => { void load(); }, [load]);
@@ -70,13 +74,14 @@ export function House({ household }: { household: Household }) {
 
   const switcher = (
     <div className="seg glass" role="group">
-      {(['calendar', 'facts', 'moving', 'report'] as const).map((m) => <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`house.${m}` as const)}</button>)}
+      {(['calendar', 'facts', 'moving', 'report', 'register'] as const).map((m) => <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`house.${m}` as const)}</button>)}
     </div>
   );
   const head = <div className="head"><h1>{t('house.title')}</h1>{switcher}</div>;
 
   if (mode === 'moving') return <main className="page">{head}<MovingView household={household} /></main>;
   if (mode === 'facts') return <main className="page">{head}<FactsView household={household} /></main>;
+  if (mode === 'register') return <main className="page house-page">{head}<Register household={household} /></main>;
   if (mode === 'report') return <main className="page house-page">{head}<ConditionView household={household} /></main>;
 
   if (tasks.length === 0) {
@@ -118,6 +123,15 @@ export function House({ household }: { household: Household }) {
               {openId === task.id && (
                 <>
                   {notes && <p className="muted notes">{notes}</p>}
+                  {contacts.length > 0 && (
+                    <div className="row">
+                      <label className="row"><span className="muted">{t('trade.pick')}</span>
+                        <select value={task.contact_id ?? ''} onChange={(e) => void run(() => setTaskContact(task.id, e.target.value || null))}>
+                          <option value="">{t('trade.none')}</option>{contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select></label>
+                      {(() => { const c = contacts.find((x) => x.id === task.contact_id); const tel = telHref(c?.phone); return tel ? <a className="btn small" href={tel}>{t('trade.call')} {c?.name}</a> : null; })()}
+                    </div>
+                  )}
                   <div className="row">
                     <input className="narrowfield" placeholder={t('house.cost')} inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} />
                     <input className="growfield" placeholder={t('house.note')} value={note} onChange={(e) => setNote(e.target.value)} />

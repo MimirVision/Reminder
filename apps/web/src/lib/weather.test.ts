@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activeAlerts, forecastPlace, matchesDay, notificationBody, notificationsFor, parseForecast, planWeather, reasonText, ruleSummary, spellStarts, starterRule, type DayForecast, type WeatherRule } from './weather.ts';
+import { activeAlerts, firstHour, ruleIsFor, forecastPlace, matchesDay, notificationBody, notificationsFor, parseForecast, planWeather, reasonText, ruleSummary, spellStarts, starterRule, type DayForecast, type WeatherRule } from './weather.ts';
 
 const day = (date: string, o: Partial<DayForecast> = {}): DayForecast => ({ date, rainMm: 0, snowCm: 0, tMin: 5, tMax: 12, windMs: 3, code: 3, ...o });
 const rule = (o: Partial<WeatherRule> = {}): WeatherRule => ({
-  id: 'r1', household_id: 'h', name: 'Rain', scenario: 'rain', threshold: null, items: ['Pillows', 'Sandpit'], lead: 'evening_before', at_time: '18:00',
-  frequency: 'spell', dry_gap: 2, quiet_days: [], paused_until: null, follow_up: true, enabled: true, ...o,
+  id: 'r1', household_id: 'h', name: 'Rain', scenario: 'rain', threshold: null, items: ['Pillows', 'Sandpit'], lead: 'evening_before', lead_hours: 2, at_time: '18:00',
+  frequency: 'spell', dry_gap: 2, quiet_days: [], paused_until: null, follow_up: true, enabled: true, owner_id: null, ...o,
 });
 // 2026-10-26 is a Monday.
 const week = [
@@ -107,4 +107,49 @@ test('texts: starter rules, reason line and notification body in both languages'
   assert.equal(reasonText(nb, alert), 'Regn i morgen, rundt 6 mm');
   assert.match(notificationBody(en, alert, [{ rule_id: 'r1', for_date: '2026-10-27', items: ['Take in the pillows'] }]), /^Rain tomorrow, about 6 mm — Cover the sandpit/);
   assert.match(ruleSummary(en, { ...rule(), ...r, id: 'r1', household_id: 'h' }), /Rain ≥ 2 mm · the evening before at 18:00, once per spell/);
+});
+
+const hours = (o: Partial<Record<'rain' | 'snow' | 'temp' | 'wind' | 'code', Record<number, number>>>) => {
+  const h = { rain: Array(24).fill(0), snow: Array(24).fill(0), temp: Array(24).fill(8), wind: Array(24).fill(1), code: Array(24).fill(3) };
+  for (const [k, v] of Object.entries(o)) for (const [i, x] of Object.entries(v as Record<number, number>)) (h as Record<string, number[]>)[k][Number(i)] = x;
+  return h;
+};
+
+test('first hour of the weather, per scenario', () => {
+  const d = day('d', { rainMm: 6, hourly: hours({ rain: { 14: 2, 15: 4 } }) });
+  assert.equal(firstHour(rule(), d), 14);
+  assert.equal(firstHour(rule({ scenario: 'frost' }), day('d', { hourly: hours({ temp: { 3: -2, 4: -3 } }) })), 3);
+  assert.equal(firstHour(rule({ scenario: 'wind', threshold: 12 }), day('d', { hourly: hours({ wind: { 9: 11, 10: 13 } }) })), 10);
+  assert.equal(firstHour(rule({ scenario: 'storm' }), day('d', { hourly: hours({ code: { 17: 95 } }) })), 17);
+  assert.equal(firstHour(rule(), day('d', { rainMm: 6 })), null, 'no hourly values');
+});
+
+test('"hours before it starts" rings that many hours ahead; weather in the small hours rings the evening before', () => {
+  const f = [day('2026-10-26'), day('2026-10-27', { rainMm: 6, hourly: hours({ rain: { 14: 3, 15: 3 } }) }), day('2026-10-28', { rainMm: 4, hourly: hours({ rain: { 4: 4 } }) })];
+  const [a] = planWeather(rule({ lead: 'hours_before', lead_hours: 3 }), f, '2026-10-26');
+  assert.equal(a.fromHour, 14); assert.equal(a.at.getDate(), 27); assert.equal(a.at.getHours(), 11);
+  const small = planWeather(rule({ lead: 'hours_before', lead_hours: 2, dry_gap: 1 }), f, '2026-10-26').find((x) => x.forDate === '2026-10-28');
+  assert.equal(small, undefined, 'the 28th is part of the spell that began on the 27th');
+  const early = planWeather(rule({ lead: 'hours_before', lead_hours: 2 }), [day('2026-10-26'), day('2026-10-27'), day('2026-10-28', { rainMm: 4, hourly: hours({ rain: { 4: 4 } }) })], '2026-10-26')[0];
+  assert.equal(early.at.getDate(), 27); assert.equal(early.at.getHours(), 20);
+  const none = planWeather(rule({ lead: 'hours_before', at_time: '07:30' }), [day('2026-10-26'), day('2026-10-27', { rainMm: 6 })], '2026-10-26')[0];
+  assert.equal(none.at.getDate(), 27); assert.equal(none.at.getHours(), 7, 'without hourly values it rings that morning');
+});
+
+test('rules for one person only', () => {
+  assert.equal(ruleIsFor(rule(), 'u1'), true);
+  assert.equal(ruleIsFor(rule({ owner_id: 'u1' }), 'u1'), true);
+  assert.equal(ruleIsFor(rule({ owner_id: 'u2' }), 'u1'), false);
+  assert.equal(ruleIsFor(rule({ owner_id: 'u2' }), null), true, 'an unknown user sees everything');
+});
+
+test('parseForecast reads the hourly block and the reason shows the hour', async () => {
+  const { makeT } = await import('../i18n/core.ts');
+  const time = Array.from({ length: 24 }, (_, i) => `2026-10-27T${String(i).padStart(2, '0')}:00`);
+  const days = parseForecast({ daily: { time: ['2026-10-27'], rain_sum: [6], snowfall_sum: [0], temperature_2m_min: [3], temperature_2m_max: [9], wind_speed_10m_max: [4], weather_code: [61] },
+    hourly: { time, rain: time.map((_, i) => (i >= 14 ? 2 : 0)), snowfall: time.map(() => 0), temperature_2m: time.map(() => 5), wind_speed_10m: time.map(() => 3), weather_code: time.map(() => 61) } });
+  assert.equal(firstHour(rule(), days[0]), 14);
+  const a = planWeather(rule(), [day('2026-10-26'), days[0]], '2026-10-26')[0];
+  assert.equal(reasonText(makeT('en'), a), 'Rain tomorrow, about 6 mm, from 14:00');
+  assert.equal(reasonText(makeT('nb'), a), 'Regn i morgen, rundt 6 mm, fra kl. 14:00');
 });

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { listPlaces, listWeatherDone, listWeatherRules, setWeatherDone } from './api';
-import type { Place } from './types';
-import { activeAlerts, doneItems, forecastPlace, isoOf, loadForecast, planWeather, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherRule } from './weather';
+import { listMembers, listPlaces, listWeatherDone, listWeatherRules, setWeatherDone } from './api';
+import { supabase } from './supabase';
+import type { Member, Place } from './types';
+import { activeAlerts, doneItems, forecastPlace, isoOf, loadForecast, planWeather, ruleIsFor, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherRule } from './weather';
 
 const PLACE_KEY = 'hm.weatherPlace';
 export const readWeatherPlace = (): string | null => { try { return localStorage.getItem(PLACE_KEY); } catch { return null; } };
@@ -14,12 +15,16 @@ export function useWeather(householdId: string) {
   const [days, setDays] = useState<DayForecast[]>([]);
   const [done, setDone] = useState<WeatherDone[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
 
   const load = useCallback(async () => {
     try {
       const today = isoOf(new Date());
       const [r, p, d] = await Promise.all([listWeatherRules(householdId), listPlaces(householdId), listWeatherDone(householdId, today)]);
       setRules(r); setPlaces(p); setDone(d); setError(null);
+      void supabase.auth.getSession().then(({ data }) => setUserId(data.session?.user.id ?? null));
+      void listMembers(householdId).then(setMembers).catch(() => {});
       const place = forecastPlace(p, readWeatherPlace());
       if (r.some((x) => x.enabled) && place) setDays(await loadForecast(place.lat as number, place.lon as number));
     } catch (e) {
@@ -31,8 +36,8 @@ export function useWeather(householdId: string) {
 
   const alerts = useMemo<WeatherAlert[]>(() => {
     const today = isoOf(new Date());
-    return (rules ?? []).flatMap((r) => planWeather(r, days, today));
-  }, [rules, days]);
+    return (rules ?? []).filter((r) => ruleIsFor(r, userId)).flatMap((r) => planWeather(r, days, today));
+  }, [rules, days, userId]);
 
   const tick = useCallback(async (a: WeatherAlert, item: string) => {
     const cur = doneItems(a, done);
@@ -42,5 +47,5 @@ export function useWeather(householdId: string) {
   }, [done, householdId, load]);
 
   const place = forecastPlace(places, readWeatherPlace());
-  return { rules, places, place, days, done, alerts, error, reload: load, tick, active: activeAlerts(alerts, new Date(), done) };
+  return { rules, places, place, days, done, alerts, error, userId, members, reload: load, tick, active: activeAlerts(alerts, new Date(), done) };
 }

@@ -81,6 +81,7 @@ export type MaintenanceTask = {
   due_until: string | null;
   last_done_at: string | null;
   active: boolean;
+  contact_id?: string | null;
 };
 
 export type MaintenanceEvent = { id: string; done_at: string; cost_nok: number | null; note: string | null };

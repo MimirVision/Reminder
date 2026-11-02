@@ -4,15 +4,17 @@ import type { Key, T } from '../i18n/core';
 
 export type Scenario = 'rain' | 'snow' | 'frost' | 'wind' | 'heat' | 'storm';
 export const SCENARIOS: Scenario[] = ['rain', 'snow', 'frost', 'wind', 'heat', 'storm'];
-export type Lead = 'evening_before' | 'same_morning';
+export type Lead = 'evening_before' | 'same_morning' | 'hours_before';
 export type Frequency = 'spell' | 'every';
 
-export type DayForecast = { date: string; rainMm: number; snowCm: number; tMin: number; tMax: number; windMs: number; code: number };
+/** The 24 hours of one day, for "from 14:00" and "2 hours before it starts". */
+export type Hourly = { rain: number[]; snow: number[]; temp: number[]; wind: number[]; code: number[] };
+export type DayForecast = { date: string; rainMm: number; snowCm: number; tMin: number; tMax: number; windMs: number; code: number; hourly?: Hourly };
 
 export type WeatherRule = {
   id: string; household_id: string; name: string; scenario: Scenario; threshold: number | null; items: string[];
-  lead: Lead; at_time: string; frequency: Frequency; dry_gap: number; quiet_days: number[]; paused_until: string | null;
-  follow_up: boolean; enabled: boolean;
+  lead: Lead; lead_hours: number; at_time: string; frequency: Frequency; dry_gap: number; quiet_days: number[]; paused_until: string | null;
+  follow_up: boolean; enabled: boolean; owner_id: string | null;
 };
 export type WeatherDone = { rule_id: string; for_date: string; items: string[] };
 
@@ -53,6 +55,25 @@ export function matchesDay(rule: Pick<WeatherRule, 'scenario' | 'threshold'>, d:
   }
 }
 
+/** The first hour of the day (0-23) when the rule's weather is under way, or null when the forecast has no hourly values. */
+export function firstHour(rule: Pick<WeatherRule, 'scenario' | 'threshold'>, d: DayForecast): number | null {
+  const h = d.hourly;
+  if (!h) return null;
+  const th = thresholdOf(rule);
+  const at = (pred: (i: number) => boolean) => { for (let i = 0; i < 24; i++) if (pred(i)) return i; return null; };
+  switch (rule.scenario) {
+    case 'rain': return at((i) => (h.rain[i] ?? 0) >= 0.2);
+    case 'snow': return at((i) => (h.snow[i] ?? 0) >= 0.1);
+    case 'frost': return at((i) => (h.temp[i] ?? 99) <= (th ?? 0));
+    case 'wind': return at((i) => (h.wind[i] ?? 0) >= (th ?? 10));
+    case 'heat': return at((i) => (h.temp[i] ?? -99) >= (th ?? 25));
+    case 'storm': return at((i) => (h.code[i] ?? 0) >= 95 && (h.code[i] ?? 0) <= 99);
+  }
+}
+
+/** A rule for one person only (owner_id) is for that person's phone; one without an owner is for both of you. */
+export const ruleIsFor = (r: Pick<WeatherRule, 'owner_id'>, userId: string | null): boolean => !r.owner_id || !userId || r.owner_id === userId;
+
 const pad = (n: number) => String(n).padStart(2, '0');
 export const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const dateOf = (iso: string, h = 0, m = 0) => new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10), h, m, 0, 0);
@@ -71,7 +92,7 @@ export function spellStarts(rule: Pick<WeatherRule, 'scenario' | 'threshold' | '
   return starts;
 }
 
-export type WeatherAlert = { rule: WeatherRule; forDate: string; day: DayForecast; at: Date; followUpAt: Date | null };
+export type WeatherAlert = { rule: WeatherRule; forDate: string; day: DayForecast; at: Date; followUpAt: Date | null; fromHour: number | null };
 
 const parseTime = (t: string): [number, number] => { const [h, m] = t.split(':').map(Number); return [h || 0, m || 0]; };
 
@@ -85,11 +106,19 @@ export function planWeather(rule: WeatherRule, days: DayForecast[], today: strin
   const out: WeatherAlert[] = [];
   for (const forDate of dates.sort()) {
     if (forDate < today) continue;
-    const fireDay = rule.lead === 'evening_before' ? addDays(forDate, -1) : forDate;
-    if (rule.paused_until && fireDay <= rule.paused_until) continue;
-    if (rule.quiet_days.includes(dateOf(fireDay).getDay())) continue;
-    const at = dateOf(fireDay, h, m);
-    out.push({ rule, forDate, day: byDate.get(forDate) as DayForecast, at, followUpAt: rule.follow_up ? new Date(at.getTime() + 90 * 60_000) : null });
+    const day = byDate.get(forDate) as DayForecast;
+    const from = firstHour(rule, day);
+    // "N hours before it starts": that many hours ahead of the first hour, but not before 06:00; weather that starts in the small hours rings the evening before.
+    let fireDay = rule.lead === 'evening_before' ? addDays(forDate, -1) : forDate;
+    let at = dateOf(fireDay, h, m);
+    if (rule.lead === 'hours_before' && from != null) {
+      const fh = from - (rule.lead_hours || 2);
+      if (fh >= 6) at = dateOf(forDate, fh, 0);
+      else { fireDay = addDays(forDate, -1); at = dateOf(fireDay, 20, 0); }
+    }
+    if (rule.paused_until && isoOf(at) <= rule.paused_until) continue;
+    if (rule.quiet_days.includes(at.getDay())) continue;
+    out.push({ rule, forDate, day, at, fromHour: from, followUpAt: rule.follow_up ? new Date(at.getTime() + 90 * 60_000) : null });
   }
   return out;
 }
@@ -126,9 +155,21 @@ export function parseForecast(json: unknown): DayForecast[] {
     const v = (d[key] as (number | null)[] | undefined)?.[i];
     return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
   };
+  const hr = (json as { hourly?: Record<string, (number | null)[] | string[]> } | null)?.hourly;
+  const hours = new Map<string, Hourly>();
+  if (hr && Array.isArray(hr.time)) {
+    const val = (key: string, i: number, fallback: number) => { const v = (hr[key] as (number | null)[] | undefined)?.[i]; return typeof v === 'number' && Number.isFinite(v) ? v : fallback; };
+    (hr.time as string[]).forEach((stamp, i) => {
+      const date = stamp.slice(0, 10), hour = Number(stamp.slice(11, 13));
+      if (!(hour >= 0 && hour < 24)) return;
+      const day = hours.get(date) ?? { rain: Array(24).fill(0), snow: Array(24).fill(0), temp: Array(24).fill(10), wind: Array(24).fill(0), code: Array(24).fill(0) };
+      day.rain[hour] = val('rain', i, 0); day.snow[hour] = val('snowfall', i, 0); day.temp[hour] = val('temperature_2m', i, 10); day.wind[hour] = val('wind_speed_10m', i, 0); day.code[hour] = val('weather_code', i, 0);
+      hours.set(date, day);
+    });
+  }
   return (d.time as string[]).map((date, i) => ({
     date, rainMm: num('rain_sum', i), snowCm: num('snowfall_sum', i), tMin: num('temperature_2m_min', i, 10), tMax: num('temperature_2m_max', i, 10),
-    windMs: num('wind_speed_10m_max', i), code: num('weather_code', i),
+    windMs: num('wind_speed_10m_max', i), code: num('weather_code', i), ...(hours.has(date) ? { hourly: hours.get(date) } : {}),
   }));
 }
 
@@ -136,12 +177,13 @@ export function forecastUrl(lat: number, lon: number): string {
   const q = new URLSearchParams({
     latitude: lat.toFixed(3), longitude: lon.toFixed(3), timezone: 'auto', wind_speed_unit: 'ms', past_days: '3', forecast_days: '7',
     daily: 'rain_sum,snowfall_sum,temperature_2m_min,temperature_2m_max,wind_speed_10m_max,weather_code',
+    hourly: 'rain,snowfall,temperature_2m,wind_speed_10m,weather_code',
   });
   return `https://api.open-meteo.com/v1/forecast?${q}`;
 }
 
 type Cache = { key: string; at: number; days: DayForecast[] };
-const CACHE_KEY = 'hm.weatherForecast';
+const CACHE_KEY = 'hm.weatherForecast2';
 const FRESH_MS = 60 * 60_000;
 
 /** The forecast for a place, kept for an hour so reopening the app does not ask again. Falls back to the last copy when offline. */
@@ -181,15 +223,16 @@ export function starterRule(t: T, scenario: Scenario): RuleDraft {
   const items: string[] = [];
   for (let i = 1; i <= STARTER_ITEMS[scenario]; i++) items.push(t(`weather.starter.${scenario}.${i}` as Key));
   return {
-    name: t(`weather.starter.${scenario}.name` as Key), scenario, threshold: null, items, lead: scenario === 'frost' || scenario === 'heat' ? 'same_morning' : 'evening_before',
-    at_time: scenario === 'frost' || scenario === 'heat' ? '07:30' : '18:00', frequency: 'spell', dry_gap: 2, quiet_days: [], paused_until: null, follow_up: true, enabled: true,
+    name: t(`weather.starter.${scenario}.name` as Key), scenario, threshold: null, items, lead: scenario === 'frost' || scenario === 'heat' ? 'same_morning' : 'evening_before', lead_hours: 2,
+    at_time: scenario === 'frost' || scenario === 'heat' ? '07:30' : '18:00', frequency: 'spell', dry_gap: 2, quiet_days: [], paused_until: null, follow_up: true, enabled: true, owner_id: null,
   };
 }
 
 /** "Rain tomorrow, about 6 mm": the reason line of a notification or card. "Tomorrow" is relative to the day the alert rings. */
-export function reasonText(t: T, a: Pick<WeatherAlert, 'rule' | 'forDate' | 'day' | 'at'>): string {
+export function reasonText(t: T, a: Pick<WeatherAlert, 'rule' | 'forDate' | 'day' | 'at' | 'fromHour'>): string {
   const when = t(a.forDate === isoOf(a.at) ? 'weather.when.today' : 'weather.when.tomorrow');
-  return t(`weather.reason.${a.rule.scenario}` as Key, { when, value: reasonOf(a.rule.scenario, a.day).value });
+  const base = t(`weather.reason.${a.rule.scenario}` as Key, { when, value: reasonOf(a.rule.scenario, a.day).value });
+  return a.fromHour == null ? base : `${base}, ${t('weather.fromTime', { time: `${pad(a.fromHour)}:00` })}`;
 }
 
 /** Notification body: the reason, then the items still to do. */
@@ -202,6 +245,6 @@ export function notificationBody(t: T, a: WeatherAlert, done: WeatherDone[]): st
 export function ruleSummary(t: T, r: WeatherRule): string {
   const th = thresholdOf(r);
   const unit = SCENARIO_DEFAULT[r.scenario].unit;
-  const when = t(`weather.summary.${r.lead}` as Key, { time: r.at_time });
+  const when = t(`weather.summary.${r.lead}` as Key, { time: r.at_time, n: r.lead_hours });
   return [t(`weather.s.${r.scenario}` as Key) + (th != null ? ` ${r.scenario === 'frost' ? '≤' : '≥'} ${th} ${unit}` : ''), t(`weather.summary.${r.frequency}` as Key, { when })].join(' · ');
 }

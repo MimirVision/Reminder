@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql', '0022_house_register.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -558,6 +558,32 @@ for (const t of ['post_alert_accounts', 'post_alert_seen', 'post_alert_devices',
   await as(A, async () => {
     await db.query(`delete from weather_rules where id = $1`, [rid]);
     assert.equal((await db.query(`select * from weather_done`)).rows.length, 0, 'deleting a rule removes its ticks');
+  });
+}
+
+// 0022: appliances, contacts, cost log; weather lead and owner.
+{
+  let cid, aid;
+  await as(A, async () => {
+    cid = (await db.query(`insert into contacts (household_id, name, trade, phone) values ($1, 'Per Rør', 'plumber', '+47 123 45 678') returning id`, [hid])).rows[0].id;
+    aid = (await db.query(`insert into appliances (household_id, name, warranty_until, price_nok, contact_id) values ($1, 'Dishwasher', '2027-03-01', 6990, $2) returning id`, [hid, cid])).rows[0].id;
+    await db.query(`insert into house_costs (household_id, title, amount_nok, contact_id, appliance_id) values ($1, 'New pump', 1250.50, $2, $3)`, [hid, cid, aid]);
+    await rejects(() => db.query(`insert into house_costs (household_id, title, amount_nok) values ($1, 'x', -5)`, [hid]), /house_costs_amount_nok_check|check constraint/);
+    await rejects(() => db.query(`insert into appliances (household_id, name, price_nok) values ($1, 'x', -1)`, [hid]), /appliances_price_nok_check|check constraint/);
+    await db.query(`insert into weather_rules (household_id, name, scenario, lead, lead_hours) values ($1, 'Rain soon', 'rain', 'hours_before', 3)`, [hid]);
+    await rejects(() => db.query(`insert into weather_rules (household_id, name, scenario, lead, lead_hours) values ($1, 'x', 'rain', 'hours_before', 30)`, [hid]), /lead_hours_check|check constraint/);
+    await rejects(() => db.query(`insert into weather_rules (household_id, name, scenario, lead) values ($1, 'x', 'rain', 'whenever')`, [hid]), /weather_rules_lead_check|check constraint/);
+    await db.query(`update maintenance_tasks set contact_id = $1 where id = (select id from maintenance_tasks where household_id = $2 limit 1)`, [cid, hid]);
+  });
+  await as(C, async () => {
+    for (const t of ['contacts', 'appliances', 'house_costs']) assert.equal((await db.query(`select * from ${t}`)).rows.length, 0, `a stranger sees no ${t}`);
+    await rejects(() => db.query(`insert into contacts (household_id, name) values ($1, 'x')`, [hid]), /row-level security/);
+    await rejects(() => db.query(`insert into appliances (household_id, name) values ($1, 'x')`, [hid]), /row-level security/);
+  });
+  await as(A, async () => {
+    await db.query(`delete from contacts where id = $1`, [cid]);
+    assert.equal((await db.query(`select contact_id from appliances where id = $1`, [aid])).rows[0].contact_id, null, 'deleting a contact only unlinks it');
+    assert.equal((await db.query(`select contact_id from house_costs`)).rows[0].contact_id, null);
   });
 }
 
