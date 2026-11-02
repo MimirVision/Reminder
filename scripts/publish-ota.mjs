@@ -49,9 +49,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   const tmp = mkdtempSync(join(tmpdir(), 'ota-'));
   try {
-    execFileSync('npx', ['expo', 'export', '--platform', 'ios', '--output-dir', tmp], { cwd: mobile, stdio: 'inherit', env: { ...process.env, ...publicEnv() } });
+    // --clear: Metro's cache does not know the environment, so a cached transform would keep an old (or missing) Supabase address.
+    const env = { ...process.env, ...publicEnv() };
+    execFileSync('npx', ['expo', 'export', '--clear', '--platform', 'ios', '--output-dir', tmp], { cwd: mobile, stdio: 'inherit', env });
     const meta = JSON.parse(readFileSync(join(tmp, 'metadata.json'), 'utf8')).fileMetadata.ios;
     const bundleBytes = readFileSync(join(tmp, meta.bundle));
+    // A bundle without the Supabase address shows "Supabase is not set up" on the phone: never publish one.
+    for (const k of ['EXPO_PUBLIC_SUPABASE_URL', 'EXPO_PUBLIC_SUPABASE_ANON_KEY']) {
+      if (!env[k] || !bundleBytes.includes(Buffer.from(env[k]))) throw new Error(`The exported bundle does not contain ${k}; not publishing.`);
+    }
     const bundle = { file: meta.bundle.split('/').pop(), hash: sha256b64url(bundleBytes), hashHex: createHash('sha256').update(bundleBytes).digest('hex') };
     const assets = meta.assets.map((a) => ({ path: a.path, ext: a.ext, key: a.path.split('/').pop(), hash: sha256b64url(readFileSync(join(tmp, a.path))) }));
 

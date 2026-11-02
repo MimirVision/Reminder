@@ -26,5 +26,8 @@ last compatible update and ignore the new ones.
 - Updates are public files (the same kind of code that is in the app); the Supabase keys in them are the public ones, protected by row level security.
 - Each update adds about 4 MB to the website's files and to the repository history. Old bundles are removed from the site, not from git history.
 
+## If the app says "Supabase is not set up"
+An update was published whose bundle lacks the Supabase address. `scripts/publish-ota.mjs` exports with `--clear` (Metro's cache does not know about environment variables) and refuses to publish a bundle that does not contain the address and key. If it happens anyway, publish again and reopen the app twice (the first open downloads the fix, the second runs it), or install the newest build.
+
 ## Not tested on a device here
 The first build with updates on has to be installed once by sideloading. After that, check Settings > App updates > Check for updates.
