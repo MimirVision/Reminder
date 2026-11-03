@@ -35,6 +35,7 @@ TaskManager.defineTask<{ eventType: Location.LocationGeofencingEventType; region
     const result = onRegionEvent({
       type: entered ? 'enter' : 'exit',
       placeId,
+      regionId: identifier,
       label,
       places,
       memories,

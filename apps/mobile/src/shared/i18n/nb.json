@@ -743,7 +743,7 @@
   "alerts.at": "Ved stedet",
   "alerts.arrive": "Når jeg kommer",
   "alerts.leave": "Når jeg drar",
-  "alerts.leaveHint": "Varsler når du går ut av stedets område (på telefonen, med «Alltid»-posisjon).",
+  "alerts.leaveHint": "Varsler når du går ut av stedets område, etter at du har vært der. Legg den inn i forveien: den venter til du har kommet fram, så den ringer aldri med en gang (på telefonen, med «Alltid»-posisjon).",
   "row.leaving": "Når jeg drar fra {place}",
   "notif.leaving": "Du forlater {label}",
   "sync.failed_one": "{n} oppgave kunne ikke lagres",

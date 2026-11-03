@@ -743,7 +743,7 @@
   "alerts.at": "At the place",
   "alerts.arrive": "When I arrive",
   "alerts.leave": "When I leave",
-  "alerts.leaveHint": "Rings when you walk out of the place's area (on the phone, with Always location).",
+  "alerts.leaveHint": "Rings when you walk out of the place's area, once you have been there. Set it up beforehand: it waits until you arrive, so it never rings at once (on the phone, with Always location).",
   "row.leaving": "When leaving {place}",
   "notif.leaving": "Leaving {label}",
   "sync.failed_one": "{n} to-do could not be saved",
