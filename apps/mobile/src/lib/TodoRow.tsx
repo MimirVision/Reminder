@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { PhotoViewer } from './PhotoViewer';
 import { Image, Pressable, Text, View } from 'react-native';
 import { Avatar } from './Avatar';
 import { progress, toggleItem } from '../shared/lib/checklist';
@@ -20,6 +21,7 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
 }) {
   const th = useTheme();
   const { t } = useI18n();
+  const [viewing, setViewing] = useState<number | null>(null);
   const steps = m.checklist ?? [];
   const prog = progress(steps);
   const prio = m.priority ?? 0;
@@ -63,7 +65,12 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
             ))}
           </View>
         )}
-        {photos && photos.length > 0 && <View style={styles.row}>{photos.map((u) => <Image key={u} source={{ uri: u }} style={{ width: 120, height: 78, borderRadius: 12 }} />)}</View>}
+        {photos && photos.length > 0 && <View style={styles.row}>{photos.map((u, i) => (
+          <Pressable key={u} accessibilityRole="imagebutton" accessibilityLabel={`${t('photo.view')}: ${t('photo.of', { n: i + 1, total: photos.length })}`} onPress={() => setViewing(i)}>
+            <Image source={{ uri: u }} style={{ width: 120, height: 78, borderRadius: 12 }} />
+          </Pressable>
+        ))}</View>}
+        {viewing !== null && photos ? <PhotoViewer urls={photos} start={viewing} onClose={() => setViewing(null)} /> : null}
         {children}
       </View>
       {reorder && (

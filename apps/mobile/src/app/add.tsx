@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { PhotoViewer } from '@/lib/PhotoViewer';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { getMemory, listMembers, listPlaces, parseTasksAI, resolveWhere, softDelete, statusFor, updateMemory, updateMemoryFields, type Where, aiAvailable } from '@/lib/api';
+import { getMemory, listMembers, listPhotoUrls, listPlaces, parseTasksAI, resolveWhere, softDelete, statusFor, updateMemory, updateMemoryFields, type Where, aiAvailable } from '@/lib/api';
 import { Chip } from '@/lib/Chip';
 import { TodoAlerts } from '@/lib/TodoAlerts';
 import { TodoDetails } from '@/lib/TodoDetails';
@@ -47,6 +48,8 @@ export default function Add() {
   const [details, setDetails] = useState<Details>(() => detailsOf(null));
   const [showMore, setShowMore] = useState(false);
   const [uris, setUris] = useState<string[]>([]);
+  const [existing, setExisting] = useState<string[]>([]);
+  const [viewing, setViewing] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [smart, setSmart] = useState(true);
@@ -65,6 +68,7 @@ export default function Add() {
 
   useEffect(() => {
     if (!editId) return;
+    listPhotoUrls([editId]).then((map) => setExisting(map[editId] ?? [])).catch(() => {});
     getMemory(editId).then((m) => {
       if (!m) return;
       setMemory(m);
@@ -260,6 +264,16 @@ export default function Add() {
       <SectionLabel>{t('sheet.when')}</SectionLabel>
       <WhenPicker value={due} onChange={setDue} />
       <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} placeFixed={where.kind === 'hit' || (where.kind === 'place' && places.find((p) => p.id === where.placeId)?.kind === 'fixed')} />
+      {editId && existing.length > 0 && (
+        <View style={styles.row}>
+          {existing.map((u, i) => (
+            <Pressable key={u} accessibilityRole="imagebutton" accessibilityLabel={`${t('photo.view')}: ${t('photo.of', { n: i + 1, total: existing.length })}`} onPress={() => setViewing(i)}>
+              <Image source={{ uri: u }} style={{ width: 120, height: 78, borderRadius: 12 }} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+      {viewing !== null ? <PhotoViewer urls={existing} start={viewing} onClose={() => setViewing(null)} /> : null}
       {!editId && (
         <View style={styles.row}>
           <Btn small label={t('photo.take')} onPress={() => pick(true)} />

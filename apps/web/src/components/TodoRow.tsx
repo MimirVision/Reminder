@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { PhotoViewer } from './PhotoViewer';
 import { Avatar } from './Avatar';
 import { progress, toggleItem } from '../lib/checklist';
 import type { ChecklistItem } from '../lib/types';
@@ -17,6 +18,7 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
   onToggle: () => void; onEdit: () => void; onDelete?: () => void; onReschedule?: () => void; onChecklist?: (items: ChecklistItem[]) => void; reorder?: { up?: () => void; down?: () => void }; select?: { on: boolean; toggle: () => void }; cursor?: boolean; draggable?: boolean; children?: ReactNode;
 }) {
   const { t } = useI18n();
+  const [viewing, setViewing] = useState<number | null>(null);
   const title = m.body || t('todo.photo');
   const steps = m.checklist ?? [];
   const prog = progress(steps);
@@ -65,7 +67,10 @@ export function TodoRow({ m, photos, done, due, dueLate, place, forName, author,
           </ul>
         )}
         {photos && photos.length > 0 && (
-          <div className="photos">{photos.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" loading="lazy" /></a>)}</div>
+          <div className="photos">{photos.map((u, n) => <button key={u} type="button" className="photo-btn" aria-label={`${t('photo.view')}: ${t('photo.of', { n: n + 1, total: photos.length })}`} onClick={() => setViewing(n)}><img src={u} alt="" loading="lazy" /></button>)}</div>
+        )}
+        {viewing !== null && photos && (
+          <PhotoViewer urls={photos} start={viewing} onClose={() => setViewing(null)} />
         )}
         {children}
       </div>

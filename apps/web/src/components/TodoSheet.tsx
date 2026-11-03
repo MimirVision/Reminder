@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { PhotoViewer } from './PhotoViewer';
 import { addMemory, aiAvailable, notifyPartnerIfSet, parseTasksAI, resolveWhere, updateMemoryFields, uploadPhoto, type Where } from '../lib/api';
 import { categoryName, placeLabel } from '../lib/labels';
 import { isNetworkError } from '../lib/outbox';
@@ -30,6 +31,7 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
   const partner = members.find((m) => m.user_id !== userId) ?? null;
   const [forId, setForId] = useState<string | null>(memory?.assignee_id ?? null);
   const [pinned, setPinned] = useState(!!memory?.pinned);
@@ -208,7 +210,8 @@ export function TodoSheet({ household, places, members = [], userId = '', memory
         <div className="label">{t('sheet.when')}</div>
         <WhenField value={due} onChange={setDue} />
         <TodoAlerts value={details} onChange={setDetails} hasDate={!!due.due_on} hasTime={!!due.due_time} hasPlace={where.kind !== 'none'} placeFixed={where.kind === 'hit' || (where.kind === 'place' && places.find((p) => p.id === where.placeId)?.kind === 'fixed')} />
-        {(photos?.length ?? 0) > 0 && <div className="photos">{photos!.map((u) => <img key={u} src={u} alt="" />)}</div>}
+        {(photos?.length ?? 0) > 0 && <div className="photos">{photos!.map((u, n) => <button key={u} type="button" className="photo-btn" aria-label={`${t('photo.view')}: ${t('photo.of', { n: n + 1, total: photos!.length })}`} onClick={() => setViewing(n)}><img src={u} alt="" /></button>)}</div>}
+        {viewing !== null && photos && <PhotoViewer urls={photos} start={viewing} onClose={() => setViewing(null)} />}
         <div className="row"><label className="chipbtn">
           <Icon name="camera" size={16} /> {files.length > 0 ? tn('sheet.photos', files.length) : t('sheet.photo')}
           <input type="file" accept="image/*" multiple hidden onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />

@@ -1070,5 +1070,11 @@
   "cost.fromAppliance": "The price of the appliance",
   "cond.logCost": "Log a cost",
   "cond.spent": "Spent so far",
-  "weather.ownerMe": "me"
+  "weather.ownerMe": "me",
+  "photo.view": "Open photo",
+  "photo.close": "Close photo",
+  "photo.of": "Photo {n} of {total}",
+  "photo.prev": "Previous photo",
+  "photo.next": "Next photo",
+  "photo.newTab": "Open in a new tab"
 }

@@ -602,3 +602,12 @@ h3.sub:first-of-type { margin-top: 4px; }
 .cost-bars i { display: block; width: 100%; background: var(--accent); border-radius: 6px 6px 0 0; min-height: 2px; }
 .cost-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .cost-amount { font-weight: 700; white-space: nowrap; }
+
+.photos .photo-btn { border: 0; padding: 0; background: none; cursor: zoom-in; border-radius: 12px; line-height: 0; }
+.lightbox { position: fixed; inset: 0; z-index: 400; background: rgba(0, 0, 0, 0.92); display: grid; place-items: center; padding: 56px 12px 12px; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+.lightbox-bar { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: max(10px, env(safe-area-inset-top)) 14px 10px; color: #fff; font: 600 14px var(--font-body); }
+.lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, 0.22); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.lightbox-nav.prev { left: 10px; transform: translateY(-50%) scaleX(-1); }
+.lightbox-nav.next { right: 10px; }
+.lightbox .btn { background: rgba(255, 255, 255, 0.22); color: #fff; border-color: transparent; }

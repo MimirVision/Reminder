@@ -1070,5 +1070,11 @@
   "cost.fromAppliance": "Prisen på apparatet",
   "cond.logCost": "Registrer utgift",
   "cond.spent": "Brukt så langt",
-  "weather.ownerMe": "meg"
+  "weather.ownerMe": "meg",
+  "photo.view": "Åpne bilde",
+  "photo.close": "Lukk bilde",
+  "photo.of": "Bilde {n} av {total}",
+  "photo.prev": "Forrige bilde",
+  "photo.next": "Neste bilde",
+  "photo.newTab": "Åpne i ny fane"
 }
