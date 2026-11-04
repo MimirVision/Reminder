@@ -74,7 +74,8 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [trash, setTrash] = useState(false);
   const [houseDue, setHouseDue] = useState(0);
   const [warranties, setWarranties] = useState<{ name: string; days: number }[]>([]);
-  const weather = useWeather(household.id);
+  const reloadRef = useRef<() => void>(() => {});
+  const weather = useWeather(household.id, () => reloadRef.current());
   const [cursor, setCursor] = useState<string | null>(null);
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   const [filter, setFilter] = useState<Filter>(noFilter);
@@ -127,6 +128,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
       } else setErr(e instanceof Error ? e.message : String(e));
     }
   }, [household.id, showDone]);
+  reloadRef.current = () => { void load(); };
   const loadPlaces = useCallback(() => { listPlaces(household.id).then((p) => { setPlaces(p); setPlacesLoaded(true); }).catch(() => setPlacesLoaded(true)); }, [household.id]);
 
   useEffect(() => { void load(); }, [load]);

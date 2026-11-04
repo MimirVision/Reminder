@@ -1137,5 +1137,7 @@
   "set.sec.data.sub": "Eksport, personvern og sletting",
   "set.sec.advanced": "Avansert",
   "set.sec.advanced.sub": "Hurtigtaster, synkronisering og appoppdateringer",
-  "set.back": "Innstillinger"
+  "set.back": "Innstillinger",
+  "weather.makeTodos": "Legg sjekklisten i to-do-listen min",
+  "weather.makeTodosHelp": "Når påminnelsen kommer, blir hvert punkt en to-do med frist den dagen (merket vær), så du kan krysse dem av. Én gang per periode."
 }

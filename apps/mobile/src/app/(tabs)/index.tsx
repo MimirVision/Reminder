@@ -63,7 +63,8 @@ export default function Todo() {
   const [trash, setTrash] = useState(false);
   const [houseDue, setHouseDue] = useState(0);
   const [warranties, setWarranties] = useState<{ name: string; days: number }[]>([]);
-  const weather = useWeatherCard(household?.id);
+  const reloadRef = useRef<() => void>(() => {});
+  const weather = useWeatherCard(household?.id, () => reloadRef.current());
   const [schemaBad, setSchemaBad] = useState(false);
   const [offline, setOffline] = useState(false);
   const [recapOn, setRecapOn] = useState(() => readJson<boolean>('hm.recap', false));
@@ -120,6 +121,7 @@ export default function Todo() {
     if (latest) void scheduleLeaveReminders(latest.m, latest.p, mp.here, mp.pins);
     setQueued(pending().length);
   }, [household, uid]);
+  reloadRef.current = () => { void load(); };
 
   useEffect(() => { void load(); }, [load]);
   const checkSchema = useCallback(() => { schemaProblem().then((p) => { setSchemaBad(!!p); writeJson('hm.schemaBad', !!p); }).catch(() => {}); }, []);

@@ -7,7 +7,7 @@ import type { Hit } from '../shared/lib/placeSearch';
 import type { DetailFields } from '../shared/lib/details';
 import type { ConditionItem, ConditionSeedItem } from '../shared/lib/condition';
 import type { CaptureKey, HouseFact, HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Member, Memory, Place, Suggestion } from './types';
-import type { WeatherDone, WeatherPlace, WeatherRule } from '../shared/lib/weather';
+import type { WeatherDone, WeatherMade, WeatherPlace, WeatherRule } from '../shared/lib/weather';
 import type { Appliance, Contact, CostEvent, HouseCost } from '../shared/lib/register';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -467,7 +467,7 @@ export async function saveWeatherRule(householdId: string, rule: Omit<WeatherRul
   const { id, ...rest } = rule;
   const row: Record<string, unknown> = { ...rest, household_id: householdId };
   // Columns added by migration 0022 are only sent when used, so rules still save before upgrade.sql has been run again.
-  if (!id) { if (row.owner_id == null) delete row.owner_id; if (row.lead !== 'hours_before') delete row.lead_hours; if (row.place_id == null) delete row.place_id; }
+  if (!id) { if (row.owner_id == null) delete row.owner_id; if (row.lead !== 'hours_before') delete row.lead_hours; if (row.place_id == null) delete row.place_id; if (row.make_todos !== false) delete row.make_todos; }
   check(id ? await supabase.from('weather_rules').update(row).eq('id', id) : await supabase.from('weather_rules').insert(row));
 }
 
@@ -538,4 +538,23 @@ export async function saveWeatherPlace(householdId: string, p: Omit<WeatherPlace
 }
 export async function deleteWeatherPlace(id: string): Promise<void> {
   check(await supabase.from('weather_places').delete().eq('id', id));
+}
+
+// ---- Weather to-dos --------------------------------------------------------------------------------------------------------------
+export async function listWeatherMade(householdId: string, fromDate: string): Promise<WeatherMade[]> {
+  return check(await supabase.from('weather_made').select('rule_id, for_date, memory_ids').eq('household_id', householdId).gte('for_date', fromDate).limit(200))
+    .map((r: Record<string, unknown>) => ({ rule_id: r.rule_id as string, for_date: r.for_date as string, memory_ids: Array.isArray(r.memory_ids) ? (r.memory_ids as string[]) : [] }));
+}
+
+/** Claims the right to make the to-dos of one alert. True: it is yours to make. False: the other phone (or an earlier run) already has. */
+export async function claimWeatherMade(householdId: string, ruleId: string, forDate: string, memoryIds: string[]): Promise<boolean> {
+  const { error } = await supabase.from('weather_made').insert({ rule_id: ruleId, household_id: householdId, for_date: forDate, memory_ids: memoryIds });
+  if (!error) return true;
+  if (/duplicate key|23505/.test(`${error.message} ${(error as { code?: string }).code ?? ''}`)) return false;
+  throw new Error(error.message);
+}
+
+export async function listMemoryStatuses(ids: string[]): Promise<{ id: string; body: string; status: string }[]> {
+  if (ids.length === 0) return [];
+  return check(await supabase.from('memories').select('id, body, status').in('id', ids).limit(200));
 }

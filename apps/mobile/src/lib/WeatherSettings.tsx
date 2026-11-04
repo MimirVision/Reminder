@@ -270,6 +270,10 @@ function RuleModal({ draft, members, me, others, onClose, onSave, onDelete }: { 
           </View>
           {others.length > 0 && <Select<string | null> label={t('weather.place')} value={d.place_id ?? null} options={[{ value: null, label: t('weather.placeHome') }, ...others.map((p) => ({ value: p.id as string | null, label: p.name }))]} onChange={(v) => set('place_id', v)} />}
           {members.length > 1 && <Select<string | null> label={t('weather.owner')} value={d.owner_id ?? null} options={[{ value: null, label: t('weather.owner.both') }, ...members.map((m) => ({ value: m.user_id as string | null, label: m.user_id === me ? t('weather.owner.me') : t('weather.owner.other', { name: m.display_name ?? '?' }) }))]} onChange={(v) => set('owner_id', v)} />}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 48, marginTop: 6 }}>
+            <View style={{ flex: 1 }}><Text style={{ color: th.ink, fontFamily: font.semi, fontSize: 16 }}>{t('weather.makeTodos')}</Text><Muted>{t('weather.makeTodosHelp')}</Muted></View>
+            <Switch value={d.make_todos !== false} accessibilityLabel={t('weather.makeTodos')} onValueChange={(v) => set('make_todos', v)} />
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, marginTop: 6 }}>
             <Text style={{ flex: 1, color: th.ink, fontFamily: font.body, fontSize: 16 }}>{t('weather.followUp')}</Text>
             <Switch value={d.follow_up} accessibilityLabel={t('weather.followUp')} onValueChange={(v) => set('follow_up', v)} />

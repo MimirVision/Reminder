@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql', '0022_house_register.sql', '0023_weather_places.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql', '0022_house_register.sql', '0023_weather_places.sql', '0024_weather_todos.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -604,6 +604,25 @@ for (const t of ['post_alert_accounts', 'post_alert_seen', 'post_alert_devices',
   await as(A, async () => {
     await db.query(`delete from weather_places where id = $1`, [pid]);
     assert.equal((await db.query(`select place_id from weather_rules where name = 'Cabin frost'`)).rows[0].place_id, null, 'deleting a place only unlinks the rule');
+  });
+}
+
+// 0024: weather to-dos are made once per alert.
+{
+  let rid;
+  await as(A, async () => {
+    rid = (await db.query(`insert into weather_rules (household_id, name, scenario) values ($1, 'Rain todos', 'rain') returning id`, [hid])).rows[0].id;
+    assert.equal((await db.query(`select make_todos from weather_rules where id = $1`, [rid])).rows[0].make_todos, true, 'on by default');
+    await db.query(`insert into weather_made (rule_id, household_id, for_date, memory_ids) values ($1, $2, '2026-11-10', array[gen_random_uuid()])`, [rid, hid]);
+    await rejects(() => db.query(`insert into weather_made (rule_id, household_id, for_date) values ($1, $2, '2026-11-10')`, [rid, hid]), /duplicate key|unique/);
+  });
+  await as(C, async () => {
+    assert.equal((await db.query(`select * from weather_made`)).rows.length, 0, 'a stranger sees nothing');
+    await rejects(() => db.query(`insert into weather_made (rule_id, household_id, for_date) values ($1, $2, '2026-11-11')`, [rid, hid]), /row-level security/);
+  });
+  await as(A, async () => {
+    await db.query(`delete from weather_rules where id = $1`, [rid]);
+    assert.equal((await db.query(`select * from weather_made where rule_id = $1`, [rid])).rows.length, 0, 'deleting a rule removes its record');
   });
 }
 

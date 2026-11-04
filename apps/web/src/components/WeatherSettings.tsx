@@ -207,6 +207,7 @@ function RuleSheet({ draft, members, userId, others, onClose, onSave, onDelete }
           <option value="">{t('weather.owner.both')}</option>
           {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.user_id === userId ? t('weather.owner.me') : t('weather.owner.other', { name: m.display_name ?? '?' })}</option>)}
         </select></label>
+      <label className="row spread"><span><strong>{t('weather.makeTodos')}</strong><span className="muted" style={{ display: 'block' }}>{t('weather.makeTodosHelp')}</span></span><input type="checkbox" className="switch" checked={d.make_todos !== false} aria-label={t('weather.makeTodos')} onChange={(e) => set('make_todos', e.target.checked)} /></label>
       <label className="row spread"><span>{t('weather.followUp')}</span><input type="checkbox" className="switch" checked={d.follow_up} onChange={(e) => set('follow_up', e.target.checked)} /></label>
       <div className="row spread">
         {onDelete ? <button className="btn danger" onClick={() => void onDelete()}>{t('weather.delete')}</button> : <span />}

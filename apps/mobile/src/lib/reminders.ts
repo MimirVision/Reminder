@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import { listAppliances, listMemories, listPlaces, listWeatherDone, listWeatherPlaces, listWeatherRules } from './api';
+import { listAppliances, listMemories, listMemoryStatuses, listPlaces, listWeatherDone, listWeatherMade, listWeatherPlaces, listWeatherRules } from './api';
 import { warrantyReminders } from '../shared/lib/register';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
@@ -10,7 +10,7 @@ import { leadShort } from '../shared/lib/details';
 import { planBriefings } from '../shared/lib/briefing';
 import { pickLeaveReminders, travelMinutes, type LeaveCandidate } from '../shared/lib/leave';
 import { driveMatrix } from '../shared/lib/routing';
-import { alertTitle, buildAlerts, homeOf, isoOf, loadForecast, neededPlaces, notificationsFor, notificationBody, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherPlace, type WeatherRule } from '../shared/lib/weather';
+import { alertTitle, buildAlerts, doneFromTodos, homeOf, isoOf, loadForecast, mergeDone, neededPlaces, notificationsFor, notificationBody, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherMade, type WeatherPlace, type WeatherRule } from '../shared/lib/weather';
 import { needsRefresh, overpassQuery, parseOverpass, type PoiCache } from '../core/pois.ts';
 import { MAX_REGIONS, selectRegions } from '../core/regions.ts';
 import type { LatLon, MemoryRow, PlaceRow, Region } from '../core/types.ts';
@@ -310,18 +310,22 @@ export async function scheduleBriefings(all: (DueMemory & { assignee_id?: string
 }
 
 // ---- Weather reminders ---------------------------------------------------------------------------------------------------------
-export type WeatherState = { rules: WeatherRule[]; done: WeatherDone[]; places: WeatherPlace[]; home: WeatherPlace | null; forecasts: Record<string, DayForecast[]>; alerts: WeatherAlert[]; forecastError: string | null };
+export type WeatherState = { rules: WeatherRule[]; done: WeatherDone[]; made: WeatherMade[]; places: WeatherPlace[]; home: WeatherPlace | null; forecasts: Record<string, DayForecast[]>; alerts: WeatherAlert[]; forecastError: string | null };
 
 /** Rules, ticks, the places the weather is checked for and the forecast of each place a rule is on for (Home unless the rule names a place).
  *  No forecast request while no rule is on, or while Home has not been set in Settings. */
 export async function weatherState(householdId: string): Promise<WeatherState> {
   const today = isoOf(new Date());
-  const [rules, done, places] = await Promise.all([listWeatherRules(householdId), listWeatherDone(householdId, today), listWeatherPlaces(householdId)]);
+  const [rules, ticks, places] = await Promise.all([listWeatherRules(householdId), listWeatherDone(householdId, today), listWeatherPlaces(householdId)]);
+  // Items whose to-do (made from the alert) has been finished count as ticked off.
+  const made = await listWeatherMade(householdId, today).catch(() => [] as WeatherMade[]);
+  const statuses = await listMemoryStatuses(made.flatMap((m) => m.memory_ids)).catch(() => []);
+  const done = mergeDone(ticks, doneFromTodos(made, statuses));
   const forecasts: Record<string, DayForecast[]> = {};
   let forecastError: string | null = null;
   await Promise.all(neededPlaces(rules, places).map(async (p) => { try { forecasts[p.id] = await loadForecast(p.lat, p.lon); } catch (e) { forecastError = e instanceof Error ? e.message : String(e); } }));
   const me = readJson<string | null>(K.user, null);
-  return { rules, done, places, home: homeOf(places), forecasts, alerts: buildAlerts({ rules, places, forecasts, today, userId: me }), forecastError };
+  return { rules, done, made, places, home: homeOf(places), forecasts, alerts: buildAlerts({ rules, places, forecasts, today, userId: me }), forecastError };
 }
 
 /** The weather checklists ring at their time (the evening before, or that morning), plus one follow-up if not ticked off. Planned again on every load.

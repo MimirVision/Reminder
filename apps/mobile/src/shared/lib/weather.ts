@@ -15,10 +15,12 @@ export type DayForecast = { date: string; rainMm: number; snowCm: number; tMin: 
 export type WeatherRule = {
   id: string; household_id: string; name: string; scenario: Scenario; threshold: number | null; items: string[];
   lead: Lead; lead_hours: number; at_time: string; frequency: Frequency; dry_gap: number; quiet_days: number[]; paused_until: string | null;
-  follow_up: boolean; enabled: boolean; owner_id: string | null; place_id?: string | null;
+  follow_up: boolean; enabled: boolean; owner_id: string | null; place_id?: string | null; make_todos?: boolean;
 };
 /** Where the weather is checked: one Home (set in Settings) and any other places added there. */
 export type WeatherPlace = { id: string; household_id: string; name: string; address: string | null; lat: number; lon: number; is_home: boolean };
+/** Which alerts have already made their to-dos (and which to-dos), so that it happens once. */
+export type WeatherMade = { rule_id: string; for_date: string; memory_ids: string[] };
 export type WeatherDone = { rule_id: string; for_date: string; items: string[] };
 
 /** What a rule measures, its unit and the value used when none is chosen. */
@@ -127,10 +129,40 @@ export function planWeather(rule: WeatherRule, days: DayForecast[], today: strin
 }
 
 /** Alerts to show as a card now: they have rung (or would have) and the day is today or tomorrow. */
-export function activeAlerts(alerts: WeatherAlert[], now: Date, done: WeatherDone[]): WeatherAlert[] {
+export function activeAlerts(alerts: WeatherAlert[], now: Date, done: WeatherDone[], made: WeatherMade[] = []): WeatherAlert[] {
   const today = isoOf(now);
   const tomorrow = addDays(today, 1);
-  return alerts.filter((a) => a.at.getTime() <= now.getTime() && (a.forDate === today || a.forDate === tomorrow) && !allDone(a, done));
+  // An alert whose items became to-dos is done on the to-do list, so it is not also shown as a card.
+  return alerts.filter((a) => a.at.getTime() <= now.getTime() && (a.forDate === today || a.forDate === tomorrow) && !allDone(a, done) && !isMade(a, made));
+}
+
+export const isMade = (a: Pick<WeatherAlert, 'rule' | 'forDate'>, made: WeatherMade[]): boolean => made.some((m) => m.rule_id === a.rule.id && m.for_date === a.forDate);
+
+/** The alerts that should add their checklist to the to-do list now: it has rung (or would have), the weather day is today or tomorrow, the rule asks
+ *  for it (the default) and it has not been done yet. */
+export function todosToMake(alerts: WeatherAlert[], now: Date, made: WeatherMade[]): WeatherAlert[] {
+  const today = isoOf(now);
+  const tomorrow = addDays(today, 1);
+  return alerts.filter((a) => a.rule.make_todos !== false && a.rule.items.length > 0 && a.at.getTime() <= now.getTime() && (a.forDate === today || a.forDate === tomorrow) && !isMade(a, made));
+}
+
+/** One to-do per checklist item: due on the day the reminder rings, tagged "weather", with the reason in the notes. */
+export function todoRows(t: T, a: WeatherAlert): { body: string; due_on: string; notes: string; tags: string[] }[] {
+  const notes = `${alertTitle(a)}: ${reasonText(t, a)}`;
+  return a.rule.items.map((body) => ({ body, due_on: isoOf(a.at), notes, tags: ['weather'] }));
+}
+
+/** Ticks derived from the to-dos made for alerts: an item whose to-do has been finished counts as ticked off. */
+export function doneFromTodos(made: WeatherMade[], memories: { id: string; body: string; status: string }[]): WeatherDone[] {
+  const byId = new Map(memories.map((m) => [m.id, m]));
+  return made.map((m) => ({ rule_id: m.rule_id, for_date: m.for_date, items: m.memory_ids.map((id) => byId.get(id)).filter((x): x is { id: string; body: string; status: string } => !!x && (x.status === 'done' || x.status === 'dismissed')).map((x) => x.body) })).filter((d) => d.items.length > 0);
+}
+
+/** Two sets of ticks as one: what was ticked on the card and what was finished as a to-do. */
+export function mergeDone(a: WeatherDone[], b: WeatherDone[]): WeatherDone[] {
+  const by = new Map<string, WeatherDone>();
+  for (const d of [...a, ...b]) { const k = `${d.rule_id}|${d.for_date}`; const cur = by.get(k); by.set(k, { rule_id: d.rule_id, for_date: d.for_date, items: [...new Set([...(cur?.items ?? []), ...d.items])] }); }
+  return [...by.values()];
 }
 
 export const doneItems = (a: Pick<WeatherAlert, 'rule' | 'forDate'>, done: WeatherDone[]): string[] =>
@@ -249,7 +281,7 @@ export function starterRule(t: T, scenario: Scenario): RuleDraft {
   const items: string[] = [];
   for (let i = 1; i <= STARTER_ITEMS[scenario]; i++) items.push(t(`weather.starter.${scenario}.${i}` as Key));
   return {
-    name: t(`weather.starter.${scenario}.name` as Key), scenario, threshold: null, items, lead: scenario === 'frost' || scenario === 'heat' ? 'same_morning' : 'evening_before', lead_hours: 2,
+    name: t(`weather.starter.${scenario}.name` as Key), scenario, threshold: null, items, lead: scenario === 'frost' || scenario === 'heat' ? 'same_morning' : 'evening_before', lead_hours: 2, make_todos: true,
     at_time: scenario === 'frost' || scenario === 'heat' ? '07:30' : '18:00', frequency: 'spell', dry_gap: 2, quiet_days: [], paused_until: null, follow_up: true, enabled: true, owner_id: null,
   };
 }

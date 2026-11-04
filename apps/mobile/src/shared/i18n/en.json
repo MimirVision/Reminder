@@ -1137,5 +1137,7 @@
   "set.sec.data.sub": "Export, privacy and deleting",
   "set.sec.advanced": "Advanced",
   "set.sec.advanced.sub": "Quick-add keys, sync and app updates",
-  "set.back": "Settings"
+  "set.back": "Settings",
+  "weather.makeTodos": "Add the checklist to my to-do list",
+  "weather.makeTodosHelp": "When the reminder comes, each item becomes a to-do due that day (tagged weather), so you can check them off. Once per spell."
 }

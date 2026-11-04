@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activeAlerts, alertTitle, buildAlerts, firstHour, homeOf, neededPlaces, nextAlert, placeFor, ruleIsFor, matchesDay, notificationBody, notificationsFor, parseForecast, planWeather, reasonText, ruleSummary, spellStarts, starterRule, type DayForecast, type WeatherRule } from './weather.ts';
+import { activeAlerts, alertTitle, doneFromTodos, mergeDone, todoRows, todosToMake, buildAlerts, firstHour, homeOf, neededPlaces, nextAlert, placeFor, ruleIsFor, matchesDay, notificationBody, notificationsFor, parseForecast, planWeather, reasonText, ruleSummary, spellStarts, starterRule, type DayForecast, type WeatherRule } from './weather.ts';
 
 const day = (date: string, o: Partial<DayForecast> = {}): DayForecast => ({ date, rainMm: 0, snowCm: 0, tMin: 5, tMax: 12, windMs: 3, code: 3, ...o });
 const rule = (o: Partial<WeatherRule> = {}): WeatherRule => ({
@@ -170,4 +170,27 @@ test('parseForecast reads the hourly block and the reason shows the hour', async
   const a = planWeather(rule(), [day('2026-10-26'), days[0]], '2026-10-26')[0];
   assert.equal(reasonText(makeT('en'), a), 'Rain tomorrow, about 6 mm, from 14:00');
   assert.equal(reasonText(makeT('nb'), a), 'Regn i morgen, rundt 6 mm, fra kl. 14:00');
+});
+
+test('weather to-dos: made once the alert has rung, one per item, due the day it rings, hidden as a card, ticked by finishing them', async () => {
+  const { makeT } = await import('../i18n/core.ts');
+  const alerts = planWeather(rule({ items: ['Pillows', 'Sandpit'] }), week, '2026-10-26');
+  const before = new Date(2026, 9, 26, 12, 0);
+  const after = new Date(2026, 9, 26, 19, 0);
+  assert.equal(todosToMake(alerts, before, []).length, 0, 'not before the reminder rings');
+  const make = todosToMake(alerts, after, []);
+  assert.equal(make.length, 1);
+  const rows = todoRows(makeT('en'), make[0]);
+  assert.deepEqual(rows.map((r) => r.body), ['Pillows', 'Sandpit']);
+  assert.equal(rows[0].due_on, '2026-10-26', 'due on the evening it rings, not on the rainy day');
+  assert.deepEqual(rows[0].tags, ['weather']);
+  assert.match(rows[0].notes, /^Rain: Rain tomorrow, about 6 mm/);
+  const made = [{ rule_id: 'r1', for_date: '2026-10-27', memory_ids: ['m1', 'm2'] }];
+  assert.equal(todosToMake(alerts, after, made).length, 0, 'once only');
+  assert.equal(todosToMake(planWeather(rule({ make_todos: false }), week, '2026-10-26'), after, []).length, 0, 'the rule can opt out');
+  assert.equal(activeAlerts(alerts, after, [], made).length, 0, 'no card once the to-dos exist');
+  assert.equal(activeAlerts(alerts, after, [], []).length, 1);
+  const d = doneFromTodos(made, [{ id: 'm1', body: 'Pillows', status: 'done' }, { id: 'm2', body: 'Sandpit', status: 'active' }]);
+  assert.deepEqual(d, [{ rule_id: 'r1', for_date: '2026-10-27', items: ['Pillows'] }]);
+  assert.deepEqual(mergeDone(d, [{ rule_id: 'r1', for_date: '2026-10-27', items: ['Sandpit'] }]), [{ rule_id: 'r1', for_date: '2026-10-27', items: ['Pillows', 'Sandpit'] }]);
 });
