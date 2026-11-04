@@ -9,6 +9,8 @@ export type PlaceVisitState = { inside: boolean; lastNotifiedAt: number | null; 
 export type SurfaceState = Record<string, PlaceVisitState>;
 
 export type Notice = { placeId: string; label: string; memoryIds: string[]; title: string; body: string };
+/** Why an event did or did not ring, for the place-events log in Settings. */
+export type Outcome = 'rang' | 'not-inside' | 'cooldown' | 'nothing-due';
 
 // The words in a notification, so the caller can supply Norwegian; English by default.
 export type Words = { near: (label: string) => string; more: (n: number) => string; photo: string; leaving?: (label: string) => string };
@@ -32,7 +34,7 @@ export function onRegionEvent(args: {
   state: SurfaceState;
   now: number;
   words?: Words;
-}): { notice: Notice | null; state: SurfaceState } {
+}): { notice: Notice | null; state: SurfaceState; outcome: Outcome } {
   const prev = args.state[args.placeId] ?? { inside: false, lastNotifiedAt: null };
 
   const awake = (m: MemoryRow) => m.status === 'active' && m.place_id === args.placeId && (m.snoozed_until == null || new Date(m.snoozed_until).getTime() <= args.now);
@@ -44,14 +46,15 @@ export function onRegionEvent(args: {
     const wasInside = id ? (prev.insideIds ? prev.insideIds.includes(id) : prev.inside) : prev.inside;
     const remaining = id ? (prev.insideIds ?? []).filter((x) => x !== id) : [];
     const out: PlaceVisitState = { ...prev, inside: remaining.length > 0, insideIds: remaining };
-    if (!wasInside) return { notice: null, state: { ...args.state, [args.placeId]: out } };
+    if (!wasInside) return { notice: null, state: { ...args.state, [args.placeId]: out }, outcome: 'not-inside' };
     const leaveDue = args.memories.filter((m) => awake(m) && m.place_trigger === 'leave');
     const cooling = prev.lastLeaveNotifiedAt != null && args.now - prev.lastLeaveNotifiedAt < PLACE_COOLDOWN_MS;
-    if (cooling || leaveDue.length === 0) return { notice: null, state: { ...args.state, [args.placeId]: out } };
+    if (cooling || leaveDue.length === 0) return { notice: null, state: { ...args.state, [args.placeId]: out }, outcome: cooling ? 'cooldown' : 'nothing-due' };
     out.lastLeaveNotifiedAt = args.now;
     return {
       notice: { placeId: args.placeId, label: args.label, memoryIds: leaveDue.map((m) => m.id), ...notificationText(args.label, leaveDue, args.words, true) },
       state: { ...args.state, [args.placeId]: out },
+      outcome: 'rang',
     };
   }
 
@@ -60,12 +63,13 @@ export function onRegionEvent(args: {
   const due = args.memories.filter((m) => awake(m) && m.place_trigger !== 'leave');
 
   if (cooling || due.length === 0) {
-    return { notice: null, state: { ...args.state, [args.placeId]: next } };
+    return { notice: null, state: { ...args.state, [args.placeId]: next }, outcome: cooling ? 'cooldown' : 'nothing-due' };
   }
 
   next.lastNotifiedAt = args.now;
   return {
     notice: { placeId: args.placeId, label: args.label, memoryIds: due.map((m) => m.id), ...notificationText(args.label, due, args.words) },
     state: { ...args.state, [args.placeId]: next },
+    outcome: 'rang',
   };
 }

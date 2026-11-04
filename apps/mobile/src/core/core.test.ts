@@ -172,10 +172,12 @@ test('"when I leave" set up beforehand: an exit with no arrival first (iOS repor
   const t0 = Date.parse('2026-10-08T08:00:00Z');
   const spurious = onRegionEvent({ ...base, type: 'exit', state: {}, now: t0 });
   assert.equal(spurious.notice, null, 'not there yet, so not leaving');
+  assert.equal(spurious.outcome, 'not-inside');
   const arrived = onRegionEvent({ ...base, type: 'enter', state: spurious.state, now: t0 + 60_000 });
   assert.equal(arrived.notice, null, 'arriving does not ring a leave to-do');
   const left = onRegionEvent({ ...base, type: 'exit', state: arrived.state, now: t0 + 3600_000 });
   assert.deepEqual(left.notice?.memoryIds, ['d'], 'arrived first, then left: it rings');
+  assert.equal(left.outcome, 'rang');
   const again = onRegionEvent({ ...base, type: 'exit', state: left.state, now: t0 + 3600_000 + PLACE_COOLDOWN_MS + 1 });
   assert.equal(again.notice, null, 'a second exit without arriving again is silent');
 });

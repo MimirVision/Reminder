@@ -10,7 +10,7 @@ import { checkAndFetch, restartApp, runningUpdate, type UpdateResult } from '@/l
 import { WeatherRules } from '@/lib/WeatherRules';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
 import { failedItems, pending } from '@/lib/outbox';
-import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, plannedNotifications, readBriefing, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
+import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, plannedNotifications, readBriefing, readGeoLog, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
 import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
@@ -37,6 +37,7 @@ export default function Settings() {
   const [brief, setBrief] = useState(readBriefing);
   const run = runningUpdate();
   const [upd, setUpd] = useState<UpdateResult | null>(null);
+  const [geoLog, setGeoLog] = useState(readGeoLog);
   const [checking, setChecking] = useState(false);
   const [lastSync, setLastSync] = useState(() => readJson<number | null>('hm.lastSync', null));
   const [planned, setPlanned] = useState<{ id: string; at: Date; title: string }[]>([]);
@@ -164,7 +165,11 @@ export default function Settings() {
             {n.at.toLocaleString(locale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {n.title}
           </Text>
         ))}
-        <Btn small label={t('diag.refresh')} onPress={() => { setLastSync(readJson<number | null>('hm.lastSync', null)); void plannedNotifications().then(setPlanned); }} />
+        <SectionLabel>{t('geo.title')}</SectionLabel>
+        {geoLog.length === 0 ? <Muted>{t('geo.none')}</Muted> : geoLog.slice(0, 8).map((e, i) => (
+          <Muted key={`${e.at}-${i}`}>{new Date(e.at).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {e.kind === 'enter' ? t('geo.enter', { label: e.label || '…' }) : e.kind === 'exit' ? (e.label ? t('geo.exit', { label: e.label }) : t('geo.exit', { label: '…' })) : e.kind === 'error' ? t('geo.error') : t('geo.watch')} · {e.outcome.startsWith('watching:') ? t('geo.watching', { n: Number(e.outcome.slice(9)) }) : e.kind === 'error' ? e.outcome : t(`geo.o.${e.outcome}` as 'geo.o.rang')}</Muted>
+        ))}
+        <Btn small label={t('diag.refresh')} onPress={() => { setLastSync(readJson<number | null>('hm.lastSync', null)); setGeoLog(readGeoLog()); void plannedNotifications().then(setPlanned); }} />
       </Card>
 
       <Card>

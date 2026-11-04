@@ -1076,5 +1076,19 @@
   "photo.of": "Photo {n} of {total}",
   "photo.prev": "Previous photo",
   "photo.next": "Next photo",
-  "photo.newTab": "Open in a new tab"
+  "photo.newTab": "Open in a new tab",
+  "geo.title": "Place events",
+  "geo.none": "Nothing yet. It fills in when the phone sees you arrive at or leave a place that has a reminder.",
+  "geo.enter": "Arrived at {label}",
+  "geo.exit": "Left {label}",
+  "geo.watch": "Watching",
+  "geo.error": "Error",
+  "geo.o.rang": "reminder sent",
+  "geo.o.not-inside": "no reminder: no arrival seen first",
+  "geo.o.cooldown": "no reminder: one was sent a short while ago",
+  "geo.o.nothing-due": "nothing to remind here",
+  "geo.o.refreshed": "woke the app, refreshed the watched places",
+  "geo.o.no-access": "not watching: location is not set to Always",
+  "geo.watching": "{n} places watched",
+  "geo.o.caught-up": "reminder sent a little late: the leaving was missed and found when you were further away"
 }

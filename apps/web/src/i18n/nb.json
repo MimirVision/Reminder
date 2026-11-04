@@ -1076,5 +1076,19 @@
   "photo.of": "Bilde {n} av {total}",
   "photo.prev": "Forrige bilde",
   "photo.next": "Neste bilde",
-  "photo.newTab": "Åpne i ny fane"
+  "photo.newTab": "Åpne i ny fane",
+  "geo.title": "Stedshendelser",
+  "geo.none": "Ingenting ennå. Det fylles ut når telefonen ser at du kommer til eller drar fra et sted med en påminnelse.",
+  "geo.enter": "Kom til {label}",
+  "geo.exit": "Dro fra {label}",
+  "geo.watch": "Overvåker",
+  "geo.error": "Feil",
+  "geo.o.rang": "påminnelse sendt",
+  "geo.o.not-inside": "ingen påminnelse: ingen ankomst sett først",
+  "geo.o.cooldown": "ingen påminnelse: en ble sendt nylig",
+  "geo.o.nothing-due": "ingenting å minne om her",
+  "geo.o.refreshed": "vekket appen, oppdaterte stedene som overvåkes",
+  "geo.o.no-access": "overvåker ikke: posisjon er ikke satt til Alltid",
+  "geo.watching": "{n} steder overvåkes",
+  "geo.o.caught-up": "påminnelse sendt litt sent: avreisen ble ikke fanget opp og ble funnet da du var lenger unna"
 }

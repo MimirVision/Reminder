@@ -10,6 +10,7 @@ import { capture, flush } from '@/lib/outbox';
 import { uuid } from '@/lib/id';
 import { markDone } from '@/lib/api';
 import { checkAndFetch, restartApp } from '@/lib/appUpdate';
+import { catchUpExits } from '@/lib/geoEvents';
 import { refreshRegions, setupNotificationCategories } from '@/lib/reminders';
 import { useTheme } from '@/lib/theme';
 import { I18nProvider, useI18n } from '@/lib/i18n';
@@ -53,7 +54,7 @@ function Gate() {
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') {
         void flush();
-        void refreshRegions().catch(() => {});
+        void catchUpExits().then(() => refreshRegions()).catch(() => {});
         lookForUpdate();
       }
     });

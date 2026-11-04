@@ -30,6 +30,17 @@ const K = {
   surface: 'hm.surfaceState',
 };
 
+// A short log of what the phone saw at places (arriving, leaving, and whether it rang or why not), so a missed reminder can be traced in Settings.
+export type GeoLogEntry = { at: number; kind: 'enter' | 'exit' | 'watch' | 'error'; label: string; outcome: string };
+const GEO_LOG = 'hm.geoLog';
+export const readGeoLog = (): GeoLogEntry[] => readJson<GeoLogEntry[]>(GEO_LOG, []);
+export function logGeo(e: Omit<GeoLogEntry, 'at'>) {
+  const log = readGeoLog();
+  const last = log[0];
+  if (e.kind === 'watch' && last && last.kind === 'watch' && last.outcome === e.outcome) return; // the same "watching N places" again is not news
+  writeJson(GEO_LOG, [{ at: Date.now(), ...e }, ...log].slice(0, 40));
+}
+
 export type Snapshot = { places: PlaceRow[]; memories: MemoryRow[] };
 
 export const rememberHousehold = (id: string) => writeJson(K.household, id);
@@ -129,7 +140,7 @@ export async function refreshRegions(): Promise<{ watching: number }> {
 
   // The list snapshot and shop lookups above also feed the in-app "Are you here?" bar, which only needs
   // foreground location. Registering background geofences needs "Always" + notifications.
-  if (!(await hasBackgroundAccess())) return { watching: 0 };
+  if (!(await hasBackgroundAccess())) { logGeo({ kind: 'watch', label: '', outcome: 'no-access' }); return { watching: 0 }; }
 
   const watched = regions.map((r) => ({
     identifier: r.identifier,
@@ -154,6 +165,7 @@ export async function refreshRegions(): Promise<{ watching: number }> {
   } else {
     await Location.startGeofencingAsync(GEOFENCE_TASK, watched);
   }
+  logGeo({ kind: 'watch', label: '', outcome: `watching:${regions.length}` });
   return { watching: regions.length };
 }
 
