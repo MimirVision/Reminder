@@ -4,6 +4,8 @@ import * as Notifications from 'expo-notifications';
 import { ActionSheetIOS, Alert, Modal, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deleteWeatherPlace, deleteWeatherRule, listMembers, saveWeatherPlace, saveWeatherRule } from './api';
+import { uuid } from './id';
+import { capture } from './outbox';
 import { Chip } from './Chip';
 import { useI18n } from './i18n';
 import { ensureNotifyPermission, weatherState, type WeatherState } from './reminders';
@@ -136,7 +138,12 @@ export function WeatherSettings({ householdId, onChanged }: { householdId: strin
   const sendTest = async (r: WeatherRule) => {
     if (!(await ensureNotifyPermission())) return Alert.alert(t('set.notifDenied'));
     await Notifications.scheduleNotificationAsync({ content: { title: r.name, body: r.items.join(' · ') }, trigger: null });
-    Alert.alert(t('weather.testSent'));
+    // The test also makes the checklist's to-dos (without using up the real alert's one go), so you can see what you will get.
+    if (r.make_todos !== false) {
+      const notes = `${r.name}: ${t('weather.test')}`;
+      for (const item of r.items) await capture({ id: uuid(), household_id: householdId, body: item, place_id: null, capture_lat: null, capture_lon: null, due_on: today, notes, tags: ['weather'], photoUris: [] });
+    }
+    Alert.alert(r.make_todos !== false ? t('weather.testSentTodos') : t('weather.testSent'));
   };
 
   if (needsUpgrade) return <Card><Text style={{ color: th.danger, fontFamily: font.body, fontSize: 15 }}>{t('weather.noTable')}</Text></Card>;

@@ -1139,5 +1139,6 @@
   "set.sec.advanced.sub": "Hurtigtaster, synkronisering og appoppdateringer",
   "set.back": "Innstillinger",
   "weather.makeTodos": "Legg sjekklisten i to-do-listen min",
-  "weather.makeTodosHelp": "Når påminnelsen kommer, blir hvert punkt en to-do med frist den dagen (merket vær), så du kan krysse dem av. Én gang per periode."
+  "weather.makeTodosHelp": "Når påminnelsen kommer, blir hvert punkt en to-do med frist den dagen (merket vær), så du kan krysse dem av. Én gang per periode.",
+  "weather.testSentTodos": "En testpåminnelse er på vei, og sjekklisten ble lagt i to-do-listen din (merket vær). Slett dem når du har sett dem."
 }

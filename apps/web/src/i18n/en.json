@@ -1139,5 +1139,6 @@
   "set.sec.advanced.sub": "Quick-add keys, sync and app updates",
   "set.back": "Settings",
   "weather.makeTodos": "Add the checklist to my to-do list",
-  "weather.makeTodosHelp": "When the reminder comes, each item becomes a to-do due that day (tagged weather), so you can check them off. Once per spell."
+  "weather.makeTodosHelp": "When the reminder comes, each item becomes a to-do due that day (tagged weather), so you can check them off. Once per spell.",
+  "weather.testSentTodos": "A test reminder is on its way, and its checklist was added to your to-dos (tagged weather). Delete them when you have seen them."
 }
