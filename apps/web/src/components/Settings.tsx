@@ -1,23 +1,34 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, rotateInviteCode, type CaptureKey } from '../lib/api';
 import { applyGlass, getGlass, GLASS_LEVELS, type GlassLevel } from '../lib/glass';
 import { downloadExport } from '../lib/exportZip';
 import { ReminderLinks } from './ReminderLinks';
-import { WeatherRules } from './WeatherRules';
+import { WeatherSettings } from './WeatherSettings';
 import { inviteLink } from '../lib/invite';
 import { supabase } from '../lib/supabase';
 import type { Household } from '../lib/types';
 import { LanguageSwitch, useI18n } from '../i18n';
 import { ThemeSwitch } from '../theme';
 import { applyContrast, applyTextSize, getContrast, getTextSize, TEXT_SIZES, type Contrast, type TextSize } from '../lib/a11y';
+import { useDesktop } from '../lib/useDesktop';
 import { NotificationsControl } from './NotificationsControl';
+import { Icon } from './icons';
 
+type Section = 'reminders' | 'weather' | 'appearance' | 'household' | 'data' | 'advanced';
+const SECTIONS: { id: Section; icon: 'clock' | 'calendar' | 'settings' | 'house' | 'note' | 'filter' }[] = [
+  { id: 'reminders', icon: 'clock' }, { id: 'weather', icon: 'calendar' }, { id: 'appearance', icon: 'settings' },
+  { id: 'household', icon: 'house' }, { id: 'data', icon: 'note' }, { id: 'advanced', icon: 'filter' },
+];
+
+// Settings: a short list of areas, each opening its own page (on a computer the list stays on the left and the page opens on the right).
 export function Settings({ household }: { household: Household }) {
   const { t, lang, locale } = useI18n();
+  const desktop = useDesktop();
+  const [section, setSection] = useState<Section | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [keys, setKeys] = useState<CaptureKey[]>([]);
   const [label, setLabel] = useState(() => t('quick.defaultLabel'));
   const [fresh, setFresh] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
   const [glass, setGlass] = useState<GlassLevel>(getGlass);
   const [invite, setInvite] = useState(household.invite_code);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -40,32 +51,29 @@ export function Settings({ household }: { household: Household }) {
   }
 
   const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rpc/capture_memory`;
+  const current: Section | null = section ?? (desktop ? 'reminders' : null);
 
-  return (
-    <main className="page settings-page">
-      <h1>{t('set.title')}</h1>
-      {err && <p className="error">{err}</p>}
-
+  const pages: Record<Section, ReactNode> = {
+    reminders: (
+      <>
+        <section className="card">
+          <h2>{t('push.title')}</h2>
+          <span className="muted">{t('push.intro')}</span>
+          <NotificationsControl />
+        </section>
+        <ReminderLinks household={household} />
+        <section className="card">
+          <h2>{t('set.todoList')}</h2>
+          <label className="row spread">
+            <span><strong>{t('set.recap')}</strong><span className="muted" style={{ display: 'block' }}>{t('set.recapBody')}</span></span>
+            <input type="checkbox" className="switch" checked={recap} aria-label={t('set.recap')} onChange={(e) => { setRecap(e.target.checked); try { localStorage.setItem('hm.recap', e.target.checked ? '1' : '0'); } catch { /* ignore */ } }} />
+          </label>
+        </section>
+      </>
+    ),
+    weather: <WeatherSettings household={household} />,
+    appearance: (
       <section className="card">
-        <h2>{t('push.title')}</h2>
-        <span className="muted">{t('push.intro')}</span>
-        <NotificationsControl />
-      </section>
-
-      <ReminderLinks household={household} />
-
-      <WeatherRules household={household} />
-
-      <section className="card">
-        <h2>{t('set.todoList')}</h2>
-        <label className="row spread">
-          <span><strong>{t('set.recap')}</strong><span className="muted" style={{ display: 'block' }}>{t('set.recapBody')}</span></span>
-          <input type="checkbox" className="switch" checked={recap} aria-label={t('set.recap')} onChange={(e) => { setRecap(e.target.checked); try { localStorage.setItem('hm.recap', e.target.checked ? '1' : '0'); } catch { /* ignore */ } }} />
-        </label>
-      </section>
-
-      <section className="card">
-        <h2>{t('set.appearance')}</h2>
         <h3 className="sub">{t('set.language')}</h3>
         <LanguageSwitch />
         <h3 className="sub">{t('set.theme')}</h3>
@@ -93,9 +101,57 @@ export function Settings({ household }: { household: Household }) {
         <div className="glass previewbar">{t('glass.preview')}</div>
         <span className="muted">{t('glass.note')}</span>
       </section>
-
-      <details className="advanced">
-      <summary>{t('set.advanced')}</summary>
+    ),
+    household: (
+      <section className="card">
+        <h2>{t('hh.title')}</h2>
+        <span>{household.name}</span>
+        <span className="muted">{t('hh.invite')} <code>{invite}</code></span>
+        <div className="row">
+          <button className="btn small primary" onClick={async () => {
+            const link = inviteLink(window.location.origin, invite);
+            try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { window.prompt(t('hh.sendLink'), link); }
+          }}>{copied ? t('common.copied') : t('hh.copyLink')}</button>
+          <button className="btn small" onClick={() => confirm(t('hh.confirmNew')) && void run(async () => setInvite(await rotateInviteCode(household.id)))}>{t('hh.newCode')}</button>
+        </div>
+      </section>
+    ),
+    data: (
+      <>
+        <section className="card">
+          <h2>{t('data.title')}</h2>
+          <span className="muted">{t('data.intro')}</span>
+          <button className="btn" disabled={exportBusy} onClick={() => {
+            setExportBusy(true);
+            setExporting(t('data.starting'));
+            downloadExport(household.id, household.name, setExporting, t, lang)
+              .catch((e) => setExporting(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
+              .finally(() => setExportBusy(false));
+          }}>{t('data.export')}</button>
+          {exporting && <span className="muted" role="status">{exporting}</span>}
+        </section>
+        <section className="card">
+          <h2>{t('acct.title')}</h2>
+          <a className="link" href="/privacy.html" target="_blank" rel="noreferrer">{t('acct.privacy')}</a>
+          {deleting ? (
+            <>
+              <span className="muted">{t('acct.deleteIntro')}</span>
+              <input placeholder={t('acct.typeToConfirm')} value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoCapitalize="characters" />
+              <div className="row">
+                <button className="btn danger" disabled={acctBusy || confirmText.trim().toUpperCase() !== t('acct.confirmWord')}
+                  onClick={() => { setAcctBusy(true); void deleteMyAccount(household.id).catch((e) => { setErr(e instanceof Error ? e.message : String(e)); setAcctBusy(false); }); }}>
+                  {acctBusy ? t('acct.deleting') : t('acct.deleteConfirmBtn')}
+                </button>
+                <button className="btn" onClick={() => { setDeleting(false); setConfirmText(''); }}>{t('common.cancel')}</button>
+              </div>
+            </>
+          ) : (
+            <button className="btn small danger" onClick={() => setDeleting(true)}>{t('acct.delete')}</button>
+          )}
+        </section>
+      </>
+    ),
+    advanced: (
       <section className="card">
         <h2>{t('quick.title')}</h2>
         <span className="muted">{t('quick.intro')}</span>
@@ -113,58 +169,43 @@ export function Settings({ household }: { household: Household }) {
         {fresh && <div><span className="muted">{t('quick.copyNow')}</span><br /><code>{fresh}</code></div>}
         <span className="muted">{t('quick.endpoint')}</span>
         <code>{endpoint}</code>
+        <span className="muted">{t('set.version')}: {__BUILD__}</span>
       </section>
+    ),
+  };
 
-      </details>
+  const list = (
+    <nav className="set-list" aria-label={t('set.title')}>
+      {SECTIONS.map((s) => (
+        <button key={s.id} type="button" className={`set-row${current === s.id ? ' on' : ''}`} aria-current={current === s.id ? 'page' : undefined} onClick={() => setSection(s.id)}>
+          <span className="set-ico"><Icon name={s.icon} size={20} /></span>
+          <span className="set-txt"><strong>{t(`set.sec.${s.id}` as 'set.sec.reminders')}</strong><span className="muted">{t(`set.sec.${s.id}.sub` as 'set.sec.reminders.sub')}</span></span>
+          <Icon name="chevron" size={18} />
+        </button>
+      ))}
+    </nav>
+  );
 
-      <section className="card">
-        <h2>{t('hh.title')}</h2>
-        <span>{household.name}</span>
-        <span className="muted">{t('hh.invite')} <code>{invite}</code></span>
-        <div className="row">
-          <button className="btn small primary" onClick={async () => {
-            const link = inviteLink(window.location.origin, invite);
-            try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { window.prompt(t('hh.sendLink'), link); }
-          }}>{copied ? t('common.copied') : t('hh.copyLink')}</button>
-          <button className="btn small" onClick={() => confirm(t('hh.confirmNew')) && void run(async () => setInvite(await rotateInviteCode(household.id)))}>{t('hh.newCode')}</button>
+  return (
+    <main className={`page settings-page set-shell${desktop ? ' split' : ''}`}>
+      {current && !desktop ? (
+        <div className="set-head"><button type="button" className="btn small" onClick={() => setSection(null)}><span style={{ display: 'inline-block', transform: 'scaleX(-1)' }}><Icon name="chevron" size={14} /></span> {t('set.back')}</button><h1>{t(`set.sec.${current}` as 'set.sec.reminders')}</h1></div>
+      ) : <h1>{t('set.title')}</h1>}
+      {err && <p className="error" role="alert">{err}</p>}
+      {desktop ? (
+        <div className="set-split">
+          <div className="set-side">{list}<button className="btn danger" onClick={() => supabase.auth.signOut()}>{t('auth.signOut')}</button></div>
+          <div className="set-page"><h2 className="set-title">{t(`set.sec.${current ?? 'reminders'}` as 'set.sec.reminders')}</h2>{pages[current ?? 'reminders']}</div>
         </div>
-      </section>
-
-      <section className="card">
-        <h2>{t('data.title')}</h2>
-        <span className="muted">{t('data.intro')}</span>
-        <button className="btn" disabled={exportBusy} onClick={() => {
-          setExportBusy(true);
-          setExporting(t('data.starting'));
-          downloadExport(household.id, household.name, setExporting, t, lang)
-            .catch((e) => setExporting(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
-            .finally(() => setExportBusy(false));
-        }}>{t('data.export')}</button>
-        {exporting && <span className="muted" role="status">{exporting}</span>}
-      </section>
-
-      <section className="card">
-        <h2>{t('acct.title')}</h2>
-        <a className="link" href="/privacy.html" target="_blank" rel="noreferrer">{t('acct.privacy')}</a>
-        {deleting ? (
-          <>
-            <span className="muted">{t('acct.deleteIntro')}</span>
-            <input placeholder={t('acct.typeToConfirm')} value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoCapitalize="characters" />
-            <div className="row">
-              <button className="btn danger" disabled={acctBusy || confirmText.trim().toUpperCase() !== t('acct.confirmWord')}
-                onClick={() => { setAcctBusy(true); void deleteMyAccount(household.id).catch((e) => { setErr(e instanceof Error ? e.message : String(e)); setAcctBusy(false); }); }}>
-                {acctBusy ? t('acct.deleting') : t('acct.deleteConfirmBtn')}
-              </button>
-              <button className="btn" onClick={() => { setDeleting(false); setConfirmText(''); }}>{t('common.cancel')}</button>
-            </div>
-          </>
-        ) : (
-          <button className="btn small danger" onClick={() => setDeleting(true)}>{t('acct.delete')}</button>
-        )}
-      </section>
-
-      <button className="btn danger" onClick={() => supabase.auth.signOut()}>{t('auth.signOut')}</button>
-      <p className="muted center">{t('set.version')}: {__BUILD__}</p>
+      ) : current ? (
+        <div className="set-page">{pages[current]}</div>
+      ) : (
+        <>
+          {list}
+          <button className="btn danger" onClick={() => supabase.auth.signOut()}>{t('auth.signOut')}</button>
+          <p className="muted center">{t('set.version')}: {__BUILD__}</p>
+        </>
+      )}
     </main>
   );
 }

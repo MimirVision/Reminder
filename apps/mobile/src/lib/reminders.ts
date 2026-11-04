@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import { listAppliances, listMemories, listPlaces, listWeatherDone, listWeatherRules } from './api';
+import { listAppliances, listMemories, listPlaces, listWeatherDone, listWeatherPlaces, listWeatherRules } from './api';
 import { warrantyReminders } from '../shared/lib/register';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
@@ -10,7 +10,7 @@ import { leadShort } from '../shared/lib/details';
 import { planBriefings } from '../shared/lib/briefing';
 import { pickLeaveReminders, travelMinutes, type LeaveCandidate } from '../shared/lib/leave';
 import { driveMatrix } from '../shared/lib/routing';
-import { forecastPlace, isoOf, loadForecast, notificationsFor, notificationBody, planWeather, ruleIsFor, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherRule } from '../shared/lib/weather';
+import { alertTitle, buildAlerts, homeOf, isoOf, loadForecast, neededPlaces, notificationsFor, notificationBody, type DayForecast, type WeatherAlert, type WeatherDone, type WeatherPlace, type WeatherRule } from '../shared/lib/weather';
 import { needsRefresh, overpassQuery, parseOverpass, type PoiCache } from '../core/pois.ts';
 import { MAX_REGIONS, selectRegions } from '../core/regions.ts';
 import type { LatLon, MemoryRow, PlaceRow, Region } from '../core/types.ts';
@@ -310,21 +310,18 @@ export async function scheduleBriefings(all: (DueMemory & { assignee_id?: string
 }
 
 // ---- Weather reminders ---------------------------------------------------------------------------------------------------------
-export const WEATHER_PLACE_KEY = 'hm.weatherPlace';
-export type WeatherState = { rules: WeatherRule[]; done: WeatherDone[]; days: DayForecast[]; alerts: WeatherAlert[]; placeName: string | null; placeId: string | null };
+export type WeatherState = { rules: WeatherRule[]; done: WeatherDone[]; places: WeatherPlace[]; home: WeatherPlace | null; forecasts: Record<string, DayForecast[]>; alerts: WeatherAlert[]; forecastError: string | null };
 
-/** Rules, ticks and the forecast for the chosen (or home) place; the phone's position when no fixed place is saved. No forecast request without a rule. */
-export async function weatherState(householdId: string, places?: PlaceRow[]): Promise<WeatherState> {
+/** Rules, ticks, the places the weather is checked for and the forecast of each place a rule is on for (Home unless the rule names a place).
+ *  No forecast request while no rule is on, or while Home has not been set in Settings. */
+export async function weatherState(householdId: string): Promise<WeatherState> {
   const today = isoOf(new Date());
-  const [rules, done, pl] = await Promise.all([listWeatherRules(householdId), listWeatherDone(householdId, today), places ?? listPlaces(householdId)]);
-  const place = forecastPlace(pl, readJson<string | null>(WEATHER_PLACE_KEY, null));
-  let days: DayForecast[] = [];
-  if (rules.some((r) => r.enabled)) {
-    const at = place ? { lat: place.lat as number, lon: place.lon as number } : await currentPosition();
-    if (at) days = await loadForecast(at.lat, at.lon);
-  }
+  const [rules, done, places] = await Promise.all([listWeatherRules(householdId), listWeatherDone(householdId, today), listWeatherPlaces(householdId)]);
+  const forecasts: Record<string, DayForecast[]> = {};
+  let forecastError: string | null = null;
+  await Promise.all(neededPlaces(rules, places).map(async (p) => { try { forecasts[p.id] = await loadForecast(p.lat, p.lon); } catch (e) { forecastError = e instanceof Error ? e.message : String(e); } }));
   const me = readJson<string | null>(K.user, null);
-  return { rules, done, days, alerts: rules.filter((r) => ruleIsFor(r, me)).flatMap((r) => planWeather(r, days, today)), placeName: place?.name ?? null, placeId: place?.id ?? null };
+  return { rules, done, places, home: homeOf(places), forecasts, alerts: buildAlerts({ rules, places, forecasts, today, userId: me }), forecastError };
 }
 
 /** The weather checklists ring at their time (the evening before, or that morning), plus one follow-up if not ticked off. Planned again on every load.
@@ -339,7 +336,7 @@ export async function scheduleWeather(householdId: string): Promise<void> {
     for (const n of notificationsFor(w.alerts, new Date(), w.done, 4)) {
       await Notifications.scheduleNotificationAsync({
         identifier: n.id,
-        content: { title: n.alert.rule.name, body: notificationBody(tNow, n.alert, w.done) },
+        content: { title: alertTitle(n.alert), body: notificationBody(tNow, n.alert, w.done) },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: n.at },
       });
     }

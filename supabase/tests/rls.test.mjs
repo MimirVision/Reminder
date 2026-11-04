@@ -24,7 +24,7 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql', '0022_house_register.sql'])
+for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql', '0022_house_register.sql', '0023_weather_places.sql'])
   await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
@@ -584,6 +584,26 @@ for (const t of ['post_alert_accounts', 'post_alert_seen', 'post_alert_devices',
     await db.query(`delete from contacts where id = $1`, [cid]);
     assert.equal((await db.query(`select contact_id from appliances where id = $1`, [aid])).rows[0].contact_id, null, 'deleting a contact only unlinks it');
     assert.equal((await db.query(`select contact_id from house_costs`)).rows[0].contact_id, null);
+  });
+}
+
+// 0023: weather places (Home and others), a rule's place.
+{
+  let pid;
+  await as(A, async () => {
+    pid = (await db.query(`insert into weather_places (household_id, name, address, lat, lon, is_home) values ($1, 'Hjemme', 'Storgata 5, Oslo', 59.93, 10.75, true) returning id`, [hid])).rows[0].id;
+    await rejects(() => db.query(`insert into weather_places (household_id, name, lat, lon, is_home) values ($1, 'Another home', 60, 10, true)`, [hid]), /weather_places_one_home|duplicate key|unique/);
+    await db.query(`insert into weather_places (household_id, name, lat, lon) values ($1, 'Hytta', 61.1, 9.2)`, [hid]);
+    await rejects(() => db.query(`insert into weather_places (household_id, name, lat, lon) values ($1, 'Nowhere', 95, 10)`, [hid]), /weather_places_lat_check|check constraint/);
+    await db.query(`insert into weather_rules (household_id, name, scenario, place_id) values ($1, 'Cabin frost', 'frost', $2)`, [hid, pid]);
+  });
+  await as(C, async () => {
+    assert.equal((await db.query(`select * from weather_places`)).rows.length, 0, 'a stranger sees no weather places');
+    await rejects(() => db.query(`insert into weather_places (household_id, name, lat, lon) values ($1, 'x', 1, 1)`, [hid]), /row-level security/);
+  });
+  await as(A, async () => {
+    await db.query(`delete from weather_places where id = $1`, [pid]);
+    assert.equal((await db.query(`select place_id from weather_rules where name = 'Cabin frost'`)).rows[0].place_id, null, 'deleting a place only unlinks the rule');
   });
 }
 

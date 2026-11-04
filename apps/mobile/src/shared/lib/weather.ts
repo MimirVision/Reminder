@@ -15,8 +15,10 @@ export type DayForecast = { date: string; rainMm: number; snowCm: number; tMin: 
 export type WeatherRule = {
   id: string; household_id: string; name: string; scenario: Scenario; threshold: number | null; items: string[];
   lead: Lead; lead_hours: number; at_time: string; frequency: Frequency; dry_gap: number; quiet_days: number[]; paused_until: string | null;
-  follow_up: boolean; enabled: boolean; owner_id: string | null;
+  follow_up: boolean; enabled: boolean; owner_id: string | null; place_id?: string | null;
 };
+/** Where the weather is checked: one Home (set in Settings) and any other places added there. */
+export type WeatherPlace = { id: string; household_id: string; name: string; address: string | null; lat: number; lon: number; is_home: boolean };
 export type WeatherDone = { rule_id: string; for_date: string; items: string[] };
 
 /** What a rule measures, its unit and the value used when none is chosen. */
@@ -93,7 +95,7 @@ export function spellStarts(rule: Pick<WeatherRule, 'scenario' | 'threshold' | '
   return starts;
 }
 
-export type WeatherAlert = { rule: WeatherRule; forDate: string; day: DayForecast; at: Date; followUpAt: Date | null; fromHour: number | null };
+export type WeatherAlert = { rule: WeatherRule; forDate: string; day: DayForecast; at: Date; followUpAt: Date | null; fromHour: number | null; placeName?: string };
 
 const parseTime = (t: string): [number, number] => { const [h, m] = t.split(':').map(Number); return [h || 0, m || 0]; };
 
@@ -205,11 +207,34 @@ export async function loadForecast(lat: number, lon: number, now = Date.now()): 
   }
 }
 
-/** Which place the forecast is for: the chosen one, else one named like home, else the first fixed place with coordinates. */
-export function forecastPlace<P extends { id: string; name: string; kind: string; lat: number | null; lon: number | null }>(places: P[], chosenId: string | null): P | null {
-  const fixed = places.filter((p) => p.kind === 'fixed' && p.lat != null && p.lon != null);
-  return fixed.find((p) => p.id === chosenId) ?? fixed.find((p) => /^(home|hjem|house|huset|bolig)\b/i.test(p.name.trim())) ?? fixed[0] ?? null;
+export const homeOf = (places: WeatherPlace[]): WeatherPlace | null => places.find((p) => p.is_home) ?? null;
+/** The place a rule is about: the one it names, else Home (null when Home has not been set yet). */
+export const placeFor = (rule: Pick<WeatherRule, 'place_id'>, places: WeatherPlace[]): WeatherPlace | null =>
+  (rule.place_id ? places.find((p) => p.id === rule.place_id) : null) ?? homeOf(places);
+/** The places whose forecast is needed: those of the rules that are on. */
+export function neededPlaces(rules: WeatherRule[], places: WeatherPlace[]): WeatherPlace[] {
+  const out = new Map<string, WeatherPlace>();
+  for (const r of rules) { if (!r.enabled) continue; const p = placeFor(r, places); if (p) out.set(p.id, p); }
+  return [...out.values()];
 }
+
+/** All alerts of the rules that are for this person, each from the forecast of its own place; alerts about a place other than Home carry its name. */
+export function buildAlerts(opts: { rules: WeatherRule[]; places: WeatherPlace[]; forecasts: Record<string, DayForecast[]>; today: string; userId: string | null }): WeatherAlert[] {
+  const home = homeOf(opts.places);
+  return opts.rules.filter((r) => ruleIsFor(r, opts.userId)).flatMap((r) => {
+    const p = placeFor(r, opts.places);
+    if (!p) return [];
+    return planWeather(r, opts.forecasts[p.id] ?? [], opts.today).map((a) => (home && p.id !== home.id ? { ...a, placeName: p.name } : a));
+  });
+}
+
+/** The soonest alert that is still to come or under way (today or later), for "Next: ..." under a rule. */
+export function nextAlert(alerts: WeatherAlert[], ruleId: string, today: string): WeatherAlert | null {
+  return alerts.filter((a) => a.rule.id === ruleId && a.forDate >= today).sort((x, y) => x.forDate.localeCompare(y.forDate))[0] ?? null;
+}
+
+/** "Rain coming" or "Rain coming · Cabin": the title of a notification or card. */
+export const alertTitle = (a: Pick<WeatherAlert, 'rule' | 'placeName'>): string => (a.placeName ? `${a.rule.name} · ${a.placeName}` : a.rule.name);
 
 /** One-line reason parts for the notification, e.g. { key: 'rain', value: 6 }. */
 export const reasonOf = (s: Scenario, d: DayForecast): { value: number } => ({ value: Math.round(measure(s, d) * 10) / 10 });
@@ -230,8 +255,8 @@ export function starterRule(t: T, scenario: Scenario): RuleDraft {
 }
 
 /** "Rain tomorrow, about 6 mm": the reason line of a notification or card. "Tomorrow" is relative to the day the alert rings. */
-export function reasonText(t: T, a: Pick<WeatherAlert, 'rule' | 'forDate' | 'day' | 'at' | 'fromHour'>): string {
-  const when = t(a.forDate === isoOf(a.at) ? 'weather.when.today' : 'weather.when.tomorrow');
+export function reasonText(t: T, a: Pick<WeatherAlert, 'rule' | 'forDate' | 'day' | 'at' | 'fromHour'>, whenLabel?: string): string {
+  const when = whenLabel ?? t(a.forDate === isoOf(a.at) ? 'weather.when.today' : 'weather.when.tomorrow');
   const base = t(`weather.reason.${a.rule.scenario}` as Key, { when, value: reasonOf(a.rule.scenario, a.day).value });
   return a.fromHour == null ? base : `${base}, ${t('weather.fromTime', { time: `${pad(a.fromHour)}:00` })}`;
 }

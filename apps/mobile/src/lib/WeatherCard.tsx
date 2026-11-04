@@ -2,7 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 import { useI18n } from './i18n';
 import { font, useTheme } from './theme';
 import { Icon, Muted } from './ui';
-import { doneItems, reasonText, type WeatherAlert, type WeatherDone } from '../shared/lib/weather';
+import { alertTitle, doneItems, reasonText, type WeatherAlert, type WeatherDone } from '../shared/lib/weather';
 
 // On the to-do list while a weather alert is live: what the weather is doing and the checklist to tick off.
 export function WeatherCard({ alerts, done, onTick }: { alerts: WeatherAlert[]; done: WeatherDone[]; onTick: (a: WeatherAlert, item: string) => void }) {
@@ -14,7 +14,7 @@ export function WeatherCard({ alerts, done, onTick }: { alerts: WeatherAlert[]; 
         const ticked = doneItems(a, done);
         return (
           <View key={`${a.rule.id}-${a.forDate}`} accessible={false} style={{ borderRadius: 16, padding: 14, gap: 6, backgroundColor: th.card }}>
-            <Text accessibilityRole="header" style={{ color: th.ink, fontSize: 16, fontFamily: font.semi }}>{a.rule.name}</Text>
+            <Text accessibilityRole="header" style={{ color: th.ink, fontSize: 16, fontFamily: font.semi }}>{alertTitle(a)}</Text>
             <Muted>{reasonText(t, a)}</Muted>
             {a.rule.items.map((item) => {
               const on = ticked.includes(item);

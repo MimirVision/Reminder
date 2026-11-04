@@ -611,3 +611,21 @@ h3.sub:first-of-type { margin-top: 4px; }
 .lightbox-nav.prev { left: 10px; transform: translateY(-50%) scaleX(-1); }
 .lightbox-nav.next { right: 10px; }
 .lightbox .btn { background: rgba(255, 255, 255, 0.22); color: #fff; border-color: transparent; }
+
+.wx-days { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+
+/* Settings: a list of areas, each opening its own page */
+.set-list { display: flex; flex-direction: column; gap: 8px; }
+.set-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; border: 0; background: var(--card); color: inherit; border-radius: 18px; padding: 14px 16px; min-height: 64px; cursor: pointer; font: inherit; }
+.set-row.on { outline: 2px solid var(--accent); }
+.set-ico { width: 40px; height: 40px; border-radius: 12px; background: var(--chip); display: grid; place-items: center; flex-shrink: 0; }
+.set-txt { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.set-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.set-head h1 { margin: 0; }
+.set-page { display: flex; flex-direction: column; gap: 14px; }
+.set-title { margin: 0; font-size: 24px; }
+@media (min-width: 1000px) {
+  .settings-page.set-shell { display: flex; flex-direction: column; gap: 14px; --content: 1100px; }
+  .set-split { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .set-side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
+}

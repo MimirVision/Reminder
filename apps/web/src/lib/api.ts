@@ -6,7 +6,7 @@ import type { Hit } from './placeSearch';
 import { enqueue, flushQueue, isNetworkError, pendingFor, type KV, type QueuedTodo } from './outbox.ts';
 import type { DetailFields } from './details.ts';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, RepeatRule, Suggestion } from './types';
-import type { WeatherDone, WeatherRule } from './weather';
+import type { WeatherDone, WeatherPlace, WeatherRule } from './weather';
 import type { Appliance, Contact, CostEvent, HouseCost } from './register';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -547,7 +547,7 @@ export async function saveWeatherRule(householdId: string, rule: Omit<WeatherRul
   const { id, ...rest } = rule;
   const row: Record<string, unknown> = { ...rest, household_id: householdId };
   // Columns added by migration 0022 are only sent when used, so rules still save before upgrade.sql has been run again.
-  if (!id) { if (row.owner_id == null) delete row.owner_id; if (row.lead !== 'hours_before') delete row.lead_hours; }
+  if (!id) { if (row.owner_id == null) delete row.owner_id; if (row.lead !== 'hours_before') delete row.lead_hours; if (row.place_id == null) delete row.place_id; }
   check(id ? await supabase.from('weather_rules').update(row).eq('id', id) : await supabase.from('weather_rules').insert(row));
 }
 
@@ -606,4 +606,16 @@ export async function setTaskContact(taskId: string, contactId: string | null): 
 }
 export async function setItemContact(itemId: string, contactId: string | null): Promise<void> {
   check(await supabase.from('condition_items').update({ contact_id: contactId }).eq('id', itemId));
+}
+
+// ---- Weather places (Home and others) --------------------------------------------------------------------------------------
+export async function listWeatherPlaces(householdId: string): Promise<WeatherPlace[]> {
+  return check(await supabase.from('weather_places').select('*').eq('household_id', householdId).order('created_at', { ascending: true }).limit(20));
+}
+export async function saveWeatherPlace(householdId: string, p: Omit<WeatherPlace, 'id' | 'household_id'> & { id?: string }): Promise<void> {
+  const { id, ...rest } = p;
+  check(id ? await supabase.from('weather_places').update(rest).eq('id', id) : await supabase.from('weather_places').insert({ ...rest, household_id: householdId }));
+}
+export async function deleteWeatherPlace(id: string): Promise<void> {
+  check(await supabase.from('weather_places').delete().eq('id', id));
 }

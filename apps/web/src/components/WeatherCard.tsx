@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n';
-import { doneItems, reasonText, type WeatherAlert, type WeatherDone } from '../lib/weather';
+import { alertTitle, doneItems, reasonText, type WeatherAlert, type WeatherDone } from '../lib/weather';
 
 // On the to-do list while a weather alert is live: what the weather is doing and the checklist to tick off.
 export function WeatherCard({ alerts, done, onTick }: { alerts: WeatherAlert[]; done: WeatherDone[]; onTick: (a: WeatherAlert, item: string) => void }) {
@@ -11,7 +11,7 @@ export function WeatherCard({ alerts, done, onTick }: { alerts: WeatherAlert[]; 
         const ticked = doneItems(a, done);
         return (
           <section key={`${a.rule.id}-${a.forDate}`} className="card wx-card" aria-label={a.rule.name}>
-            <strong>{a.rule.name}</strong>
+            <strong>{alertTitle(a)}</strong>
             <span className="muted">{reasonText(t, a)}</span>
             <ul className="wx-items">
               {a.rule.items.map((item) => (

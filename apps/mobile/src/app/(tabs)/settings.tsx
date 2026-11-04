@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, ScrollView, Switch, Text, View } from 'react-native';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { shareExport } from '@/lib/exportData';
@@ -7,7 +8,7 @@ import { createCaptureKey, deleteCaptureKey, deleteMyAccount, listCaptureKeys, r
 import { GLASS_LEVELS, Glass, useGlass } from '@/lib/glass';
 import { Select } from '@/lib/Select';
 import { checkAndFetch, restartApp, runningUpdate, type UpdateResult } from '@/lib/appUpdate';
-import { WeatherRules } from '@/lib/WeatherRules';
+import { WeatherSettings } from '@/lib/WeatherSettings';
 import { LanguageSwitch, useI18n } from '@/lib/i18n';
 import { failedItems, pending } from '@/lib/outbox';
 import { enableReminders, ensureNotifyPermission, hasBackgroundAccess, notifyStatus, plannedNotifications, readBriefing, readGeoLog, refreshRegions, replanNotifications, sendTestNotification, writeBriefing, type NotifyStatus } from '@/lib/reminders';
@@ -15,8 +16,10 @@ import { readJson, writeJson } from '@/lib/store';
 import { useSession } from '@/lib/session';
 import { supabase } from '@/lib/supabase';
 import { font, setThemePref, useTheme, useThemePref } from '@/lib/theme';
-import { BAR_SPACE, Btn, Card, Field, Muted, SectionLabel, Title, styles } from '@/lib/ui';
+import { BAR_SPACE, Btn, Card, Field, Icon, Muted, SectionLabel, Title, styles } from '@/lib/ui';
 import type { CaptureKey } from '@/lib/types';
+
+type Section = 'reminders' | 'weather' | 'appearance' | 'household' | 'data' | 'advanced';
 
 export default function Settings() {
   const th = useTheme();
@@ -25,6 +28,7 @@ export default function Settings() {
   const insets = useSafeAreaInsets();
   const { household } = useSession();
   const { level, setLevel } = useGlass();
+  const [section, setSection] = useState<Section | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [notif, setNotif] = useState<NotifyStatus>('undetermined');
   const [watching, setWatching] = useState<number | null>(null);
@@ -51,6 +55,8 @@ export default function Settings() {
     setKeys(await listCaptureKeys().catch(() => []));
   }, []);
   useEffect(() => { void load(); void plannedNotifications().then(setPlanned); }, [load]);
+  // Back on the list the next time you come to Settings.
+  useFocusEffect(useCallback(() => () => setSection(null), []));
 
   async function turnOn() {
     try {
@@ -65,10 +71,14 @@ export default function Settings() {
 
   const h = (s: string) => <Text style={{ color: th.ink, fontSize: 17, fontFamily: font.semi }}>{s}</Text>;
 
-  return (
-    <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE - 60 }]}>
-      <Title>{t('set.title')}</Title>
+  const sections: { id: Section; icon: 'bell.fill' | 'cloud.sun.fill' | 'paintpalette.fill' | 'house.fill' | 'externaldrive.fill' | 'gearshape.fill' }[] = [
+    { id: 'reminders', icon: 'bell.fill' }, { id: 'weather', icon: 'cloud.sun.fill' }, { id: 'appearance', icon: 'paintpalette.fill' },
+    { id: 'household', icon: 'house.fill' }, { id: 'data', icon: 'externaldrive.fill' }, { id: 'advanced', icon: 'gearshape.fill' },
+  ];
 
+  const pages: Record<Section, ReactNode> = {
+    reminders: (
+      <>
       <Card>
         {h(t('set.notif'))}
         <Muted>{notif === 'granted' ? t('set.notifOn') : notif === 'denied' ? t('set.notifDenied') : t('set.notifOff')}</Muted>
@@ -94,8 +104,6 @@ export default function Settings() {
         )}
       </Card>
 
-      {household && <WeatherRules householdId={household.id} onChanged={() => void replanNotifications(household.id)} />}
-
       <Card>
         {h(t('set.reminders'))}
         <Muted>{enabled ? t('set.remindersOn') : t('set.remindersOff')}</Muted>
@@ -115,7 +123,11 @@ export default function Settings() {
           <Switch value={recap} accessibilityLabel={t('set.recap')} onValueChange={(v) => { setRecap(v); writeJson('hm.recap', v); }} />
         </View>
       </Card>
-
+      </>
+    ),
+    weather: household ? <WeatherSettings householdId={household.id} onChanged={() => void replanNotifications(household.id)} /> : null,
+    appearance: (
+      <>
       <Card>
         {h(t('set.language'))}
         <LanguageSwitch />
@@ -135,7 +147,58 @@ export default function Settings() {
           <Text style={{ color: th.ink, fontSize: 15, fontFamily: font.medium }}>{t('glass.preview')}</Text>
         </Glass>
       </Card>
+      </>
+    ),
+    household: (
+      <>
+      <Card>
+        {h(t('hh.title'))}
+        <Muted>{household?.name}</Muted>
+        <Muted>{t('hh.invite')}</Muted>
+        <Text selectable style={{ color: th.ink, fontFamily: 'Menlo' }}>{invite ?? household?.invite_code}</Text>
+        <Btn small label={t('hh.newCode')} onPress={() => Alert.alert(t('hh.confirmNew'), t('set.newCodeBody'), [
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('set.newCode'), onPress: async () => { if (household) setInvite(await rotateInviteCode(household.id)); } },
+        ])} />
+      </Card>
+      </>
+    ),
+    data: (
+      <>
+      <Card>
+        {h(t('data.title'))}
+        <Muted>{t('data.intro')}</Muted>
+        <Btn disabled={exportBusy || !household} label={t('data.export')} onPress={() => {
+          if (!household) return;
+          setExportBusy(true);
+          setExportMsg(t('data.starting'));
+          shareExport(household.id, household.name, setExportMsg, t, lang)
+            .catch((e) => setExportMsg(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
+            .finally(() => setExportBusy(false));
+        }} />
+        {exportMsg ? <Muted>{exportMsg}</Muted> : null}
+      </Card>
 
+      <Card>
+        {h(t('acct.title'))}
+        {deleting ? (
+          <>
+            <Muted>{t('acct.deleteIntro')}</Muted>
+            <Muted>{t('acct.typeToConfirm')}</Muted>
+            <Field value={confirmText} onChangeText={setConfirmText} autoCapitalize="characters" autoCorrect={false} />
+            <Btn danger disabled={acctBusy || confirmText.trim() !== t('acct.confirmWord')} label={acctBusy ? t('acct.deleting') : t('acct.deleteConfirmBtn')}
+              onPress={async () => {
+                setAcctBusy(true);
+                try { await deleteMyAccount(household?.id ?? null); } catch (e) { Alert.alert(t('common.error'), e instanceof Error ? e.message : String(e)); setAcctBusy(false); }
+              }} />
+            <Btn label={t('common.cancel')} onPress={() => { setDeleting(false); setConfirmText(''); }} />
+          </>
+        ) : <Btn danger label={t('acct.delete')} onPress={() => setDeleting(true)} />}
+      </Card>
+      </>
+    ),
+    advanced: (
+      <>
       <Card>
         {h(t('quick.title'))}
         <Muted>{t('quick.intro')}</Muted>
@@ -173,50 +236,6 @@ export default function Settings() {
       </Card>
 
       <Card>
-        {h(t('hh.title'))}
-        <Muted>{household?.name}</Muted>
-        <Muted>{t('hh.invite')}</Muted>
-        <Text selectable style={{ color: th.ink, fontFamily: 'Menlo' }}>{invite ?? household?.invite_code}</Text>
-        <Btn small label={t('hh.newCode')} onPress={() => Alert.alert(t('hh.confirmNew'), t('set.newCodeBody'), [
-          { text: t('common.cancel'), style: 'cancel' },
-          { text: t('set.newCode'), onPress: async () => { if (household) setInvite(await rotateInviteCode(household.id)); } },
-        ])} />
-      </Card>
-
-      <Card>
-        {h(t('data.title'))}
-        <Muted>{t('data.intro')}</Muted>
-        <Btn disabled={exportBusy || !household} label={t('data.export')} onPress={() => {
-          if (!household) return;
-          setExportBusy(true);
-          setExportMsg(t('data.starting'));
-          shareExport(household.id, household.name, setExportMsg, t, lang)
-            .catch((e) => setExportMsg(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
-            .finally(() => setExportBusy(false));
-        }} />
-        {exportMsg ? <Muted>{exportMsg}</Muted> : null}
-      </Card>
-
-      <Card>
-        {h(t('acct.title'))}
-        {deleting ? (
-          <>
-            <Muted>{t('acct.deleteIntro')}</Muted>
-            <Muted>{t('acct.typeToConfirm')}</Muted>
-            <Field value={confirmText} onChangeText={setConfirmText} autoCapitalize="characters" autoCorrect={false} />
-            <Btn danger disabled={acctBusy || confirmText.trim() !== t('acct.confirmWord')} label={acctBusy ? t('acct.deleting') : t('acct.deleteConfirmBtn')}
-              onPress={async () => {
-                setAcctBusy(true);
-                try { await deleteMyAccount(household?.id ?? null); } catch (e) { Alert.alert(t('common.error'), e instanceof Error ? e.message : String(e)); setAcctBusy(false); }
-              }} />
-            <Btn label={t('common.cancel')} onPress={() => { setDeleting(false); setConfirmText(''); }} />
-          </>
-        ) : <Btn danger label={t('acct.delete')} onPress={() => setDeleting(true)} />}
-      </Card>
-
-
-      <Btn danger label={t('auth.signOut')} onPress={() => supabase.auth.signOut()} />
-      <Card>
         {h(t('update.title'))}
         <Muted>{t('update.body')}</Muted>
         <Muted>{t('set.version')}: {Constants.expoConfig?.version ?? '?'} · {run.embedded || !run.createdAt ? t('update.original') : t('update.running', { date: run.createdAt.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' }) })}</Muted>
@@ -225,6 +244,39 @@ export default function Settings() {
           ? <Btn primary label={t('update.restart')} onPress={() => void restartApp()} />
           : <Btn label={checking ? t('update.checking') : t('update.check')} disabled={checking} onPress={async () => { setChecking(true); setUpd(await checkAndFetch()); setChecking(false); }} />}
       </Card>
+      </>
+    ),
+  };
+
+  return (
+    <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: th.bg }} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: BAR_SPACE - 60 }]}>
+      {section ? (
+        <>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('set.back')} onPress={() => setSection(null)} hitSlop={10} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 36, alignSelf: 'flex-start' }}>
+            <Icon name="chevron.left" size={16} color={th.accentText} />
+            <Text style={{ color: th.accentText, fontFamily: font.semi, fontSize: 16 }}>{t('set.back')}</Text>
+          </Pressable>
+          <Title>{t(`set.sec.${section}` as 'set.sec.reminders')}</Title>
+          {pages[section]}
+        </>
+      ) : (
+        <>
+          <Title>{t('set.title')}</Title>
+          {sections.map((s) => (
+            <Pressable key={s.id} accessibilityRole="button" accessibilityLabel={`${t(`set.sec.${s.id}` as 'set.sec.reminders')}. ${t(`set.sec.${s.id}.sub` as 'set.sec.reminders.sub')}`} onPress={() => setSection(s.id)}
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: th.card, borderRadius: 20, padding: 14, minHeight: 68, opacity: pressed ? 0.7 : 1 })}>
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: th.dark ? '#262C36' : '#ECEEF2', alignItems: 'center', justifyContent: 'center' }}><Icon name={s.icon} size={20} color={th.accentText} /></View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={{ color: th.ink, fontSize: 17, fontFamily: font.semi }}>{t(`set.sec.${s.id}` as 'set.sec.reminders')}</Text>
+                <Muted>{t(`set.sec.${s.id}.sub` as 'set.sec.reminders.sub')}</Muted>
+              </View>
+              <Icon name="chevron.right" size={16} color={th.muted} />
+            </Pressable>
+          ))}
+      <Btn danger label={t('auth.signOut')} onPress={() => supabase.auth.signOut()} />
+          <Muted>{t('set.version')}: {Constants.expoConfig?.version ?? '?'}</Muted>
+        </>
+      )}
     </ScrollView>
   );
 }

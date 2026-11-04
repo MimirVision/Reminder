@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activeAlerts, firstHour, ruleIsFor, forecastPlace, matchesDay, notificationBody, notificationsFor, parseForecast, planWeather, reasonText, ruleSummary, spellStarts, starterRule, type DayForecast, type WeatherRule } from './weather.ts';
+import { activeAlerts, alertTitle, buildAlerts, firstHour, homeOf, neededPlaces, nextAlert, placeFor, ruleIsFor, matchesDay, notificationBody, notificationsFor, parseForecast, planWeather, reasonText, ruleSummary, spellStarts, starterRule, type DayForecast, type WeatherRule } from './weather.ts';
 
 const day = (date: string, o: Partial<DayForecast> = {}): DayForecast => ({ date, rainMm: 0, snowCm: 0, tMin: 5, tMax: 12, windMs: 3, code: 3, ...o });
 const rule = (o: Partial<WeatherRule> = {}): WeatherRule => ({
@@ -84,15 +84,33 @@ test('parseForecast reads the daily block and treats gaps as calm', () => {
   assert.deepEqual(parseForecast(null), []);
 });
 
-test('the forecast place: chosen, else home by name, else the first fixed place', () => {
-  const places = [
-    { id: 'a', name: 'Meny', kind: 'fixed', lat: 1, lon: 1 }, { id: 'b', name: 'Home', kind: 'fixed', lat: 2, lon: 2 },
-    { id: 'c', name: 'Pharmacy', kind: 'category', lat: null, lon: null },
-  ];
-  assert.equal(forecastPlace(places, null)?.id, 'b');
-  assert.equal(forecastPlace(places, 'a')?.id, 'a');
-  assert.equal(forecastPlace(places.slice(0, 1), null)?.id, 'a');
-  assert.equal(forecastPlace([places[2]], null), null);
+test('places: Home is the default, a rule can name another place, only the places of rules that are on are needed', () => {
+  const home = { id: 'h', household_id: 'x', name: 'Hjemme', address: null, lat: 1, lon: 1, is_home: true };
+  const cabin = { id: 'c', household_id: 'x', name: 'Hytta', address: null, lat: 2, lon: 2, is_home: false };
+  assert.equal(homeOf([cabin, home])?.id, 'h');
+  assert.equal(homeOf([cabin]), null);
+  assert.equal(placeFor(rule(), [home, cabin])?.id, 'h');
+  assert.equal(placeFor(rule({ place_id: 'c' }), [home, cabin])?.id, 'c');
+  assert.equal(placeFor(rule({ place_id: 'gone' }), [home, cabin])?.id, 'h', 'a deleted place falls back to Home');
+  assert.equal(placeFor(rule(), [cabin]), null, 'no Home set yet');
+  assert.deepEqual(neededPlaces([rule(), rule({ id: 'r2', place_id: 'c', enabled: false })], [home, cabin]).map((p) => p.id), ['h']);
+  assert.deepEqual(neededPlaces([rule(), rule({ id: 'r2', place_id: 'c' })], [home, cabin]).map((p) => p.id).sort(), ['c', 'h']);
+});
+
+test('alerts per place: each rule reads its own place, other places are named, nothing without a Home', () => {
+  const home = { id: 'h', household_id: 'x', name: 'Hjemme', address: null, lat: 1, lon: 1, is_home: true };
+  const cabin = { id: 'c', household_id: 'x', name: 'Hytta', address: null, lat: 2, lon: 2, is_home: false };
+  const dry = [day('2026-10-26'), day('2026-10-27'), day('2026-10-28')];
+  const wet = [day('2026-10-26'), day('2026-10-27', { rainMm: 6 }), day('2026-10-28')];
+  const rules = [rule({ id: 'home-rule' }), rule({ id: 'cabin-rule', place_id: 'c', name: 'Cabin rain' })];
+  const alerts = buildAlerts({ rules, places: [home, cabin], forecasts: { h: dry, c: wet }, today: '2026-10-26', userId: 'u1' });
+  assert.deepEqual(alerts.map((a) => a.rule.id), ['cabin-rule'], 'it only rains at the cabin');
+  assert.equal(alertTitle(alerts[0]), 'Cabin rain · Hytta');
+  assert.equal(alertTitle(buildAlerts({ rules: [rule()], places: [home], forecasts: { h: wet }, today: '2026-10-26', userId: null })[0]), 'Rain', 'Home is not named');
+  assert.deepEqual(buildAlerts({ rules, places: [cabin], forecasts: { c: wet }, today: '2026-10-26', userId: null }).map((a) => a.rule.id), ['cabin-rule'], 'without a Home only the named place counts');
+  assert.deepEqual(buildAlerts({ rules: [rule({ owner_id: 'u2' })], places: [home], forecasts: { h: wet }, today: '2026-10-26', userId: 'u1' }), [], 'a rule for the other person');
+  assert.equal(nextAlert(alerts, 'cabin-rule', '2026-10-26')?.forDate, '2026-10-27');
+  assert.equal(nextAlert(alerts, 'home-rule', '2026-10-26'), null);
 });
 
 test('texts: starter rules, reason line and notification body in both languages', async () => {
