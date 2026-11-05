@@ -1,12 +1,12 @@
 {
-  "id": "1516ffc1-f2f8-1a2a-5c06-961388aebe8b",
-  "createdAt": "2026-11-05T09:12:03.526Z",
+  "id": "e5627bfe-13a8-768d-6bff-456185e54139",
+  "createdAt": "2026-11-05T09:29:34.130Z",
   "runtimeVersion": "1",
   "launchAsset": {
-    "hash": "fHR3xgmxSmsc6TAtirh9-1UnplPD6gJvQ2vfJKZOVzg",
-    "key": "bundle-7c7477c609b14a6b",
+    "hash": "uUeAeYYBYFG9JGAZE4VzImhvnHYd-VveqJmbH2NCKss",
+    "key": "bundle-b947807986016051",
     "contentType": "application/javascript",
-    "url": "https://reminder.casks-cause-85.workers.dev/ota/1/bundles/index-856a4e9639a391ffcd3885cd6608127d.hbc"
+    "url": "https://reminder.casks-cause-85.workers.dev/ota/1/bundles/index-f888523ce53aff148cf4b43b4f9ab082.hbc"
   },
   "assets": [
     {
@@ -351,7 +351,7 @@
     "expoClient": {
       "name": "Home Memory",
       "slug": "home-memory",
-      "version": "0.16.3",
+      "version": "0.16.4",
       "orientation": "portrait",
       "icon": "./assets/images/icon.png",
       "scheme": "homememory",

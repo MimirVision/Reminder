@@ -24,8 +24,13 @@ await db.exec(`
   grant usage on schema auth, storage to authenticated;
   grant select, insert, update, delete on storage.objects to authenticated;
 `);
-for (const f of ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql', '0022_house_register.sql', '0023_weather_places.sql', '0024_weather_todos.sql'])
-  await db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
+const MIGRATIONS = ['0001_init.sql', '0002_capture_keys.sql', '0003_maintenance.sql', '0004_suggestions.sql', '0005_hardening.sql', '0006_facts_and_custom_tasks.sql', '0007_feed_keys.sql', '0008_due_dates_and_addresses.sql', '0009_repeat_pushes_recap.sql', '0010_ai_limits_and_account_delete.sql', '0011_assignee_and_pin.sql', '0012_due_pushes.sql', '0013_todo_details.sql', '0014_tags_and_order.sql', '0015_duration_and_travel.sql', '0016_post_alerts.sql', '0017_post_sessions.sql', '0018_post_setup.sql', '0019_place_trigger.sql', '0020_condition_items.sql', '0021_weather_rules.sql', '0022_house_register.sql', '0023_weather_places.sql', '0024_weather_todos.sql'];
+const runMigration = (f) => db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8'));
+for (const f of MIGRATIONS) await runMigration(f);
+// upgrade.sql is pasted again by hand after every update, so every migration it contains (0006 on) must survive a second run.
+for (const f of MIGRATIONS.slice(5)) {
+  try { await runMigration(f); } catch (e) { assert.fail(`${f} is not safe to run twice: ${e.message}`); }
+}
 await db.exec(`alter table storage.objects enable row level security;`).catch(() => {});
 
 const A = '11111111-1111-1111-1111-111111111111'; // you

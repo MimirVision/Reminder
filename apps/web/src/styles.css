@@ -629,3 +629,8 @@ h3.sub:first-of-type { margin-top: 4px; }
   .set-split { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: start; }
   .set-side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
 }
+
+/* Touch targets: text buttons and the House view switch reach a comfortable height */
+.link { min-height: 36px; display: inline-flex; align-items: center; }
+.seg button { min-height: 38px; }
+.link { min-width: 44px; }

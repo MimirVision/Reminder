@@ -10,8 +10,17 @@ import { onRegionEvent, type SurfaceState } from '../core/surfacing.ts';
 
 const words = { near: (l: string) => tNow('notif.near', { label: l }), leaving: (l: string) => tNow('notif.leaving', { label: l }), more: (n: number) => tNow('notif.more', { n }), photo: tNow('notif.photo') };
 
+// Events arrive close together (iOS reports every watched spot when they are registered again); each reads the remembered state and writes it back,
+// so they are handled one after the other, or one would overwrite the other's update.
+let queue: Promise<void> = Promise.resolve();
+export const handleRegionEvent = (type: 'enter' | 'exit', identifier: string, opts: { late?: boolean } = {}): Promise<void> => {
+  const run = queue.then(() => handleOne(type, identifier, opts));
+  queue = run.catch(() => {});
+  return run;
+};
+
 /** Handles one arrive/leave event of a watched spot: decides, rings, remembers, and writes a line in the place-events log. */
-export async function handleRegionEvent(type: 'enter' | 'exit', identifier: string, opts: { late?: boolean } = {}): Promise<void> {
+async function handleOne(type: 'enter' | 'exit', identifier: string, opts: { late?: boolean }): Promise<void> {
   const placeId = identifier.split('|')[0];
   const { places, memories } = readSnapshot();
   const label = readRegionLabels()[identifier] ?? places.find((p) => p.id === placeId)?.name ?? '…';

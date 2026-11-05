@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { claimWeatherMade, setWeatherDone } from './api';
+import { claimWeatherMade, releaseWeatherMade, setWeatherDone } from './api';
 import { uuid } from './id';
 import { tNow } from './i18n';
 import { capture } from './outbox';
@@ -20,12 +20,17 @@ export function useWeatherCard(householdId: string | undefined, onTodosMade?: ()
       for (const a of todosToMake(s.alerts, new Date(), s.made)) {
         const rows = todoRows(tNow, a);
         const ids = rows.map(() => uuid());
+        let claimed = false;
         try {
           if (!(await claimWeatherMade(householdId, a.rule.id, a.forDate, ids))) continue;
+          claimed = true;
           for (const [i, row] of rows.entries()) await capture({ id: ids[i], household_id: householdId, body: row.body, place_id: null, capture_lat: null, capture_lon: null, due_on: row.due_on, notes: row.notes, tags: row.tags, photoUris: [] });
           s = { ...s, made: [...s.made, { rule_id: a.rule.id, for_date: a.forDate, memory_ids: ids }] };
           created = true;
-        } catch { /* before the database update: the card shows instead */ }
+        } catch {
+          // Before the database update: the card shows instead. A claim without its to-dos is given back so the next load tries again.
+          if (claimed) void releaseWeatherMade(a.rule.id, a.forDate);
+        }
       }
       setState(s);
       if (created) madeRef.current?.();

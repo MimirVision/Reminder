@@ -48,6 +48,7 @@ export default function Settings() {
   const [recap, setRecap] = useState(() => readJson<boolean>('hm.recap', false));
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
+  const [lastExport, setLastExport] = useState(() => readJson<number | null>('hm.lastExport', null));
 
   const load = useCallback(async () => {
     setEnabled(await hasBackgroundAccess());
@@ -173,10 +174,12 @@ export default function Settings() {
           setExportBusy(true);
           setExportMsg(t('data.starting'));
           shareExport(household.id, household.name, setExportMsg, t, lang)
+            .then(() => { const now = Date.now(); setLastExport(now); writeJson('hm.lastExport', now); })
             .catch((e) => setExportMsg(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
             .finally(() => setExportBusy(false));
         }} />
         {exportMsg ? <Muted>{exportMsg}</Muted> : null}
+        <Muted>{lastExport ? `${t('data.lastExport', { date: new Date(lastExport).toLocaleDateString(locale) })}${Date.now() - lastExport > 60 * 86_400_000 ? ` ${t('data.oldExport')}` : ''}` : t('data.neverExported')}</Muted>
       </Card>
 
       <Card>

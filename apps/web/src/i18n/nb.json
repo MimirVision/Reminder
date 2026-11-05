@@ -1141,5 +1141,8 @@
   "weather.makeTodos": "Legg sjekklisten i to-do-listen min",
   "weather.makeTodosHelp": "Når påminnelsen kommer, blir hvert punkt en to-do med frist den dagen (merket vær), så du kan krysse dem av. Én gang per periode.",
   "weather.testSentTodos": "En testpåminnelse er på vei, og sjekklisten ble lagt i to-do-listen din (merket vær). Slett dem når du har sett dem.",
-  "geo.unwatched": "Overvåkes ikke, fant ingen posisjon for: {names}"
+  "geo.unwatched": "Overvåkes ikke, fant ingen posisjon for: {names}",
+  "data.lastExport": "Sist eksportert: {date}",
+  "data.neverExported": "Du har ikke eksportert dataene dine ennå. En kopi nå og da er en god vane.",
+  "data.oldExport": "Det er en stund siden. Eksporter en ny kopi."
 }

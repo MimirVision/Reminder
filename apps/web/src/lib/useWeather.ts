@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addMemory, claimWeatherMade, listMembers, listMemoryStatuses, listWeatherDone, listWeatherMade, listWeatherPlaces, listWeatherRules, setWeatherDone } from './api';
+import { addMemory, claimWeatherMade, releaseWeatherMade, listMembers, listMemoryStatuses, listWeatherDone, listWeatherMade, listWeatherPlaces, listWeatherRules, setWeatherDone } from './api';
 import { useI18n } from '../i18n';
 import { supabase } from './supabase';
 import type { Member } from './types';
@@ -41,12 +41,17 @@ export function useWeather(householdId: string, onTodosMade?: () => void) {
       for (const a of todosToMake(alertsNow, new Date(), madeList)) {
         const rows = todoRows(t, a);
         const ids = rows.map(() => crypto.randomUUID());
+        let claimed = false;
         try {
           if (!(await claimWeatherMade(householdId, a.rule.id, a.forDate, ids))) continue;
+          claimed = true;
           for (const [i, row] of rows.entries()) await addMemory({ id: ids[i], household_id: householdId, body: row.body, due_on: row.due_on, notes: row.notes, tags: row.tags });
           madeList = [...madeList, { rule_id: a.rule.id, for_date: a.forDate, memory_ids: ids }];
           created = true;
-        } catch { /* before the database update, or offline: the card shows instead */ }
+        } catch {
+          // Before the database update, or offline: the card shows instead. A claim without its to-dos is given back so the next load tries again.
+          if (claimed) void releaseWeatherMade(a.rule.id, a.forDate);
+        }
       }
       setMade(madeList);
       const statuses = await listMemoryStatuses(madeList.flatMap((m) => m.memory_ids)).catch(() => []);

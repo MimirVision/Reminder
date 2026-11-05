@@ -638,3 +638,8 @@ export async function listMemoryStatuses(ids: string[]): Promise<{ id: string; b
   if (ids.length === 0) return [];
   return check(await supabase.from('memories').select('id, body, status').in('id', ids).limit(200));
 }
+
+/** Gives a claim back (the to-dos could not be made), so the next load tries again. */
+export async function releaseWeatherMade(ruleId: string, forDate: string): Promise<void> {
+  await supabase.from('weather_made').delete().eq('rule_id', ruleId).eq('for_date', forDate);
+}

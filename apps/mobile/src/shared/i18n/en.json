@@ -1141,5 +1141,8 @@
   "weather.makeTodos": "Add the checklist to my to-do list",
   "weather.makeTodosHelp": "When the reminder comes, each item becomes a to-do due that day (tagged weather), so you can check them off. Once per spell.",
   "weather.testSentTodos": "A test reminder is on its way, and its checklist was added to your to-dos (tagged weather). Delete them when you have seen them.",
-  "geo.unwatched": "Not watched, no location found for: {names}"
+  "geo.unwatched": "Not watched, no location found for: {names}",
+  "data.lastExport": "Last export: {date}",
+  "data.neverExported": "You have not exported your data yet. A copy now and then is a good habit.",
+  "data.oldExport": "It was a while ago. Export a fresh copy."
 }

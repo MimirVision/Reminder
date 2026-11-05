@@ -38,6 +38,7 @@ export function Settings({ household }: { household: Household }) {
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [acctBusy, setAcctBusy] = useState(false);
+  const [lastExport, setLastExport] = useState<number | null>(() => { try { return Number(localStorage.getItem('hm.lastExport')) || null; } catch { return null; } });
   const [textSize, setTextSize] = useState<TextSize>(getTextSize);
   const [contrast, setContrast] = useState<Contrast>(getContrast);
 
@@ -125,10 +126,12 @@ export function Settings({ household }: { household: Household }) {
             setExportBusy(true);
             setExporting(t('data.starting'));
             downloadExport(household.id, household.name, setExporting, t, lang)
+              .then(() => { const now = Date.now(); setLastExport(now); try { localStorage.setItem('hm.lastExport', String(now)); } catch { /* ignore */ } })
               .catch((e) => setExporting(t('data.failed', { msg: e instanceof Error ? e.message : String(e) })))
               .finally(() => setExportBusy(false));
           }}>{t('data.export')}</button>
           {exporting && <span className="muted" role="status">{exporting}</span>}
+          <span className="muted">{lastExport ? `${t('data.lastExport', { date: new Date(lastExport).toLocaleDateString(locale) })}${Date.now() - lastExport > 60 * 86_400_000 ? ` ${t('data.oldExport')}` : ''}` : t('data.neverExported')}</span>
         </section>
         <section className="card">
           <h2>{t('acct.title')}</h2>
