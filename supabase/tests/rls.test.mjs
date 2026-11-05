@@ -631,6 +631,25 @@ for (const t of ['post_alert_accounts', 'post_alert_seen', 'post_alert_devices',
   });
 }
 
+// 0025: beredskap settings and stock.
+{
+  await as(A, async () => {
+    await db.query(`insert into prep_settings (household_id, adults, children, pets) values ($1, 2, 1, 1)`, [hid]);
+    await rejects(() => db.query(`insert into prep_settings (household_id, adults) values ($1, 0)`, [hid]), /duplicate key|prep_settings_adults_check|check constraint/);
+    await db.query(`update prep_settings set days = 10, lead_days = 45 where household_id = $1`, [hid]);
+    await rejects(() => db.query(`update prep_settings set days = 99 where household_id = $1`, [hid]), /prep_settings_days_check|check constraint/);
+    await db.query(`insert into prep_stock (household_id, key, name, category, qty, unit, expires_on) values ($1, 'water', 'Water', 'water', 12, 'litres', '2027-03-01')`, [hid]);
+    await rejects(() => db.query(`insert into prep_stock (household_id, name, qty) values ($1, 'x', -1)`, [hid]), /prep_stock_qty_check|check constraint/);
+    await rejects(() => db.query(`insert into prep_stock (household_id, name, renew_months) values ($1, 'x', 0)`, [hid]), /prep_stock_renew_months_check|check constraint/);
+  });
+  await as(C, async () => {
+    assert.equal((await db.query(`select * from prep_stock`)).rows.length, 0, 'a stranger sees no stock');
+    assert.equal((await db.query(`select * from prep_settings`)).rows.length, 0);
+    await rejects(() => db.query(`insert into prep_stock (household_id, name) values ($1, 'x')`, [hid]), /row-level security/);
+    await rejects(() => db.query(`insert into prep_settings (household_id) values ($1)`, [hid]), /row-level security|duplicate key/);
+  });
+}
+
 assert.equal(readFileSync(new URL('../setup.sql', import.meta.url), 'utf8'), buildSetup(), 'setup.sql is stale: run npm run build:setup');
 assert.equal(readFileSync(new URL('../upgrade.sql', import.meta.url), 'utf8'), buildSetup(UPGRADE_AFTER), 'upgrade.sql is stale: run npm run build:setup');
 assert.equal(readFileSync(new URL('../post.sql', import.meta.url), 'utf8'), buildPost(), 'post.sql is stale: run npm run build:setup');

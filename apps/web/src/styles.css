@@ -634,3 +634,22 @@ h3.sub:first-of-type { margin-top: 4px; }
 .link { min-height: 36px; display: inline-flex; align-items: center; }
 .seg button { min-height: 38px; }
 .link { min-width: 44px; }
+
+/* Beredskap */
+.seg.scroll { overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.seg.scroll::-webkit-scrollbar { display: none; }
+.seg.scroll button { flex: 0 0 auto; }
+.prep-days { font: 700 26px var(--font-display); letter-spacing: -0.3px; }
+.prep-hero { display: flex; flex-direction: column; gap: 8px; }
+.prep-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.prep-cat { display: flex; flex-direction: column; gap: 4px; text-align: left; border: 0; background: var(--chip); color: inherit; border-radius: 12px; padding: 8px 10px; font: 600 13px var(--font-body); cursor: pointer; min-height: 44px; }
+.cond-bar.small { height: 6px; }
+.prep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.prep-guide { padding: 8px 0; border-top: 1px solid var(--line); }
+.prep-guide summary { cursor: pointer; font-weight: 600; min-height: 36px; display: flex; align-items: center; }
+.print-card { display: none; }
+@media print {
+  body * { visibility: hidden !important; }
+  .print-card, .print-card * { visibility: visible !important; }
+  .print-card { display: block; position: absolute; inset: 0; margin: 0; padding: 24px; font: 16px/1.5 system-ui, sans-serif; white-space: pre-wrap; color: #000; background: #fff; }
+}

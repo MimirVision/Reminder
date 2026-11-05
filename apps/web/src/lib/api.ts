@@ -8,6 +8,7 @@ import type { DetailFields } from './details.ts';
 import type { HouseProfile, Household, MaintenanceEvent, MaintenanceTask, Media, Member, Memory, MemoryStatus, Place, RepeatRule, Suggestion } from './types';
 import type { WeatherDone, WeatherMade, WeatherPlace, WeatherRule } from './weather';
 import type { Appliance, Contact, CostEvent, HouseCost } from './register';
+import { DEFAULT_PROFILE, type PrepProfile, type PrepStock } from './prep';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
@@ -642,4 +643,25 @@ export async function listMemoryStatuses(ids: string[]): Promise<{ id: string; b
 /** Gives a claim back (the to-dos could not be made), so the next load tries again. */
 export async function releaseWeatherMade(ruleId: string, forDate: string): Promise<void> {
   await supabase.from('weather_made').delete().eq('rule_id', ruleId).eq('for_date', forDate);
+}
+
+// ---- Beredskap (preparedness) --------------------------------------------------------------------------------------------------
+export async function getPrepSettings(householdId: string): Promise<PrepProfile> {
+  const rows: Record<string, unknown>[] = check(await supabase.from('prep_settings').select('*').eq('household_id', householdId).limit(1));
+  const r = rows[0];
+  if (!r) return { ...DEFAULT_PROFILE };
+  return { ...DEFAULT_PROFILE, ...(r as unknown as PrepProfile), overrides: (r.overrides as Record<string, number> | null) ?? {} };
+}
+export async function savePrepSettings(householdId: string, p: PrepProfile): Promise<void> {
+  check(await supabase.from('prep_settings').upsert({ household_id: householdId, ...p }, { onConflict: 'household_id' }));
+}
+export async function listPrepStock(householdId: string): Promise<PrepStock[]> {
+  return check(await supabase.from('prep_stock').select('*').eq('household_id', householdId).limit(1000)).map((r: PrepStock) => ({ ...r, qty: Number(r.qty) }));
+}
+export async function savePrepStock(householdId: string, s: Omit<PrepStock, 'id' | 'household_id'> & { id?: string }): Promise<void> {
+  const { id, ...rest } = s;
+  check(id ? await supabase.from('prep_stock').update(rest).eq('id', id) : await supabase.from('prep_stock').insert({ ...rest, household_id: householdId }));
+}
+export async function deletePrepStock(id: string): Promise<void> {
+  check(await supabase.from('prep_stock').delete().eq('id', id));
 }

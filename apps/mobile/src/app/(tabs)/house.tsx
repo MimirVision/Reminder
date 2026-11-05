@@ -4,6 +4,7 @@ import { Alert, Linking, Pressable, RefreshControl, ScrollView, Switch, Text, Vi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { completeTask, listContacts, listTaskEvents, listTasks, retireTask, seedHouseTemplate, setTaskContact } from '@/lib/api';
 import { RegisterView } from '@/lib/RegisterView';
+import { PrepView } from '@/lib/PrepView';
 import { Select } from '@/lib/Select';
 import { readJson, writeJson } from '@/lib/store';
 import { telHref, type Contact } from '../../shared/lib/register';
@@ -63,10 +64,10 @@ export default function House() {
   const [showLater, setShowLater] = useState(false);
   const [importing, setImporting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report' | 'register'>('calendar');
+  const [mode, setMode] = useState<'calendar' | 'facts' | 'moving' | 'report' | 'register' | 'prep'>('calendar');
   const [contacts, setContacts] = useState<Contact[]>([]);
   // The warranty card on the to-do list sends you straight to the Register (once).
-  useFocusEffect(useCallback(() => { const m = readJson<string | null>('hm.houseMode', null); if (m === 'register') { writeJson('hm.houseMode', null); setMode('register'); } }, []));
+  useFocusEffect(useCallback(() => { const m = readJson<string | null>('hm.houseMode', null); if (m === 'register' || m === 'prep') { writeJson('hm.houseMode', null); setMode(m); } }, []));
   const [addingTask, setAddingTask] = useState(false);
 
   const load = useCallback(async () => {
@@ -101,7 +102,7 @@ export default function House() {
 
   const toggle2 = (
     <View style={styles.row}>
-      {(['calendar', 'facts', 'moving', 'report', 'register'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
+      {(['calendar', 'facts', 'moving', 'report', 'register', 'prep'] as const).map((m) => <Btn key={m} small label={tr(`house.${m}` as 'house.calendar')} primary={mode === m} onPress={() => setMode(m)} />)}
     </View>
   );
 
@@ -111,6 +112,16 @@ export default function House() {
         <Title>{tr('house.title')}</Title>
         {toggle2}
         <MovingView />
+      </ScrollView>
+    );
+  }
+
+  if (mode === 'prep') {
+    return (
+      <ScrollView automaticallyAdjustKeyboardInsets style={{ backgroundColor: t.bg }} contentContainerStyle={[styles.screen, pad]} keyboardShouldPersistTaps="handled">
+        <Title>{tr('house.title')}</Title>
+        {toggle2}
+        {household ? <PrepView householdId={household.id} /> : null}
       </ScrollView>
     );
   }

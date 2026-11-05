@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   acceptSuggestion, cachedOpenMemories, deleteMemory, dismissSuggestion, flushOutbox, listMembers, listMemories, listPhotoUrls, listPlaces, markDone,
-  listAppliances, listTasks, notifyPartnerIfSet, pendingTodos, schemaProblem, purgeDismissed, reopen, requestSuggestion, restoreMemory, setOrder, softDelete, subscribeHousehold, updateMemory,
+  getPrepSettings, listAppliances, listPrepStock, listTasks, notifyPartnerIfSet, pendingTodos, schemaProblem, purgeDismissed, reopen, requestSuggestion, restoreMemory, setOrder, softDelete, subscribeHousehold, updateMemory,
 } from '../lib/api';
 import { tap } from '../lib/haptics';
 import { statusFor } from '../lib/api';
@@ -21,6 +21,7 @@ import { compareTodos, groupUpcoming, isLate } from '../lib/todoGroups';
 import { groupTasks } from '../lib/maintenance';
 import { WeatherCard } from './WeatherCard';
 import { warrantiesEnding } from '../lib/register';
+import { expiringSoon } from '../lib/prep';
 import { useWeather } from '../lib/useWeather';
 import { moveStep } from '../lib/order';
 import { allTags } from '../lib/tags';
@@ -74,6 +75,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   const [trash, setTrash] = useState(false);
   const [houseDue, setHouseDue] = useState(0);
   const [warranties, setWarranties] = useState<{ name: string; days: number }[]>([]);
+  const [prepExpiring, setPrepExpiring] = useState(0);
   const reloadRef = useRef<() => void>(() => {});
   const weather = useWeather(household.id, () => reloadRef.current());
   const [cursor, setCursor] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
   useEffect(() => { checkSchema(); }, [checkSchema]);
   // House jobs that are due show as a small card on top, so they are not forgotten when you never open House.
   useEffect(() => { listTasks(household.id).then((tasks) => setHouseDue(groupTasks(tasks, todayISO()).due.length)).catch(() => {});
+    Promise.all([getPrepSettings(household.id), listPrepStock(household.id)]).then(([p, s]) => setPrepExpiring(expiringSoon(s, todayISO(), p.lead_days).length)).catch(() => {});
     listAppliances(household.id).then((list) => setWarranties(warrantiesEnding(list, todayISO(), 30).slice(0, 3))).catch(() => {}); }, [household.id]);
   useEffect(() => { loadPlaces(); listMembers(household.id).then(setMembers).catch(() => {}); }, [household.id, loadPlaces]);
   useEffect(() => { void purgeDismissed(household.id).catch(() => {}); }, [household.id]);
@@ -568,6 +571,12 @@ export function Todo({ household, userId, onNavigate }: { household: Household; 
             </div>
           )}
           {!found && mode === 'list' && <WeatherCard alerts={weather.active} done={weather.done} onTick={(a, item) => void weather.tick(a, item)} />}
+          {prepExpiring > 0 && !found && mode === 'list' && (
+            <div className="late-banner house-card" role="status">
+              <span>{tn('prep.todoCard', prepExpiring)}</span>
+              <button className="btn small" onClick={() => { try { sessionStorage.setItem('hm.houseMode', 'Prep'); } catch { /* ignore */ } onNavigate('house'); }}>{t('housecard.open')}</button>
+            </div>
+          )}
           {warranties.length > 0 && !found && mode === 'list' && (
             <div className="late-banner house-card" role="status">
               <span>{t('warr.card', { names: warranties.map((w) => t('warr.cardDays', { name: w.name, n: w.days })).join(', ') })}</span>

@@ -20,7 +20,7 @@ const open = (url: string | null) => { if (url) void Linking.openURL(url).catch(
 
 function useSheetPad() { const i = useSafeAreaInsets(); return { padding: 16, gap: 8, paddingBottom: i.bottom + 24 }; }
 
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const th = useTheme();
   const { t } = useI18n();
   const pad = useSheetPad();
@@ -39,12 +39,12 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-function Lbl({ children }: { children: string }) {
+export function Lbl({ children }: { children: string }) {
   const th = useTheme();
   return <Text style={{ color: th.muted, fontFamily: font.semi, fontSize: 14, marginTop: 6 }}>{children}</Text>;
 }
 
-function Pill({ text, tone }: { text: string; tone?: 'soon' | 'expired' }) {
+export function Pill({ text, tone }: { text: string; tone?: 'soon' | 'expired' }) {
   const th = useTheme();
   const bg = tone === 'soon' ? (th.dark ? '#3A2B12' : '#FFF1D6') : tone === 'expired' ? (th.dark ? '#3A1A15' : '#FBEAE4') : th.dark ? '#262C36' : '#ECEEF2';
   const fg = tone === 'soon' ? (th.dark ? '#F0B35A' : '#8F5200') : tone === 'expired' ? (th.dark ? '#FF8A78' : '#C62D1A') : th.muted;

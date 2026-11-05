@@ -1,7 +1,8 @@
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import { listAppliances, listMemories, listMemoryStatuses, listPlaces, listWeatherDone, listWeatherMade, listWeatherPlaces, listWeatherRules } from './api';
+import { listAppliances, getPrepSettings, listPrepStock, listMemories, listMemoryStatuses, listPlaces, listWeatherDone, listWeatherMade, listWeatherPlaces, listWeatherRules } from './api';
 import { warrantyReminders } from '../shared/lib/register';
+import { expiryDigests } from '../shared/lib/prep';
 import { readJson, writeJson } from './store';
 import { distanceM } from '../core/geo.ts';
 import { pickDueReminders, type DueMemory } from '../core/dueReminders.ts';
@@ -242,7 +243,7 @@ export async function scheduleDueReminders(all: (DueMemory & { assignee_id?: str
     for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
       if (n.identifier.startsWith('due-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
     }
-    for (const r of pickDueReminders(memories, new Date(), 36)) {
+    for (const r of pickDueReminders(memories, new Date(), 32)) {
       await Notifications.scheduleNotificationAsync({
         identifier: `due-${r.id}`,
         content: { title: r.lead > 0 ? tNow('notif.dueIn', { lead: leadShort(r.lead, currentLang()) }) : tNow('notif.due'), body: r.body, data: { memoryIds: [r.id] } },
@@ -391,6 +392,24 @@ export async function scheduleWarranties(householdId: string): Promise<void> {
   } catch { /* a nicety: stays silent when offline or before the database update */ }
 }
 
+/** What is about to expire in the preparedness stock: one notification per reminder day (the lead time before it expires, 09:00), the soonest three. */
+export async function scheduleExpiries(householdId: string): Promise<void> {
+  try {
+    if (!(await Notifications.getPermissionsAsync()).granted) return;
+    const [profile, stock] = await Promise.all([getPrepSettings(householdId), listPrepStock(householdId)]);
+    for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
+      if (n.identifier.startsWith('prep-')) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    for (const d of expiryDigests(stock, new Date(), profile.lead_days, 3)) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: d.id,
+        content: { title: tnNow('notif.prepTitle', d.count), body: d.names.slice(0, 4).join(', ') + (d.names.length > 4 ? ` +${d.names.length - 4}` : '') },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: d.at },
+      });
+    }
+  } catch { /* a nicety: stays silent when offline or before the database update */ }
+}
+
 /** Plan every local notification again from the server (after changing a setting). */
 export async function replanNotifications(householdId: string): Promise<void> {
   try {
@@ -401,6 +420,7 @@ export async function replanNotifications(householdId: string): Promise<void> {
     await scheduleLeaveReminders(m, p, mp.here, mp.pins);
     await scheduleWeather(householdId);
     await scheduleWarranties(householdId);
+    await scheduleExpiries(householdId);
   } catch { /* offline */ }
 }
 
