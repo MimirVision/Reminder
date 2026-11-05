@@ -82,27 +82,44 @@ export async function enableReminders(): Promise<boolean> {
   return true;
 }
 
+/** Where the phone is now: a fix from the last 10 minutes, else a new one; an older fix only as a last resort (the nearest places are chosen from it). */
 async function currentPosition(): Promise<LatLon | null> {
   try {
-    const last = await Location.getLastKnownPositionAsync();
-    if (last) return { lat: last.coords.latitude, lon: last.coords.longitude };
-    const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    return { lat: p.coords.latitude, lon: p.coords.longitude };
+    const recent = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 });
+    if (recent) return { lat: recent.coords.latitude, lon: recent.coords.longitude };
+    try {
+      const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      return { lat: p.coords.latitude, lon: p.coords.longitude };
+    } catch {
+      const old = await Location.getLastKnownPositionAsync();
+      return old ? { lat: old.coords.latitude, lon: old.coords.longitude } : null;
+    }
   } catch {
     return null;
   }
 }
 
+// The main Overpass server often answers 429/504 when busy, so two others are tried before giving up.
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+
 async function fetchPois(category: string, center: LatLon) {
   const q = overpassQuery(category, center, POI_SEARCH_RADIUS_M);
   if (!q) return null;
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `data=${encodeURIComponent(q)}`,
-  });
-  if (!res.ok) throw new Error(`overpass ${res.status}`);
-  return parseOverpass(category, await res.json());
+  let last: Error = new Error('overpass');
+  for (const url of OVERPASS) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 15_000);
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `data=${encodeURIComponent(q)}`, signal: ctl.signal });
+      if (!res.ok) throw new Error(`overpass ${res.status}`);
+      return parseOverpass(category, await res.json());
+    } catch (e) {
+      last = e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw last;
 }
 
 // Re-picks which (max 20) places iOS should watch. Runs on app open, after edits, and when the phone
@@ -121,15 +138,18 @@ export async function refreshRegions(): Promise<{ watching: number }> {
   const categories = [...new Set(places.filter((p) => p.kind === 'category' && p.category).map((p) => p.category as string))];
   if (here && categories.length > 0 && needsRefresh(cache, here, Date.now())) {
     const byCategory: PoiCache['byCategory'] = {};
+    let failed = false;
     for (const c of categories) {
       try {
         const pois = await fetchPois(c, here);
         if (pois) byCategory[c] = pois;
       } catch {
+        failed = true;
         byCategory[c] = cache?.byCategory[c] ?? [];
       }
     }
-    cache = { center: here, fetchedAt: Date.now(), byCategory };
+    // A failed lookup must not be remembered for a day as "no shops nearby": it is tried again the next time (fetchedAt 0 = stale).
+    cache = { center: here, fetchedAt: failed ? 0 : Date.now(), byCategory };
     writeJson(K.pois, cache);
   }
 
@@ -137,6 +157,11 @@ export async function refreshRegions(): Promise<{ watching: number }> {
     places, memories, pois: cache?.byCategory ?? {}, here, max: MAX_REGIONS - 1,
   });
   writeJson(K.regions, Object.fromEntries(regions.map((r) => [r.identifier, r.label])));
+  // Places a to-do is waiting at that cannot be watched (no location found for the address, or no shop of that kind found nearby): say so in the log.
+  const wantedIds = new Set(memories.filter((m) => m.place_id).map((m) => m.place_id as string));
+  const watchedIds = new Set(regions.map((r) => r.placeId));
+  const unwatched = places.filter((p) => wantedIds.has(p.id) && !watchedIds.has(p.id)).map((p) => p.name);
+  if (unwatched.length > 0) logGeo({ kind: 'watch', label: '', outcome: `unwatched:${unwatched.join(', ').slice(0, 100)}` });
 
   // The list snapshot and shop lookups above also feed the in-app "Are you here?" bar, which only needs
   // foreground location. Registering background geofences needs "Always" + notifications.

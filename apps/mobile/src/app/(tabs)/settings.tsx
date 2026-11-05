@@ -230,7 +230,7 @@ export default function Settings() {
         ))}
         <SectionLabel>{t('geo.title')}</SectionLabel>
         {geoLog.length === 0 ? <Muted>{t('geo.none')}</Muted> : geoLog.slice(0, 8).map((e, i) => (
-          <Muted key={`${e.at}-${i}`}>{new Date(e.at).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {e.kind === 'enter' ? t('geo.enter', { label: e.label || '…' }) : e.kind === 'exit' ? (e.label ? t('geo.exit', { label: e.label }) : t('geo.exit', { label: '…' })) : e.kind === 'error' ? t('geo.error') : t('geo.watch')} · {e.outcome.startsWith('watching:') ? t('geo.watching', { n: Number(e.outcome.slice(9)) }) : e.kind === 'error' ? e.outcome : t(`geo.o.${e.outcome}` as 'geo.o.rang')}</Muted>
+          <Muted key={`${e.at}-${i}`}>{new Date(e.at).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {e.kind === 'enter' ? t('geo.enter', { label: e.label || '…' }) : e.kind === 'exit' ? (e.label ? t('geo.exit', { label: e.label }) : t('geo.exit', { label: '…' })) : e.kind === 'error' ? t('geo.error') : t('geo.watch')} · {e.outcome.startsWith('watching:') ? t('geo.watching', { n: Number(e.outcome.slice(9)) }) : e.outcome.startsWith('unwatched:') ? t('geo.unwatched', { names: e.outcome.slice(10) }) : e.kind === 'error' ? e.outcome : t(`geo.o.${e.outcome}` as 'geo.o.rang')}</Muted>
         ))}
         <Btn small label={t('diag.refresh')} onPress={() => { setLastSync(readJson<number | null>('hm.lastSync', null)); setGeoLog(readGeoLog()); void plannedNotifications().then(setPlanned); }} />
       </Card>
