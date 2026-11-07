@@ -34,6 +34,10 @@ export function TodoDetails({ value, onChange }: { value: Details; onChange: (d:
       </View>
 
       <SectionLabel>{t('check.label')}</SectionLabel>
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <Field style={{ flex: 1 }} placeholder={t('check.placeholder')} value={step} onChangeText={setStep} onSubmitEditing={addStep} returnKeyType="done" blurOnSubmit={false} />
+        <Btn small label={t('check.add')} onPress={addStep} disabled={!step.trim()} />
+      </View>
       {value.checklist.map((i) => (
         <View key={i.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Check done={i.done} onPress={() => onChange({ ...value, checklist: toggleItem(value.checklist, i.id) })} />
@@ -43,10 +47,6 @@ export function TodoDetails({ value, onChange }: { value: Details; onChange: (d:
           </Pressable>
         </View>
       ))}
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-        <Field style={{ flex: 1 }} placeholder={t('check.placeholder')} value={step} onChangeText={setStep} onSubmitEditing={addStep} returnKeyType="done" blurOnSubmit={false} />
-        <Btn small label={t('check.add')} onPress={addStep} disabled={!step.trim()} />
-      </View>
 
       <SectionLabel>{t('tags.label')}</SectionLabel>
       {value.tags.length > 0 && (

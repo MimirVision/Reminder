@@ -26,6 +26,11 @@ export function TodoDetails({ value, onChange }: { value: Details; onChange: (d:
       </div>
 
       <div className="label">{t('check.label')}</div>
+      <div className="row nowrap">
+        <input className="growfield" placeholder={t('check.placeholder')} value={step} onChange={(e) => setStep(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addStep(); } }} />
+        <button type="button" className="btn small" disabled={!step.trim()} onClick={addStep}>{t('check.add')}</button>
+      </div>
       {value.checklist.length > 0 && (
         <ul className="steps-edit">
           {value.checklist.map((i) => (
@@ -39,11 +44,6 @@ export function TodoDetails({ value, onChange }: { value: Details; onChange: (d:
           ))}
         </ul>
       )}
-      <div className="row nowrap">
-        <input className="growfield" placeholder={t('check.placeholder')} value={step} onChange={(e) => setStep(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addStep(); } }} />
-        <button type="button" className="btn small" disabled={!step.trim()} onClick={addStep}>{t('check.add')}</button>
-      </div>
 
       <div className="label">{t('tags.label')}</div>
       {value.tags.length > 0 && (
