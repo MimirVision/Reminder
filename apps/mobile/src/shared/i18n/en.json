@@ -1254,5 +1254,15 @@
   "notif.prepTitle_other": "{n} preparedness items expire soon",
   "notif.prepBody": "{names}",
   "prep.todoCard_one": "Beredskap: {n} item expires soon",
-  "prep.todoCard_other": "Beredskap: {n} items expire soon"
+  "prep.todoCard_other": "Beredskap: {n} items expire soon",
+  "pin.title": "Choose on the map",
+  "pin.help": "Move the map so the pin is on the spot you want.",
+  "pin.mapAria": "Map. Drag it to move the pin.",
+  "pin.locate": "Go to my location",
+  "pin.mapFail": "The map is slow to load. Check your connection.",
+  "pin.offline": "Could not look up the address. You can still use this spot.",
+  "pin.nothing": "No address here. You can still use this spot.",
+  "pin.defaultName": "Chosen spot",
+  "pin.use": "Use this spot",
+  "pin.open": "Choose on the map"
 }

@@ -56,3 +56,14 @@ test('saved places are matched by word start, best first', () => {
   assert.deepEqual(matchSaved(places, ''), []);
   assert.deepEqual(matchSaved(places, 'zzz'), []);
 });
+
+test('the search shows more matches, and a spot chosen on the map gets the name of what is there', async () => {
+  const { SEARCH_LIMIT, pinHit, reverseUrl, parsePhoton } = await import('./placeSearch.ts');
+  assert.ok(SEARCH_LIMIT >= 10);
+  assert.equal(reverseUrl(59.9311, 10.7519), 'https://photon.komoot.io/reverse?lat=59.931100&lon=10.751900&limit=1');
+  const found = parsePhoton({ features: [{ geometry: { coordinates: [10.7519, 59.9311] }, properties: { osm_type: 'W', osm_id: 5, osm_key: 'building', osm_value: 'yes', street: 'Storgata', housenumber: '5', postcode: '0155', city: 'Oslo', countrycode: 'NO' } }] })[0];
+  const hit = pinHit(59.9312, 10.752, found, 'Chosen spot');
+  assert.equal(hit.name, 'Storgata 5'); assert.equal(hit.address, '0155 Oslo'); assert.equal(hit.lat, 59.9312); assert.equal(hit.isAddress, true);
+  const none = pinHit(60, 10, null, 'Chosen spot');
+  assert.equal(none.name, 'Chosen spot'); assert.equal(none.address, ''); assert.equal(none.category, null); assert.match(none.key, /^pin\//);
+});

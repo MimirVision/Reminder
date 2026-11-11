@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
 import { searchPlaces, type Hit } from '../lib/placeSearch';
 import { getLastKnown } from '../lib/useHere';
 import { Icon } from './icons';
+
+const PinPicker = lazy(() => import('./PinPicker'));
 
 /** A search box for an address or a place name; picking a result gives its name, address and coordinates. */
 export function AddressPicker({ onPick }: { onPick: (h: Pick<Hit, 'name' | 'address' | 'lat' | 'lon'>) => void }) {
@@ -11,6 +13,7 @@ export function AddressPicker({ onPick }: { onPick: (h: Pick<Hit, 'name' | 'addr
   const [hits, setHits] = useState<Hit[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [pinning, setPinning] = useState(false);
 
   useEffect(() => {
     const text = q.trim();
@@ -19,7 +22,7 @@ export function AddressPicker({ onPick }: { onPick: (h: Pick<Hit, 'name' | 'addr
     setBusy(true);
     const ctl = new AbortController();
     const id = window.setTimeout(() => {
-      searchPlaces(text, { near: getLastKnown(), signal: ctl.signal, limit: 6 })
+      searchPlaces(text, { near: getLastKnown(), signal: ctl.signal })
         .then((r) => { setHits(r); setBusy(false); })
         .catch((e) => { if ((e as Error).name === 'AbortError') return; setHits([]); setFailed(true); setBusy(false); });
     }, 300);
@@ -34,6 +37,8 @@ export function AddressPicker({ onPick }: { onPick: (h: Pick<Hit, 'name' | 'addr
       {busy && <span className="muted" role="status">{t('weather.searching')}</span>}
       {failed && <span className="error" role="alert">{t('weather.searchFail')}</span>}
       {!busy && !failed && q.trim().length >= 3 && hits.length === 0 && <span className="muted">{t('weather.noHits')}</span>}
+      <button type="button" className="link pinpick-add" onClick={() => setPinning(true)}><Icon name="pin" size={16} /> {t('pin.open')}</button>
+      {pinning && <Suspense fallback={null}><PinPicker start={getLastKnown()} onClose={() => setPinning(false)} onPick={(h) => { setPinning(false); onPick(h); }} /></Suspense>}
       {hits.length > 0 && (
         <ul className="results">
           {hits.map((h) => (

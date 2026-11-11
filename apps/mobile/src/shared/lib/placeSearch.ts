@@ -94,11 +94,27 @@ export function parsePhoton(json: unknown): Hit[] {
 }
 
 const NORWAY_BBOX = '4.0,57.9,31.5,71.3';
+/** How many matches the search shows (it used to be 6: too few when several streets or towns share a name). */
+export const SEARCH_LIMIT = 12;
+
+export const reverseUrl = (lat: number, lon: number): string => `https://photon.komoot.io/reverse?${new URLSearchParams({ lat: lat.toFixed(6), lon: lon.toFixed(6), limit: '1' })}`;
+
+/** What is at a spot on the map: the nearest address or place, or null when there is nothing nearby (or it is outside Norway). */
+export async function reverseGeocode(lat: number, lon: number, signal?: AbortSignal): Promise<Hit | null> {
+  const res = await fetch(reverseUrl(lat, lon), { signal });
+  if (!res.ok) throw new Error(`reverse geocode ${res.status}`);
+  return parsePhoton(await res.json())[0] ?? null;
+}
+
+/** A spot chosen on the map as a place to save, named after what is there. */
+export const pinHit = (lat: number, lon: number, found: Hit | null, fallbackName: string): Hit => ({
+  key: `pin/${lat.toFixed(6)},${lon.toFixed(6)}`, name: found?.name || fallbackName, address: found?.address ?? '', lat, lon, category: found?.category ?? null, isAddress: found ? found.isAddress : true,
+});
 
 export async function searchPlaces(q: string, opts: { near?: LatLon | null; signal?: AbortSignal; limit?: number } = {}): Promise<Hit[]> {
   const text = q.trim();
   if (text.length < 2) return [];
-  const params = new URLSearchParams({ q: text, limit: String(opts.limit ?? 6), bbox: NORWAY_BBOX });
+  const params = new URLSearchParams({ q: text, limit: String(opts.limit ?? SEARCH_LIMIT), bbox: NORWAY_BBOX });
   if (opts.near) { params.set('lat', String(opts.near.lat)); params.set('lon', String(opts.near.lon)); }
   const res = await fetch(`https://photon.komoot.io/api/?${params}`, { signal: opts.signal });
   if (!res.ok) throw new Error(`place search ${res.status}`);

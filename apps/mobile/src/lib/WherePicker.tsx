@@ -6,6 +6,7 @@ import { categoryFromName, categoryFromQuery, directionsUrl, findExistingPlace, 
 import type { LatLon } from '../shared/lib/geo';
 import type { Where } from './api';
 import { Chip } from './Chip';
+import { PinPicker } from './PinPicker';
 import { useI18n } from './i18n';
 import { font, useTheme } from './theme';
 import type { Place } from './types';
@@ -29,6 +30,7 @@ export function PlaceSearch({ places, showSaved, onPick }: { places: Place[]; sh
   const [hits, setHits] = useState<Hit[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [pinning, setPinning] = useState(false);
   const text = q.trim();
 
   useEffect(() => {
@@ -59,6 +61,10 @@ export function PlaceSearch({ places, showSaved, onPick }: { places: Place[]; sh
     <View style={{ gap: 10 }}>
       <Field placeholder={t('where.placeholder')} accessibilityLabel={t('where.label')} value={q} onChangeText={setQ} autoCapitalize="none" autoCorrect={false} returnKeyType="search"
         onSubmitEditing={() => { const first = rows.find((r) => r.pick); if (first?.pick) onPick(first.pick); }} />
+      <Pressable accessibilityRole="button" onPress={() => setPinning(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, alignSelf: 'flex-start' }}>
+        <Icon name="mappin" size={16} color={th.accent} /><Text style={{ color: th.accent, fontFamily: font.semi, fontSize: 15 }}>{t('pin.open')}</Text>
+      </Pressable>
+      {pinning ? <PinPicker onClose={() => setPinning(false)} onPick={(hit) => { setPinning(false); onPick({ type: 'hit', hit }); }} /> : null}
       {text.length >= 2 && (
         <View style={{ borderRadius: 16, borderWidth: 1, borderColor: th.line, backgroundColor: th.card, overflow: 'hidden' }}>
           {rows.map((r, i) => (

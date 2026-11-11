@@ -9,6 +9,7 @@ import { capture } from './outbox';
 import { Chip } from './Chip';
 import { useI18n } from './i18n';
 import { ensureNotifyPermission, weatherState, type WeatherState } from './reminders';
+import { PinPicker } from './PinPicker';
 import { Select } from './Select';
 import { readJson } from './store';
 import { font, useTheme } from './theme';
@@ -39,6 +40,7 @@ function AddressSheet({ title, askName, onClose, onSave }: { title: string; askN
   const [failed, setFailed] = useState(false);
   const [locating, setLocating] = useState(false);
   const [picked, setPicked] = useState<Addr | null>(null);
+  const [pinning, setPinning] = useState(false);
   const [name, setName] = useState('');
 
   useEffect(() => {
@@ -48,7 +50,7 @@ function AddressSheet({ title, askName, onClose, onSave }: { title: string; askN
     setBusy(true);
     const ctl = new AbortController();
     const id = setTimeout(() => {
-      searchPlaces(text, { signal: ctl.signal, limit: 6 }).then((r) => { setHits(r); setBusy(false); }).catch((e) => { if ((e as Error).name === 'AbortError') return; setHits([]); setFailed(true); setBusy(false); });
+      searchPlaces(text, { signal: ctl.signal }).then((r) => { setHits(r); setBusy(false); }).catch((e) => { if ((e as Error).name === 'AbortError') return; setHits([]); setFailed(true); setBusy(false); });
     }, 300);
     return () => { clearTimeout(id); ctl.abort(); };
   }, [q]);
@@ -78,6 +80,8 @@ function AddressSheet({ title, askName, onClose, onSave }: { title: string; askN
           {!picked ? (
             <>
               <Btn primary disabled={locating} label={locating ? t('weather.locating') : t('weather.useCurrent')} onPress={() => void useHere()} />
+              <Btn label={t('pin.open')} onPress={() => setPinning(true)} />
+              {pinning ? <PinPicker onClose={() => setPinning(false)} onPick={(h) => { setPinning(false); choose({ name: h.name, address: h.address, lat: h.lat, lon: h.lon }); }} /> : null}
               <Field value={q} autoFocus onChangeText={setQ} placeholder={t('weather.searchAddress')} accessibilityLabel={t('weather.searchAddress')} autoCorrect={false} />
               {busy ? <Muted>{t('weather.searching')}</Muted> : null}
               {failed ? <Text style={{ color: th.danger, fontFamily: font.body }}>{t('weather.searchFail')}</Text> : null}

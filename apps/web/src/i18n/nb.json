@@ -1254,5 +1254,15 @@
   "notif.prepTitle_other": "{n} beredskapsvarer går snart ut",
   "notif.prepBody": "{names}",
   "prep.todoCard_one": "Beredskap: {n} vare går snart ut",
-  "prep.todoCard_other": "Beredskap: {n} varer går snart ut"
+  "prep.todoCard_other": "Beredskap: {n} varer går snart ut",
+  "pin.title": "Velg på kartet",
+  "pin.help": "Flytt kartet slik at nålen står der du vil.",
+  "pin.mapAria": "Kart. Dra for å flytte nålen.",
+  "pin.locate": "Gå til min posisjon",
+  "pin.mapFail": "Kartet bruker lang tid. Sjekk nettforbindelsen.",
+  "pin.offline": "Fant ikke adressen. Du kan fortsatt bruke dette stedet.",
+  "pin.nothing": "Ingen adresse her. Du kan fortsatt bruke dette stedet.",
+  "pin.defaultName": "Valgt sted",
+  "pin.use": "Bruk dette stedet",
+  "pin.open": "Velg på kartet"
 }

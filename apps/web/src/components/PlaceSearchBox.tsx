@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
 import { useI18n } from '../i18n';
 import { CATEGORIES, categoryName, placeLabel, shopName, type Category } from '../lib/labels';
 import { categoryFromQuery, findExistingPlace, matchSaved, searchPlaces, type Hit } from '../lib/placeSearch';
 import { getLastKnown } from '../lib/useHere';
 import type { Place } from '../lib/types';
+
+const PinPicker = lazy(() => import('./PinPicker'));
 
 export type Pick =
   | { type: 'saved'; place: Place }
@@ -19,6 +21,7 @@ export function PlaceSearchBox({ places, showSaved, autoFocus, idle, onPick }: {
   const [hits, setHits] = useState<Hit[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [pinning, setPinning] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (autoFocus) input.current?.focus(); }, [autoFocus]);
@@ -95,6 +98,8 @@ export function PlaceSearchBox({ places, showSaved, autoFocus, idle, onPick }: {
           {rows.length > 0 && busy && <li className="muted result-note" role="status">{t('where.searching')}</li>}
         </ul>
       )}
+      <button type="button" className="link pinpick-add" onClick={() => setPinning(true)}><Icon name="pin" size={16} /> {t('pin.open')}</button>
+      {pinning && <Suspense fallback={null}><PinPicker start={getLastKnown()} onClose={() => setPinning(false)} onPick={(hit) => { setPinning(false); onPick({ type: 'hit', hit }); }} /></Suspense>}
       {text.length < 2 && idle}
       {text.length < 2 && !showSaved && !idle && (
         <div className="chips" aria-label={t('places.addKinds')}>
