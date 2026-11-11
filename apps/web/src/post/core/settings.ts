@@ -40,6 +40,8 @@ export interface Settings {
   swipeRight: 'archive' | 'read' | 'flag' | 'delete';
   swipeLeft: 'flag' | 'delete' | 'read';
   blockImages: boolean;
+  /** Sender addresses (lower case) whose remote images always load, even while images are blocked. */
+  trustedImageSenders: string[];
   signature: string;
   undoSend: number; // seconds
   /** Messages that answer each other are one row in the list, and one conversation when opened. */
@@ -52,7 +54,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system', look: 'refined', accent: 'ember', pureBlack: false, rowSize: 'comfortable', accountColours: {},
-  swipeRight: 'archive', swipeLeft: 'flag', blockImages: true, signature: '', undoSend: 10, threads: true, digest: true, autoClean: 0,
+  swipeRight: 'archive', swipeLeft: 'flag', blockImages: true, trustedImageSenders: [], signature: '', undoSend: 10, threads: true, digest: true, autoClean: 0,
 };
 
 const ONE_OF = <T extends string>(v: unknown, list: readonly T[], d: T): T => (list.includes(v as T) ? (v as T) : d);
@@ -75,6 +77,7 @@ export function loadSettings(raw: unknown): Settings {
     swipeRight: ONE_OF(o.swipeRight, ['archive', 'read', 'flag', 'delete'], d.swipeRight),
     swipeLeft: ONE_OF(o.swipeLeft, ['flag', 'delete', 'read'], d.swipeLeft),
     blockImages: o.blockImages !== false,
+    trustedImageSenders: Array.isArray(o.trustedImageSenders) ? [...new Set((o.trustedImageSenders as unknown[]).filter((a): a is string => typeof a === 'string' && a.includes('@')).map((a) => a.toLowerCase()))].slice(0, 500) : [],
     signature: typeof o.signature === 'string' ? o.signature.slice(0, 500) : '',
     undoSend: [0, 5, 10, 20, 30].includes(Number(o.undoSend)) ? Number(o.undoSend) : d.undoSend,
     threads: o.threads !== false,
