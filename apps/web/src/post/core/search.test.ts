@@ -11,7 +11,7 @@ test('folds Nordic letters and accents', () => {
 
 test('parses operators and keeps the rest as words', () => {
   const q = parseQuery('from:Anna is:unread has:attachment in:promotions account:work Møte');
-  assert.deepEqual(q, { words: ['mote'], from: ['anna'], unread: true, flagged: false, attachment: true, account: 'work', kind: 'promo' });
+  assert.deepEqual(q, { words: ['mote'], from: ['anna'], unread: true, flagged: false, attachment: true, account: 'work', kind: 'promo', subject: [], read: false, after: null, before: null });
 });
 
 test('in: takes the tab names, and the older names still work', () => {
@@ -55,4 +55,17 @@ test('account filter accepts the address or the label', () => {
 
 test('an empty query shows nothing instead of everything', () => {
   assert.deepEqual(search([m({})], '   '), []);
+});
+
+test('date and subject filters', async () => {
+  const { parseWhen, parseQuery: pq, matches: mt } = await import('./search.ts');
+  assert.equal(parseWhen('2026-10'), '2026-10-01T00:00:00.000Z');
+  assert.equal(parseWhen('7d', new Date('2026-11-11T12:00:00Z')), '2026-11-04T00:00:00.000Z');
+  assert.equal(parseWhen('x'), null);
+  const q = pq('subject:faktura after:2026-10 elkjop');
+  assert.deepEqual(q.subject, ['faktura']); assert.equal(q.after, '2026-10-01T00:00:00.000Z');
+  const m = { subject: 'Faktura 12', received: '2026-10-05T10:00:00Z', fromName: 'Elkjøp', fromAddress: 'a@b.no', preview: '', isRead: true, flagged: false, hasAttachments: false, kind: 'person', account: 'x' } as never;
+  assert.equal(mt(m, q), true);
+  assert.equal(mt(m, pq('before:2026-10')), false);
+  assert.equal(mt(m, pq('is:unread')), false);
 });

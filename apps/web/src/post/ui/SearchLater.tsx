@@ -11,7 +11,7 @@ import { Tabs } from './Tabs.tsx';
 import { keepSearch, openedFromSearch, searchKept, touchSearch } from './searchKeep.ts';
 import { go, openMail, useC, useNow } from './ctx.tsx';
 
-const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:promotions', 'account:work'];
+const TIPS = ['from:anna', 'is:unread', 'has:attachment', 'in:promotions', 'subject:faktura', 'after:2026-10', 'before:30d', 'account:work'];
 
 export function Search({ s, q: initial, pane = false }: { s: State; q: string; pane?: boolean }) {
   const c = useC();
