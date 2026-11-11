@@ -21,9 +21,24 @@ import { canMute } from '../core/tidy.ts';
 function Frame({ html, remote, dark }: { html: string; remote: boolean; dark: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const doc = useMemo(() => frameDocument(html, { remoteImages: remote, dark }), [html, remote, dark]);
-  const fit = () => { const d = ref.current?.contentDocument; if (d && ref.current) ref.current.style.height = `${Math.max(80, d.documentElement.scrollHeight)}px`; };
+  // The frame is as tall as the mail. Pictures arrive after the page loads, so the height is re-measured whenever anything changes size
+  // or a picture finishes (or fails); a picture that fails is tried once more before being left alone.
+  const fit = () => { const d = ref.current?.contentDocument; if (d && ref.current) { const h = Math.max(80, d.documentElement.scrollHeight, d.body?.scrollHeight ?? 0); if (ref.current.style.height !== `${h}px`) ref.current.style.height = `${h}px`; } };
+  const watch = () => {
+    const f = ref.current; const d = f?.contentDocument; const w = f?.contentWindow;
+    if (!f || !d || !w) return;
+    fit();
+    const RO = (w as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+    if (RO && d.body) new RO(fit).observe(d.body);
+    d.addEventListener('load', fit, true);
+    d.addEventListener('error', (e) => {
+      const img = e.target as HTMLImageElement;
+      if (img?.tagName === 'IMG' && !img.dataset.retried && img.src.startsWith('https:')) { img.dataset.retried = '1'; const src = img.src; setTimeout(() => { img.src = ''; img.src = src; }, 1500); }
+      fit();
+    }, true);
+  };
   useEffect(() => { const t = setTimeout(fit, 150); return () => clearTimeout(t); }, [doc]);
-  return <iframe ref={ref} className="frame" title="Message" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={doc} onLoad={fit} />;
+  return <iframe ref={ref} className="frame" title="Message" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={doc} scrolling="no" onLoad={watch} />;
 }
 
 /** Prints the message that is open (the newest one when a conversation has several), with who it is from and when above the text. */

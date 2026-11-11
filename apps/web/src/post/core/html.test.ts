@@ -70,3 +70,12 @@ test('the share sheet gets the real type of a file, except for what could run co
   // what is opened from Post's own address is still limited to the few types that cannot run code
   assert.equal(safeBlobType('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Brev.docx'), 'application/octet-stream');
 });
+
+test('picture addresses are made loadable inside the frame', async () => {
+  const { fixPictureUrls } = await import('./html.ts');
+  assert.equal(fixPictureUrls('<img src="//cdn.x.no/a.png">'), '<img src="https://cdn.x.no/a.png">');
+  assert.equal(fixPictureUrls("<img width=1 src='http://x.no/a.png'>"), "<img width=1 src='https://x.no/a.png'>");
+  assert.equal(fixPictureUrls('<td style="background:url(//x.no/b.png)">'), '<td style="background:url(https://x.no/b.png)">');
+  assert.equal(fixPictureUrls('<a href="http://x.no">l</a>'), '<a href="http://x.no">l</a>');
+  assert.ok(hasRemoteImages('<img src="//x.no/a.png">'));
+});

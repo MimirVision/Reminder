@@ -11,7 +11,20 @@ export function textToHtml(text: string): string {
 
 /** True if the message pulls pictures from the internet (so the "load images" bar is worth showing). */
 export function hasRemoteImages(html: string): boolean {
-  return /<img\b[^>]*\bsrc\s*=\s*["']?https?:/i.test(html) || /url\(\s*["']?https?:/i.test(html) || /\bbackground\s*=\s*["']?https?:/i.test(html);
+  return /<img\b[^>]*\bsrc\s*=\s*["']?(?:https?:)?\/\//i.test(html) || /url\(\s*["']?(?:https?:)?\/\//i.test(html) || /\bbackground\s*=\s*["']?(?:https?:)?\/\//i.test(html);
+}
+
+/**
+ * Makes picture addresses loadable from inside the frame: a `//host/pic.png` address would be read against about:srcdoc and never load, and
+ * a plain `http:` one is refused as mixed content on this https page. Both become `https:`. Only picture attributes and url(...) are touched.
+ */
+export function fixPictureUrls(html: string): string {
+  const fix = (u: string) => u.replace(/^(\s*)(?:http:)?\/\//i, '$1https://');
+  return html
+    .replace(/(<img\b[^>]*?\bsrc\s*=\s*)(["'])([^"']*)\2/gi, (_a, pre: string, q: string, u: string) => `${pre}${q}${fix(u)}${q}`)
+    .replace(/(\bbackground\s*=\s*)(["'])([^"']*)\2/gi, (_a, pre: string, q: string, u: string) => `${pre}${q}${fix(u)}${q}`)
+    .replace(/(<img\b[^>]*?\bsrcset\s*=\s*)(["'])([^"']*)\2/gi, (_a, pre: string, q: string, u: string) => `${pre}${q}${u.split(',').map((c) => fix(c)).join(',')}${q}`)
+    .replace(/url\(\s*(["']?)\s*(?:http:)?\/\//gi, 'url($1https://');
 }
 
 export function stripDangerous(html: string): string {
@@ -72,6 +85,6 @@ export interface FrameOptions { remoteImages: boolean; dark: boolean }
 export function frameDocument(bodyHtml: string, o: FrameOptions): string {
   const img = o.remoteImages ? "img-src data: https: http:;" : 'img-src data:;';
   const csp = `default-src 'none'; ${img} style-src 'unsafe-inline'; font-src data:;`;
-  const css = `html{color-scheme:light}body{margin:0;padding:14px 16px;font:15px/1.5 -apple-system,system-ui,'DM Sans',sans-serif;color:#1E2430;background:#fff;word-wrap:break-word;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}a{color:#1F5FBF}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #D5D9E0;color:#5B6472}pre{white-space:pre-wrap}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>${css}</style></head><body>${stripDangerous(bodyHtml)}</body></html>`;
+  const css = `html{color-scheme:light}body{margin:0;padding:14px 16px;font:15px/1.5 -apple-system,system-ui,'DM Sans',sans-serif;color:#1E2430;background:#fff;word-wrap:break-word;overflow-wrap:anywhere}html{overflow:hidden}img{max-width:100%;height:auto}table{max-width:100%}td img,a img{vertical-align:top}a{color:#1F5FBF}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #D5D9E0;color:#5B6472}pre{white-space:pre-wrap}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>${css}</style></head><body>${stripDangerous(fixPictureUrls(bodyHtml))}</body></html>`;
 }
