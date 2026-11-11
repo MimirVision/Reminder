@@ -384,7 +384,9 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, o
   // Pictures that belong to the text are not files; until it is known which are which, they are kept out of the list rather than flashing in it.
   const files = (body?.attachments ?? []).filter((a) => !(a.inline && a.contentType.startsWith('image/') && (!embedded || embedded.has(a.id))));
   const remote = !!body && body.contentType === 'html' && hasRemoteImages(body.content);
-  const showImages = loadImages || !s.settings.blockImages;
+  const sender = m.fromAddress.toLowerCase();
+  const trusted = !!sender && s.settings.trustedImageSenders.includes(sender);
+  const showImages = loadImages || trusted || !s.settings.blockImages;
   const to = body ? body.to.map((r) => displayName(r.name, r.address).split(' ')[0]).join(', ') : '';
   const named = m.fromName.trim() && m.fromName.trim().toLowerCase() !== m.fromAddress.toLowerCase();
 
@@ -414,7 +416,8 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, o
           <button onClick={onWhy}>Why?</button></div>
       )}
       {body && <FileList m={m} files={files} failed={!!body.attachmentsFailed} onRetry={() => { void c.openBody(m).then(setBody).catch(() => {}); }} />}
-      {remote && !showImages && <div className="banner"><Icon n="eye" size={18} />Images are blocked<button onClick={() => setLoadImages(true)}>Load once</button></div>}
+      {remote && !showImages && <div className="banner"><Icon n="eye" size={18} />Images are blocked<button onClick={() => setLoadImages(true)}>Load once</button>{!mine && sender && <button onClick={() => { setLoadImages(true); c.setSettings({ trustedImageSenders: [...s.settings.trustedImageSenders, sender] }); }}>Always from this sender</button>}</div>}
+      {remote && trusted && !mine && <div className="banner"><Icon n="eye" size={18} />Images always load from this sender<button onClick={() => c.setSettings({ trustedImageSenders: s.settings.trustedImageSenders.filter((a) => a !== sender) })}>Stop</button></div>}
       {err ? <p className="note" style={{ margin: 16 }}>{err}</p> : body ? <Frame html={html} remote={showImages} dark={dark} /> : <p className="note" style={{ margin: '18px 16px' }}>Opening…</p>}
       {many && (
         <div className="macts" role="group" aria-label={`Answer or forward ${mine ? 'your message' : `the message from ${who}`}`}>

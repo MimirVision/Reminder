@@ -86,7 +86,8 @@ export function Settings({ s }: { s: State }) {
           <div className="it">Send read receipts<span className="v">Never</span></div>
           <div className="it">Add “Sent from Post”<span className="v">Never</span></div>
         </div>
-        <p className="note">Remote images are how senders see that you opened a mail. They stay blocked until you tap Load once.</p>
+        <p className="note">Remote images are how senders see that you opened a mail. They stay blocked until you tap Load once, or Always from this sender.</p>
+        {s.settings.trustedImageSenders.length > 0 && <div className="card"><div className="it">Images always load from {s.settings.trustedImageSenders.length} sender{s.settings.trustedImageSenders.length === 1 ? '' : 's'}<button className="btn plain" onClick={() => set({ trustedImageSenders: [] })}>Forget all</button></div></div>}
         <div className="lbl" id="set-writing">Writing</div>
         <div className="card">
           <Pick label="Undo send" value={String(s.settings.undoSend)} options={[['0', 'Off'], ['5', '5 seconds'], ['10', '10 seconds'], ['20', '20 seconds'], ['30', '30 seconds']]} onChange={(v) => set({ undoSend: Number(v) })} />

@@ -123,3 +123,8 @@ test('each account gets its own colour unless the user chose one', () => {
   assert.notEqual(accountColour(accts[0], accts, {}), accountColour(accts[1], accts, {}));
   assert.equal(accountColour(accts[0], accts, { [accts[0]]: ACCOUNT_COLOURS[3] }), ACCOUNT_COLOURS[3]);
 });
+
+test('trusted image senders are read defensively', () => {
+  assert.deepEqual(loadSettings({ trustedImageSenders: ['A@x.no', 'a@x.no', 5, 'nope'] }).trustedImageSenders, ['a@x.no']);
+  assert.deepEqual(loadSettings({}).trustedImageSenders, []);
+});
