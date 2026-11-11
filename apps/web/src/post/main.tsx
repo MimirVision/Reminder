@@ -31,6 +31,7 @@ async function boot() {
   // The Post server is the Supabase function next to the database Home Memory already uses, so there is nothing to type in.
   const base = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '');
   const c = createController({
+    prefetch: true,
     store, kv, fetch: (...a) => fetch(...a),
     serverUrl: base ? `${base}/functions/v1/post-alerts` : null,
     // Files over 3 MB go to Outlook in slices; if the browser may not do that itself, this site's own server passes them on (worker/upload-relay.js).

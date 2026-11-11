@@ -120,6 +120,8 @@ export interface Deps {
   sleep?: (ms: number) => Promise<void>;
   /** How long new mail may wait to be sorted before it is shown (a moment; tests make it short). */
   presortMs?: number;
+  /** Fetch the text of the newest mail in the background so it opens offline (the app turns this on; tests count fetches, so it is off by default). */
+  prefetch?: boolean;
 }
 
 /** A file opened for reading or saving. `link`: this attachment is only a link to a cloud file (there are no bytes). */
@@ -1107,7 +1109,7 @@ export function createController(deps: Deps) {
         if (mine === syncSeq) { set({ sync: { running: false, at: now(), error } }); syncRun = null; }
         done();
       }
-      void api.sortInBackground().then(() => api.autoTidy()).catch((e) => note('tidy', e));
+      void api.sortInBackground().then(() => api.autoTidy()).then(() => api.prefetchBodies()).catch((e) => note('tidy', e));
     },
 
     /**
@@ -1128,6 +1130,29 @@ export function createController(deps: Deps) {
      * Reads the hidden header marks of mail that has only had a first guess, a group at a time, and moves each message to its tab as soon as
      * it knows. Runs alongside everything else: reading, archiving and the next sync do not wait for it. Returns when it is finished.
      */
+    /**
+     * Reading offline: the text of the newest mail from people, transactions and updates (not promotions) is fetched in the background, a few at a
+     * time, so it opens with no connection. Pictures from the web and file lists still need a connection. Never more than 25 per round, and it
+     * stops at the first failure (no connection, or Outlook asking us to slow down).
+     */
+    async prefetchBodies(): Promise<void> {
+      if (!deps.prefetch || !state.online || !state.ready) return;
+      const want = state.mail.filter((m) => m.kind !== 'promo' && m.folder === 'inbox').sort((a, b) => b.received.localeCompare(a.received)).slice(0, 60);
+      let n = 0;
+      for (const m of want) {
+        if (n >= 25) break;
+        const g = graphFor(m.account);
+        if (!g || (await store.getBody(m.key))) continue;
+        try {
+          const j = await g.getBody(m.id);
+          const addr = (r: any) => ({ name: String(r?.emailAddress?.name ?? ''), address: String(r?.emailAddress?.address ?? '') });
+          if (!(await store.getMail(m.key))) continue;
+          await store.putBody({ key: m.key, contentType: String(j?.body?.contentType).toLowerCase() === 'html' ? 'html' : 'text', content: String(j?.body?.content ?? ''), to: (j?.toRecipients ?? []).map(addr), cc: (j?.ccRecipients ?? []).map(addr), attachments: [] });
+          n++;
+        } catch { return; }
+      }
+    },
+
     sortInBackground(): Promise<void> {
       if (sortingRun) return sortingRun;
       const run = async () => {
