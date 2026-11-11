@@ -72,7 +72,7 @@ function SubscriptionSheet({ s, x, onClose }: { s: State; x: Subscription; onClo
   }, [x.key]);
   const leave = () => {
     if (!unsub || unsub === 'loading') return;
-    if (unsub.https) window.open(unsub.https, '_blank', 'noopener');
+    if (unsub.https) { window.open(unsub.https, '_blank', 'noopener'); void c.noteUnsubscribed(x.newest.fromAddress); }
     else if (unsub.mailto && x.unsubMail) void c.unsubscribe(x.unsubMail, unsub.mailto);
     onClose();
   };

@@ -412,7 +412,7 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, o
       </div>
       {anchor && onPhone && m.kind !== 'person' && (
         <div className="kindbar"><Icon n="inbox" size={18} /><span>Sorted as {KIND_ONE[m.kind]}</span><span className="sp" />
-          {unsub && <button onClick={() => { if (unsub.https) window.open(unsub.https, '_blank', 'noopener'); else if (unsub.mailto) void c.unsubscribe(m, unsub.mailto); }}>Unsubscribe</button>}
+          {unsub && <button onClick={() => { if (unsub.https) { window.open(unsub.https, '_blank', 'noopener'); void c.noteUnsubscribed(m.fromAddress); } else if (unsub.mailto) void c.unsubscribe(m, unsub.mailto); }}>Unsubscribe</button>}
           <button onClick={onWhy}>Why?</button></div>
       )}
       {body && <FileList m={m} files={files} failed={!!body.attachmentsFailed} onRetry={() => { void c.openBody(m).then(setBody).catch(() => {}); }} />}

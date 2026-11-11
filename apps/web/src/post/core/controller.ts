@@ -11,6 +11,7 @@ import { search as searchLocal } from './search.ts';
 import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
 import { addLeft, diffInbox, loadLeft, type LeftEntry, type LeftWhy } from './leftlog.ts';
+import { unsubscribedAgain } from './unsubscribed.ts';
 import { blockedMail, canMute, keepMore, keptKey, muteName, MUTED_MAX, mutedMail, type Muted } from './tidy.ts';
 import { asKind, KIND_TAB, KINDS, mailKey, type AttachmentRef, type FolderInfo, type FolderKind, type Kind, type Mail, type MailBody } from './types.ts';
 
@@ -1461,6 +1462,10 @@ export function createController(deps: Deps) {
           if (rows.length) await relocate(rows.flatMap((t) => t.items), { type: 'archive' }, rows.length === 1 ? 'Archived 1 old promotion' : `Archived ${rows.length} old promotions`, () => void keep(rows.flatMap((t) => t.items)), 'clean');
         }
       } finally { tidying = false; }
+      // Asked to stop, still mailing: after the grace period, the next mail from them gets the sender blocked (one per tidy-up, with its own Undo).
+      const asked = (await store.getMeta<Record<string, number>>('unsubscribed').catch(() => null)) ?? {};
+      const again = unsubscribedAgain(state.mail, asked, now());
+      if (again && !state.toast?.undo) await api.blockSender(again);
     },
 
     /** Marks these as read in one go, with one toast (or none, when `quiet`: opening a conversation marks it read without a word). */
@@ -1905,6 +1910,15 @@ export function createController(deps: Deps) {
       if (!g) throw new Error('Sign in again');
       await g.sendMail({ subject: mailto.subject, body: mailto.body, to: [mailto.to] });
       toast('Unsubscribe request sent');
+      void api.noteUnsubscribed(m.fromAddress);
+    },
+
+    /** Writes down that you asked this sender to stop (a page opened or a request sent). If they still mail you after a grace period, Post blocks them. */
+    async noteUnsubscribed(address: string) {
+      const a = address.trim().toLowerCase();
+      if (!a.includes('@')) return;
+      const saved = (await store.getMeta<Record<string, number>>('unsubscribed').catch(() => null)) ?? {};
+      if (!saved[a]) await store.setMeta('unsubscribed', { ...saved, [a]: now() });
     },
 
     // ---- view ----------------------------------------------------------------------------------------------------------------------------
