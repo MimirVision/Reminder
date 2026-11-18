@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, BookmarkPlus, CalendarClock, Check, ChevronDown, Clock, ListChecks, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowUpDown, BookmarkPlus, CalendarClock, Check, ChevronDown, Clock, FileSpreadsheet, ListChecks, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { useTaskActions, type GroupBy } from '../components/TaskTable';
 import { TaskBoard } from '../components/TaskBoard';
 import { Field, Input, Segmented } from '../ui/field';
@@ -133,7 +133,7 @@ export function Tasks() {
     [snap.occurrences, today, clientById]);
 
   return (
-    <Page title="My Tasks" titleExtra={
+    <Page title="My Tasks" actions={<Button variant="ghost" onClick={() => ui.openImport()} title="Import tasks from Excel or CSV" aria-label="Import tasks from Excel or CSV"><FileSpreadsheet /> <span className="hidden sm:inline">Import</span></Button>} titleExtra={
       <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ value: 'list', label: 'List' }, { value: 'board', label: 'Board' }]} />
     }>
       <div role="tablist" aria-label="Saved views" className="-mx-4 mb-4 flex gap-6 overflow-x-auto border-b border-line px-4 md:-mx-8 md:px-8">

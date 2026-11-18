@@ -30,6 +30,14 @@ they start; add earlier ones (a few days, a week, …) in Settings → Notificat
 *Notify me*. Turn them on once on each device. They work while Ledger is open straight away; with Ledger closed too after
 a one-time setup in Supabase (an edge function and a 5-minute schedule): see [NOTIFICATIONS.md](NOTIFICATIONS.md).
 
+**Import tasks from Excel.** *Import* in My Tasks (or Settings, or drop the file anywhere) reads a deadline list
+exported from your practice system (.xlsx or CSV). Columns such as Gjøremål, Kunde, Kunde-ID, Frist, Periode, Status,
+Beskrivelse and Oppdrag are recognised by name; each row becomes a task for the right client (matched by client number,
+then name, ignoring case and "AS"; new ones can be created), with its due date, period, status, notes and a task type
+read from the Norwegian terms (MVA → VAT, lønn/A-melding → Payroll, årsregnskap → Annual accounts, …). You check
+everything first, can undo the import, and importing the same file again only adds what is new and moves changed due
+dates. The file is read in the browser; people and change-history columns are not imported.
+
 **Copy a schedule to other clients.** In a schedule, *Copy to clients…* (or the copy button on its row in Recurring
 Work) makes the same schedule for every client you tick, or a whole group such as VAT clients. Each copy is separate
 and starts from the current period; clients that already have one like it are marked and left out of groups.

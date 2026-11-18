@@ -166,6 +166,24 @@ export class SupabaseRepo implements Repo {
     const row = check(await this.sb.from('ledger_occurrences').insert(this.w({ ...occurrenceRow(o), workspace_id: await this.workspaceId() })).select().single());
     return toOccurrence(row as Row);
   }
+  async createOccurrences(list: NewOccurrence[]): Promise<string[]> {
+    const ws = await this.workspaceId();
+    const ids: string[] = [];
+    try {
+      for (let i = 0; i < list.length; i += 200) {
+        const rows = check(await this.sb.from('ledger_occurrences').insert(list.slice(i, i + 200).map((o) => this.w({ ...occurrenceRow(o), workspace_id: ws }))).select('id')) as Row[];
+        ids.push(...rows.map((r) => r.id as string));
+      }
+    } catch (e) {
+      // All or nothing: take back the batches that did go in.
+      await this.deleteOccurrences(ids).catch(() => {});
+      throw e;
+    }
+    return ids;
+  }
+  async deleteOccurrences(ids: string[]) {
+    for (let i = 0; i < ids.length; i += 200) check(await this.sb.from('ledger_occurrences').delete().in('id', ids.slice(i, i + 200)).is('schedule_id', null));
+  }
   async updateOccurrence(id: string, patch: OccurrencePatch) {
     const res = check(await this.sb.from('ledger_occurrences').update(this.w(occurrenceRow(patch))).eq('id', id).select('id'));
     if (!(res as Row[]).length) throw new RepoError('That task no longer exists. Reload to see the latest.');

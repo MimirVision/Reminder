@@ -236,17 +236,23 @@ test('a task carries a checklist: add steps, tick them, and finish from the pane
   await page.goto('/tasks?view=today');
   await page.locator('tbody tr[data-task]').first().click();
   const panel = page.getByRole('dialog');
+  // The demo's task may already have steps (from its schedule): count from what is there.
+  const ticked = await panel.getByRole('checkbox', { name: /^Untick/ }).count();
+  const steps = await panel.getByRole('checkbox').count();
   const add = panel.getByRole('textbox', { name: 'Add an item to the checklist' });
   await add.fill('Gather the questions');
   await add.press('Enter');
   await add.fill('Send one email');
   await add.press('Enter');
   await panel.getByRole('checkbox', { name: 'Tick “Gather the questions”' }).click();
-  await expect(panel.getByText('1/2')).toBeVisible();
+  await expect(panel.getByText(`${ticked + 1}/${steps + 2}`, { exact: true }).first()).toBeVisible();
   await page.reload();
   await page.locator('tbody tr[data-task]').first().click();
   await expect(page.getByRole('dialog').getByRole('checkbox', { name: 'Untick “Gather the questions”' })).toBeVisible();
   await page.getByRole('dialog').getByRole('checkbox', { name: 'Tick “Send one email”' }).click();
+  // Tick whatever else is left; then the panel offers to finish the task.
+  const left = page.getByRole('dialog').getByRole('checkbox', { name: /^Tick/ });
+  while (await left.count()) await left.first().click();
   await page.getByRole('dialog').getByRole('button', { name: 'Mark the task done' }).click();
   await expect(page.getByText('Marked done')).toBeVisible();
 });

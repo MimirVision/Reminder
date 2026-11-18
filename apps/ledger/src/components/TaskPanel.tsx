@@ -4,7 +4,7 @@ import { useStore } from '../data/store';
 import { addDays, diffDays, localISODate, weekday, type ISODate } from '../lib/dates';
 import { formatDate, formatDayLong, formatTimestamp, relativeDue } from '../lib/format';
 import { PRIORITY_LABEL, TYPE_LABEL } from '../lib/labels';
-import { describeRecurrence, periodLabel } from '../lib/recurrence';
+import { describeRecurrence, periodLabel, taskPeriod } from '../lib/recurrence';
 import { PRIORITIES, TASK_TYPES, isOpen, type Occurrence } from '../lib/types';
 import { StatusPicker } from '../ui/badges';
 import { cn } from '../ui/cn';
@@ -230,6 +230,7 @@ function TaskDetail({ task }: { task: Occurrence }) {
               </div>
             </Row>
           )}
+          {!schedule && taskPeriod(task) && <Row label="Period"><span className="text-[13px] text-ink-2">{taskPeriod(task)}</span></Row>}
           {task.status === 'waiting' && task.waitingSince && (
             <Row label="Waiting since">
               <span className="text-[13px] text-ink-2"><span className="num">{formatTimestamp(task.waitingSince)}</span>
