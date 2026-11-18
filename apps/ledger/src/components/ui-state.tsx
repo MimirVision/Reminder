@@ -1,4 +1,4 @@
-// Which overlay is open: the task panel, the new-task dialog, the schedule editor, the command palette.
+// Which overlay is open: the task panel, the new-task dialog, the schedule editor, the command palette, the import.
 // Kept above the screens so any screen can open them and the list underneath keeps its place.
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { ISODate } from '../lib/dates';
@@ -23,6 +23,10 @@ interface UI {
   setNewClient(o: boolean): void;
   meeting: MeetingEditor;
   openMeeting(m: MeetingEditor): void;
+  /** The import dialog: closed (false), open to choose a file (true), or open with a file already chosen (dropped). */
+  importing: boolean | File;
+  openImport(file?: File): void;
+  closeImport(): void;
 }
 
 const Ctx = createContext<UI | null>(null);
@@ -34,10 +38,12 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [palette, setPalette] = useState(false);
   const [newClient, setNewClient] = useState(false);
   const [meeting, openMeeting] = useState<MeetingEditor>(null);
+  const [importing, setImporting] = useState<boolean | File>(false);
   const value = useMemo<UI>(() => ({
     taskId, openTask, newTask, openNewTask: (d = {}) => setNewTask(d), closeNewTask: () => setNewTask(null),
     schedule, openSchedule, palette, setPalette, newClient, setNewClient, meeting, openMeeting,
-  }), [taskId, newTask, schedule, palette, newClient, meeting]);
+    importing, openImport: (f?: File) => setImporting(f ?? true), closeImport: () => setImporting(false),
+  }), [taskId, newTask, schedule, palette, newClient, meeting, importing]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -4,7 +4,7 @@ import { useState, type DragEvent } from 'react';
 import { Repeat } from 'lucide-react';
 import { useStore } from '../data/store';
 import { STATUS_LABEL, TYPE_LABEL } from '../lib/labels';
-import { periodLabel } from '../lib/recurrence';
+import { taskPeriod } from '../lib/recurrence';
 import { isOpen, type Occurrence, type TaskStatus } from '../lib/types';
 import { DueDate, PriorityLabel } from '../ui/badges';
 import { cn } from '../ui/cn';
@@ -39,7 +39,7 @@ function Card({ task }: { task: Occurrence }) {
     >
       <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-ink-3">
         <span className="shrink-0 rounded-[5px] bg-sunken px-1.5 py-px text-ink-2">{TYPE_LABEL[task.taskType]}</span>
-        {task.periodKey && <span className="inline-flex min-w-0 items-center gap-1 truncate"><Repeat className="size-3 shrink-0" />{periodLabel(task.periodKey)}</span>}
+        {taskPeriod(task) && <span className="inline-flex min-w-0 items-center gap-1 truncate">{task.periodKey && <Repeat className="size-3 shrink-0" />}{taskPeriod(task)}</span>}
       </div>
       <div className="flex items-start gap-2">
         <span className="mt-px" onClick={(e) => e.stopPropagation()}><CompleteToggle task={task} /></span>

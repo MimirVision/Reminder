@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Dialog as D } from 'radix-ui';
-import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings, Users } from 'lucide-react';
+import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings, Upload, Users } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDue } from '../lib/format';
 import { parseQuickAdd } from '../lib/quickadd';
@@ -41,6 +41,7 @@ export function CommandPalette() {
       ...(repo.meetings ? [{ id: 'new-meeting', label: 'New meeting', icon: Users, group: 'Actions', run: () => ui.openMeeting({ mode: 'new' }) }] : []),
       { id: 'new-multi', label: 'New task for several clients…', icon: Plus, group: 'Actions', run: () => ui.openNewTask({ multi: true }) },
       { id: 'new-schedule', label: 'New recurring schedule', icon: Repeat, group: 'Actions', run: () => ui.openSchedule({ mode: 'new' }) },
+      { id: 'import', label: 'Import tasks from Excel…', icon: Upload, group: 'Actions', run: () => ui.openImport() },
       { id: 'home', label: 'Home', icon: Home, group: 'Go to', run: go('/') },
       { id: 'tasks', label: 'My Tasks', icon: ListChecks, group: 'Go to', run: go('/tasks') },
       { id: 'overdue', label: 'Overdue tasks', icon: ListChecks, group: 'Go to', run: go('/tasks?view=overdue') },

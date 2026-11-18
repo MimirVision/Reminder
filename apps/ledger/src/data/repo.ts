@@ -68,6 +68,10 @@ export interface Repo {
   applySchedule(id: string, from: ISODate, oldTitle: string, oldDescription: string): Promise<number>;
 
   createOccurrence(o: NewOccurrence): Promise<Occurrence>;
+  /** Many one-off tasks at once (an import). All or none in demo mode; in batches of 200 in the database. Returns their ids. */
+  createOccurrences(list: NewOccurrence[]): Promise<string[]>;
+  /** Deletes one-off tasks (undoing an import). */
+  deleteOccurrences(ids: string[]): Promise<void>;
   updateOccurrence(id: string, patch: OccurrencePatch): Promise<void>;
   deleteOccurrence(id: string): Promise<void>;
 

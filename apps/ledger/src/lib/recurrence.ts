@@ -232,3 +232,20 @@ export function shortDueRule(rule: DueRule): string {
       return `${WEEKDAYS[rule.weekday - 1]}${wk}`;
   }
 }
+
+/** "November 2026", "Jan–Feb 2027", "2026": a period for display. */
+export function periodText(start: ISODate, end: ISODate, locale = 'en-GB'): string {
+  const [ys, ms] = start.split('-').map(Number);
+  const [ye, me] = end.split('-').map(Number);
+  const month = (m: number, style: 'long' | 'short') => new Intl.DateTimeFormat(locale, { month: style, timeZone: 'UTC' }).format(new Date(Date.UTC(2000, m - 1, 15)));
+  if (ys === ye && ms === 1 && me === 12) return String(ys);
+  if (ys === ye && ms === me) return `${month(ms, 'long').replace(/^./, (c) => c.toUpperCase())} ${ys}`;
+  const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
+  return ys === ye ? `${cap(month(ms, 'short'))}–${month(me, 'short')} ${ys}` : `${cap(month(ms, 'short'))} ${ys} – ${month(me, 'short')} ${ye}`;
+}
+
+/** The period a task is for: its schedule's period, or the one an imported task brought along. Null if neither. */
+export function taskPeriod(o: { periodKey: string | null; periodStart: ISODate | null; periodEnd: ISODate | null }): string | null {
+  if (o.periodKey) return periodLabel(o.periodKey);
+  return o.periodStart && o.periodEnd ? periodText(o.periodStart, o.periodEnd) : null;
+}

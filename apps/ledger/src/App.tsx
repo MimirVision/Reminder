@@ -6,6 +6,7 @@ import { Shell } from './components/Shell';
 import { Shortcuts } from './components/Shortcuts';
 import { MeetingDialog } from './components/MeetingDialog';
 import { NotificationRunner } from './components/Notifications';
+import { ImportTasks } from './components/ImportTasks';
 import { NewTaskDialog } from './components/TaskForms';
 import { TaskPanel } from './components/TaskPanel';
 import { UIProvider } from './components/ui-state';
@@ -75,7 +76,7 @@ function Screens({ email }: { email?: string | null }) {
   return (
     <Shell>
       {page}
-      {state.kind === 'ready' && <><TaskPanel /><NewTaskDialog /><ScheduleEditor /><CommandPalette /><Shortcuts /><MeetingDialog /><NotificationRunner /></>}
+      {state.kind === 'ready' && <><TaskPanel /><NewTaskDialog /><ScheduleEditor /><CommandPalette /><Shortcuts /><MeetingDialog /><NotificationRunner /><ImportTasks /></>}
     </Shell>
   );
 }

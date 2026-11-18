@@ -6,7 +6,7 @@ import { QuickAdd } from './QuickAdd';
 import { addDays, weekday, type ISODate } from '../lib/dates';
 import { formatDayShort, formatDue } from '../lib/format';
 import { PRIORITY_LABEL, STATUS_LABEL } from '../lib/labels';
-import { periodLabel } from '../lib/recurrence';
+import { taskPeriod } from '../lib/recurrence';
 import type { Client, Occurrence, TaskStatus } from '../lib/types';
 import { isOpen, PRIORITIES } from '../lib/types';
 import { useStore } from '../data/store';
@@ -129,16 +129,16 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
             <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3">
               {/* In a narrow card the due date moves here from its own column. */}
               <span className="hidden shrink-0 @max-sm:inline"><DueDate date={task.dueDate} today={today} open={open} /></span>
-              <span className="truncate">{[showClient && client?.name, task.periodKey && periodLabel(task.periodKey)].filter(Boolean).join(' · ')}</span>
+              <span className="truncate">{[showClient && client?.name, taskPeriod(task)].filter(Boolean).join(' · ')}</span>
             </span>
           </div>
         ) : <>
         <div className="flex min-w-0 items-center gap-2">
           <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
           {open && <ChecklistBadge items={task.checklist} />}
-          {task.periodKey && (
-            <span className="hidden shrink-0 items-center gap-1 text-[11.5px] text-ink-3 sm:inline-flex" title="From a recurring schedule">
-              <Repeat className="size-3" />{periodLabel(task.periodKey)}
+          {taskPeriod(task) && (
+            <span className="hidden shrink-0 items-center gap-1 text-[11.5px] text-ink-3 sm:inline-flex" title={task.periodKey ? 'From a recurring schedule' : 'The period it is for'}>
+              {task.periodKey && <Repeat className="size-3" />}{taskPeriod(task)}
             </span>
           )}
           <span className="hidden gap-1 xl:flex">{task.tags.slice(0, 2).map((t) => <Tag key={t}>{t}</Tag>)}</span>
