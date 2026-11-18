@@ -1,15 +1,18 @@
 // The Home dashboard: which widgets it shows, in what order, and how big each one is. The layout is a list placed
 // on a 12-column grid in reading order (with gaps filled), so moving a widget is a reorder and resizing changes its
 // column and row span. Stored in the workspace settings, so it follows you between devices.
+// Very wide screens (an ultrawide monitor) get a 24-column grid with a layout of their own: the same widgets side by
+// side instead of stretched. Sizes in WIDGETS are in twelfths and scale to the grid.
 
 export type WidgetType =
   | 'greeting' | 'quickAdd' | 'today' | 'overdue' | 'upcoming' | 'week' | 'waiting' | 'missing'
-  | 'stats' | 'progress' | 'attention' | 'pinned' | 'activity' | 'notes' | 'deadlines' | 'calendar' | 'documents' | 'agenda';
+  | 'stats' | 'progress' | 'attention' | 'pinned' | 'activity' | 'notes' | 'deadlines' | 'calendar' | 'documents' | 'agenda'
+  | 'workload' | 'heatmap' | 'pace' | 'ontime' | 'mix' | 'clients';
 
 export interface WidgetItem {
   id: string;
   type: WidgetType;
-  /** Columns out of 12. */
+  /** Columns out of the grid's (12, or 24 on a very wide screen). */
   w: number;
   /** Rows of ROW_PX. */
   h: number;
@@ -31,6 +34,10 @@ export interface WidgetSpec {
 }
 
 export const COLS = 12;
+/** The grid on a very wide screen. */
+export const WIDE_COLS = 24;
+/** The grid's width in pixels from which the wide grid is used. */
+export const WIDE_FROM_PX = 2300;
 export const ROW_PX = 56;
 export const GAP_PX = 20;
 
@@ -52,6 +59,12 @@ export const WIDGETS: WidgetSpec[] = [
   { type: 'deadlines', name: 'Deadline radar', description: 'The next deadline for each kind of work: VAT, payroll, annual accounts…', w: 4, h: 4, minW: 3, minH: 3, maxH: 8, single: true },
   { type: 'agenda', name: 'Agenda', description: 'Today’s meetings by the hour, and the next ones coming up.', w: 4, h: 6, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'documents', name: 'Documents to collect', description: 'Everything you’ve requested from clients that hasn’t arrived yet, oldest first.', w: 4, h: 4, minW: 3, minH: 3, maxH: 10, single: true },
+  { type: 'workload', name: 'Workload ahead', description: 'A chart of open tasks per week for the coming weeks, by type: see the busy weeks coming.', w: 8, h: 5, minW: 4, minH: 4, maxH: 9, single: true },
+  { type: 'heatmap', name: 'Deadline calendar', description: 'Every day of the coming months, darker the more is due. Overdue days are marked.', w: 8, h: 4, minW: 4, minH: 3, maxH: 7, single: true },
+  { type: 'pace', name: 'This month’s pace', description: 'A line chart of the month: due so far against done so far.', w: 4, h: 5, minW: 3, minH: 4, maxH: 8, single: true },
+  { type: 'ontime', name: 'On time', description: 'The share of tasks finished by their due date, its trend, and the change from before.', w: 4, h: 3, minW: 3, minH: 3, maxH: 5, single: true },
+  { type: 'mix', name: 'Open work by type', description: 'How your open work splits into bookkeeping, VAT, payroll, reporting and year-end.', w: 4, h: 5, minW: 3, minH: 4, maxH: 8, single: true },
+  { type: 'clients', name: 'Busiest clients', description: 'Bars of each client’s work in the next 30 days, overdue marked.', w: 4, h: 5, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'calendar', name: 'Month at a glance', description: 'A small calendar with the busy days marked.', w: 4, h: 5, minW: 3, minH: 4, maxH: 7, single: true },
 ];
 
@@ -68,19 +81,44 @@ export const DEFAULT_LAYOUT: WidgetItem[] = [
   { id: 'missing', type: 'missing', w: 4, h: 4 },
 ];
 
+/** The wide-screen start: three bands of four to five widgets, the charts in the middle. */
+export const DEFAULT_WIDE_LAYOUT: WidgetItem[] = [
+  { id: 'greeting', type: 'greeting', w: 7, h: 2 },
+  { id: 'quickAdd', type: 'quickAdd', w: 9, h: 2 },
+  { id: 'stats', type: 'stats', w: 8, h: 2 },
+  { id: 'today', type: 'today', w: 8, h: 6 },
+  { id: 'overdue', type: 'overdue', w: 8, h: 6 },
+  { id: 'agenda', type: 'agenda', w: 4, h: 6 },
+  { id: 'waiting', type: 'waiting', w: 4, h: 6 },
+  { id: 'workload', type: 'workload', w: 13, h: 5 },
+  { id: 'heatmap', type: 'heatmap', w: 11, h: 5 },
+  { id: 'pace', type: 'pace', w: 7, h: 5 },
+  { id: 'mix', type: 'mix', w: 5, h: 5 },
+  { id: 'clients', type: 'clients', w: 6, h: 5 },
+  { id: 'ontime', type: 'ontime', w: 6, h: 5 },
+  { id: 'upcoming', type: 'upcoming', w: 9, h: 5, days: 14 },
+  { id: 'deadlines', type: 'deadlines', w: 5, h: 5 },
+  { id: 'calendar', type: 'calendar', w: 5, h: 5 },
+  { id: 'missing', type: 'missing', w: 5, h: 5 },
+];
+
+export const defaultLayout = (cols = COLS) => (cols === WIDE_COLS ? DEFAULT_WIDE_LAYOUT : DEFAULT_LAYOUT).map((x) => ({ ...x }));
+/** A widget's smallest width on a grid of `cols` columns. */
+export const minWidth = (type: WidgetType, cols = COLS) => Math.min(cols, Math.ceil((SPEC[type].minW * cols) / COLS));
+
 export const UPCOMING_CHOICES = [7, 14, 30] as const;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
 /** Fits a size to what the widget allows. */
-export function fit(item: WidgetItem, w: number, h: number): WidgetItem {
+export function fit(item: WidgetItem, w: number, h: number, cols = COLS): WidgetItem {
   const s = SPEC[item.type];
-  return { ...item, w: clamp(w, s.minW, COLS), h: clamp(h, s.minH, s.maxH) };
+  return { ...item, w: clamp(w, minWidth(item.type, cols), cols), h: clamp(h, s.minH, s.maxH) };
 }
 
 /** Reads a stored layout defensively: unknown widgets are dropped, sizes clamped, duplicates removed. */
-export function normalizeLayout(raw: unknown): WidgetItem[] {
-  if (!Array.isArray(raw)) return DEFAULT_LAYOUT.map((x) => ({ ...x }));
+export function normalizeLayout(raw: unknown, cols = COLS): WidgetItem[] {
+  if (!Array.isArray(raw)) return defaultLayout(cols);
   const seen = new Set<string>();
   const singles = new Set<WidgetType>();
   const out: WidgetItem[] = [];
@@ -92,7 +130,7 @@ export function normalizeLayout(raw: unknown): WidgetItem[] {
     if (SPEC[t].single && singles.has(t)) continue;
     seen.add(id);
     singles.add(t);
-    const item = fit({ id, type: t, w: 0, h: 0 }, Number(w) || SPEC[t].w, Number(h) || SPEC[t].h);
+    const item = fit({ id, type: t, w: 0, h: 0 }, Number(w) || (SPEC[t].w * cols) / COLS, Number(h) || SPEC[t].h, cols);
     if (t === 'upcoming') item.days = UPCOMING_CHOICES.includes(days as 7) ? (days as number) : 14;
     out.push(item);
   }
@@ -113,12 +151,12 @@ export function canAdd(list: WidgetItem[], type: WidgetType): boolean {
   return !SPEC[type].single || !list.some((x) => x.type === type);
 }
 
-export function addWidget(list: WidgetItem[], type: WidgetType): WidgetItem[] {
+export function addWidget(list: WidgetItem[], type: WidgetType, cols = COLS): WidgetItem[] {
   if (!canAdd(list, type)) return list;
   let n = 1;
   while (list.some((x) => x.id === (n === 1 ? type : `${type}-${n}`))) n++;
   const s = SPEC[type];
-  const item: WidgetItem = { id: n === 1 ? type : `${type}-${n}`, type, w: s.w, h: s.h };
+  const item: WidgetItem = { id: n === 1 ? type : `${type}-${n}`, type, w: (s.w * cols) / COLS, h: s.h };
   if (type === 'upcoming') item.days = 14;
   return [...list, item];
 }

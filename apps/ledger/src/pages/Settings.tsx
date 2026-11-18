@@ -185,7 +185,7 @@ export function Settings({ email }: { email?: string | null }) {
         </Field>
         {!IS_ARTIFACT && <Field label="Install as an app">{() => <InstallApp />}</Field>}
         <Field label="Home dashboard" hint="Use Customize on Home to add, move and resize widgets.">
-          {() => <div><Button size="sm" onClick={() => void saveSettings({ homeLayout: undefined }, 'Home reset to the default layout')}><RotateCcw /> Reset Home layout</Button></div>}
+          {() => <div><Button size="sm" onClick={() => void saveSettings({ homeLayout: undefined, homeLayoutWide: undefined }, 'Home reset to the default layout')}><RotateCcw /> Reset Home layout</Button></div>}
         </Field>
       </Section>
 

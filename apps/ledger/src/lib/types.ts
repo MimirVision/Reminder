@@ -61,6 +61,8 @@ export interface WorkspaceSettings {
   pinnedClients?: string[];
   /** The Home dashboard: widgets in order with their sizes. Read through normalizeLayout. */
   homeLayout?: unknown;
+  /** Home on a very wide screen (24 columns), arranged separately. */
+  homeLayoutWide?: unknown;
   /** The Notepad widget's text. */
   homeNotes?: string;
   accent?: Accent;

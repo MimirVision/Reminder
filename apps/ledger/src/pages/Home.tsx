@@ -9,7 +9,7 @@ import { Button } from '../ui/button';
 export function Home() {
   const [editing, setEditing] = useState(false);
   return (
-    <Page title="Home" hideTitle barActions={!editing && (
+    <Page title="Home" hideTitle wide barActions={!editing && (
       <Button variant="ghost" onClick={() => setEditing(true)} title="Add, move and resize widgets"><LayoutGrid /> <span className="hidden sm:inline">Customize</span></Button>
     )}>
       {!editing && <NotificationPrompt />}
