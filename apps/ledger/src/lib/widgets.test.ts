@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addWidget, canAdd, DEFAULT_LAYOUT, fit, moveWidget, normalizeLayout, SPEC, WIDGETS } from './widgets';
+import { addWidget, canAdd, DEFAULT_LAYOUT, DEFAULT_WIDE_LAYOUT, fit, minWidth, moveWidget, normalizeLayout, SPEC, WIDE_COLS, WIDGETS } from './widgets';
 
 describe('home layout', () => {
   it('falls back to the default layout when nothing is stored', () => {
@@ -50,5 +50,20 @@ describe('home layout', () => {
       expect(w.minH).toBeLessThanOrEqual(w.h);
       expect(w.h).toBeLessThanOrEqual(w.maxH);
     }
+  });
+});
+
+describe('wide-screen layout', () => {
+  it('has its own default on 24 columns, every row filled', () => {
+    const wide = normalizeLayout(undefined, WIDE_COLS);
+    expect(wide).toEqual(DEFAULT_WIDE_LAYOUT);
+    expect(wide.reduce((n, x) => n + x.w, 0) % WIDE_COLS).toBe(0);
+  });
+
+  it('scales sizes to the grid it is on', () => {
+    expect(minWidth('today', WIDE_COLS)).toBe(SPEC.today.minW * 2);
+    expect(fit({ id: 'a', type: 'today', w: 40, h: 6 }, 40, 6, WIDE_COLS).w).toBe(24);
+    expect(addWidget([], 'workload', WIDE_COLS)[0].w).toBe(SPEC.workload.w * 2);
+    expect(normalizeLayout([{ id: 'x', type: 'heatmap', w: 0, h: 0 }], WIDE_COLS)[0]).toMatchObject({ w: 16, h: SPEC.heatmap.h });
   });
 });

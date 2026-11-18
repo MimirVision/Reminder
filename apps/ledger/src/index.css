@@ -113,6 +113,16 @@
   color-scheme: dark;
 }
 
+/* Chart colours (Home's charts): five task-type groups in a fixed order checked for colour-blind separation, and a
+   gray for Other. Dark mode has its own steps for the dark surface, not an automatic flip. */
+:root {
+  --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100; --viz-5: #e87ba4; --viz-other: #a9a8a1;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-other: #6b6d76; }
+}
+:root[data-theme='dark'] { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-other: #6b6d76; }
+
 /* Accent colours you can choose in Settings. Each sets the light steps, and its own lighter steps for dark. */
 :root[data-accent='violet'] { --c-accent: #6a45d9; --c-accent-hover: #5633c2; --c-accent-soft: #f0ebfd; --c-accent-ink: #5431bd; }
 :root[data-accent='teal'] { --c-accent: #0e7c72; --c-accent-hover: #0a655d; --c-accent-soft: #e2f4f1; --c-accent-ink: #0b6a61; }

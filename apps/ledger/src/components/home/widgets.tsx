@@ -42,7 +42,7 @@ function useMoreBelow() {
   return [ref, more] as const;
 }
 
-function Frame({ title, count, action, children, tone, padded }: { title: string; count?: ReactNode; action?: ReactNode; children: ReactNode; tone?: 'danger'; padded?: boolean }) {
+export function Frame({ title, count, action, children, tone, padded }: { title: string; count?: ReactNode; action?: ReactNode; children: ReactNode; tone?: 'danger'; padded?: boolean }) {
   const [body, more] = useMoreBelow();
   return (
     <section aria-label={title} className="flex h-full min-h-0 flex-col overflow-clip rounded-xl border border-line bg-surface">

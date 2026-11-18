@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { GripVertical, LayoutGrid, Maximize2, Plus, RotateCcw, X } from 'lucide-react';
 import { useStore } from '../../data/store';
-import { addWidget, canAdd, COLS, DEFAULT_LAYOUT, fit, GAP_PX, moveWidget, normalizeLayout, ROW_PX, rowsToPx, SPEC, WIDGETS, type WidgetItem, type WidgetType } from '../../lib/widgets';
+import { addWidget, canAdd, COLS, defaultLayout, fit, GAP_PX, minWidth, moveWidget, normalizeLayout, ROW_PX, rowsToPx, SPEC, WIDE_COLS, WIDE_FROM_PX, WIDGETS, type WidgetItem, type WidgetType } from '../../lib/widgets';
 import { Button } from '../../ui/button';
 import { cn } from '../../ui/cn';
 import { Confirm, Dialog, Menu, MenuItem, MenuLabel, MenuSeparator } from '../../ui/overlay';
@@ -12,24 +12,48 @@ import {
   ActivityWidget, AttentionWidget, CalendarWidget, DeadlinesWidget, GreetingWidget, MissingWidget, NotesWidget, OverdueWidget, PinnedWidget,
   ProgressWidget, QuickAddWidget, StatsWidget, TodayWidget, UpcomingWidget, WaitingWidget, WeekWidget, DocumentsWidget, AgendaWidget, type WidgetProps,
 } from './widgets';
+import { ClientLoadWidget, HeatmapWidget, MixWidget, OnTimeWidget, PaceWidget, WorkloadWidget } from './charts';
 
 const RENDER: Record<WidgetType, (p: WidgetProps) => React.ReactNode> = {
   greeting: GreetingWidget, quickAdd: QuickAddWidget, today: TodayWidget, overdue: OverdueWidget, upcoming: UpcomingWidget,
   week: WeekWidget, waiting: WaitingWidget, missing: MissingWidget, stats: StatsWidget, progress: ProgressWidget,
   attention: AttentionWidget, pinned: PinnedWidget, activity: ActivityWidget, notes: NotesWidget, deadlines: DeadlinesWidget, calendar: CalendarWidget, documents: DocumentsWidget, agenda: AgendaWidget,
+  workload: WorkloadWidget, heatmap: HeatmapWidget, pace: PaceWidget, ontime: OnTimeWidget, mix: MixWidget, clients: ClientLoadWidget,
 };
 
 const CONTENT_SIZED = new Set<WidgetType>(['greeting', 'quickAdd', 'stats']);
 
-const WIDTHS = [{ w: 3, label: 'Quarter' }, { w: 4, label: 'Third' }, { w: 6, label: 'Half' }, { w: 8, label: 'Two thirds' }, { w: 12, label: 'Full width' }];
+const WIDTHS: Record<number, { w: number; label: string }[]> = {
+  [COLS]: [{ w: 3, label: 'Quarter' }, { w: 4, label: 'Third' }, { w: 6, label: 'Half' }, { w: 8, label: 'Two thirds' }, { w: 12, label: 'Full width' }],
+  [WIDE_COLS]: [{ w: 4, label: 'Sixth' }, { w: 6, label: 'Quarter' }, { w: 8, label: 'Third' }, { w: 12, label: 'Half' }, { w: 16, label: 'Two thirds' }, { w: 24, label: 'Full width' }],
+};
+
+/** 24 columns once the dashboard is very wide (an ultrawide monitor), else 12. */
+function useColumns() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState(COLS);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setCols(e.contentRect.width >= WIDE_FROM_PX ? WIDE_COLS : COLS));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, cols] as const;
+}
 
 type Drag = { id: string; x: number; y: number; startX: number; startY: number; active: boolean; lastOver: string | null };
 type Resize = { id: string; startX: number; startY: number; w: number; h: number; col: number };
 
 export function Dashboard({ editing, setEditing }: { editing: boolean; setEditing: (v: boolean) => void }) {
   const { snap, saveSettings } = useStore();
-  const stored = snap.workspace.settings.homeLayout;
-  const [items, setItems] = useState<WidgetItem[]>(() => normalizeLayout(stored));
+  const [outer, cols] = useColumns();
+  const wide = cols === WIDE_COLS;
+  // The wide screen keeps a layout of its own, so arranging one never disturbs the other.
+  const key = wide ? 'homeLayoutWide' : 'homeLayout';
+  const stored = snap.workspace.settings[key];
+  const save = (next: WidgetItem[]) => saveSettings({ [key]: next });
+  const [items, setItems] = useState<WidgetItem[]>(() => normalizeLayout(stored, cols));
   const [drag, setDrag] = useState<Drag | null>(null);
   const [resizing, setResizing] = useState<Resize | null>(null);
   const [gallery, setGallery] = useState(false);
@@ -41,11 +65,11 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
 
   // Another device (or a reload) changed the stored layout: follow it, unless a gesture is under way.
   const storedKey = JSON.stringify(stored ?? null);
-  useEffect(() => { if (!drag && !resizing) setItems(normalizeLayout(stored)); }, [storedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!drag && !resizing) setItems(normalizeLayout(stored, cols)); }, [storedKey, cols]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const commit = (next: WidgetItem[]) => {
     setItems(next);
-    void saveSettings({ homeLayout: next });
+    void save(next);
   };
   const update = (id: string, patch: Partial<WidgetItem>) => commit(itemsRef.current.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const remove = (id: string) => {
@@ -54,10 +78,10 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
     if (it) setAnnounce(`${SPEC[it.type].name} removed`);
   };
   const resizeTo = (id: string, w: number, h: number) => {
-    const next = itemsRef.current.map((x) => (x.id === id ? fit(x, w, h) : x));
+    const next = itemsRef.current.map((x) => (x.id === id ? fit(x, w, h, cols) : x));
     commit(next);
     const it = next.find((x) => x.id === id)!;
-    setAnnounce(`${SPEC[it.type].name}: ${it.w} of ${COLS} columns wide, ${it.h} rows tall`);
+    setAnnounce(`${SPEC[it.type].name}: ${it.w} of ${cols} columns wide, ${it.h} rows tall`);
   };
 
   // ── Dragging to move ───────────────────────────────────────────────────────
@@ -89,7 +113,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
       setDrag(nd);
     };
     const up = () => {
-      if (dragRef.current?.active) void saveSettings({ homeLayout: itemsRef.current });
+      if (dragRef.current?.active) void save(itemsRef.current);
       dragRef.current = null;
       setDrag(null);
     };
@@ -104,7 +128,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
     e.preventDefault();
     e.stopPropagation();
     const width = grid.current?.getBoundingClientRect().width ?? 1200;
-    setResizing({ id: it.id, startX: e.clientX, startY: e.clientY, w: it.w, h: it.h, col: (width - GAP_PX * (COLS - 1)) / COLS });
+    setResizing({ id: it.id, startX: e.clientX, startY: e.clientY, w: it.w, h: it.h, col: (width - GAP_PX * (cols - 1)) / cols });
   };
   useEffect(() => {
     if (!resizing) return;
@@ -112,11 +136,11 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
     const move = (e: PointerEvent) => {
       const w = r.w + Math.round((e.clientX - r.startX) / (r.col + GAP_PX));
       const h = r.h + Math.round((e.clientY - r.startY) / (ROW_PX + GAP_PX));
-      const next = itemsRef.current.map((x) => (x.id === r.id ? fit(x, w, h) : x));
+      const next = itemsRef.current.map((x) => (x.id === r.id ? fit(x, w, h, cols) : x));
       itemsRef.current = next;
       setItems(next);
     };
-    const up = () => { setResizing(null); void saveSettings({ homeLayout: itemsRef.current }); };
+    const up = () => { setResizing(null); void save(itemsRef.current); };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
@@ -146,7 +170,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
   };
 
   const add = (type: WidgetType) => {
-    const next = addWidget(itemsRef.current, type);
+    const next = addWidget(itemsRef.current, type, cols);
     commit(next);
     setGallery(false);
     const id = next[next.length - 1].id;
@@ -157,13 +181,14 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
   const dragging = drag?.active ? items.find((x) => x.id === drag.id) : undefined;
 
   return (
-    <>
+    <div ref={outer}>
       {editing && (
         <div role="toolbar" aria-label="Customize Home" className="sticky top-[60px] z-20 mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-accent/30 bg-surface/95 py-2 pr-2 pl-4 shadow-pop backdrop-blur">
           <LayoutGrid className="size-4 text-accent" />
           <p className="min-w-0 flex-1 text-[13px] text-ink-2">
             <span className="font-medium text-ink">Customizing Home.</span> Drag a widget to move it, drag its corner to resize.
             <span className="hidden xl:inline"> From a handle: arrows move, Shift + arrows resize.</span>
+            {wide && <span className="hidden xl:inline"> This is the wide-screen layout; smaller screens keep their own.</span>}
           </p>
           <Button size="sm" onClick={() => setGallery(true)}><Plus /> Add widget</Button>
           <Button size="sm" variant="ghost" onClick={() => setConfirmReset(true)}><RotateCcw /> Reset</Button>
@@ -175,8 +200,8 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
         <EmptyState icon={LayoutGrid} title="Your Home is empty" body="Add the widgets you want to start the day with."
           action={<Button variant="primary" onClick={() => { setEditing(true); setGallery(true); }}><Plus /> Add widget</Button>} />
       ) : (
-        <div ref={grid} className={cn('grid grid-cols-1 gap-5 lg:auto-rows-(--row) lg:grid-cols-12', (drag?.active || resizing) && 'cursor-grabbing select-none')}
-          style={{ '--row': `${ROW_PX}px` } as CSSProperties}>
+        <div ref={grid} className={cn('grid grid-cols-1 gap-5 lg:auto-rows-(--row) lg:grid-cols-(--cols)', (drag?.active || resizing) && 'cursor-grabbing select-none')}
+          style={{ '--row': `${ROW_PX}px`, '--cols': `repeat(${cols}, minmax(0, 1fr))` } as CSSProperties}>
           {items.map((it) => {
             const W = RENDER[it.type];
             const isDragged = drag?.active && drag.id === it.id;
@@ -206,7 +231,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
                         <button aria-label={`Size of ${SPEC[it.type].name}`} className="flex size-7 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"><Maximize2 className="size-3.5" /></button>
                       }>
                         <MenuLabel>Width</MenuLabel>
-                        {WIDTHS.filter((o) => o.w >= SPEC[it.type].minW).map((o) => (
+                        {WIDTHS[cols].filter((o) => o.w >= minWidth(it.type, cols)).map((o) => (
                           <MenuItem key={o.w} onSelect={() => resizeTo(it.id, o.w, it.h)}>{o.label}{it.w === o.w && <span className="ml-auto text-accent">✓</span>}</MenuItem>
                         ))}
                         <MenuSeparator />
@@ -258,7 +283,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
       </Dialog>
       <Confirm open={confirmReset} onOpenChange={setConfirmReset} tone="primary" title="Reset Home to the default layout?" confirmLabel="Reset"
         body="Your widgets, their order and sizes go back to how Ledger starts. Your notepad text is kept."
-        onConfirm={() => { commit(DEFAULT_LAYOUT.map((x) => ({ ...x }))); setAnnounce('Home reset to the default layout'); }} />
-    </>
+        onConfirm={() => { commit(defaultLayout(cols)); setAnnounce('Home reset to the default layout'); }} />
+    </div>
   );
 }
