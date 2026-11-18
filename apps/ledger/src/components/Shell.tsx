@@ -129,12 +129,15 @@ const DrawerContext = createContext<() => void>(() => {});
  * A page: a slim sticky bar (breadcrumb, search, New task) and the content, which opens with a large title row.
  * Pages with their own hero (Home, a client) pass `hideTitle` and render their own h1.
  */
-export function Page({ title, crumb, docTitle, subtitle, actions, barActions, titleExtra, hideTitle, wide, children }: {
+export function Page({ title, crumb, docTitle, subtitle, actions, barActions, titleExtra, hideTitle, wide, narrow, children }: {
   title: string; crumb?: ReactNode;
   /** Page-level controls in the top bar, before search. */
   barActions?: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; titleExtra?: ReactNode; hideTitle?: boolean;
-  /** Grows on very wide screens (Home): about two thirds of an ultrawide monitor, never edge to edge. */
-  wide?: boolean; children: ReactNode;
+  /**
+   * How far the page grows on big screens. Lists and the calendar grow with the screen (up to 2400px); Home (`wide`)
+   * grows furthest, to about two thirds of an ultrawide monitor; forms (`narrow`, Settings) stay at 1400px. Never edge to edge.
+   */
+  wide?: boolean; narrow?: boolean; children: ReactNode;
 }) {
   const openDrawer = useContext(DrawerContext);
   const ui = useUI();
@@ -164,7 +167,8 @@ export function Page({ title, crumb, docTitle, subtitle, actions, barActions, ti
         </Button>
       </header>
       <main id="main" className={cn('mx-auto w-full flex-1 px-4 pt-7 pb-10 md:px-8 max-w-[1400px]',
-        wide && 'min-[2200px]:max-w-[1800px] min-[3000px]:max-w-[2560px] min-[3800px]:max-w-[3360px]')}>
+        wide ? 'min-[2200px]:max-w-[1800px] min-[3000px]:max-w-[2560px] min-[3800px]:max-w-[3360px]'
+          : !narrow && 'min-[1900px]:max-w-[1640px] min-[2600px]:max-w-[2000px] min-[3400px]:max-w-[2400px]')}>
         {!hideTitle && (
           <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
             <h1 className="text-[24px] leading-tight font-semibold tracking-[-0.02em]">{title}</h1>

@@ -96,7 +96,7 @@ export function Settings({ email }: { email?: string | null }) {
   };
 
   return (
-    <Page title="Settings">
+    <Page title="Settings" narrow>
       <Section title="You" description="Used for the greeting on Home.">
         <Field label="Display name">
           {(p) => <Input {...p} value={name} maxLength={60} placeholder="Your first name" onChange={(e) => setName(e.target.value)} onBlur={() => name !== (s.displayName ?? '') && void saveSettings({ displayName: name.trim() })} />}
