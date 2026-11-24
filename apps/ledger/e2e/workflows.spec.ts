@@ -155,7 +155,7 @@ test('several tasks can be selected and moved at once', async ({ page }) => {
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('x');
   await expect(page.getByText('2 selected')).toBeVisible();
-  await page.getByRole('toolbar', { name: 'Selected tasks' }).getByRole('button', { name: 'Tomorrow' }).click();
+  await page.getByRole('toolbar', { name: 'Selected tasks' }).getByRole('button', { name: 'Move selected to tomorrow' }).click();
   await expect(page.getByText('2 tasks moved to')).toBeVisible();
   await expect(rows).toHaveCount(before - 2);
 });
@@ -191,30 +191,50 @@ test('a client page adds tasks for that client and can be pinned to the sidebar'
 
 test('home is a dashboard you arrange: add, move, resize and remove widgets, and it stays that way', async ({ page }) => {
   await page.goto('/');
-  const order = () => page.locator('[data-widget-type]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.widgetType));
+  const place = (type: string) => page.locator(`[data-widget-type=${type}]`).evaluate((e) => {
+    const s = (e as HTMLElement).style;
+    return ['--x', '--y', '--w', '--h'].map((k) => Number(s.getPropertyValue(k)));
+  });
   await page.getByRole('button', { name: 'Customize' }).click();
   const bar = page.getByRole('toolbar', { name: 'Customize Home' });
   await bar.getByRole('button', { name: 'Add widget' }).click();
   await page.getByRole('dialog', { name: 'Add a widget' }).getByRole('button', { name: /Notepad/ }).click();
-  expect((await order()).at(-1)).toBe('notes');
+  const [, notesRow] = await place('notes');
+  expect(notesRow).toBeGreaterThan((await place('week'))[1]);
 
   // From the handle: arrows move it, Shift + arrows resize it.
   const handle = page.getByRole('button', { name: 'Move or resize Notepad' });
   await handle.focus();
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowUp');
+  expect((await place('notes'))[1]).toBeLessThan(notesRow);
   await page.keyboard.press('Shift+ArrowRight');
-  expect((await order()).slice(-3)).toEqual(['notes', 'week', 'missing']);
-  await expect(page.locator('[data-widget-type=notes]')).toHaveAttribute('style', /--w: 5/);
+  expect((await place('notes'))[2]).toBe(5);
 
+  // Dragging: drop the week widget onto the top-left of Today; Today makes room below it. (A tall window, so both are in view.)
+  await page.setViewportSize({ width: 1360, height: 2000 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const today = await place('today');
+  const from = await page.locator('[data-widget-type=week]').boundingBox();
+  const to = await page.locator('[data-widget-type=today]').boundingBox();
+  await page.mouse.move(from!.x + 40, from!.y + 70);
+  await page.mouse.down();
+  await page.mouse.move(to!.x + 40, to!.y + 70, { steps: 12 });
+  await page.mouse.up();
+  expect((await place('week')).slice(0, 2)).toEqual(today.slice(0, 2));
+  expect((await place('today'))[1]).toBeGreaterThan(today[1]);
+
+  // Removing one leaves the widgets beside it where they are.
+  const agenda = await place('agenda');
   await page.getByRole('button', { name: 'Remove Missing tasks' }).click();
+  expect(await place('agenda')).toEqual(agenda);
   await bar.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Notepad' }).fill('Call Nordvik about the bank feed');
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
 
+  const before = { week: await place('week'), notes: await place('notes'), today: await place('today') };
   await page.reload();
-  expect(await order()).not.toContain('missing');
-  expect((await order()).slice(-2)).toEqual(['notes', 'week']);
+  await expect(page.locator('[data-widget-type=missing]')).toHaveCount(0);
+  expect({ week: await place('week'), notes: await place('notes'), today: await place('today') }).toEqual(before);
   await expect(page.getByRole('textbox', { name: 'Notepad' })).toHaveValue('Call Nordvik about the bank feed');
 });
 
@@ -236,17 +256,23 @@ test('a task carries a checklist: add steps, tick them, and finish from the pane
   await page.goto('/tasks?view=today');
   await page.locator('tbody tr[data-task]').first().click();
   const panel = page.getByRole('dialog');
+  // The demo's task may already have steps (from its schedule): count from what is there.
+  const ticked = await panel.getByRole('checkbox', { name: /^Untick/ }).count();
+  const steps = await panel.getByRole('checkbox').count();
   const add = panel.getByRole('textbox', { name: 'Add an item to the checklist' });
   await add.fill('Gather the questions');
   await add.press('Enter');
   await add.fill('Send one email');
   await add.press('Enter');
   await panel.getByRole('checkbox', { name: 'Tick “Gather the questions”' }).click();
-  await expect(panel.getByText('1/2')).toBeVisible();
+  await expect(panel.getByText(`${ticked + 1}/${steps + 2}`, { exact: true }).first()).toBeVisible();
   await page.reload();
   await page.locator('tbody tr[data-task]').first().click();
   await expect(page.getByRole('dialog').getByRole('checkbox', { name: 'Untick “Gather the questions”' })).toBeVisible();
   await page.getByRole('dialog').getByRole('checkbox', { name: 'Tick “Send one email”' }).click();
+  // Tick whatever else is left; then the panel offers to finish the task.
+  const left = page.getByRole('dialog').getByRole('checkbox', { name: /^Tick/ });
+  while (await left.count()) await left.first().click();
   await page.getByRole('dialog').getByRole('button', { name: 'Mark the task done' }).click();
   await expect(page.getByText('Marked done')).toBeVisible();
 });

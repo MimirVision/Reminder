@@ -35,7 +35,7 @@ export function Shortcuts() {
   const pendingG = useRef(0);
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).closest('input,textarea,select,[contenteditable]') || document.querySelector('[role=dialog]')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]') && !(e.target as HTMLElement).closest('[data-state=closed]')) || document.querySelector('[role=dialog]:not([data-state=closed])')) return;
       const k = e.key.toLowerCase();
       if (e.key === '?') { e.preventDefault(); setOpen(true); return; }
       const afterG = pendingG.current > 0 && Date.now() - pendingG.current < 1200;

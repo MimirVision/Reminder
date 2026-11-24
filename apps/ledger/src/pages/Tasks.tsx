@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, BookmarkPlus, CalendarClock, Check, ChevronDown, Clock, ListChecks, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowUpDown, BookmarkPlus, CalendarClock, Check, ChevronDown, Clock, FileSpreadsheet, ListChecks, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { useTaskActions, type GroupBy } from '../components/TaskTable';
 import { TaskBoard } from '../components/TaskBoard';
 import { Field, Input, Segmented } from '../ui/field';
@@ -87,7 +87,7 @@ export function Tasks() {
 
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if (e.key === '/' && !document.querySelector('[role=dialog]') && !(e.target as HTMLElement).closest('input,textarea,select,[contenteditable]')) { e.preventDefault(); searchRef.current?.focus(); }
+      if (e.key === '/' && !document.querySelector('[role=dialog]:not([data-state=closed])') && !((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]') && !(e.target as HTMLElement).closest('[data-state=closed]'))) { e.preventDefault(); searchRef.current?.focus(); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
@@ -133,7 +133,7 @@ export function Tasks() {
     [snap.occurrences, today, clientById]);
 
   return (
-    <Page title="My Tasks" titleExtra={
+    <Page title="My Tasks" actions={<Button variant="ghost" onClick={() => ui.openImport()} title="Import tasks from Excel or CSV" aria-label="Import tasks from Excel or CSV"><FileSpreadsheet /> <span className="hidden sm:inline">Import</span></Button>} titleExtra={
       <Segmented label="Layout" value={layout} onChange={setLayout} options={[{ value: 'list', label: 'List' }, { value: 'board', label: 'Board' }]} />
     }>
       <div role="tablist" aria-label="Saved views" className="-mx-4 mb-4 flex gap-6 overflow-x-auto border-b border-line px-4 md:-mx-8 md:px-8">
@@ -226,14 +226,15 @@ export function Tasks() {
         Keyboard: ↑↓ move · Enter open · D done · W waiting · T tomorrow · X select (Shift for a range) · / search · N new task · ? all shortcuts
       </p>
 
+      {/* On a phone the actions are icons only, so the bar fits the screen. */}
       {layout === 'list' && picked.length > 0 && (
-        <div role="toolbar" aria-label="Selected tasks" className="sticky bottom-4 z-20 mx-auto mt-4 flex w-fit animate-toast-in items-center gap-1 rounded-xl bg-ink py-1.5 pr-1.5 pl-4 text-[13px] text-canvas shadow-pop">
-          <span className="tnum mr-2 font-medium">{picked.length} selected</span>
-          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulk('marked done', (id) => (r) => r.updateOccurrence(id, { status: 'done' }))}><Check className="size-4" /> Done</button>
-          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulk('set to waiting', (id) => (r) => r.updateOccurrence(id, { status: 'waiting' }))}><Clock className="size-4" /> Waiting</button>
-          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" onClick={() => bulkMove(actions.tomorrow)}><CalendarClock className="size-4" /> Tomorrow</button>
+        <div role="toolbar" aria-label="Selected tasks" className="sticky bottom-[max(16px,env(safe-area-inset-bottom))] z-20 mx-auto mt-4 flex w-fit max-w-full animate-toast-in items-center gap-0.5 rounded-xl bg-ink py-1.5 pr-1.5 pl-3.5 text-[13px] text-canvas shadow-pop sm:gap-1 sm:pl-4">
+          <span className="tnum mr-1.5 font-medium sm:mr-2">{picked.length}<span className="hidden sm:inline"> selected</span></span>
+          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" aria-label="Mark selected done" title="Done" onClick={() => bulk('marked done', (id) => (r) => r.updateOccurrence(id, { status: 'done' }))}><Check className="size-4" /> <span className="hidden sm:inline">Done</span></button>
+          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" aria-label="Set selected to waiting for client" title="Waiting for client" onClick={() => bulk('set to waiting', (id) => (r) => r.updateOccurrence(id, { status: 'waiting' }))}><Clock className="size-4" /> <span className="hidden sm:inline">Waiting</span></button>
+          <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10" aria-label="Move selected to tomorrow" title="Tomorrow" onClick={() => bulkMove(actions.tomorrow)}><CalendarClock className="size-4" /> <span className="hidden sm:inline">Tomorrow</span></button>
           <DatePicker value={null} today={today} onChange={bulkMove} trigger={
-            <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10">Move to… <ChevronDown className="size-3.5" /></button>
+            <button className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 hover:bg-white/10">Move<span className="hidden sm:inline"> to…</span> <ChevronDown className="size-3.5" /></button>
           } />
           <button aria-label="Clear selection" className="ml-1 inline-flex size-8 items-center justify-center rounded-lg hover:bg-white/10" onClick={() => setSelected(new Set())}><X className="size-4" /></button>
         </div>

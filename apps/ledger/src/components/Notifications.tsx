@@ -156,7 +156,7 @@ export function NotificationPrompt() {
     <div role="region" aria-label="Notifications" className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-accent/25 bg-accent-soft/60 px-4 py-3">
       <BellRing className="size-5 shrink-0 text-accent-ink" />
       <div className="min-w-[min(100%,260px)] flex-1 text-[13px]">
-        <p className="font-medium text-ink">Get reminders on this {homeScreen || /Android|iPhone|iPad/.test(navigator.userAgent) ? 'phone' : 'computer'}</p>
+        <p className="font-medium text-ink">Get reminders on this {homeScreen || /Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || window.matchMedia?.('(pointer: coarse)').matches ? 'phone' : 'computer'}</p>
         <p className="text-ink-2">
           {homeScreen ? 'On iPhone and iPad, add Ledger to the Home Screen first (Share → Add to Home Screen), then open it from there.'
             : <>{describeDays(settings.taskDays, settings.taskTime)} for tasks, {describeMinutes(settings.meetingMinutes).toLowerCase()} for meetings. Change it in Settings.</>}

@@ -237,6 +237,27 @@ export class DemoRepo implements Repo {
     return structuredClone(row);
   }
 
+  async createOccurrences(list: NewOccurrence[]): Promise<string[]> {
+    const before = this.s.occurrences.length, logged = this.s.activity.length;
+    try {
+      const ids = list.map((o) => this.insertOccurrence(o).id);
+      this.save();
+      return ids;
+    } catch (e) {
+      // All or nothing: a bad row leaves the workspace as it was.
+      this.s.occurrences.length = before;
+      this.s.activity.splice(0, this.s.activity.length - logged);
+      throw e;
+    }
+  }
+
+  async deleteOccurrences(ids: string[]) {
+    const gone = new Set(ids);
+    for (const o of this.s.occurrences) if (gone.has(o.id) && !o.scheduleId) this.log('occurrence', o.id, o.clientId, 'deleted', { title: o.title, due: o.dueDate });
+    this.s.occurrences = this.s.occurrences.filter((o) => !gone.has(o.id) || o.scheduleId);
+    this.save();
+  }
+
   private setStatus(o: Occurrence, status: Occurrence['status']) {
     if (o.status === status) return;
     this.log('occurrence', o.id, o.clientId, 'status', { title: o.title, from: o.status, to: status });

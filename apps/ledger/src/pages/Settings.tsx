@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { canPromptInstall, isInstalled, onInstallChange, promptInstall } from '../lib/install';
-import { CheckCircle2, Database, Download, LogOut, RefreshCw, RotateCcw, Trash2, Upload, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Database, Download, FileSpreadsheet, LogOut, RefreshCw, RotateCcw, Trash2, Upload, AlertTriangle } from 'lucide-react';
 import { cn } from '../ui/cn';
 import { Page } from '../components/Shell';
 import { useStore } from '../data/store';
@@ -18,6 +18,7 @@ import { Button } from '../ui/button';
 import { Field, Input, Segmented, Select } from '../ui/field';
 import { Confirm } from '../ui/overlay';
 import { NotificationSettings } from '../components/Notifications';
+import { useUI } from '../components/ui-state';
 
 function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
   return (
@@ -55,6 +56,7 @@ const csvCell = (v: unknown) => {
 export function Settings({ email }: { email?: string | null }) {
   const { snap, repo, run, lastGeneration, today, clientById, reload, saveSettings: store } = useStore();
   const toast = useToast();
+  const ui = useUI();
   // The hosted page can't start downloads, so there the export goes to the clipboard instead.
   const save = (name: string, text: string, type: string) => {
     if (!IS_ARTIFACT) return download(name, text, type);
@@ -94,7 +96,7 @@ export function Settings({ email }: { email?: string | null }) {
   };
 
   return (
-    <Page title="Settings">
+    <Page title="Settings" narrow>
       <Section title="You" description="Used for the greeting on Home.">
         <Field label="Display name">
           {(p) => <Input {...p} value={name} maxLength={60} placeholder="Your first name" onChange={(e) => setName(e.target.value)} onBlur={() => name !== (s.displayName ?? '') && void saveSettings({ displayName: name.trim() })} />}
@@ -183,8 +185,15 @@ export function Settings({ email }: { email?: string | null }) {
         </Field>
         {!IS_ARTIFACT && <Field label="Install as an app">{() => <InstallApp />}</Field>}
         <Field label="Home dashboard" hint="Use Customize on Home to add, move and resize widgets.">
-          {() => <div><Button size="sm" onClick={() => void saveSettings({ homeLayout: undefined }, 'Home reset to the default layout')}><RotateCcw /> Reset Home layout</Button></div>}
+          {() => <div><Button size="sm" onClick={() => void saveSettings({ homeLayout: undefined, homeLayoutWide: undefined }, 'Home reset to the default layout')}><RotateCcw /> Reset Home layout</Button></div>}
         </Field>
+      </Section>
+
+      <Section title="Import tasks" description="From a deadline list in Excel or CSV, such as an export from your practice system. You check everything before it is saved.">
+        <div>
+          <Button onClick={() => ui.openImport()}><FileSpreadsheet /> Import tasks from Excel…</Button>
+          <p className="mt-1.5 text-[12px] text-ink-3">Each row becomes a task for the right client, with its due date, period, status and notes. Importing the same file again only adds what is new. You can also drop a file anywhere in Ledger.</p>
+        </div>
       </Section>
 
       <Section title="Backup and export" description="Export regularly. The JSON backup holds everything needed to restore this workspace.">

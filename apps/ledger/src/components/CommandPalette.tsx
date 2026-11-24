@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Dialog as D } from 'radix-ui';
-import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings, Users } from 'lucide-react';
+import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings, Upload, Users } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDue } from '../lib/format';
 import { parseQuickAdd } from '../lib/quickadd';
@@ -22,10 +22,12 @@ export function CommandPalette() {
 
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement).closest('input,textarea,select,[contenteditable]');
+      // A field in a dialog that is closing (its exit animation) still has focus for a moment: that isn't typing.
+      const t = e.target as HTMLElement;
+      const typing = t.closest('input,textarea,select,[contenteditable]') && !t.closest('[data-state=closed]');
       // Not on top of another dialog: finish or close that first.
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!document.querySelector('[role=dialog]')) ui.setPalette(true); }
-      else if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'n' && !document.querySelector('[role=dialog]')) { e.preventDefault(); ui.openNewTask(); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!document.querySelector('[role=dialog]:not([data-state=closed])')) ui.setPalette(true); }
+      else if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'n' && !document.querySelector('[role=dialog]:not([data-state=closed])')) { e.preventDefault(); ui.openNewTask(); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
@@ -41,6 +43,7 @@ export function CommandPalette() {
       ...(repo.meetings ? [{ id: 'new-meeting', label: 'New meeting', icon: Users, group: 'Actions', run: () => ui.openMeeting({ mode: 'new' }) }] : []),
       { id: 'new-multi', label: 'New task for several clients…', icon: Plus, group: 'Actions', run: () => ui.openNewTask({ multi: true }) },
       { id: 'new-schedule', label: 'New recurring schedule', icon: Repeat, group: 'Actions', run: () => ui.openSchedule({ mode: 'new' }) },
+      { id: 'import', label: 'Import tasks from Excel…', icon: Upload, group: 'Actions', run: () => ui.openImport() },
       { id: 'home', label: 'Home', icon: Home, group: 'Go to', run: go('/') },
       { id: 'tasks', label: 'My Tasks', icon: ListChecks, group: 'Go to', run: go('/tasks') },
       { id: 'overdue', label: 'Overdue tasks', icon: ListChecks, group: 'Go to', run: go('/tasks?view=overdue') },
@@ -85,8 +88,8 @@ export function CommandPalette() {
   return (
     <D.Root open={ui.palette} onOpenChange={ui.setPalette}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-[rgb(20_20_28/0.28)]" />
-        <D.Content className="fixed top-[14vh] left-1/2 z-50 w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden rounded-xl bg-surface shadow-pop focus:outline-none">
+        <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-[rgb(20_20_28/0.28)] data-[state=closed]:animate-fade-out" />
+        <D.Content className="fixed top-[14vh] left-1/2 z-50 w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden data-[state=closed]:animate-pop-out rounded-xl bg-surface shadow-pop focus:outline-none">
           <D.Title className="sr-only">Search or jump to</D.Title>
           <D.Description className="sr-only">Type to search clients, schedules and tasks. Use the arrow keys and Enter.</D.Description>
           <div className="flex items-center gap-2.5 border-b border-line px-4">

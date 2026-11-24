@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { CommandPalette } from './components/CommandPalette';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ScheduleEditor } from './components/ScheduleEditor';
 import { Shell } from './components/Shell';
 import { Shortcuts } from './components/Shortcuts';
 import { MeetingDialog } from './components/MeetingDialog';
 import { NotificationRunner } from './components/Notifications';
+import { ImportTasks } from './components/ImportTasks';
 import { NewTaskDialog } from './components/TaskForms';
 import { TaskPanel } from './components/TaskPanel';
 import { UIProvider } from './components/ui-state';
@@ -74,8 +76,8 @@ function Screens({ email }: { email?: string | null }) {
   );
   return (
     <Shell>
-      {page}
-      {state.kind === 'ready' && <><TaskPanel /><NewTaskDialog /><ScheduleEditor /><CommandPalette /><Shortcuts /><MeetingDialog /><NotificationRunner /></>}
+      <ErrorBoundary resetKey={path} onHome={() => navigate('/')}>{page}</ErrorBoundary>
+      {state.kind === 'ready' && <><TaskPanel /><NewTaskDialog /><ScheduleEditor /><CommandPalette /><Shortcuts /><MeetingDialog /><NotificationRunner /><ImportTasks /></>}
     </Shell>
   );
 }
@@ -107,10 +109,12 @@ export function App() {
   const demo = useMemo(() => wantsDemo(), []);
   const demoRepo = useMemo(() => (demo ? new DemoRepo() : null), [demo]);
   return (
-    <ToastProvider>
-      <RouterProvider>
-        {demoRepo ? <Workspace repo={demoRepo} /> : <SupabaseApp />}
-      </RouterProvider>
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <RouterProvider>
+          {demoRepo ? <Workspace repo={demoRepo} /> : <SupabaseApp />}
+        </RouterProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

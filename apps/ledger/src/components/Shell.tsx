@@ -129,10 +129,15 @@ const DrawerContext = createContext<() => void>(() => {});
  * A page: a slim sticky bar (breadcrumb, search, New task) and the content, which opens with a large title row.
  * Pages with their own hero (Home, a client) pass `hideTitle` and render their own h1.
  */
-export function Page({ title, crumb, docTitle, subtitle, actions, barActions, titleExtra, hideTitle, children }: {
+export function Page({ title, crumb, docTitle, subtitle, actions, barActions, titleExtra, hideTitle, wide, narrow, children }: {
   title: string; crumb?: ReactNode;
   /** Page-level controls in the top bar, before search. */
-  barActions?: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; titleExtra?: ReactNode; hideTitle?: boolean; children: ReactNode;
+  barActions?: ReactNode; docTitle?: string; subtitle?: ReactNode; actions?: ReactNode; titleExtra?: ReactNode; hideTitle?: boolean;
+  /**
+   * How far the page grows on big screens. Lists and the calendar grow with the screen (up to 2400px); Home (`wide`)
+   * grows furthest, to about two thirds of an ultrawide monitor; forms (`narrow`, Settings) stay at 1400px. Never edge to edge.
+   */
+  wide?: boolean; narrow?: boolean; children: ReactNode;
 }) {
   const openDrawer = useContext(DrawerContext);
   const ui = useUI();
@@ -140,9 +145,14 @@ export function Page({ title, crumb, docTitle, subtitle, actions, barActions, ti
   const { snap, today } = useStore();
   const overdue = useMemo(() => snap.occurrences.filter((o) => isOpen(o.status) && o.dueDate < today).length, [snap.occurrences, today]);
   useEffect(() => { document.title = `${overdue ? `(${overdue}) ` : ''}${docTitle ?? title} · Ledger`; }, [title, docTitle, overdue]);
+  // The bar's contents line up with the page's: on a very wide screen, Search and New task sit at the content's edge.
+  const width = cn('mx-auto w-full px-4 md:px-8 max-w-[1400px]',
+    wide ? 'min-[2200px]:max-w-[1800px] min-[3000px]:max-w-[2560px] min-[3800px]:max-w-[3360px]'
+      : !narrow && 'min-[1900px]:max-w-[1640px] min-[2600px]:max-w-[2000px] min-[3400px]:max-w-[2400px]');
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-canvas/85 px-4 backdrop-blur-md md:px-8">
+      <header className="sticky top-0 z-30 h-[52px] shrink-0 border-b border-line bg-canvas/85 backdrop-blur-md">
+        <div className={cn(width, 'flex h-full items-center gap-3')}>
         <IconButton label="Open menu" className="-ml-1 lg:hidden" onClick={openDrawer}><MenuIcon /></IconButton>
         <nav aria-label="Breadcrumb" className="min-w-0 flex-1 truncate text-[13px] text-ink-3">
           {crumb ?? <span className="font-medium text-ink-2">{title}</span>}
@@ -160,8 +170,9 @@ export function Page({ title, crumb, docTitle, subtitle, actions, barActions, ti
         <Button variant="primary" onClick={() => ui.openNewTask()} aria-keyshortcuts="n">
           <Plus /> <span className="hidden sm:inline">New task</span>
         </Button>
+        </div>
       </header>
-      <main id="main" className={cn('mx-auto w-full flex-1 px-4 pt-7 pb-10 md:px-8', 'max-w-[1400px]')}>
+      <main id="main" className={cn(width, 'flex-1 animate-rise-in pt-7 pb-10')}>
         {!hideTitle && (
           <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
             <h1 className="text-[24px] leading-tight font-semibold tracking-[-0.02em]">{title}</h1>

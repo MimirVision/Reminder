@@ -157,7 +157,7 @@ function Editor() {
         description={<>A schedule is a <strong className="font-medium text-ink-2">rule</strong>. It creates one task (an occurrence) for each period, and Ledger checks that none are missing.</>}
         footer={<>
           {existing && (
-            <div className="mr-auto flex items-center gap-1">
+            <div className="mr-auto flex basis-full flex-wrap items-center gap-1 sm:basis-auto">
               {status !== 'ended' && (
                 <Button variant="ghost" size="sm" onClick={() => setConfirm('pause')}>
                   {status === 'paused' ? <><Play /> Resume</> : <><Pause /> Pause</>}

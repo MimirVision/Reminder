@@ -59,6 +59,12 @@ describe('dates without a year', () => {
     expect(p('x 1.6').due).toBe('2027-06-01');
     expect(p('x 15.11').due).toBe('2026-11-15');
   });
+  it('just after New Year, read a date from late December as the one just passed', () => {
+    const jan = (s: string) => parseQuickAdd(s, clients, '2027-01-05');
+    expect(jan('x 30.12').due).toBe('2026-12-30');
+    expect(jan('x 10.01').due).toBe('2027-01-10');
+    expect(jan('x 1.6').due).toBe('2027-06-01');
+  });
 });
 
 describe('times', () => {

@@ -6,7 +6,7 @@ import { useStore } from '../data/store';
 import type { ISODate } from '../lib/dates';
 import { formatDayLong, formatWeekdayShort } from '../lib/format';
 import { durationMinutes, fromMinutes, layoutDay, toMinutes } from '../lib/meetings';
-import { parts, weekday } from '../lib/dates';
+import { minutesNow, parts, weekday } from '../lib/dates';
 import type { Meeting } from '../lib/types';
 import { cn } from '../ui/cn';
 import { useUI } from './ui-state';
@@ -17,9 +17,9 @@ const snap = (min: number) => Math.round(min / SNAP) * SNAP;
 
 /** Minutes since midnight, now, ticking every minute. */
 function useNowMinutes() {
-  const [n, setN] = useState(() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); });
+  const [n, setN] = useState(() => minutesNow());
   useEffect(() => {
-    const t = window.setInterval(() => { const d = new Date(); setN(d.getHours() * 60 + d.getMinutes()); }, 60_000);
+    const t = window.setInterval(() => setN(minutesNow()), 60_000);
     return () => window.clearInterval(t);
   }, []);
   return n;
