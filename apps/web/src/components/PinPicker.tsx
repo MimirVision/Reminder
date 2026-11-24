@@ -18,6 +18,7 @@ export default function PinPicker({ start, onPick, onClose }: { start?: { lat: n
   const { t } = useI18n();
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
+  const startRef = useRef(start); // only the position it opened with matters: a new object from the parent must not rebuild the map
   const [centre, setCentre] = useState<{ lat: number; lon: number } | null>(null);
   const [found, setFound] = useState<Hit | null>(null);
   const [looking, setLooking] = useState(false);
@@ -41,7 +42,7 @@ export default function PinPicker({ start, onPick, onClose }: { start?: { lat: n
         if (res.ok) { style = (await res.json()) as maplibregl.StyleSpecification; fallback = false; }
       } catch { /* use the fallback */ }
       if (cancelled || !el.current) return;
-      const from = start ?? getLastKnown();
+      const from = startRef.current ?? getLastKnown();
       m = new maplibregl.Map({
         container: el.current, style, center: from ? [from.lon, from.lat] : OSLO, zoom: from ? 16 : 11, attributionControl: false,
         dragRotate: false, pitchWithRotate: false, touchPitch: false, fadeDuration: 120,
@@ -58,7 +59,7 @@ export default function PinPicker({ start, onPick, onClose }: { start?: { lat: n
       map.current = m;
     })();
     return () => { cancelled = true; ro?.disconnect(); m?.remove(); map.current = null; };
-  }, [start]);
+  }, []);
 
   // What is at the pin: looked up a moment after the map stops moving.
   useEffect(() => {

@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { SFSymbol } from 'expo-symbols';
@@ -36,7 +37,7 @@ export function GlassTabBar({ state, navigation }: Props) {
               key={route.key}
               accessibilityRole="tab"
               accessibilityState={{ selected: on }}
-              onPress={() => { if (!on) navigation.navigate(route.name); }}
+              onPress={() => { if (!on) { void Haptics.selectionAsync().catch(() => {}); navigation.navigate(route.name); } }}
               style={{
                 flex: 1, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', gap: 2,
                 backgroundColor: on ? (t.dark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.7)') : 'transparent',

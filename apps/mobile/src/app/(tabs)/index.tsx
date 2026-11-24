@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { glide } from '@/lib/glide';
 import { ActionSheetIOS, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -226,6 +227,7 @@ export default function Todo() {
 
   async function complete(m: Memory) {
     if (m.pending) { toast({ text: t('sync.stillSending') }); void flush().then(() => load()); return; }
+    glide();
     setMemories((cur) => cur.filter((x) => x.id !== m.id));
     setDoneTicks((n) => n + 1);
     try {
@@ -240,6 +242,7 @@ export default function Todo() {
   }
 
   async function remove(m: Memory) {
+    glide();
     setMemories((cur) => cur.filter((x) => x.id !== m.id));
     try {
       await softDelete(m.id);
@@ -308,6 +311,7 @@ export default function Todo() {
       ...(d.remind_before != null || m.remind_before != null ? { remind_before: d.due_on ? d.remind_before : null } : {}),
       status: statusFor({ place_id: m.place_id, due_on: d.due_on }),
     });
+    glide();
     setMemories((cur) => cur.map((x) => (x.id === m.id ? { ...x, due_on: date, due_time: date ? x.due_time : null } : x)));
     try {
       await updateMemory(m.id, patch({ ...was, due_on: date }));
@@ -323,6 +327,7 @@ export default function Todo() {
   const lateOnes = visible.filter((m) => !m.pending && isLate(m, todayISO()));
   async function moveLateToToday() {
     const day = todayISO();
+    glide();
     setMemories((cur) => cur.map((x) => (lateOnes.some((l) => l.id === x.id) ? { ...x, due_on: day } : x)));
     try { for (const m of lateOnes) await updateMemory(m.id, { due_on: day }); toast({ text: t('late.moved') }); } catch (e) { report(e); } finally { void load(); }
   }
@@ -416,6 +421,7 @@ export default function Todo() {
   async function bulkDone() {
     const list = chosen();
     endPicking();
+    glide();
     setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
     setDoneTicks((n) => n + list.length);
     const nexts: string[] = [];
@@ -427,6 +433,7 @@ export default function Todo() {
   async function bulkDelete() {
     const list = chosen();
     endPicking();
+    glide();
     setMemories((cur) => cur.filter((x) => !list.some((l) => l.id === x.id)));
     try {
       for (const m of list) await softDelete(m.id);
@@ -441,6 +448,7 @@ export default function Todo() {
       if (i >= labels.length - 1) return;
       const date = i < targets.length ? targets[i].date : null;
       endPicking();
+      glide();
       setMemories((cur) => cur.map((x) => (list.some((l) => l.id === x.id) ? { ...x, due_on: date, due_time: date ? x.due_time : null } : x)));
       void (async () => {
         try {
