@@ -62,7 +62,7 @@ test('a deadline list from Excel becomes tasks for the right clients, and import
   const done = page.getByRole('dialog', { name: 'Import finished' });
   await expect(done.getByText('4 tasks imported')).toBeVisible();
   await expect(done.getByText(/1 new client was added/)).toBeVisible();
-  await done.getByRole('button', { name: 'Open My Tasks' }).click();
+  await done.getByRole('button', { name: 'Close', exact: true }).last().click(); // already on My Tasks: no "Open My Tasks" here
 
   await page.getByLabel('Search tasks').fill('E2E');
   await expect(page.locator('tbody tr[data-task]')).toHaveCount(4);

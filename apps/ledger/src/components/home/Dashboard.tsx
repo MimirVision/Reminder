@@ -102,7 +102,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
 
   // ── Dragging to move ───────────────────────────────────────────────────────
   const startMove = (e: ReactPointerEvent<HTMLDivElement>, it: WidgetItem) => {
-    if (!editing || e.button !== 0 || (e.target as HTMLElement).closest('button,[role=menuitem],a,input,textarea,[data-resize]')) return;
+    if (!editing || e.button !== 0 || (e.target as HTMLElement).closest('button:not([data-handle]),[role=menuitem],a,input,textarea,[data-resize]')) return;
     const box = e.currentTarget.getBoundingClientRect();
     setGesture({ kind: 'move', id: it.id, base: itemsRef.current, offX: e.clientX - box.left, offY: e.clientY - box.top, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY, active: false });
   };
@@ -206,7 +206,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
         <div role="toolbar" aria-label="Customize Home" className="sticky top-[60px] z-20 mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-accent/30 bg-surface/95 py-2 pr-2 pl-4 shadow-pop backdrop-blur">
           <LayoutGrid className="size-4 text-accent" />
           <p className="min-w-0 flex-1 text-[13px] text-ink-2">
-            <span className="font-medium text-ink">Customizing Home.</span> Drag a widget where you want it, drag its corner to resize. Widgets in the way move down.
+            <span className="font-medium text-ink">Customizing Home.</span><span className="hidden sm:inline"> Drag a widget where you want it, drag its corner to resize. Widgets in the way move down.</span>
             <span className="hidden xl:inline"> From a handle: arrows move, Shift + arrows resize. Esc cancels a drag.</span>
             {wide && <span className="hidden xl:inline"> This is the wide-screen layout; smaller screens keep their own.</span>}
           </p>

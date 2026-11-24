@@ -37,7 +37,8 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             <D.Close asChild><IconButton label="Close" size="sm" className="-mr-1"><X /></IconButton></D.Close>
           </div>
           <div className="min-h-0 overflow-y-auto px-5 pb-4">{children}</div>
-          {footer && <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
+          {/* Wraps on a phone, so a footer with many actions never runs off the edge. */}
+          {footer && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
         </D.Content>
       </D.Portal>
     </D.Root>

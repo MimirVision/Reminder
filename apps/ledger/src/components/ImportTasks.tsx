@@ -51,7 +51,7 @@ function ImportDialog({ initial }: { initial: File | null }) {
   const ui = useUI();
   const { snap, repo, run } = useStore();
   const toast = useToast();
-  const { navigate } = useRoute();
+  const { navigate, path } = useRoute();
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
@@ -85,7 +85,7 @@ function ImportDialog({ initial }: { initial: File | null }) {
           return true;
         }, { success: 'Import undone' });
         if (ok) close();
-      }} openTasks={() => { close(); navigate('/tasks'); }} />
+      }} openTasks={path === '/tasks' ? undefined : () => { close(); navigate('/tasks'); }} />
         : sheet ? <Review key={sheet.name} sheet={sheet} busy={busy} onBack={() => setSheet(null)} onCancel={close} onImport={async (plan, actions) => {
           setBusy(true);
           const result = await run(async (r) => {
@@ -169,6 +169,7 @@ function Review({ sheet, busy, onBack, onCancel, onImport }: {
   const closedInFile = read.rows.filter((r) => r.status === 'done' || r.status === 'cancelled').length;
   const missing = FIELDS.filter((f) => f.required && mapping[f.id] === null);
   const [columnsOpen, setColumnsOpen] = useState(missing.length > 0);
+  const newFor = (key: string) => plan.creates.filter((p) => p.clientKey === key).length;
   const newClients = plan.clients.filter((c) => allActions[c.key]?.kind === 'create' && plan.creates.some((p) => p.clientKey === c.key));
   const clientName = (p: Plan['creates'][number]) => (p.clientId ? snap.clients.find((c) => c.id === p.clientId)?.name : read.clients.find((c) => c.key === p.clientKey)?.name) ?? '';
   const preview = [...plan.creates].sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.title.localeCompare(b.title)).slice(0, 40);
@@ -246,7 +247,7 @@ function Review({ sheet, busy, onBack, onCancel, onImport }: {
                 <li key={c.key} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
                   <div className="min-w-0 flex-1 basis-48">
                     <p className="truncate text-[13px] font-medium">{c.name}{c.reference && <span className="font-normal text-ink-3"> · {c.reference}</span>}</p>
-                    <p className="text-[11.5px] text-ink-3">{c.rows} task{c.rows === 1 ? '' : 's'}{c.match && a.kind === 'existing' && a.clientId === c.match.clientId
+                    <p className="text-[11.5px] text-ink-3">{newFor(c.key)} new task{newFor(c.key) === 1 ? '' : 's'}{c.rows > newFor(c.key) ? ` · ${c.rows - newFor(c.key)} already in Ledger or left out` : ''}{c.match && a.kind === 'existing' && a.clientId === c.match.clientId
                       ? <> · <span className="text-ok">found{c.match.how === 'reference' ? ' by client number' : c.match.how === 'similar' ? ' (similar name)' : ''}</span></> : null}</p>
                   </div>
                   <Select className="w-full sm:w-64" aria-label={`Client for ${c.name}`} value={value}
@@ -328,7 +329,7 @@ function Chip({ children, tone }: { children: React.ReactNode; tone?: 'accent' |
   return <span className={cn('rounded-full px-2 py-0.5', tone === 'accent' ? 'bg-accent-soft text-accent-ink' : tone === 'warn' ? 'bg-warn-soft text-warn' : tone === 'ok' ? 'bg-ok-soft text-ok' : 'bg-sunken text-ink-2')}>{children}</span>;
 }
 
-function Finished({ done, close, onUndo, openTasks }: { done: Done; close: () => void; onUndo: () => Promise<void>; openTasks: () => void }) {
+function Finished({ done, close, onUndo, openTasks }: { done: Done; close: () => void; onUndo: () => Promise<void>; openTasks?: () => void }) {
   const [undoing, setUndoing] = useState(false);
   return (
     <div className="flex flex-col items-center gap-3 py-6 text-center">
@@ -342,7 +343,7 @@ function Finished({ done, close, onUndo, openTasks }: { done: Done; close: () =>
       <div className="mt-2 flex flex-wrap justify-center gap-2">
         <Button loading={undoing} onClick={() => { setUndoing(true); void onUndo().finally(() => setUndoing(false)); }}><RotateCcw /> Undo import</Button>
         <Button onClick={close}>Close</Button>
-        <Button variant="primary" onClick={openTasks}>Open My Tasks</Button>
+        {openTasks && <Button variant="primary" onClick={openTasks}>Open My Tasks</Button>}
       </div>
     </div>
   );

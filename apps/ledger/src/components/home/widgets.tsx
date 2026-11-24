@@ -237,8 +237,8 @@ export function WaitingWidget() {
               <li key={t.id}>
                 <button onClick={() => ui.openTask(t.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-hover">
                   <span className="min-w-0 flex-1 truncate">{t.title} <span className="text-ink-3">· {clientById.get(t.clientId)?.name}</span></span>
-                  {waited !== null && <span className="num shrink-0 text-[12px] text-warn" title={`Waiting since ${formatDate(localISODate(new Date(t.waitingSince!)))}`}>{waited}d</span>}
-                  <span className={cn('num shrink-0 text-right text-[12px] whitespace-nowrap', late > 0 ? 'text-danger' : 'text-ink-3')} title={`Due ${formatDate(t.dueDate)}`}>{late > 0 ? `${late}d late` : formatDue(t.dueDate, today)}</span>
+                  {waited !== null && <span className="num shrink-0 text-[12px] text-warn" title={`Waiting since ${formatDate(localISODate(new Date(t.waitingSince!)))}`}>waiting {waited}d</span>}
+                  <span className={cn('num shrink-0 text-right text-[12px] whitespace-nowrap', late > 0 ? 'text-danger' : 'text-ink-3')} title={`Due ${formatDate(t.dueDate)}`}>{late > 0 ? `· ${late}d late` : formatDue(t.dueDate, today)}</span>
                 </button>
               </li>
             );

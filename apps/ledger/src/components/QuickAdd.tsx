@@ -101,8 +101,8 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
 
   return (
     <div className={cn(variant === 'box'
-      ? cn('rounded-xl border bg-surface shadow-soft transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line-strong hover:border-ink-3/50')
-      : cn('transition-colors', hasText ? 'bg-accent-soft/30' : 'hover:bg-hover/50'), className)}>
+      ? cn('rounded-xl border bg-surface shadow-soft transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line-strong hover:border-ink-3/50 focus-within:border-accent/50 focus-within:ring-3 focus-within:ring-accent/10')
+      : cn('transition-colors', hasText ? 'bg-accent-soft/30' : 'hover:bg-hover/50 focus-within:bg-accent-soft/20'), className)}>
       <div className={cn('relative flex items-center', variant === 'box' ? 'gap-2.5 px-3.5' : 'gap-2 pr-3 pl-[15px]')}>
         {variant === 'box'
           ? <span className="flex size-[22px] shrink-0 items-center justify-center rounded-[7px] bg-accent-soft text-accent"><Plus className="size-3.5" strokeWidth={2.5} /></span>
