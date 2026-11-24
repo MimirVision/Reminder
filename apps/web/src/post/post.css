@@ -797,3 +797,34 @@ body.dragging-mail .sb-it > * { pointer-events: none; }
 .hd .hd-ttl { display: flex; flex-direction: column; align-items: flex-start; }
 .hd .hd-ttl .sync { position: relative; }
 .hd .hd-ttl .sync::after { content: ''; position: absolute; inset: -13px -4px; } /* a 44 px tap area */
+
+/* ---- polish 3 ---- */
+/* The sync line under the title: the account name stays whole and the time gives way first ("All accounts · Updated just now" used to read "All a… · Updated just now"). */
+.sync b { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync .when { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hd .hd-ttl .sync b { min-width: 0; flex: none; }
+/* The blocked-images bar: the sentence keeps its line and the two buttons drop below it together when they do not fit beside it. */
+.banner { flex-wrap: wrap; row-gap: 0; }
+.banner .bt { white-space: nowrap; }
+.banner .ba { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; }
+.banner .ba button { margin-left: 0; }
+
+/* Leaving: sheets and messages slide away instead of vanishing. */
+.scrim, .sheet { transition: opacity .19s ease; }
+.sheet .grab { touch-action: none; cursor: grab; width: 100%; height: 22px; margin: 0 auto; background: none; position: relative; }
+.sheet .grab::after { content: ''; position: absolute; left: 50%; top: 9px; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px; background: var(--ln); }
+.scrim.out { opacity: 0; }
+.sheet.out { opacity: 0; }
+.post.wide .sheet.out { opacity: 0; transform: translate(-50%, -47%); transition: opacity .19s ease, transform .19s ease; }
+.post.wide .sheet .grab { display: none; }
+.toast.out { opacity: 0; transform: translateY(10px); transition: opacity .2s ease, transform .2s ease; pointer-events: none; animation: none; }
+@media (prefers-reduced-motion: reduce) { .toast.out, .sheet.out, .scrim.out { transition: none; } }
+/* Triage on a computer: the card and its four buttons sit together in the middle, not a screen apart. */
+.post.wide .dsk-full .pg > .stack { flex: none; height: 450px; margin-top: auto; }
+.post.wide .stack + .nx { margin-top: 0; }
+.post.wide .dsk-full .pg > .grid { margin-bottom: auto; padding-bottom: 18px; }
+
+/* The time in the sync line has a long and a short wording; which one shows depends on the room the title has beside the buttons. */
+.hd .hd-ttl { container-type: inline-size; container-name: ttl; }
+.sync .when .ws { display: none; }
+@container ttl (max-width: 215px) { .sync .when .wl { display: none; } .sync .when .ws { display: inline; } }

@@ -8,7 +8,8 @@ import { mailKey } from '../core/types.ts';
 import { Icon, Sheet, avatarHue } from './ui.tsx';
 import { back, go, labelOf, useC } from './ctx.tsx';
 
-const EMAIL = /[^\s,;<>()"]+@[^\s,;<>()"]+\.[^\s,;<>()"]+/g;
+// No "@" inside the parts and a length limit on each, so that a long pasted text (or "a@a@a@..." ) is read in one quick pass instead of freezing the page.
+const EMAIL = /[^\s,;<>()"@]{1,64}@[^\s,;<>()"@]{1,255}\.[^\s,;<>()"@]{1,63}/g;
 const addresses = (s: string) => [...new Set((s.match(EMAIL) ?? []).map((x) => x.toLowerCase()))];
 
 type Parts = { to: string; cc: string; subject: string; text: string };

@@ -6,12 +6,27 @@ const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 
 export function textToHtml(text: string): string {
   const safe = escapeHtml(text);
-  return safe.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)"'])/g, '<a href="$1">$1</a>').replace(/\r?\n/g, '<br>');
+  // A link ends at a space, or at the escaped < > or " that wrap it in plain-text mail (<https://x.no/p> or "https://x.no/p"): those are not part of the address.
+  return safe.replace(/https?:\/\/(?:(?!&(?:lt|gt|quot);)[^\s<])+/g, (u) => {
+    let url = u;
+    // Punctuation that belongs to the sentence, and a closing bracket the address did not open, stay outside the link.
+    for (;;) {
+      const last = url[url.length - 1];
+      const open = (url.match(/\(/g) ?? []).length, close = (url.match(/\)/g) ?? []).length;
+      if (/[.,;:!?'\]]/.test(last) || (last === ')' && close > open)) url = url.slice(0, -1); else break;
+    }
+    return url.length > 8 ? `<a href="${url}">${url}</a>${u.slice(url.length)}` : u;
+  }).replace(/\r?\n/g, '<br>');
 }
+
+/** One picture tag, read no further than this (real ones are far shorter). */
+const IMG_TAG = /<img\b[^>]{0,2000}>/gi;
 
 /** True if the message pulls pictures from the internet (so the "load images" bar is worth showing). */
 export function hasRemoteImages(html: string): boolean {
-  return /<img\b[^>]*\bsrc\s*=\s*["']?(?:https?:)?\/\//i.test(html) || /url\(\s*["']?(?:https?:)?\/\//i.test(html) || /\bbackground\s*=\s*["']?(?:https?:)?\/\//i.test(html);
+  // Tag by tag, with a bound on how far a tag is followed: a hostile message of thousands of unfinished tags must not make this slow.
+  for (const tag of html.match(IMG_TAG) ?? []) if (/\bsrc\s*=\s*["']?(?:https?:)?\/\//i.test(tag)) return true;
+  return /url\(\s*["']?(?:https?:)?\/\//i.test(html) || /\bbackground\s*=\s*["']?(?:https?:)?\/\//i.test(html);
 }
 
 /**
@@ -21,17 +36,19 @@ export function hasRemoteImages(html: string): boolean {
 export function fixPictureUrls(html: string): string {
   const fix = (u: string) => u.replace(/^(\s*)(?:http:)?\/\//i, '$1https://');
   return html
-    .replace(/(<img\b[^>]*?\bsrc\s*=\s*)(["'])([^"']*)\2/gi, (_a, pre: string, q: string, u: string) => `${pre}${q}${fix(u)}${q}`)
+    .replace(IMG_TAG, (tag) => tag
+      .replace(/(\bsrc\s*=\s*)(["'])([^"']*)\2/i, (_a, pre: string, q: string, u: string) => `${pre}${q}${fix(u)}${q}`)
+      .replace(/(\bsrcset\s*=\s*)(["'])([^"']*)\2/i, (_a, pre: string, q: string, u: string) => `${pre}${q}${u.split(',').map((c) => fix(c)).join(',')}${q}`))
     .replace(/(\bbackground\s*=\s*)(["'])([^"']*)\2/gi, (_a, pre: string, q: string, u: string) => `${pre}${q}${fix(u)}${q}`)
-    .replace(/(<img\b[^>]*?\bsrcset\s*=\s*)(["'])([^"']*)\2/gi, (_a, pre: string, q: string, u: string) => `${pre}${q}${u.split(',').map((c) => fix(c)).join(',')}${q}`)
     .replace(/url\(\s*(["']?)\s*(?:http:)?\/\//gi, 'url($1https://');
 }
 
 export function stripDangerous(html: string): string {
   return html
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<(iframe|object|embed|applet|form|base|link)\b[\s\S]*?(<\/\1\s*>|\/?>)/gi, '')
-    .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?(refresh|content-security-policy)[^>]*>/gi, '')
+    // an unfinished script would run to the end of the page, so it is removed to the end of the page (one pass, however many there are)
+    .replace(/<script\b[\s\S]*?(?:<\/script\s*>|$)/gi, '')
+    .replace(/<(?:iframe|object|embed|applet|form|base|link)\b[^>]{0,1500}>/gi, '')
+    .replace(/<meta\b[^>]{0,2000}>/gi, (tag) => (/http-equiv\s*=\s*["']?(?:refresh|content-security-policy)/i.test(tag) ? '' : tag))
     .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/(href|src|xlink:href)\s*=\s*(["']?)\s*javascript:[^"'>\s]*\2/gi, '$1="#"')
     // A page opened from a link must not be able to reach back into this one.

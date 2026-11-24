@@ -416,7 +416,7 @@ function MessageBlock({ s, m, open, many, anchor, onPhone, editable, onToggle, o
           <button onClick={onWhy}>Why?</button></div>
       )}
       {body && <FileList m={m} files={files} failed={!!body.attachmentsFailed} onRetry={() => { void c.openBody(m).then(setBody).catch(() => {}); }} />}
-      {remote && !showImages && <div className="banner"><Icon n="eye" size={18} />Images are blocked<button onClick={() => setLoadImages(true)}>Load once</button>{!mine && sender && <button onClick={() => { setLoadImages(true); c.setSettings({ trustedImageSenders: [...s.settings.trustedImageSenders, sender] }); }}>Always from this sender</button>}</div>}
+      {remote && !showImages && <div className="banner"><Icon n="eye" size={18} /><span className="bt">Images are blocked</span><span className="ba"><button onClick={() => setLoadImages(true)}>Load once</button>{!mine && sender && <button onClick={() => { setLoadImages(true); c.setSettings({ trustedImageSenders: [...s.settings.trustedImageSenders, sender] }); }}>Always from this sender</button>}</span></div>}
       {remote && trusted && !mine && <div className="banner"><Icon n="eye" size={18} />Images always load from this sender<button onClick={() => c.setSettings({ trustedImageSenders: s.settings.trustedImageSenders.filter((a) => a !== sender) })}>Stop</button></div>}
       {err ? <p className="note" style={{ margin: 16 }}>{err}</p> : body ? <Frame html={html} remote={showImages} dark={dark} /> : <p className="note" style={{ margin: '18px 16px' }}>Opening…</p>}
       {many && (

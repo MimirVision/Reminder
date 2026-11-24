@@ -83,19 +83,49 @@ export function Avatar({ m, badge }: { m: Pick<Mail, 'fromName' | 'fromAddress' 
   );
 }
 
+/**
+ * A sheet over the screen. It slides away when it is closed (Escape, the dark area, or dragging its handle down on a phone) instead of vanishing.
+ * Closing from inside (a choice that closes it) still just ends it: the parent decides that.
+ */
 export function Sheet({ title, onClose, children, action }: { title: string; onClose: () => void; children: ReactNode; action?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [closing, setClosing] = useState(false);
+  const [dy, setDy] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ y: number; t: number; id: number } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const isWide = useWide();
+  const wide = () => isWide;
+  const still = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const close = () => {
+    if (closing) return;
+    if (still()) { onClose(); return; }
+    setClosing(true);
+    timer.current = setTimeout(onClose, 190);
+  };
+  const closeRef = useRef(close);
+  closeRef.current = close;
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current(); };
     window.addEventListener('keydown', onKey);
     ref.current?.focus();
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    return () => { window.removeEventListener('keydown', onKey); if (timer.current) clearTimeout(timer.current); };
+  }, []);
+  const down = (e: React.PointerEvent) => { if (wide()) return; drag.current = { y: e.clientY, t: e.timeStamp, id: e.pointerId }; setDragging(true); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); };
+  const move = (e: React.PointerEvent) => { const g = drag.current; if (g) setDy(Math.max(0, e.clientY - g.y)); };
+  const up = (e: React.PointerEvent) => {
+    const g = drag.current; drag.current = null; setDragging(false);
+    if (!g) return;
+    const d = Math.max(0, e.clientY - g.y), speed = d / Math.max(1, e.timeStamp - g.t);
+    if (d > 90 || (d > 24 && speed > 0.6)) close(); else setDy(0);
+  };
+  const phone = !wide();
+  const style = phone && (dy > 0 || closing) ? { transform: `translateY(${closing ? '110%' : `${dy}px`})`, transition: dragging ? 'none' : 'transform .2s ease', animation: 'none' } : undefined;
   return (
     <>
-      <div className="scrim" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-label={title} ref={ref} tabIndex={-1}>
-        <div className="grab" />
+      <div className={`scrim${closing ? ' out' : ''}`} style={dy > 0 && !closing ? { opacity: Math.max(0.2, 1 - dy / 400), animation: 'none' } : undefined} onClick={close} />
+      <div className={`sheet${closing ? ' out' : ''}`} role="dialog" aria-label={title} ref={ref} tabIndex={-1} style={style}>
+        <div className="grab" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} />
         <div className="shh"><h2 className="h3">{title}</h2>{action}</div>
         {children}
       </div>

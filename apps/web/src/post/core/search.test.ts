@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fold, parseQuery, search } from './search.ts';
+import { fold, parseQuery, remoteText, search } from './search.ts';
 import type { Mail } from './types.ts';
 
 const m = (o: Partial<Mail>): Mail => ({ key: `a|${o.id ?? 'x'}`, account: 'a@o.no', id: 'x', conversationId: 'c', received: '2026-10-01T10:00:00Z', subject: '', fromName: '', fromAddress: 'x@y.no', preview: '', isRead: true, flagged: false, hasAttachments: false, folder: 'inbox', kind: 'person', why: [], ...o });
@@ -68,4 +68,29 @@ test('date and subject filters', async () => {
   assert.equal(mt(m, q), true);
   assert.equal(mt(m, pq('before:2026-10')), false);
   assert.equal(mt(m, pq('is:unread')), false);
+});
+
+test('a phrase in quotes is searched as written, and an operator can take a quoted value', () => {
+  const q = parseQuery('"stor regning" from:"anna larsen" is:unread');
+  assert.deepEqual(q.words, ['stor regning']);
+  assert.deepEqual(q.from, ['anna larsen']);
+  assert.equal(q.unread, true);
+  const all = [m({ id: '1', subject: 'Din stor regning er klar', fromName: 'Anna Larsen' }), m({ id: '2', subject: 'Regning, stor', fromName: 'Anna Larsen' }), m({ id: '3', subject: 'stor regning', fromName: 'Ola Hansen' })];
+  assert.deepEqual(search(all, '"stor regning"').map((x) => x.id).sort(), ['1', '3']);
+  assert.deepEqual(search(all, 'from:"anna larsen" "stor regning"').map((x) => x.id), ['1']);
+});
+
+test('a lone or empty quote never makes a search find nothing', () => {
+  assert.deepEqual(parseQuery('"stor').words, ['stor']);
+  assert.deepEqual(parseQuery('stor" regning').words, ['stor', 'regning']);
+  assert.deepEqual(parseQuery('"" faktura').words, ['faktura']);
+});
+
+test('what is asked of Outlook: the plain words as typed, never Post\'s own operators', () => {
+  assert.equal(remoteText('Østlandet faktura'), 'Østlandet faktura');
+  assert.equal(remoteText('"stor regning" after:2026-10 is:unread in:primary'), 'stor regning');
+  assert.equal(remoteText('from:anna after:30d'), 'anna');
+  assert.equal(remoteText('subject:"din regning"'), 'din regning');
+  assert.equal(remoteText('is:unread has:attachment'), '');
+  assert.equal(remoteText('   '), '');
 });

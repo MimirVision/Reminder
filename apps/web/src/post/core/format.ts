@@ -25,9 +25,12 @@ export function dayGroup(iso: string, now: Date = new Date(), locale = 'en-GB'):
 
 export function initials(name: string, address = ''): string {
   const base = name.trim() || address.split('@')[0];
-  const parts = base.split(/[\s._-]+/).filter(Boolean);
+  // Letters only, whole characters (an emoji or an accented capital is not cut in half), so "(Ola)", "Larsen, Anna" and "😀 Kari" give clean initials.
+  const first = (word: string) => [...word].find((ch) => /[\p{L}\p{N}]/u.test(ch));
+  const parts = base.split(/[\s._-]+/).filter((p) => first(p));
   if (!parts.length) return '?';
-  return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  if (parts.length === 1) return [...parts[0]].filter((ch) => /[\p{L}\p{N}]/u.test(ch)).slice(0, 2).join('').toUpperCase();
+  return (first(parts[0])! + first(parts[parts.length - 1])!).toUpperCase();
 }
 
 /** The hues an avatar can have: ten, spread round the colour wheel so the people who write to you are easy to tell apart at a glance. */

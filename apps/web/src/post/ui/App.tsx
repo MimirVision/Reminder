@@ -23,12 +23,21 @@ function Toasts() {
   const c = useC();
   const [copied, setCopied] = useState<number | null>(null);
   const route = useRoute();
-  const t = s.toast;
+  // A message that is ending slides down for a moment instead of vanishing (and cannot be tapped meanwhile).
+  const [shown, setShown] = useState(s.toast);
+  const [out, setOut] = useState(false);
+  useEffect(() => {
+    if (s.toast) { setShown(s.toast); setOut(false); return; }
+    setOut(true);
+    const t = setTimeout(() => { setShown(null); setOut(false); }, 220);
+    return () => clearTimeout(t);
+  }, [s.toast]);
+  const t = s.toast ?? shown;
   if (!t) return null;
   // On the triage screen the buttons are at the bottom, so the message goes to the top instead of covering them.
   return (
     <div className={`toast-dock${route.name === 'triage' ? ' top' : ''}`} aria-live="polite">
-      <div className="toast" key={t.id} role="status"><span>{t.text}</span>{t.undo && <button className="undo" onClick={() => { const u = t.undo!; u(); }}>Undo</button>}{t.fail && <button className="undo" onClick={() => { void copyText(healthReport(healthInput(c, s, Date.now()))).then((ok) => setCopied(ok ? t.id : null)); }}>{copied === t.id ? 'Copied' : 'Copy report'}</button>}</div>
+      <div className={`toast${out && !s.toast ? ' out' : ''}`} key={t.id} role="status"><span>{t.text}</span>{t.undo && <button className="undo" onClick={() => { const u = t.undo!; u(); }}>Undo</button>}{t.fail && <button className="undo" onClick={() => { void copyText(healthReport(healthInput(c, s, Date.now()))).then((ok) => setCopied(ok ? t.id : null)); }}>{copied === t.id ? 'Copied' : 'Copy report'}</button>}</div>
     </div>
   );
 }

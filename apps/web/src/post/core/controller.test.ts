@@ -169,7 +169,7 @@ function world() {
     if ((m = /^\/me\/messages\/([^/?]+)$/.exec(path)) && init.method === 'PATCH') { log.push(`graph patch ${decodeURIComponent(m[1])} ${JSON.stringify(body)}`); return new Response('{}'); }
     if ((m = /^\/me\/messages\/([^/?]+)\?\$select=body/.exec(path))) { log.push('graph body'); return new Response(JSON.stringify({ body: { contentType: 'html', content: '<p>Hei</p>' }, toRecipients: [{ emailAddress: { name: 'Meg', address: 'a@outlook.com' } }], hasAttachments: false })); }
     if (path === '/me/sendMail') { log.push(`graph sendMail ${body.message.subject}`); return new Response(null, { status: 202 }); }
-    if (path.startsWith('/me/messages?$search')) { log.push('graph search'); return new Response(JSON.stringify({ value: [{ id: 'old1', subject: 'Gammel faktura', from: { emailAddress: { address: 'x@y.no' } }, receivedDateTime: '2025-01-01T00:00:00Z' }, ...[...inbox.values()].slice(0, 1)] })); }
+    if (path.startsWith('/me/messages?$search')) { log.push(`graph search ${path}`); return new Response(JSON.stringify({ value: [{ id: 'old1', subject: 'Gammel faktura', from: { emailAddress: { address: 'x@y.no' } }, receivedDateTime: '2025-01-01T00:00:00Z' }, ...[...inbox.values()].slice(0, 1)] })); }
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
   return { f, log, add, inbox, flags, headers, sent, convo, drafts, sentMails, held: heldBy, taughtSeen, accounts: () => [...accounts.values()] };
@@ -603,6 +603,21 @@ test('search: local first, then older mail from Outlook, without duplicates', as
   assert.equal(c.searchLocal('faktura').length, 1);
   const remote = await c.searchRemote('faktura');
   assert.deepEqual(remote.map((m) => m.id), ['old1']);
+});
+
+test('search beyond the phone: Outlook is asked for the words only, and Post\'s own filters apply to what comes back', async () => {
+  const w = world();
+  const { c } = make(w);
+  await c.init();
+  assert.deepEqual((await c.searchRemote('faktura after:2026-01-01')).map((m) => m.id), [], 'the 2025 message is before the limit');
+  assert.deepEqual((await c.searchRemote('faktura before:2026-01-01')).map((m) => m.id), ['old1']);
+  assert.deepEqual((await c.searchRemote('"faktura" is:read')).length, 0, 'is:read: the old message has not been read');
+  const asked = w.log.filter((l) => l.startsWith('graph search')).join('\n');
+  assert.ok(asked.includes('$search="faktura"'), asked);
+  assert.ok(!/after:|before:|is:/.test(asked), 'no Post operator reaches Outlook: ' + asked);
+  w.log.length = 0;
+  assert.deepEqual(await c.searchRemote('is:unread'), [], 'only filters, no words: nothing to ask Outlook');
+  assert.equal(w.log.filter((l) => l.startsWith('graph search')).length, 0);
 });
 
 test('opening a message fetches the body once and keeps it for offline', async () => {

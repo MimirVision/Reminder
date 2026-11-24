@@ -22,3 +22,10 @@ test('http (not https) and garbage are refused', () => {
   assert.equal(parseUnsubscribe([{ name: 'List-Unsubscribe', value: '<mailto:not an address>' }]), null);
   assert.equal(parseUnsubscribe([{ name: 'List-Unsubscribe', value: '<javascript:alert(1)>' }]), null);
 });
+
+test('a hostile header of thousands of brackets is read in no time, and real links beside it still work', () => {
+  const t0 = Date.now();
+  const u = parseUnsubscribe([{ name: 'List-Unsubscribe', value: `${'<'.repeat(100_000)}<https://x.no/u>` }]);
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`);
+  assert.equal(u?.https, 'https://x.no/u');
+});
