@@ -166,7 +166,7 @@ export function Page({ title, crumb, docTitle, subtitle, actions, barActions, ti
           <Plus /> <span className="hidden sm:inline">New task</span>
         </Button>
       </header>
-      <main id="main" className={cn('mx-auto w-full flex-1 px-4 pt-7 pb-10 md:px-8 max-w-[1400px]',
+      <main id="main" className={cn('mx-auto w-full flex-1 animate-rise-in px-4 pt-7 pb-10 md:px-8 max-w-[1400px]',
         wide ? 'min-[2200px]:max-w-[1800px] min-[3000px]:max-w-[2560px] min-[3800px]:max-w-[3360px]'
           : !narrow && 'min-[1900px]:max-w-[1640px] min-[2600px]:max-w-[2000px] min-[3400px]:max-w-[2400px]')}>
         {!hideTitle && (

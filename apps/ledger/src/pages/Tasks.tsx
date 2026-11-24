@@ -87,7 +87,7 @@ export function Tasks() {
 
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if (e.key === '/' && !document.querySelector('[role=dialog]') && !(e.target as HTMLElement).closest('input,textarea,select,[contenteditable]')) { e.preventDefault(); searchRef.current?.focus(); }
+      if (e.key === '/' && !document.querySelector('[role=dialog]:not([data-state=closed])') && !((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]') && !(e.target as HTMLElement).closest('[data-state=closed]'))) { e.preventDefault(); searchRef.current?.focus(); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
