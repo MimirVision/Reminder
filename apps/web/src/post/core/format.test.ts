@@ -49,3 +49,14 @@ test('colours are spread over all ten hues, none of them dominating', () => {
   assert.equal(n.size, AVATAR_HUES.length);
   for (const [h, c] of n) assert.ok(c > 20 && c < 100, `hue ${h} got ${c} of 500`);
 });
+
+test('initials: whole letters only, never half an emoji or a bracket', () => {
+  assert.equal(initials('(Ola) Hansen'), 'OH');
+  assert.equal(initials('Larsen, Anna'), 'LA');
+  assert.equal(initials('😀 Kari Nordmann'), 'KN');
+  assert.equal(initials('😀'), '?');
+  assert.equal(initials('Åse'), 'ÅS');
+  assert.equal(initials('Ola', ''), 'OL');
+  assert.equal(initials('', 'post@firma.no'), 'PO');
+  assert.equal(initials('"', ''), '?');
+});

@@ -39,7 +39,9 @@ export function parseWhen(v: string, now = new Date()): string | null {
 /** `from:anna subject:invoice after:2026-10 before:7d is:read is:unread has:attachment is:flagged in:primary account:work meeting` (in: takes primary, transactions, updates or promotions; older names work too) */
 export function parseQuery(input: string): Query {
   const q: Query = { words: [], from: [], unread: false, flagged: false, attachment: false, account: null, kind: null, subject: [], read: false, after: null, before: null };
-  for (const raw of input.trim().split(/\s+/).filter(Boolean)) {
+  // Words are split at spaces, except inside quotes: "stor regning" is one phrase that must appear as written, and from:"anna larsen" is one sender.
+  const tokens = [...input.matchAll(/((?:[A-Za-z]+:)?"[^"]*")|(\S+)/g)].map((m) => (m[1] ?? m[2]).replace(/"/g, '').trim()).filter(Boolean);
+  for (const raw of tokens) {
     const t = raw.toLowerCase();
     if (t.startsWith('from:') && t.length > 5) q.from.push(fold(raw.slice(5)));
     else if (t.startsWith('subject:') && t.length > 8) q.subject.push(fold(raw.slice(8)));
@@ -54,6 +56,20 @@ export function parseQuery(input: string): Query {
     else q.words.push(fold(raw));
   }
   return q;
+}
+
+const OPERATOR = /^(from|subject|is|has|in|account|after|before|newer|older):/i;
+
+/**
+ * The words to ask Outlook itself when the search goes beyond this phone: the plain words (as typed, with their Norwegian letters, since Outlook
+ * knows them), or, when there are none, what `from:` and `subject:` ask for. The other operators (after:, is:unread ...) are not Outlook's words:
+ * they are applied afterwards to what comes back (see `matches`).
+ */
+export function remoteText(input: string): string {
+  const tokens = [...input.matchAll(/((?:[A-Za-z]+:)?"[^"]*")|(\S+)/g)].map((m) => (m[1] ?? m[2]).replace(/"/g, '').trim()).filter(Boolean);
+  const words = tokens.filter((t) => !OPERATOR.test(t));
+  if (words.length) return words.join(' ');
+  return tokens.filter((t) => /^(from|subject):./i.test(t)).map((t) => t.slice(t.indexOf(':') + 1)).join(' ');
 }
 
 export const isEmptyQuery = (q: Query) => !q.words.length && !q.from.length && !q.unread && !q.flagged && !q.attachment && !q.account && !q.kind && !q.subject.length && !q.read && !q.after && !q.before;

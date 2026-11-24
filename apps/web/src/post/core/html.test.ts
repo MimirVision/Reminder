@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BLANK_PICTURE, frameDocument, hasRemoteImages, inlineCids, safeBlobType, shareType, stripDangerous, textToHtml } from './html.ts';
+import { BLANK_PICTURE, fixPictureUrls, frameDocument, hasRemoteImages, inlineCids, safeBlobType, shareType, stripDangerous, textToHtml } from './html.ts';
 
 test('scripts, iframes, forms, handlers and javascript: links are removed', () => {
   const out = stripDangerous('<p onclick="x()">a</p><script>alert(1)</script><iframe src="https://e"></iframe><form action="/"><input></form><a href="javascript:alert(1)">l</a><meta http-equiv="refresh" content="0;url=https://e">');
@@ -78,4 +78,32 @@ test('picture addresses are made loadable inside the frame', async () => {
   assert.equal(fixPictureUrls('<td style="background:url(//x.no/b.png)">'), '<td style="background:url(https://x.no/b.png)">');
   assert.equal(fixPictureUrls('<a href="http://x.no">l</a>'), '<a href="http://x.no">l</a>');
   assert.ok(hasRemoteImages('<img src="//x.no/a.png">'));
+});
+
+test('links in plain-text mail end where the address ends: not at a wrapping <> or quote, not at the sentence', () => {
+  assert.equal(textToHtml('see <https://x.no/p> now'), 'see &lt;<a href="https://x.no/p">https://x.no/p</a>&gt; now');
+  assert.equal(textToHtml('"https://x.no/q" ok'), '&quot;<a href="https://x.no/q">https://x.no/q</a>&quot; ok');
+  assert.equal(textToHtml('a (https://x.no/a) b'), 'a (<a href="https://x.no/a">https://x.no/a</a>) b');
+  assert.equal(textToHtml('wiki https://x.no/a_(b) ok'), 'wiki <a href="https://x.no/a_(b)">https://x.no/a_(b)</a> ok');
+  assert.equal(textToHtml('https://x.no/a?x=1&y=2, ok.'), '<a href="https://x.no/a?x=1&amp;y=2">https://x.no/a?x=1&amp;y=2</a>, ok.');
+  assert.equal(textToHtml('https://x.no/p?!'), '<a href="https://x.no/p">https://x.no/p</a>?!');
+  assert.equal(textToHtml('just https:// here'), 'just https:// here');
+});
+
+test('hostile messages made of thousands of unfinished tags are handled in no time', () => {
+  const nasty = ['<form '.repeat(40_000), '<img src='.repeat(40_000), '<img src="'.repeat(40_000), '<meta http-equiv='.repeat(40_000), '<script>'.repeat(40_000), 'url('.repeat(60_000)];
+  for (const h of nasty) {
+    const t0 = Date.now();
+    stripDangerous(h); hasRemoteImages(h); frameDocument(h, { remoteImages: false, dark: false });
+    assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0} ms for ${h.slice(0, 12)}`);
+  }
+});
+
+test('the tag-by-tag reading keeps what it did: remote pictures found and fixed, meta refresh removed, other meta kept', () => {
+  assert.equal(hasRemoteImages('<p><img alt="x" width=1 src="//cdn.x.no/a.png"></p>'), true);
+  assert.equal(hasRemoteImages('<img src="cid:abc">'), false);
+  assert.match(fixPictureUrls('<img alt="x" src="//cdn.x.no/a.png" srcset="//a/1.png 1x, http://a/2.png 2x">'), /src="https:\/\/cdn\.x\.no\/a\.png" srcset="https:\/\/a\/1\.png 1x, https:\/\/a\/2\.png 2x"/);
+  assert.equal(stripDangerous('<meta http-equiv="refresh" content="0;url=https://e"><meta charset="utf-8"><p>x</p>'), '<meta charset="utf-8"><p>x</p>');
+  assert.equal(stripDangerous('a<script>alert(1)'), 'a');
+  assert.equal(stripDangerous('a<script>1</script>b<script>2</script>c'), 'abc');
 });

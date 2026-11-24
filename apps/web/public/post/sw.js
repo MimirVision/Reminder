@@ -31,6 +31,15 @@ async function openPage(e, req, url) {
   return first || net; // nothing saved yet (the very first visit): there is nothing to do but take what comes
 }
 
+// Every new version of the app has new file names, and this copy would otherwise only ever grow. Past this many saved files the oldest go
+// (the cache lists them oldest first); what the current version needs was saved most recently, and anything dropped is fetched again when asked for.
+const MAX_ASSETS = 160, KEEP_ASSETS = 100;
+async function trimAssets() {
+  const c = await caches.open(SHELL);
+  const files = (await c.keys()).filter((r) => new URL(r.url).pathname.startsWith('/assets/'));
+  if (files.length > MAX_ASSETS) await Promise.all(files.slice(0, files.length - KEEP_ASSETS).map((r) => c.delete(r)));
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -42,7 +51,7 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.pathname.startsWith('/assets/')) {
     // Hashed file names never change, so cache first.
-    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(req, copy)); } return res; })));
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); e.waitUntil(caches.open(SHELL).then((c) => c.put(req, copy)).then(trimAssets).catch(() => {})); } return res; })));
   }
 });
 

@@ -201,7 +201,11 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   // The button that starts Triage mode counts what Triage would go through: the unread rows of this tab, but for the flagged ones.
   const triage = useMemo(() => (pane ? 0 : triageThreads(s, now).length), [pane, s.mail, s.view, s.accountFilter, s.settings.threads, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const scope = s.accountFilter ? labelOf(s, s.accountFilter) : s.accounts.length > 1 ? 'All accounts' : s.accounts[0]?.label ?? 'Inbox';
-  const when = s.sync.running ? 'Updating…' : s.sync.at ? `Updated ${Math.max(0, Math.round((now - s.sync.at) / 60000)) < 1 ? 'just now' : `${Math.round((now - s.sync.at) / 60000)} min ago`}` : '';
+  const mins = s.sync.at ? Math.max(0, Math.round((now - s.sync.at) / 60000)) : 0;
+  const ago = mins < 1 ? 'just now' : `${mins} min ago`;
+  const when = s.sync.running ? 'Updating…' : s.sync.at ? `Updated ${ago}` : '';
+  // The shorter wording for a narrow header (a phone with the Triage button): the same fact in fewer letters.
+  const whenShort = s.sync.running ? '…' : s.sync.at ? (mins < 1 ? 'now' : `${mins} min`) : '';
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const chosen = list.filter((t) => picked.has(t.key));
   const chosenMail = chosen.flatMap((t) => t.items);
@@ -250,7 +254,7 @@ export function Inbox({ s, pane = false }: { s: State; pane?: boolean }) {
   const ico: Record<string, string> = { archive: 'archive', read: 'eye', flag: 'flag', delete: 'trash' };
 
   const unreadBtn = <button className={`un${s.unreadOnly ? ' on' : ''}`} aria-pressed={s.unreadOnly} onClick={() => c.setUnreadOnly(!s.unreadOnly)}>Unread{viewUnread > 0 && <span className="n">{viewUnread > 99 ? '99+' : viewUnread}</span>}</button>;
-  const syncBtn = (short = false) => <button className="sync" onClick={() => void c.sync()} aria-label="Update now">{short ? when || 'Update now' : <><b>{scope}</b> · {when}</>}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>;
+  const syncBtn = (short = false) => <button className="sync" onClick={() => void c.sync()} aria-label="Update now">{short ? when || 'Update now' : <><b>{scope}</b><span className="when"><span className="wl">· {when}</span><span className="ws">· {whenShort}</span></span></>}{s.sync.running && <Icon n="refresh" size={16} className="spin" />}</button>;
   return (
     <div className="pg">
       <header className={`hd${scrolled ? ' min' : ''}`}>

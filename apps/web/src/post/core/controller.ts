@@ -7,7 +7,7 @@ import { UNDO_WINDOW_MS, createQueue, isMove, type OpType } from './queue.ts';
 import { createServer, createTokens, ServerError, type AccountStatus, type AlertExtra, type DeviceApi, type Server, type SignedIn } from './server.ts';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from './settings.ts';
 import { enrichHeaders, loadKnown, reclassifyAll, refreshKnown, rememberKnown, syncAccount } from './sync.ts';
-import { search as searchLocal } from './search.ts';
+import { matches as matchesQuery, parseQuery, remoteText, search as searchLocal } from './search.ts';
 import type { PendingOp, Store, StoreStatus } from './store.ts';
 import { groupThreads, singles, threadKey, threadOf, type Thread } from './threads.ts';
 import { addLeft, diffInbox, loadLeft, type LeftEntry, type LeftWhy } from './leftlog.ts';
@@ -1620,16 +1620,21 @@ export function createController(deps: Deps) {
     async searchRemote(q: string): Promise<Mail[]> {
       const out: Mail[] = [];
       const seen = new Set(state.mail.map((m) => m.key));
+      // Outlook is asked for the plain words; after:, is:unread, in: ... are Post's own filters and are applied to what comes back.
+      const text = remoteText(q);
+      if (!text) return out;
+      const parsed = parseQuery(q);
+      const labels: Record<string, string> = Object.fromEntries(state.accounts.map((a) => [a.email, a.label]));
       const listing = state.folders.length ? undefined : api.loadFolders().catch(() => {}); // asked side by side with the search; a failure only means the results do not say their folder
       const found: { account: string; rows: RawMessage[] }[] = [];
       for (const a of state.accounts) {
         const g = graphFor(a.email);
         if (!g) continue;
-        try { found.push({ account: a.email, rows: await g.search(q.replace(/\b(from|is|has|in|account):\S*/gi, '').trim() || q) }); } catch { /* one account failing must not hide the others' results */ }
+        try { found.push({ account: a.email, rows: await g.search(text) }); } catch { /* one account failing must not hide the others' results */ }
       }
       await listing;
       for (const { account, rows } of found) {
-        for (const r of rows) { const m = folderMail(account, r, kindOfFolder(account, r.parentFolderId), sortCtx()); if (!seen.has(m.key)) out.push(m); }
+        for (const r of rows) { const m = folderMail(account, r, kindOfFolder(account, r.parentFolderId), sortCtx()); if (!seen.has(m.key) && matchesQuery(m, parsed, labels)) out.push(m); }
       }
       out.sort((x, y) => y.received.localeCompare(x.received));
       remember(out);

@@ -7,7 +7,7 @@ export function parseUnsubscribe(headers: { name: string; value: string }[] | un
   const get = (n: string) => headers?.find((h) => h.name.toLowerCase() === n)?.value;
   const raw = get('list-unsubscribe');
   if (!raw) return null;
-  const urls = [...raw.matchAll(/<([^>]+)>/g)].map((m) => m[1].trim());
+  const urls = [...raw.matchAll(/<([^<>]{1,2000})>/g)].map((m) => m[1].trim());
   const https = urls.find((u) => /^https:\/\//i.test(u)) ?? null;
   const mail = urls.find((u) => /^mailto:/i.test(u));
   let mailto: Unsub['mailto'] = null;
