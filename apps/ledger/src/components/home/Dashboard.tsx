@@ -102,7 +102,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
 
   // ── Dragging to move ───────────────────────────────────────────────────────
   const startMove = (e: ReactPointerEvent<HTMLDivElement>, it: WidgetItem) => {
-    if (!editing || e.button !== 0 || (e.target as HTMLElement).closest('button,[role=menuitem],a,input,textarea,[data-resize]')) return;
+    if (!editing || e.button !== 0 || (e.target as HTMLElement).closest('button:not([data-handle]),[role=menuitem],a,input,textarea,[data-resize]')) return;
     const box = e.currentTarget.getBoundingClientRect();
     setGesture({ kind: 'move', id: it.id, base: itemsRef.current, offX: e.clientX - box.left, offY: e.clientY - box.top, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY, active: false });
   };
@@ -206,7 +206,7 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
         <div role="toolbar" aria-label="Customize Home" className="sticky top-[60px] z-20 mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-accent/30 bg-surface/95 py-2 pr-2 pl-4 shadow-pop backdrop-blur">
           <LayoutGrid className="size-4 text-accent" />
           <p className="min-w-0 flex-1 text-[13px] text-ink-2">
-            <span className="font-medium text-ink">Customizing Home.</span> Drag a widget where you want it, drag its corner to resize. Widgets in the way move down.
+            <span className="font-medium text-ink">Customizing Home.</span><span className="hidden sm:inline"> Drag a widget where you want it, drag its corner to resize. Widgets in the way move down.</span>
             <span className="hidden xl:inline"> From a handle: arrows move, Shift + arrows resize. Esc cancels a drag.</span>
             {wide && <span className="hidden xl:inline"> This is the wide-screen layout; smaller screens keep their own.</span>}
           </p>
@@ -227,16 +227,17 @@ export function Dashboard({ editing, setEditing }: { editing: boolean; setEditin
             // While customizing, the grid's columns are drawn faintly, so it is clear where a widget will land.
             ...(editing ? { backgroundImage: `repeating-linear-gradient(to right, color-mix(in oklab, var(--c-accent) 3%, transparent) 0 calc((100% - ${GAP_PX * (cols - 1)}px) / ${cols}), transparent calc((100% - ${GAP_PX * (cols - 1)}px) / ${cols}) calc((100% - ${GAP_PX * (cols - 1)}px) / ${cols} + ${GAP_PX}px))` } : {}),
           } as CSSProperties}>
-          {items.map((it) => {
+          {items.map((it, i) => {
             const W = RENDER[it.type];
             const isMoving = moving?.id === it.id;
             const isResizing = gesture?.kind === 'resize' && gesture.id === it.id;
             return (
               <div key={it.id} data-widget-id={it.id} data-widget-type={it.type}
-                style={{ '--x': it.x + 1, '--y': it.y + 1, '--w': it.w, '--h': it.h, '--px': `${rowsToPx(it.h)}px` } as CSSProperties}
+                // Widgets arrive one after another, in reading order, when Home opens (and a new one when it is added).
+                style={{ '--x': it.x + 1, '--y': it.y + 1, '--w': it.w, '--h': it.h, '--px': `${rowsToPx(it.h)}px`, animationDelay: `${Math.min(i, 14) * 28}ms` } as CSSProperties}
                 onPointerDown={(e) => startMove(e, it)}
                 // On a phone widgets stack in reading order: the short ones take their content's height, the lists keep theirs.
-                className={cn('relative min-w-0 col-span-1 lg:col-start-(--x) lg:col-span-(--w) lg:row-start-(--y) lg:row-span-(--h)', !CONTENT_SIZED.has(it.type) && 'max-lg:h-(--px)',
+                className={cn('relative min-w-0 col-span-1 animate-rise-in lg:col-start-(--x) lg:col-span-(--w) lg:row-start-(--y) lg:row-span-(--h)', !CONTENT_SIZED.has(it.type) && 'max-lg:h-(--px)',
                   editing && 'cursor-grab touch-none rounded-xl')}>
                 <div className={cn('h-full transition-opacity', editing && 'pointer-events-none select-none', isMoving && 'opacity-30')} inert={editing || undefined}>
                   <W item={it} update={(p) => update(it.id, p)} />

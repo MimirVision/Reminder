@@ -64,7 +64,11 @@ export function CompleteToggle({ task }: { task: Occurrence }) {
         done ? 'scale-110 border-ok bg-ok text-white' : task.status === 'cancelled' ? 'border-dashed border-line-strong' : 'border-line-strong hover:border-ok hover:bg-ok-soft',
       )}
     >
-      <Check className={cn('size-3 transition-opacity', done ? 'opacity-100' : 'text-ok opacity-0 group-hover/check:opacity-100')} strokeWidth={3} />
+      {completing && <>
+        <span aria-hidden className="absolute inset-0 animate-check-pop rounded-full bg-ok" />
+        <span aria-hidden className="pointer-events-none absolute inset-0 animate-ring-out rounded-full border-2 border-ok" />
+      </>}
+      <Check className={cn('relative size-3 transition-opacity', done ? 'opacity-100' : 'text-ok opacity-0 group-hover/check:opacity-100')} strokeWidth={3} />
     </button>
   );
 }

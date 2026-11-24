@@ -155,7 +155,7 @@ test('several tasks can be selected and moved at once', async ({ page }) => {
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('x');
   await expect(page.getByText('2 selected')).toBeVisible();
-  await page.getByRole('toolbar', { name: 'Selected tasks' }).getByRole('button', { name: 'Tomorrow' }).click();
+  await page.getByRole('toolbar', { name: 'Selected tasks' }).getByRole('button', { name: 'Move selected to tomorrow' }).click();
   await expect(page.getByText('2 tasks moved to')).toBeVisible();
   await expect(rows).toHaveCount(before - 2);
 });

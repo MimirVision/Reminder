@@ -19,9 +19,9 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-[rgb(20_20_28/0.28)]" />
+        <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-[rgb(20_20_28/0.28)] data-[state=closed]:animate-fade-out" />
         <D.Content
-          className={cn('fixed top-[10vh] left-1/2 z-50 flex max-h-[80vh] w-[calc(100vw-32px)] -translate-x-1/2 animate-pop-in flex-col rounded-xl bg-surface shadow-pop focus:outline-none', width)}
+          className={cn('fixed top-[10vh] left-1/2 z-50 flex max-h-[80vh] w-[calc(100vw-32px)] -translate-x-1/2 animate-pop-in flex-col rounded-xl data-[state=closed]:animate-pop-out bg-surface shadow-pop focus:outline-none', width)}
           onEscapeKeyDown={keepEscapeLocal}
           onOpenAutoFocus={(e) => {
             // Focus the first field rather than the close button.
@@ -37,7 +37,8 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             <D.Close asChild><IconButton label="Close" size="sm" className="-mr-1"><X /></IconButton></D.Close>
           </div>
           <div className="min-h-0 overflow-y-auto px-5 pb-4">{children}</div>
-          {footer && <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
+          {/* Wraps on a phone, so a footer with many actions never runs off the edge. */}
+          {footer && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
         </D.Content>
       </D.Portal>
     </D.Root>
@@ -51,9 +52,9 @@ export function Sheet({ open, onOpenChange, title, children, width = 'w-[min(560
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 animate-fade-in bg-[rgb(20_20_28/0.12)]" />
+        <D.Overlay className="fixed inset-0 z-40 animate-fade-in bg-[rgb(20_20_28/0.12)] data-[state=closed]:animate-fade-out" />
         <D.Content
-          className={cn('fixed inset-y-0 right-0 z-40 flex animate-slide-in flex-col bg-surface shadow-panel focus:outline-none', width)}
+          className={cn('fixed inset-y-0 right-0 z-40 flex animate-slide-in flex-col bg-surface shadow-panel data-[state=closed]:animate-slide-out focus:outline-none', width)}
           onEscapeKeyDown={keepEscapeLocal}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
@@ -95,7 +96,7 @@ export function Menu({ trigger, children, align = 'start', label }: { trigger: R
     <M.Root modal={false}>
       <M.Trigger asChild aria-label={label}>{trigger}</M.Trigger>
       <M.Portal>
-        <M.Content align={align} sideOffset={4} className="z-50 min-w-44 animate-pop-in rounded-lg bg-surface p-1 shadow-pop" onCloseAutoFocus={(e) => {
+        <M.Content align={align} sideOffset={4} className="z-50 min-w-44 animate-pop-in rounded-lg bg-surface p-1 shadow-pop data-[state=closed]:animate-pop-out" onCloseAutoFocus={(e) => {
           // Back to the trigger (keyboard users keep their place), unless the chosen item moved focus somewhere on purpose.
           const a = document.activeElement as HTMLElement | null;
           if (a && a !== document.body && !a.closest('[role=menu]')) e.preventDefault();
@@ -152,7 +153,7 @@ export function Popover({ trigger, children, open, onOpenChange, align = 'start'
     <P.Root open={open} onOpenChange={onOpenChange}>
       <P.Trigger asChild>{trigger}</P.Trigger>
       <P.Portal>
-        <P.Content align={align} sideOffset={4} collisionPadding={12} className="z-50 animate-pop-in rounded-lg bg-surface shadow-pop focus:outline-none">
+        <P.Content align={align} sideOffset={4} collisionPadding={12} className="z-50 animate-pop-in rounded-lg bg-surface shadow-pop focus:outline-none data-[state=closed]:animate-pop-out">
           {children}
         </P.Content>
       </P.Portal>

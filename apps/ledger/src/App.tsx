@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { CommandPalette } from './components/CommandPalette';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ScheduleEditor } from './components/ScheduleEditor';
 import { Shell } from './components/Shell';
 import { Shortcuts } from './components/Shortcuts';
@@ -75,7 +76,7 @@ function Screens({ email }: { email?: string | null }) {
   );
   return (
     <Shell>
-      {page}
+      <ErrorBoundary resetKey={path} onHome={() => navigate('/')}>{page}</ErrorBoundary>
       {state.kind === 'ready' && <><TaskPanel /><NewTaskDialog /><ScheduleEditor /><CommandPalette /><Shortcuts /><MeetingDialog /><NotificationRunner /><ImportTasks /></>}
     </Shell>
   );
@@ -108,10 +109,12 @@ export function App() {
   const demo = useMemo(() => wantsDemo(), []);
   const demoRepo = useMemo(() => (demo ? new DemoRepo() : null), [demo]);
   return (
-    <ToastProvider>
-      <RouterProvider>
-        {demoRepo ? <Workspace repo={demoRepo} /> : <SupabaseApp />}
-      </RouterProvider>
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <RouterProvider>
+          {demoRepo ? <Workspace repo={demoRepo} /> : <SupabaseApp />}
+        </RouterProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

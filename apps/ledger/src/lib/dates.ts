@@ -114,9 +114,25 @@ export function todayIn(timeZone?: string, now: Date = new Date()): ISODate {
   return `${p.year}-${p.month}-${p.day}`;
 }
 
-/** Converts a JS Date to its date in the browser's local timezone. */
+/**
+ * The workspace's time zone, once known. "Today", the date a task was finished and the time of day all follow it, so
+ * a laptop set to another zone (travelling) doesn't put work on the wrong day. Unset, the browser's own zone is used.
+ */
+let workspaceZone: string | undefined;
+export function setWorkspaceTimeZone(tz: string | undefined) {
+  try { if (tz) new Intl.DateTimeFormat('en', { timeZone: tz }); workspaceZone = tz || undefined; } catch { workspaceZone = undefined; }
+}
+
+/** The date of a moment (a completion time, say) in the workspace's time zone. */
 export function localISODate(dt: Date): ISODate {
-  return fromParts(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
+  return workspaceZone ? todayIn(workspaceZone, dt) : fromParts(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
+}
+
+/** Minutes since midnight now, in the workspace's time zone (the calendar's now-line, "Now" in the agenda). */
+export function minutesNow(now: Date = new Date()): number {
+  if (!workspaceZone) return now.getHours() * 60 + now.getMinutes();
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: workspaceZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).map((x) => [x.type, x.value]));
+  return Number(p.hour) * 60 + Number(p.minute);
 }
 
 /** The 6×7 grid of dates a month view shows, starting on Monday. */

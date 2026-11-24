@@ -177,3 +177,25 @@ describe('the plan', () => {
     expect(plan.skipped).toEqual([{ row: 3, reason: 'Same task twice in the file' }]);
   });
 });
+
+describe('import edge cases', () => {
+  it('finds the CSV separator when a title line comes before the header', () => {
+    const rows = readCsv('Fristliste november 2026\nKunde,Gjøremål,Frist\nFjordlys AS,Lønnskjøring,19.11.2026\n');
+    expect(rows[1]).toEqual(['Kunde', 'Gjøremål', 'Frist']);
+    expect(findHeaderRow(rows)).toBe(1);
+  });
+
+  it('keeps Excel row numbers when an empty row is written as <row/>', () => {
+    const data = zipSync({
+      'xl/workbook.xml': strToU8('<workbook xmlns:r="r"><sheets><sheet name="s" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+      'xl/_rels/workbook.xml.rels': strToU8('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+      'xl/worksheets/sheet1.xml': strToU8('<worksheet><sheetData><row r="1"/><row r="2"><c r="A2" t="inlineStr"><is><t>Gjøremål</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Lønn</t></is></c></row></sheetData></worksheet>'),
+    });
+    const rows = readXlsx(data);
+    expect(rows).toEqual([[], ['Gjøremål'], ['Lønn']]);
+  });
+
+  it('never matches an archived client', () => {
+    expect(matchClient('Fjordlys Regnskap AS', '', [{ id: 'old', name: 'Fjordlys Regnskap AS', reference: null, status: 'archived' }])).toBeNull();
+  });
+});

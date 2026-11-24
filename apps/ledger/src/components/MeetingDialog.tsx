@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, ListPlus, Trash2 } from 'lucide-react';
 import { useStore } from '../data/store';
+import { minutesNow } from '../lib/dates';
 import { formatDayLong } from '../lib/format';
 import { durationMinutes, formatDuration, fromMinutes, isTime, meetingErrors, toMinutes } from '../lib/meetings';
 import type { NewMeeting } from '../data/repo';
@@ -18,8 +19,7 @@ const LENGTHS = [15, 30, 45, 60, 90, 120];
 
 /** The next half hour from now, within working hours, for a meeting booked without a time. */
 function nextSlot(): string {
-  const d = new Date();
-  const m = Math.ceil((d.getHours() * 60 + d.getMinutes() + 1) / 30) * 30;
+  const m = Math.ceil((minutesNow() + 1) / 30) * 30;
   return fromMinutes(Math.min(Math.max(m, 8 * 60), 17 * 60));
 }
 

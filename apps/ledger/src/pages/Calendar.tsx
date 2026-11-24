@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent } from 'react';
 import { AlertTriangle, Check, ChevronLeft, ChevronRight, ListChecks, Plus, Users } from 'lucide-react';
 import { TimeGrid } from '../components/TimeGrid';
 import { sortMeetings } from '../lib/meetings';
@@ -86,6 +86,12 @@ export function Calendar() {
   const asView = (v: string | null | undefined): View | null => (v === 'month' || v === 'week' || v === 'day' ? v : null);
   const [view, setView] = useState<View>(asView(query.get('view')) ?? asView(snap.workspace.settings.defaultCalendarView) ?? 'month');
   const [cursor, setCursor] = useState<ISODate>(() => { const d = query.get('date'); return d && isISODate(d) ? d : today; });
+  // A link followed while the calendar is already open (a meeting notification, a chart's day) moves it there too.
+  const qView = asView(query.get('view')), qDate = query.get('date');
+  useEffect(() => {
+    if (qView) setView(qView);
+    if (qDate && isISODate(qDate)) setCursor(qDate);
+  }, [qView, qDate]);
   const [clients, setClients] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<TaskStatus[]>([]);
   const [types, setTypes] = useState<string[]>([]);

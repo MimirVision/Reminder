@@ -60,15 +60,19 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
 
   const reset = () => { setText(''); setManualClient(null); setManualDue(null); setManualPriority(null); setTried(false); };
 
+  // Enter pressed twice (or held down) must add one task, not two: the state updates too late to stop the second.
+  const inFlight = useRef(false);
   const submit = async () => {
     setTried(true);
-    if (!parsed.title || !clientId) return;
+    if (!parsed.title || !clientId || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     const created = await run((r) => r.createOccurrence({
       clientId, scheduleId: null, title: parsed.title, description: '', taskType: 'follow_up', periodKey: null, periodStart: null, periodEnd: null,
       dueDate: due, scheduledDueDate: null, status, priority, tags: parsed.tags,
       checklist: fromLines(snap.workspace.settings.checklistTemplates?.follow_up),
     }), { quiet: false });
+    inFlight.current = false;
     setBusy(false);
     if (created) {
       toast.show(`Added for ${client?.name ?? 'client'}, due ${formatDue(due, today).toLowerCase()}`, {});
@@ -80,12 +84,14 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
   // A line with a time of day ("Call Nordvik fri 10:00") can be booked as a meeting instead, one hour by default.
   const canMeet = repo.meetings && !!parsed.time && !!parsed.title;
   const bookMeeting = async () => {
-    if (!canMeet) return;
+    if (!canMeet || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     const start = parsed.time!;
     const ok = await run((r) => r.createMeeting({
       clientId: clientId ?? null, title: parsed.title, date: due, start, end: fromMinutes(Math.min(toMinutes(start) + 60, 23 * 60 + 59)), location: '', notes: '',
     }), { success: `Meeting booked: ${formatDue(due, today).toLowerCase()} at ${start}` });
+    inFlight.current = false;
     setBusy(false);
     if (ok) { reset(); input.current?.focus(); }
   };
@@ -95,8 +101,8 @@ export function QuickAdd({ clientId: fixedClient, dueDate: defaultDue, status = 
 
   return (
     <div className={cn(variant === 'box'
-      ? cn('rounded-xl border bg-surface shadow-soft transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line-strong hover:border-ink-3/50')
-      : cn('transition-colors', hasText ? 'bg-accent-soft/30' : 'hover:bg-hover/50'), className)}>
+      ? cn('rounded-xl border bg-surface shadow-soft transition-[border-color,box-shadow]', hasText ? 'border-accent/50 ring-3 ring-accent/10' : 'border-line-strong hover:border-ink-3/50 focus-within:border-accent/50 focus-within:ring-3 focus-within:ring-accent/10')
+      : cn('transition-colors', hasText ? 'bg-accent-soft/30' : 'hover:bg-hover/50 focus-within:bg-accent-soft/20'), className)}>
       <div className={cn('relative flex items-center', variant === 'box' ? 'gap-2.5 px-3.5' : 'gap-2 pr-3 pl-[15px]')}>
         {variant === 'box'
           ? <span className="flex size-[22px] shrink-0 items-center justify-center rounded-[7px] bg-accent-soft text-accent"><Plus className="size-3.5" strokeWidth={2.5} /></span>
