@@ -3,7 +3,7 @@
 // dashboard always show the same records.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { todayIn, type ISODate } from '../lib/dates';
+import { setWorkspaceTimeZone, todayIn, type ISODate } from '../lib/dates';
 import { setLocale } from '../lib/format';
 import { liveSchedules } from '../lib/generation';
 import { calendarOf, type HolidayCalendar } from '../lib/holidays';
@@ -59,8 +59,13 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
   const snapRef = useRef(snap);
   snapRef.current = snap;
 
+  // Reloads can overlap (a refresh after a change, another change meanwhile). Only the latest one started is shown,
+  // so an older answer arriving late can't bring back data from before a change.
+  const loadSeq = useRef(0);
   const reload = useCallback(async () => {
+    const seq = ++loadSeq.current;
     const loaded = await repo.load();
+    if (seq !== loadSeq.current) return;
     const s = { ...loaded };
     if (pendingSettings.current > 0) s.workspace = { ...loaded.workspace, settings: settingsRef.current };
     else settingsRef.current = loaded.workspace.settings;
@@ -72,6 +77,7 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
     }
     setSnap(s);
     if (s.workspace.settings.locale) setLocale(s.workspace.settings.locale);
+    setWorkspaceTimeZone(s.workspace.timezone);
     setToday(todayIn(s.workspace.timezone));
   }, [repo]);
 

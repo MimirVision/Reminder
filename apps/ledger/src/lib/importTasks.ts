@@ -186,8 +186,10 @@ const LEGAL_FORMS = /\s+(as|asa|enk|da|ans|sa|ba|nuf|ks|ltd|ab|aps|oy|gmbh|inc|l
 export const clientKey = (name: string) => norm(name).replace(LEGAL_FORMS, '').trim();
 
 export type ClientMatch = { clientId: string; how: 'reference' | 'name' | 'similar' } | null;
-export function matchClient(name: string, reference: string, clients: Pick<Client, 'id' | 'name' | 'reference' | 'status'>[]): ClientMatch {
-  const pick = (list: typeof clients) => list.find((c) => c.status === 'active') ?? list[0];
+export function matchClient(name: string, reference: string, all: Pick<Client, 'id' | 'name' | 'reference' | 'status'>[]): ClientMatch {
+  // Only active clients: tasks for an archived one would be out of sight, so a match there becomes a new client to check.
+  const clients = all.filter((c) => c.status === 'active');
+  const pick = (list: typeof clients) => list[0];
   if (reference) {
     const r = pick(clients.filter((c) => c.reference && c.reference.trim().toLowerCase() === reference.toLowerCase()));
     if (r) return { clientId: r.id, how: 'reference' };

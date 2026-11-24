@@ -90,6 +90,8 @@ function ImportDialog({ initial }: { initial: File | null }) {
           setBusy(true);
           const result = await run(async (r) => {
             const made = new Map<string, string>();
+            let created: string[] = [];
+            const updated: Done['updated'] = [];
             try {
               for (const c of plan.clients) {
                 if (actions[c.key]?.kind !== 'create' || !plan.creates.some((p) => p.clientKey === c.key)) continue;
@@ -101,14 +103,16 @@ function ImportDialog({ initial }: { initial: File | null }) {
                 periodKey: null, periodStart: p.period?.start ?? null, periodEnd: p.period?.end ?? null, dueDate: p.dueDate, scheduledDueDate: null,
                 status: p.status, priority: p.priority, tags: p.tags, ...(templates?.[p.taskType]?.length ? { checklist: fromLines(templates[p.taskType]) } : {}),
               }));
-              const created = await r.createOccurrences(list);
-              const updated: Done['updated'] = [];
+              created = await r.createOccurrences(list);
               for (const u of plan.updates) {
                 await r.updateOccurrence(u.task.id, u.patch);
                 updated.push({ id: u.task.id, before: { dueDate: u.task.dueDate, status: u.task.status, description: u.task.description, completedAt: u.task.completedAt } });
               }
               return { created, clients: [...made.values()], updated };
             } catch (e) {
+              // Leave the workspace as it was: take back the tasks, the updates and the clients this import made.
+              if (created.length) await r.deleteOccurrences(created).catch(() => {});
+              for (const u of updated) await r.updateOccurrence(u.id, u.before).catch(() => {});
               for (const id of made.values()) await r.deleteClient(id).catch(() => {});
               throw e;
             }

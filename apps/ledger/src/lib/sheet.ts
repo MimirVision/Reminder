@@ -75,11 +75,12 @@ function readXlsx(data: Uint8Array): Cell[][] {
   const dates = dateStyles(text('xl/styles.xml'));
 
   const rows: Cell[][] = [];
-  for (const r of sheetXml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
+  // An empty row can be written as <row r="1"/>; it must not swallow the next row.
+  for (const r of sheetXml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
     const rowNo = Number(attr(r[1], 'r') ?? rows.length + 1) - 1;
     const row: Cell[] = [];
     let next = 0;
-    for (const c of r[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    for (const c of (r[2] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const a = c[1], body = c[2] ?? '';
       const ref = attr(a, 'r');
       const col = ref ? colIndex(ref) : next;
@@ -109,8 +110,9 @@ function readXlsx(data: Uint8Array): Cell[][] {
 /** CSV with commas, semicolons (Norwegian Excel) or tabs, and quoted fields. */
 export function readCsv(text: string): Cell[][] {
   const t = text.replace(/^﻿/, '');
-  const firstLine = t.split(/\r?\n/, 1)[0] ?? '';
-  const count = (ch: string) => firstLine.split(ch).length - 1;
+  // The separator used most on the first lines: a title line above the header ("Fristliste november") has none.
+  const lines = t.split(/\r?\n/).filter((l) => l.trim()).slice(0, 10);
+  const count = (ch: string) => Math.max(0, ...lines.map((l) => l.split(ch).length - 1));
   const sep = [';', '\t', ','].sort((a, b) => count(b) - count(a))[0];
   const rows: Cell[][] = [];
   let row: Cell[] = [], field = '', quoted = false;

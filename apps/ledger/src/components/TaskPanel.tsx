@@ -97,7 +97,9 @@ function TaskDetail({ task }: { task: Occurrence }) {
   const [confirm, setConfirm] = useState<'delete' | 'cancel' | null>(null);
   useEffect(() => setTitle(task.title), [task.title]);
   useEffect(() => setNotes(task.description), [task.description]);
-  useEffect(() => setTags(task.tags.join(', ')), [task.tags]);
+  // By value: a reload brings a new array with the same tags, which must not wipe what is being typed.
+  const savedTags = task.tags.join(', ');
+  useEffect(() => setTags(savedTags), [savedTags]);
 
   const schedule = task.scheduleId ? scheduleById.get(task.scheduleId) : undefined;
   const client = clientById.get(task.clientId);

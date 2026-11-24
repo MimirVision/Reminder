@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, CalendarCheck, FileText, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Pin, Sun, Users } from 'lucide-react';
 import { useStore } from '../../data/store';
-import { addDays, addMonths, diffDays, isoWeek, localISODate, monthGrid, parts, startOfMonth, startOfWeek, type ISODate } from '../../lib/dates';
+import { addDays, addMonths, diffDays, isoWeek, localISODate, minutesNow, monthGrid, parts, startOfMonth, startOfWeek, type ISODate } from '../../lib/dates';
 import { sortTasks } from '../../lib/filters';
 import { formatDate, formatDayLong, formatDue, formatMonth, formatWeekdayShort, greeting } from '../../lib/format';
 import { TYPE_LABEL } from '../../lib/labels';
@@ -541,8 +541,7 @@ export function DocumentsWidget() {
 export function AgendaWidget() {
   const { snap, today, clientById, repo } = useStore();
   const ui = useUI();
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = minutesNow();
   const todays = sortMeetings(snap.meetings.filter((m) => m.date === today));
   const next = sortMeetings(snap.meetings.filter((m) => m.date > today)).slice(0, 4);
   const row = (m: Meeting, day?: boolean) => {

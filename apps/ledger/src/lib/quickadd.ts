@@ -54,6 +54,11 @@ function upcoming(today: ISODate, month: number, day: number, year?: number): IS
     return day <= daysInMonth(y, month) ? fromParts(y, month, day) : null;
   }
   const [ty] = parts(today);
+  // Just after New Year, "30.12" means the one a few days ago, not the one almost a year away.
+  if (day <= daysInMonth(ty - 1, month)) {
+    const lastYear = fromParts(ty - 1, month, day);
+    if (lastYear >= addDays(today, -RECENT_DAYS)) return lastYear;
+  }
   if (day <= daysInMonth(ty, month)) {
     const thisYear = fromParts(ty, month, day);
     if (thisYear >= addDays(today, -RECENT_DAYS)) return thisYear;
