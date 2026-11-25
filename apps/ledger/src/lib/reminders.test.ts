@@ -119,3 +119,14 @@ describe('descriptions', () => {
     expect(describeMinutes([0, 60, 1440])).toBe('When it starts, 1 hour before and 1 day before');
   });
 });
+
+describe('time set aside', () => {
+  it('reminds as a block of time for a task starts, and not for a finished task', () => {
+    const tasks = [task({ plannedOn: '2026-10-21', plannedStart: '13:00', plannedEnd: '14:30' }), task({ id: 't2', status: 'done', plannedOn: '2026-10-21', plannedStart: '13:00', plannedEnd: '14:00' })];
+    const r = remindersBetween(data({ tasks }), ...day('2026-10-21'));
+    expect(r.map((x) => [x.kind, x.key, new Date(x.at).toISOString().slice(11, 16)])).toEqual([['block', 't:t1:2026-10-21T13:00'.replace('t:', 'p:'), '11:00']]);
+    const [m] = messagesFor(r, true);
+    expect(m).toMatchObject({ title: 'Time for: Deliver VAT', body: '13:00–14:30 · Fjordlys AS', url: '/calendar?view=day&date=2026-10-21&task=t1' });
+    expect(messagesFor(r, false)[0]).toMatchObject({ title: 'Time set aside for a task', body: '13:00–14:30' });
+  });
+});

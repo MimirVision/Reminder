@@ -9,9 +9,11 @@ export type NewSchedule = Omit<Schedule, 'id' | 'workspaceId' | 'createdAt' | 'u
 export type SchedulePatch = Partial<Omit<Schedule, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt'>>;
 
 export type NewOccurrence = Omit<Occurrence, 'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'completedAt' | 'checklist' | 'waitingSince'>
-  & { completedAt?: string | null; checklist?: ChecklistItem[]; waitingSince?: string | null };
+  & { completedAt?: string | null; checklist?: ChecklistItem[]; waitingSince?: string | null;
+    /** Given by the app when other new rows must point at it (steps of an import). */
+    id?: string };
 /** completedAt only matters with status 'done' (to keep the original time when a completion is undone). */
-export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId' | 'checklist' | 'completedAt' | 'notifyDays'>>;
+export type OccurrencePatch = Partial<Pick<Occurrence, 'title' | 'description' | 'taskType' | 'dueDate' | 'status' | 'priority' | 'tags' | 'clientId' | 'checklist' | 'completedAt' | 'notifyDays' | 'afterId' | 'plannedOn' | 'plannedStart' | 'plannedEnd'>>;
 
 export type NewReview = Pick<Review, 'scheduleId' | 'periodKey' | 'status' | 'note'>;
 
@@ -49,6 +51,8 @@ export interface Repo {
   readonly meetings: boolean;
   /** False while the database is older than 0005_ledger_notifications.sql: per-item reminders and phone/PC delivery are then off. */
   readonly notify: boolean;
+  /** False while the database is older than 0006_ledger_flow.sql: chains of steps and planned time are then off. */
+  readonly flow: boolean;
   /** Notifications with Ledger closed (Web Push through the ledger-notify function). Null in demo mode. */
   readonly push: PushApi | null;
   load(): Promise<Snapshot>;

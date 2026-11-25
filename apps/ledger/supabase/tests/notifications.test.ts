@@ -16,9 +16,9 @@ describe('Notifications', () => {
     `insert into ledger_push_devices (workspace_id, endpoint, p256dh, auth, label) values ($1, $2, $3, $4, $5) returning id`,
     [ws, endpoint, 'B'.repeat(87), 'a'.repeat(22), label]);
 
-  it('reports schema version 5', async () => {
+  it('reports schema version 5 or later', async () => {
     await t.as(A, async () => {
-      expect(Number((await t.one<{ v: number }>(`select public.ledger_schema_version() v`)).v)).toBe(5);
+      expect(Number((await t.one<{ v: number }>(`select public.ledger_schema_version() v`)).v)).toBeGreaterThanOrEqual(5);
     });
   });
 

@@ -59,15 +59,22 @@ async function runDue(req: Request, vapid: Vapid) {
   if (devices.length === 0) return json({ due: 0, sent: 0 });
   const ids = [...new Set(devices.map((d) => d.workspace_id))];
   const w = windowDates(now);
-  const [workspaces, occurrences, meetings, schedules, clients] = await Promise.all([
+  // `*`: the time-block columns exist only once the database is on 0006; before that they are simply absent.
+  const open = ['todo', 'in_progress', 'waiting'];
+  const [workspaces, dueSoon, planned, meetings, schedules, clients] = await Promise.all([
     all(() => admin.from('ledger_workspaces').select('id, timezone, settings').in('id', ids).order('id')),
-    all(() => admin.from('ledger_occurrences').select('id, workspace_id, client_id, schedule_id, title, due_date, status, notify_days')
-      .in('workspace_id', ids).in('status', ['todo', 'in_progress', 'waiting']).gte('due_date', w.from).lte('due_date', w.tasksTo).order('id')),
+    all(() => admin.from('ledger_occurrences').select('*')
+      .in('workspace_id', ids).in('status', open).gte('due_date', w.from).lte('due_date', w.tasksTo).order('id')),
+    // Time set aside in the coming days, whenever the task itself is due.
+    all(() => admin.from('ledger_occurrences').select('*')
+      .in('workspace_id', ids).in('status', open).gte('planned_on', w.from).lte('planned_on', w.meetingsTo).order('id')).catch(() => []),
     all(() => admin.from('ledger_meetings').select('id, workspace_id, client_id, title, meeting_date, start_time, end_time, location, notify_minutes')
       .in('workspace_id', ids).gte('meeting_date', w.from).lte('meeting_date', w.meetingsTo).order('id')),
     all(() => admin.from('ledger_schedules').select('id, workspace_id, notify_days').in('workspace_id', ids).not('notify_days', 'is', null).order('id')),
     all(() => admin.from('ledger_clients').select('id, workspace_id, name').in('workspace_id', ids).order('id')),
   ]);
+  const seen = new Set(dueSoon.map((o) => o.id));
+  const occurrences = [...dueSoon, ...planned.filter((o) => !seen.has(o.id))];
   const plans = planRun({ workspaces, occurrences, meetings, schedules, clients } as RunRows, now);
 
   let due = 0, sent = 0, removed = 0;

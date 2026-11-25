@@ -1,6 +1,7 @@
-import { memo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { memo, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { NewTaskDefaults } from './ui-state';
-import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, MoreHorizontal, Repeat, RotateCcw, Sun, Copy } from 'lucide-react';
+import { CalendarClock, Check, ChevronRight, Clock, CornerDownLeft, Link2, MoreHorizontal, Repeat, RotateCcw, Sun, Copy } from 'lucide-react';
+import { waitingOn } from '../lib/chains';
 import { ChecklistBadge } from './Checklist';
 import { QuickAdd } from './QuickAdd';
 import { addDays, weekday, type ISODate } from '../lib/dates';
@@ -99,8 +100,19 @@ function RowMenu({ task }: { task: Occurrence }) {
   );
 }
 
-const Row = memo(function Row({ task, client, today, showClient, stacked, current, checked, onCheck }: {
+/** "after Lønnskjøring": the step a task waits for. */
+function AfterChip({ title }: { title: string }) {
+  return (
+    <span className="inline-flex min-w-0 shrink items-center gap-1 rounded-[5px] bg-sunken px-1.5 py-px text-[11.5px] text-ink-3" title={`Comes after “${title}”, which isn’t done yet`}>
+      <Link2 className="size-3 shrink-0" /><span className="truncate">after {title}</span>
+    </span>
+  );
+}
+
+const Row = memo(function Row({ task, client, today, showClient, stacked, current, checked, onCheck, waitsFor }: {
   task: Occurrence; client: Client | undefined; today: ISODate; showClient: boolean; stacked?: boolean; current: boolean;
+  /** The title of the open step this task comes after: it isn't ready yet. */
+  waitsFor?: string;
   checked?: boolean; onCheck?: (id: string, range: boolean) => void;
 }) {
   const ui = useUI();
@@ -127,8 +139,9 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
         {stacked ? (
           <div className="flex min-w-0 flex-col">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+              <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through', waitsFor && 'text-ink-2')}>{task.title}</span>
               {open && <ChecklistBadge items={task.checklist} />}
+              {waitsFor && <AfterChip title={waitsFor} />}
             </span>
             <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3">
               {/* In a narrow card the due date moves here from its own column. */}
@@ -138,8 +151,9 @@ const Row = memo(function Row({ task, client, today, showClient, stacked, curren
           </div>
         ) : <>
         <div className="flex min-w-0 items-center gap-2">
-          <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through')}>{task.title}</span>
+          <span className={cn('truncate text-[13.5px] font-medium', !open && 'font-normal text-ink-3', task.status === 'cancelled' && 'line-through', waitsFor && 'text-ink-2')}>{task.title}</span>
           {open && <ChecklistBadge items={task.checklist} />}
+          {waitsFor && <AfterChip title={waitsFor} />}
           {taskPeriod(task) && (
             <span className="hidden shrink-0 items-center gap-1 text-[11.5px] text-ink-3 sm:inline-flex" title={task.periodKey ? 'From a recurring schedule' : 'The period it is for'}>
               {task.periodKey && <Repeat className="size-3" />}{taskPeriod(task)}
@@ -252,9 +266,11 @@ export function TaskTable({ tasks, showClient = true, stacked, header = true, li
   addRow?: NewTaskDefaults; collapsible?: boolean;
   selection?: { selected: Set<string>; toggle: (id: string, range: boolean) => void; toggleAll: (ids: string[]) => void };
 }) {
-  const { clientById, today } = useStore();
+  const { clientById, today, snap } = useStore();
   const ui = useUI();
   const shown = limit ? tasks.slice(0, limit) : tasks;
+  // For steps of a chain: the open step each task still waits for.
+  const byId = useMemo(() => new Map(snap.occurrences.map((o) => [o.id, o])), [snap.occurrences]);
   const groups = groupTasks(shown, groupBy, today, clientById);
   const onKey = useRowKeys(shown, selection?.toggle);
   const cols = 6 + (showClient && !stacked ? 1 : 0) + (selection ? 1 : 0);
@@ -307,6 +323,7 @@ export function TaskTable({ tasks, showClient = true, stacked, header = true, li
           )}
           {!folded.has(g.key) && g.tasks.map((t) => (
             <Row key={t.id} task={t} client={clientById.get(t.clientId)} today={today} showClient={showClient} stacked={stacked} current={ui.taskId === t.id}
+              waitsFor={isOpen(t.status) ? waitingOn(t, byId)?.title : undefined}
               checked={selection?.selected.has(t.id)} onCheck={selection?.toggle} />
           ))}
         </tbody>

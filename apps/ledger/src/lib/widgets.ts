@@ -6,7 +6,7 @@
 // side instead of stretched. Sizes in WIDGETS are in twelfths and scale to the grid.
 
 export type WidgetType =
-  | 'greeting' | 'quickAdd' | 'today' | 'overdue' | 'upcoming' | 'week' | 'waiting' | 'missing'
+  | 'greeting' | 'quickAdd' | 'today' | 'overdue' | 'upcoming' | 'week' | 'waiting'
   | 'stats' | 'progress' | 'attention' | 'pinned' | 'activity' | 'notes' | 'deadlines' | 'calendar' | 'documents' | 'agenda'
   | 'workload' | 'heatmap' | 'pace' | 'ontime' | 'mix' | 'clients';
 
@@ -53,7 +53,6 @@ export const WIDGETS: WidgetSpec[] = [
   { type: 'upcoming', name: 'Upcoming deadlines', description: 'The next 7, 14 or 30 days, grouped by day.', w: 8, h: 6, minW: 4, minH: 3, maxH: 14 },
   { type: 'week', name: 'This week', description: 'How many tasks fall on each of the next seven days.', w: 4, h: 4, minW: 3, minH: 3, maxH: 6, single: true },
   { type: 'waiting', name: 'Waiting on clients', description: 'Tasks waiting for a client, most overdue first.', w: 4, h: 4, minW: 3, minH: 3, maxH: 10, single: true },
-  { type: 'missing', name: 'Missing tasks', description: 'Recurring periods that have no task yet.', w: 4, h: 4, minW: 3, minH: 2, maxH: 8, single: true },
   { type: 'stats', name: 'Key numbers', description: 'Open, overdue, due this week and done this week at a glance.', w: 12, h: 2, minW: 4, minH: 2, maxH: 3, single: true },
   { type: 'progress', name: 'Completed per week', description: 'Tasks finished in each of the last eight weeks, and how many on time.', w: 4, h: 4, minW: 3, minH: 3, maxH: 6, single: true },
   { type: 'attention', name: 'Clients needing attention', description: 'Clients ranked by overdue and open work.', w: 4, h: 5, minW: 3, minH: 3, maxH: 10, single: true },
@@ -61,7 +60,7 @@ export const WIDGETS: WidgetSpec[] = [
   { type: 'activity', name: 'Recent activity', description: 'What changed lately across all clients.', w: 4, h: 5, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'notes', name: 'Notepad', description: 'A scratchpad for the day. Saved as you type.', w: 4, h: 4, minW: 3, minH: 2, maxH: 10, single: true },
   { type: 'deadlines', name: 'Deadline radar', description: 'The next deadline for each kind of work: VAT, payroll, annual accounts…', w: 4, h: 4, minW: 3, minH: 3, maxH: 8, single: true },
-  { type: 'agenda', name: 'Agenda', description: 'Today’s meetings by the hour, and the next ones coming up.', w: 4, h: 6, minW: 3, minH: 3, maxH: 12, single: true },
+  { type: 'agenda', name: 'Agenda', description: 'Today’s meetings and the time you set aside for tasks, by the hour, and the next meetings coming up.', w: 4, h: 6, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'documents', name: 'Documents to collect', description: 'Everything you’ve requested from clients that hasn’t arrived yet, oldest first.', w: 4, h: 4, minW: 3, minH: 3, maxH: 10, single: true },
   { type: 'workload', name: 'Workload ahead', description: 'A chart of open tasks per week for the coming weeks, by type: see the busy weeks coming.', w: 8, h: 5, minW: 4, minH: 4, maxH: 9, single: true },
   { type: 'heatmap', name: 'Deadline calendar', description: 'Every day of the coming months, darker the more is due. Overdue days are marked.', w: 8, h: 4, minW: 4, minH: 3, maxH: 7, single: true },
@@ -83,7 +82,7 @@ const START: Omit<WidgetItem, 'x' | 'y'>[] = [
   { id: 'overdue', type: 'overdue', w: 8, h: 6 },
   { id: 'waiting', type: 'waiting', w: 4, h: 6 },
   { id: 'week', type: 'week', w: 4, h: 4 },
-  { id: 'missing', type: 'missing', w: 4, h: 4 },
+  { id: 'deadlines', type: 'deadlines', w: 4, h: 4 },
   { id: 'workload', type: 'workload', w: 4, h: 4 },
 ];
 
@@ -105,7 +104,7 @@ const START_WIDE: Omit<WidgetItem, 'x' | 'y'>[] = [
   { id: 'upcoming', type: 'upcoming', w: 9, h: 5, days: 14 },
   { id: 'deadlines', type: 'deadlines', w: 5, h: 5 },
   { id: 'calendar', type: 'calendar', w: 5, h: 5 },
-  { id: 'missing', type: 'missing', w: 5, h: 5 },
+  { id: 'activity', type: 'activity', w: 5, h: 5 },
 ];
 
 export const UPCOMING_CHOICES = [7, 14, 30] as const;

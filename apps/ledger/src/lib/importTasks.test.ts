@@ -199,3 +199,29 @@ describe('import edge cases', () => {
     expect(matchClient('Fjordlys Regnskap AS', '', [{ id: 'old', name: 'Fjordlys Regnskap AS', reference: null, status: 'archived' }])).toBeNull();
   });
 });
+
+describe('linking the steps of an import', () => {
+  it('chains a client’s steps for the same period and assignment in deadline order', () => {
+    const rows: Cell[][] = [
+      HEADER,
+      row('Lønnskjøring', 'Fjordlys Regnskap AS', 'Lønn', '11.2026', '2026-11-19'),
+      row('Mottak og kontroll av lønnsgrunnlag', 'Fjordlys Regnskap AS', 'Lønn', '11.2026', '2026-11-12'),
+      row('A-melding', 'Fjordlys Regnskap AS', 'Lønn', '11.2026', '2026-12-07'),
+      row('Bokføring og regnskapsarbeid', 'Fjordlys Regnskap AS', 'Regnskap', '11.2026', '2026-12-03'),
+      row('Lønnskjøring', 'Nordlys Bygg AS', 'Lønn', '11.2026', '2026-11-19'),
+    ];
+    const r = readRows(rows, 0, guessMapping(HEADER), clients);
+    const plan = buildPlan(r, defaultActions(r.clients), [], { ...OPTS, linkSteps: true });
+    const after = (title: string, client = 'c1') => {
+      const p = plan.creates.find((c) => c.title === title && (c.clientId ?? '') === client)!;
+      return p.after >= 0 ? plan.creates[p.after].title : null;
+    };
+    expect(after('Mottak og kontroll av lønnsgrunnlag')).toBeNull();
+    expect(after('Lønnskjøring')).toBe('Mottak og kontroll av lønnsgrunnlag');
+    expect(after('A-melding')).toBe('Lønnskjøring');
+    expect(after('Bokføring og regnskapsarbeid')).toBeNull(); // another assignment
+    expect(after('Lønnskjøring', 'c2')).toBeNull(); // another client
+    expect(plan.links).toBe(2);
+    expect(buildPlan(r, defaultActions(r.clients), [], OPTS).links).toBe(0);
+  });
+});

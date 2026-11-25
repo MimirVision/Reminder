@@ -154,7 +154,7 @@ function Editor() {
     <>
       <Dialog open onOpenChange={(o) => !o && close()} width="max-w-[880px]"
         title={existing ? 'Recurring schedule' : 'New recurring schedule'}
-        description={<>A schedule is a <strong className="font-medium text-ink-2">rule</strong>. It creates one task (an occurrence) for each period, and Ledger checks that none are missing.</>}
+        description={<>A schedule is a <strong className="font-medium text-ink-2">rule</strong>. It creates one task (an occurrence) for each period.</>}
         footer={<>
           {existing && (
             <div className="mr-auto flex basis-full flex-wrap items-center gap-1 sm:basis-auto">
@@ -315,11 +315,11 @@ function Editor() {
 
             <section className="-mt-1 flex flex-col gap-3">
               <Checkbox checked={d.autoGenerate} onChange={(v) => set('autoGenerate', v)} label="Create tasks automatically"
-                description={d.autoGenerate ? 'Each period’s task is created on its own, in the database, even when Ledger is closed.' : 'Ledger only checks. Periods without a task you added appear under Missing Tasks.'} />
+                description={d.autoGenerate ? 'Each period’s task is created on its own, in the database, even when Ledger is closed.' : 'Ledger doesn’t create its tasks; add them yourself when you need them.'} />
               {!existing && d.autoGenerate && backfillCount > 0 && (
                 <Checkbox checked={d.backfill} onChange={(v) => set('backfill', v)}
                   label={`Also create tasks for the ${backfillCount} earlier period${backfillCount === 1 ? '' : 's'} since the start date`}
-                  description="Leave this off if that work is already done elsewhere; those periods are then listed under Missing Tasks for you to review." />
+                  description="Leave this off if that work is already done elsewhere." />
               )}
             </section>
             <button type="submit" hidden />

@@ -100,7 +100,11 @@ export function addDaysISO(date: string, n: number): string {
 
 // ---- what is due ----
 
-export interface RemTask { id: string; clientId: string; scheduleId: string | null; title: string; dueDate: string; status: string; notifyDays?: number[] | null }
+export interface RemTask {
+  id: string; clientId: string; scheduleId: string | null; title: string; dueDate: string; status: string; notifyDays?: number[] | null;
+  /** Time set aside for it: a reminder when that starts. */
+  plannedOn?: string | null; plannedStart?: string | null; plannedEnd?: string | null;
+}
 export interface RemMeeting { id: string; clientId: string | null; title: string; date: string; start: string; end: string; location?: string; notifyMinutes?: number[] | null }
 export interface RemSchedule { id: string; notifyDays?: number[] | null }
 
@@ -108,7 +112,7 @@ export interface Reminder {
   /** Unique per item, lead and due date/time: moving a task re-arms its reminders, and nothing is announced twice. */
   key: string;
   at: number;
-  kind: 'task' | 'meeting';
+  kind: 'task' | 'meeting' | 'block';
   id: string;
   /** Days (tasks) or minutes (meetings) before. */
   lead: number;
@@ -142,6 +146,15 @@ export function remindersBetween(data: {
     for (const lead of taskDays(t, schedules, s)) {
       const at = zonedInstant(addDaysISO(t.dueDate, -lead), s.taskTime, tz);
       if (at > from && at <= to) out.push({ key: `t:${t.id}:${t.dueDate}:${lead}`, at, kind: 'task', id: t.id, lead, title: t.title, client: data.clientName(t.clientId) ?? null, date: t.dueDate });
+    }
+  }
+  // Time set aside for a task: a reminder as it starts.
+  for (const t of data.tasks) {
+    if (!OPEN.has(t.status) || !t.plannedOn || !t.plannedStart || !t.plannedEnd) continue;
+    const at = zonedInstant(t.plannedOn, t.plannedStart, tz);
+    if (at > from && at <= to) {
+      out.push({ key: `p:${t.id}:${t.plannedOn}T${t.plannedStart}`, at, kind: 'block', id: t.id, lead: 0, title: t.title,
+        client: data.clientName(t.clientId) ?? null, date: t.plannedOn, start: t.plannedStart, end: t.plannedEnd });
     }
   }
   for (const m of data.meetings) {
@@ -197,7 +210,13 @@ export function messagesFor(reminders: Reminder[], details: boolean): PushMessag
   const taskGroups = new Map<number, Reminder[]>();
   for (const r of reminders) {
     if (r.kind === 'task') taskGroups.set(r.at, [...(taskGroups.get(r.at) ?? []), r]);
-    else {
+    else if (r.kind === 'block') {
+      out.push({
+        title: details ? `Time for: ${clip(r.title, 80)}` : 'Time set aside for a task',
+        body: details ? [`${r.start}–${r.end}`, r.client && clip(r.client, 80)].filter(Boolean).join(' · ') : `${r.start}–${r.end}`,
+        tag: `ledger-block-${r.id}`, url: `/calendar?view=day&date=${r.date}&task=${r.id}`, keys: [r.key],
+      });
+    } else {
       const when = meetingWhen(r.lead, r.start!, r.date);
       const time = `${r.start}–${r.end}`;
       out.push({
@@ -276,7 +295,8 @@ export function planRun(rows: RunRows, now: number): WorkspacePlan[] {
     const reminders = remindersBetween({
       settings, timeZone: str(w.timezone) || 'Europe/Oslo', clientName: (c) => clientName.get(c),
       tasks: mine(rows.occurrences).map((o) => ({ id: str(o.id), clientId: str(o.client_id), scheduleId: o.schedule_id ? str(o.schedule_id) : null,
-        title: str(o.title), dueDate: str(o.due_date), status: str(o.status), notifyDays: cleanDays(o.notify_days) })),
+        title: str(o.title), dueDate: str(o.due_date), status: str(o.status), notifyDays: cleanDays(o.notify_days),
+        plannedOn: o.planned_on ? str(o.planned_on) : null, plannedStart: o.planned_start ? hhmm(o.planned_start) : null, plannedEnd: o.planned_end ? hhmm(o.planned_end) : null })),
       schedules: mine(rows.schedules).map((s) => ({ id: str(s.id), notifyDays: cleanDays(s.notify_days) })),
       meetings: mine(rows.meetings).map((m) => ({ id: str(m.id), clientId: m.client_id ? str(m.client_id) : null, title: str(m.title), date: str(m.meeting_date),
         start: hhmm(m.start_time), end: hhmm(m.end_time), location: str(m.location), notifyMinutes: cleanMinutes(m.notify_minutes) })),
@@ -292,7 +312,8 @@ export function messagesForClaimed(plan: WorkspacePlan, claimed: Set<string>): P
 
 /** Seconds a push may wait for a device that is off: a meeting reminder is useless after the meeting starts. */
 export function ttlFor(m: PushMessage, now: number, reminders: Reminder[]): number {
-  const meeting = reminders.find((r) => r.kind === 'meeting' && m.keys.includes(r.key));
+  // A meeting's or a block's reminder is no use once it has started.
+  const meeting = reminders.find((r) => (r.kind === 'meeting' || r.kind === 'block') && m.keys.includes(r.key));
   if (!meeting) return 12 * 3600;
   const startsIn = Math.round((meeting.at + meeting.lead * 60_000 - now) / 1000);
   return Math.max(60, Math.min(12 * 3600, startsIn));
@@ -449,15 +470,22 @@ async function runDue(req: Request, vapid: Vapid) {
   if (devices.length === 0) return json({ due: 0, sent: 0 });
   const ids = [...new Set(devices.map((d) => d.workspace_id))];
   const w = windowDates(now);
-  const [workspaces, occurrences, meetings, schedules, clients] = await Promise.all([
+  // `*`: the time-block columns exist only once the database is on 0006; before that they are simply absent.
+  const open = ['todo', 'in_progress', 'waiting'];
+  const [workspaces, dueSoon, planned, meetings, schedules, clients] = await Promise.all([
     all(() => admin.from('ledger_workspaces').select('id, timezone, settings').in('id', ids).order('id')),
-    all(() => admin.from('ledger_occurrences').select('id, workspace_id, client_id, schedule_id, title, due_date, status, notify_days')
-      .in('workspace_id', ids).in('status', ['todo', 'in_progress', 'waiting']).gte('due_date', w.from).lte('due_date', w.tasksTo).order('id')),
+    all(() => admin.from('ledger_occurrences').select('*')
+      .in('workspace_id', ids).in('status', open).gte('due_date', w.from).lte('due_date', w.tasksTo).order('id')),
+    // Time set aside in the coming days, whenever the task itself is due.
+    all(() => admin.from('ledger_occurrences').select('*')
+      .in('workspace_id', ids).in('status', open).gte('planned_on', w.from).lte('planned_on', w.meetingsTo).order('id')).catch(() => []),
     all(() => admin.from('ledger_meetings').select('id, workspace_id, client_id, title, meeting_date, start_time, end_time, location, notify_minutes')
       .in('workspace_id', ids).gte('meeting_date', w.from).lte('meeting_date', w.meetingsTo).order('id')),
     all(() => admin.from('ledger_schedules').select('id, workspace_id, notify_days').in('workspace_id', ids).not('notify_days', 'is', null).order('id')),
     all(() => admin.from('ledger_clients').select('id, workspace_id, name').in('workspace_id', ids).order('id')),
   ]);
+  const seen = new Set(dueSoon.map((o) => o.id));
+  const occurrences = [...dueSoon, ...planned.filter((o) => !seen.has(o.id))];
   const plans = planRun({ workspaces, occurrences, meetings, schedules, clients } as RunRows, now);
 
   let due = 0, sent = 0, removed = 0;
