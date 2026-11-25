@@ -75,6 +75,8 @@ export interface WorkspaceSettings {
   checklistTemplates?: Partial<Record<TaskType, string[]>>;
   /** Your own views in My Tasks: a name and the list's filter as a query string. */
   savedViews?: { id: string; name: string; query: string }[];
+  /** The language of the last document request email. */
+  documentRequestLang?: 'nb' | 'en';
   /** When notifications arrive. Read through notifySettings. */
   notifications?: Partial<NotifySettings>;
 }
@@ -169,6 +171,12 @@ export interface Occurrence {
   waitingSince: string | null;
   /** Notifications: days before the due date. Null = its schedule's, else the default in Settings. */
   notifyDays?: number[] | null;
+  /** The step this task waits for (a chain: lønnsgrunnlag → lønnskjøring → A-melding). */
+  afterId?: string | null;
+  /** Time set aside for it in the calendar: a day and "HH:MM" start and end, or all null. */
+  plannedOn?: ISODate | null;
+  plannedStart?: string | null;
+  plannedEnd?: string | null;
   createdAt: string;
   updatedAt: string;
 }

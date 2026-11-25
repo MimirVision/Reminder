@@ -124,6 +124,9 @@ export function Calendar() {
     return `Week ${w.week} · ${formatDate(first)} – ${formatDate(last)}`;
   })();
   const unit = view === 'month' ? 'month' : view === 'day' ? 'day' : 'week';
+  // Time set aside for tasks on the days shown (the same client filter as the tasks).
+  const blocks = useMemo(() => snap.occurrences.filter((o) => o.plannedOn && o.plannedOn >= first && o.plannedOn <= last && o.status !== 'cancelled'
+    && (!clients.length || clients.includes(o.clientId))), [snap.occurrences, first, last, clients]);
 
   const onDrop = (e: DragEvent, day: ISODate) => {
     e.preventDefault();
@@ -162,6 +165,7 @@ export function Calendar() {
 
       {view !== 'month' ? (
         <TimeGrid days={days} meetings={meetings} today={today} holiday={(d) => holidayName(d, calendar)}
+          blocks={blocks} onPlan={repo.flow ? (id, day, start, end) => void patchOccurrence(id, { plannedOn: day, plannedStart: start, plannedEnd: end }, `Time set aside: ${formatDayLong(day)}, ${start}–${end}`) : undefined}
           taskDropTarget={dropTarget} setTaskDropTarget={setDropTarget} onTaskDrop={onDrop}
           taskCell={(d) => (byDay.get(d) ?? []).map((t) => <Chip key={t.id} task={t} today={today} compact={view === 'week'} />)} />
       ) : (
@@ -249,7 +253,7 @@ export function Calendar() {
         <span className="ml-auto">
           {view === 'month'
             ? 'Drag a task to another day to reschedule it. Click a date to see that day by the hour.'
-            : 'Click an empty time to book a meeting there; drag a meeting to move it. Drag a task between days in the row at the top.'}
+            : 'Click an empty time to book a meeting there; drag a meeting to move it. Drag a task between days in the row at the top, or down into the hours to set time aside for it.'}
         </span>
       </div>
     </Page>

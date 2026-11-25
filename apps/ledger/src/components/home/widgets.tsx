@@ -516,24 +516,32 @@ export function AgendaWidget() {
   const { snap, today, clientById, repo } = useStore();
   const ui = useUI();
   const nowMin = minutesNow();
-  const todays = sortMeetings(snap.meetings.filter((m) => m.date === today));
-  const next = sortMeetings(snap.meetings.filter((m) => m.date > today)).slice(0, 4);
-  const row = (m: Meeting, day?: boolean) => {
+  // Today's meetings and the time set aside for tasks, in one timeline.
+  type Item = { key: string; date: ISODate; start: string; end: string; title: string; sub: string; block: boolean; open: () => void };
+  const meeting = (m: Meeting): Item => ({ key: m.id, date: m.date, start: m.start, end: m.end, title: m.title, block: false, open: () => ui.openMeeting({ mode: 'edit', id: m.id }),
+    sub: [(m.clientId ? clientById.get(m.clientId)?.name : null) ?? 'Internal', m.location].filter(Boolean).join(' · ') });
+  const blocks: Item[] = snap.occurrences.filter((o) => o.plannedOn === today && o.plannedStart && o.plannedEnd && isOpen(o.status)).map((o) => ({
+    key: `b:${o.id}`, date: today, start: o.plannedStart!, end: o.plannedEnd!, title: o.title, block: true, open: () => ui.openTask(o.id),
+    sub: `Time set aside · ${clientById.get(o.clientId)?.name ?? ''}`,
+  }));
+  const todays = [...sortMeetings(snap.meetings.filter((m) => m.date === today)).map(meeting), ...blocks].sort((a, b) => a.start.localeCompare(b.start));
+  const next = sortMeetings(snap.meetings.filter((m) => m.date > today)).slice(0, 4).map(meeting);
+  const row = (m: Item, day?: boolean) => {
     const past = !day && toMinutes(m.end) <= nowMin;
     const live = !day && toMinutes(m.start) <= nowMin && nowMin < toMinutes(m.end);
-    const client = m.clientId ? clientById.get(m.clientId)?.name : null;
     return (
-      <li key={m.id}>
-        <button onClick={() => ui.openMeeting({ mode: 'edit', id: m.id })}
+      <li key={m.key}>
+        <button onClick={m.open}
           className={cn('flex w-full items-start gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-hover', past && 'opacity-55')}>
           <span className="flex w-12 shrink-0 flex-col">
             <span className={cn('num text-[12.5px] font-medium', live ? 'text-accent-ink' : 'text-ink')}>{day ? formatWeekdayShort(m.date) : m.start}</span>
             <span className="num text-[11px] text-ink-3">{day ? m.start : m.end}</span>
           </span>
-          <span className={cn('mt-0.5 w-[3px] self-stretch rounded-full', live ? 'bg-accent' : 'bg-accent/40')} aria-hidden />
+          {/* A meeting has a solid bar; time for a task a dashed one, like its block in the calendar. */}
+          <span className={cn('mt-0.5 self-stretch', m.block ? 'border-l-[3px] border-dashed border-ink-3/60' : cn('w-[3px] rounded-full', live ? 'bg-accent' : 'bg-accent/40'))} aria-hidden />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-[13px] font-medium">{m.title}{live && <span className="ml-1.5 rounded bg-accent-soft px-1 text-[11px] font-normal text-accent-ink">Now</span>}</span>
-            <span className="truncate text-[12px] text-ink-3">{[client ?? 'Internal', m.location].filter(Boolean).join(' · ')}</span>
+            <span className="truncate text-[12px] text-ink-3">{m.sub}</span>
           </span>
         </button>
       </li>
@@ -545,7 +553,7 @@ export function AgendaWidget() {
       {!repo.meetings ? <QuietLine icon={Users}>Meetings arrive with the database update (Settings).</QuietLine> : (
         <div className="flex flex-col gap-1 px-2.5 py-2">
           {todays.length ? <ul className="flex flex-col">{todays.map((m) => row(m))}</ul>
-            : <p className="px-2 py-1.5 text-[13px] text-ink-3">No meetings today.</p>}
+            : <p className="px-2 py-1.5 text-[13px] text-ink-3">Nothing planned today.</p>}
           {next.length > 0 && <>
             <h3 className="mt-2 px-2 text-[11px] font-medium tracking-wide text-ink-3 uppercase">Coming up</h3>
             <ul className="flex flex-col">{next.map((m) => row(m, true))}</ul>

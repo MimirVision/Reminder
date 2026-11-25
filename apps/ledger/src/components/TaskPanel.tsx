@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X, ChevronDown, ChevronUp, Copy } from 'lucide-react';
+import { CalendarDays, Check, CircleSlash, History, MoreHorizontal, Repeat, RotateCcw, Trash2, X, ChevronDown, ChevronUp, Copy, Mail, Clock3 } from 'lucide-react';
 import { useStore } from '../data/store';
-import { addDays, diffDays, localISODate, weekday, type ISODate } from '../lib/dates';
+import { addDays, diffDays, localISODate, minutesNow, weekday, type ISODate } from '../lib/dates';
+import { fromMinutes, isTime, toMinutes } from '../lib/meetings';
 import { formatDate, formatDayLong, formatTimestamp, relativeDue } from '../lib/format';
 import { PRIORITY_LABEL, TYPE_LABEL } from '../lib/labels';
 import { describeRecurrence, periodLabel, taskPeriod } from '../lib/recurrence';
@@ -17,6 +18,9 @@ import { useTaskActions } from './TaskTable';
 import { ChecklistEditor, progressOf } from './Checklist';
 import { useUI } from './ui-state';
 import { ReminderPicker } from './Notifications';
+import { outstanding } from './ClientDocuments';
+import { RequestDocumentsDialog } from './RequestDocuments';
+import { chainOf, possibleSteps, waitingOn } from '../lib/chains';
 import { notifySettings } from '../lib/reminders';
 import { Link } from '../router';
 
@@ -95,6 +99,7 @@ function TaskDetail({ task }: { task: Occurrence }) {
   const [notes, setNotes] = useState(task.description);
   const [tags, setTags] = useState(task.tags.join(', '));
   const [confirm, setConfirm] = useState<'delete' | 'cancel' | null>(null);
+  const [asking, setAsking] = useState(false);
   useEffect(() => setTitle(task.title), [task.title]);
   useEffect(() => setNotes(task.description), [task.description]);
   // By value: a reload brings a new array with the same tags, which must not wipe what is being typed.
@@ -159,6 +164,12 @@ function TaskDetail({ task }: { task: Occurrence }) {
             {client.name}{client.reference && <span className="text-ink-3"> · {client.reference}</span>}
           </Link>
         )}
+        {client && isOpen(task.status) && outstanding(client).length > 0 && (
+          <button type="button" onClick={() => setAsking(true)} className="mt-0.5 ml-3 inline-flex items-center gap-1 text-[12.5px] text-accent hover:underline">
+            <Mail className="size-3.5" /> Request {outstanding(client).length} missing document{outstanding(client).length === 1 ? '' : 's'}
+          </button>
+        )}
+        {asking && client && <RequestDocumentsDialog client={client} task={task} open onOpenChange={setAsking} />}
 
         <div className="mt-5 border-t border-line pt-3">
           <Row label="Due">
@@ -232,6 +243,8 @@ function TaskDetail({ task }: { task: Occurrence }) {
               </div>
             </Row>
           )}
+          {repo.flow && (isOpen(task.status) || task.plannedOn) && <Row label="Time"><PlannedTime task={task} /></Row>}
+          {repo.flow && <Row label="Steps"><Steps task={task} /></Row>}
           {!schedule && taskPeriod(task) && <Row label="Period"><span className="text-[13px] text-ink-2">{taskPeriod(task)}</span></Row>}
           {task.status === 'waiting' && task.waitingSince && (
             <Row label="Waiting since">
@@ -275,3 +288,93 @@ function TaskDetail({ task }: { task: Occurrence }) {
     </>
   );
 }
+
+/**
+ * The chain a task is part of (lønnsgrunnlag → lønnskjøring → A-melding), and which step it comes after. A step that
+ * comes after an open one isn't ready yet; finishing a step says which ones are ready next.
+ */
+function Steps({ task }: { task: Occurrence }) {
+  const { snap, today, patchOccurrence } = useStore();
+  const ui = useUI();
+  const byId = new Map(snap.occurrences.map((o) => [o.id, o]));
+  const chain = chainOf(task, snap.occurrences);
+  const options = possibleSteps(task, snap.occurrences);
+  const before = task.afterId ? byId.get(task.afterId) : undefined;
+  const blocked = isOpen(task.status) ? waitingOn(task, byId) : null;
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {chain.length > 1 && (
+        <ol className="flex flex-col" aria-label="Steps in order">
+          {chain.map((s, i) => {
+            const here = s.id === task.id;
+            const done = s.status === 'done', cancelled = s.status === 'cancelled';
+            return (
+              <li key={s.id} className="relative flex min-w-0 items-center gap-2 py-1 pl-0.5">
+                {/* The line joining the steps. */}
+                {i < chain.length - 1 && <span aria-hidden className="absolute top-[18px] bottom-[-6px] left-[8px] w-px bg-line-strong" />}
+                <span aria-hidden className={cn('relative z-[1] flex size-[15px] shrink-0 items-center justify-center rounded-full border-[1.5px] bg-surface',
+                  done ? 'border-ok bg-ok text-white' : cancelled ? 'border-dashed border-line-strong' : here ? 'border-accent' : 'border-line-strong')}>
+                  {done && <Check className="size-2.5" strokeWidth={3.5} />}
+                </span>
+                {here ? <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
+                  : <button type="button" onClick={() => ui.openTask(s.id)} className={cn('min-w-0 flex-1 truncate text-left text-[13px] hover:text-accent hover:underline', done || cancelled ? 'text-ink-3' : 'text-ink-2')}>{s.title}</button>}
+                <span className={cn('num shrink-0 text-[11.5px]', isOpen(s.status) && s.dueDate < today ? 'text-danger' : 'text-ink-3')}>{formatDate(s.dueDate)}</span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {blocked && <p className="text-[12px] text-warn">Waiting for “{blocked.title}” to be done first.</p>}
+      <label className="flex min-w-0 items-center gap-2 text-[12.5px] text-ink-3">
+        <span className="shrink-0">Comes after</span>
+        <Select className="min-w-0 flex-1" aria-label="Comes after" value={task.afterId ?? ''}
+          onChange={(e) => void patchOccurrence(task.id, { afterId: e.target.value || null }, e.target.value ? 'Linked as the next step' : 'No longer comes after another step')}>
+          <option value="">Nothing: it can start any time</option>
+          {before && !options.some((o) => o.id === before.id) && <option value={before.id}>{before.title}</option>}
+          {options.map((o) => <option key={o.id} value={o.id}>{o.title} · {formatDate(o.dueDate)}{isOpen(o.status) ? '' : ' (done)'}</option>)}
+        </Select>
+      </label>
+    </div>
+  );
+}
+
+/** Time set aside for the task in the calendar: set it, move it, or clear it (the same as dragging it in the calendar). */
+function PlannedTime({ task }: { task: Occurrence }) {
+  const { today, patchOccurrence } = useStore();
+  const set = (p: Pick<Occurrence, 'plannedOn' | 'plannedStart' | 'plannedEnd'>, msg: string) => void patchOccurrence(task.id, p, msg);
+  if (!task.plannedOn || !task.plannedStart || !task.plannedEnd) {
+    // The next half hour within working hours, today (or on the due date if that is later and today is past it).
+    const nowMin = minutesNow();
+    const start = Math.min(Math.max(Math.ceil((nowMin + 1) / 30) * 30, 8 * 60), 16 * 60);
+    const day = nowMin >= 16 * 60 ? addDays(today, 1) : today;
+    return (
+      <button type="button" onClick={() => set({ plannedOn: day, plannedStart: fromMinutes(start), plannedEnd: fromMinutes(start + 60) }, 'Time set aside. Move it in the calendar or here.')}
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-dashed border-line-strong px-2.5 text-[13px] text-ink-2 hover:border-accent/50 hover:bg-accent-soft/40 hover:text-ink">
+        <Clock3 className="size-4 text-ink-3" /> Set aside time…
+      </button>
+    );
+  }
+  const len = toMinutes(task.plannedEnd) - toMinutes(task.plannedStart);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <DatePicker value={task.plannedOn} today={today} onChange={(d) => d !== task.plannedOn && set({ plannedOn: d, plannedStart: task.plannedStart, plannedEnd: task.plannedEnd }, `Moved to ${formatDayLong(d)}`)} trigger={
+        <button className="flex h-8 items-center gap-2 rounded-md border border-line-strong bg-surface px-2.5 text-[13px] hover:bg-hover">
+          <Clock3 className="size-4 text-ink-3" /><span className="tnum">{formatDayLong(task.plannedOn)}</span>
+        </button>
+      } />
+      <span className="w-[104px]"><Input type="time" step={900} aria-label="Starts" defaultValue={task.plannedStart} key={`s${task.plannedStart}`}
+        onBlur={(e) => {
+          const v = e.target.value;
+          if (!isTime(v) || v === task.plannedStart) return;
+          // Moving the start keeps the length.
+          set({ plannedOn: task.plannedOn, plannedStart: v, plannedEnd: fromMinutes(Math.min(toMinutes(v) + len, 23 * 60 + 59)) }, `Starts at ${v}`);
+        }} /></span>
+      <span className="text-ink-3">–</span>
+      <span className="w-[104px]"><Input type="time" step={900} aria-label="Ends" defaultValue={task.plannedEnd} key={`e${task.plannedEnd}`}
+        onBlur={(e) => { const v = e.target.value; if (isTime(v) && v !== task.plannedEnd && v > task.plannedStart!) set({ plannedOn: task.plannedOn, plannedStart: task.plannedStart, plannedEnd: v }, `Ends at ${v}`); }} /></span>
+      <button type="button" onClick={() => set({ plannedOn: null, plannedStart: null, plannedEnd: null }, 'Time no longer set aside')}
+        className="h-8 rounded-md px-2 text-[12.5px] text-ink-3 hover:bg-hover hover:text-danger">Clear</button>
+    </div>
+  );
+}
+

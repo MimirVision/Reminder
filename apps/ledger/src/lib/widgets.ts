@@ -60,7 +60,7 @@ export const WIDGETS: WidgetSpec[] = [
   { type: 'activity', name: 'Recent activity', description: 'What changed lately across all clients.', w: 4, h: 5, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'notes', name: 'Notepad', description: 'A scratchpad for the day. Saved as you type.', w: 4, h: 4, minW: 3, minH: 2, maxH: 10, single: true },
   { type: 'deadlines', name: 'Deadline radar', description: 'The next deadline for each kind of work: VAT, payroll, annual accounts…', w: 4, h: 4, minW: 3, minH: 3, maxH: 8, single: true },
-  { type: 'agenda', name: 'Agenda', description: 'Today’s meetings by the hour, and the next ones coming up.', w: 4, h: 6, minW: 3, minH: 3, maxH: 12, single: true },
+  { type: 'agenda', name: 'Agenda', description: 'Today’s meetings and the time you set aside for tasks, by the hour, and the next meetings coming up.', w: 4, h: 6, minW: 3, minH: 3, maxH: 12, single: true },
   { type: 'documents', name: 'Documents to collect', description: 'Everything you’ve requested from clients that hasn’t arrived yet, oldest first.', w: 4, h: 4, minW: 3, minH: 3, maxH: 10, single: true },
   { type: 'workload', name: 'Workload ahead', description: 'A chart of open tasks per week for the coming weeks, by type: see the busy weeks coming.', w: 8, h: 5, minW: 4, minH: 4, maxH: 9, single: true },
   { type: 'heatmap', name: 'Deadline calendar', description: 'Every day of the coming months, darker the more is due. Overdue days are marked.', w: 8, h: 4, minW: 4, minH: 3, maxH: 7, single: true },

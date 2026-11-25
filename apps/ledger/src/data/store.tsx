@@ -7,6 +7,7 @@ import { setWorkspaceTimeZone, todayIn, type ISODate } from '../lib/dates';
 import { setLocale } from '../lib/format';
 import { calendarOf, type HolidayCalendar } from '../lib/holidays';
 import type { Client, Occurrence, Schedule, Snapshot, WorkspaceSettings } from '../lib/types';
+import { isOpen } from '../lib/types';
 import { isNotInstalled } from './config';
 import { friendlyError, type Repo } from './repo';
 import { useToast } from '../ui/toast';
@@ -159,6 +160,11 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
       // Undo puts back exactly what this change replaced, including when it was completed.
       const undoPatch = before ? { ...pick(before, patch), ...(patch.status && before.status === 'done' ? { completedAt: before.completedAt } : {}) } : null;
       if (success) toast.show(success, undoPatch ? { undo: () => { void patchOccurrenceRef.current(id, undoPatch); } } : {});
+      // Finishing a step makes the next ones ready: say which.
+      if (before && isOpen(before.status) && patch.status && !isOpen(patch.status)) {
+        const next = snapRef.current.occurrences.filter((o) => o.afterId === id && isOpen(o.status));
+        if (next.length) toast.show(next.length === 1 ? `Next step is ready: ${next[0].title}` : `${next.length} next steps are ready: ${next.map((o) => o.title).join(', ')}`);
+      }
       softRefresh();
       return true;
     } catch (e) {

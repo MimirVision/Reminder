@@ -98,7 +98,12 @@ function ImportDialog({ initial }: { initial: File | null }) {
                 made.set(c.key, (await r.createClient({ name: c.name.slice(0, 200), reference: c.reference || null, notes: '' })).id);
               }
               const templates = repo.current ? snap.workspace.settings.checklistTemplates : undefined;
-              const list: NewOccurrence[] = plan.creates.map((p) => ({
+              // Ids are given here so a step can point at the one before it in the same batch; steps go in
+              // deadline order, so the one a task waits for is always written first.
+              const ids = plan.creates.map(() => crypto.randomUUID());
+              const order = plan.creates.map((_, i) => i).sort((a, b) => plan.creates[a].dueDate.localeCompare(plan.creates[b].dueDate) || a - b);
+              const list: NewOccurrence[] = order.map((i) => plan.creates[i]).map((p) => ({
+                id: ids[plan.creates.indexOf(p)], ...(p.after >= 0 && repo.flow ? { afterId: ids[p.after] } : {}),
                 clientId: p.clientId ?? made.get(p.clientKey)!, scheduleId: null, title: p.title, description: p.description, taskType: p.taskType,
                 periodKey: null, periodStart: p.period?.start ?? null, periodEnd: p.period?.end ?? null, dueDate: p.dueDate, scheduledDueDate: null,
                 status: p.status, priority: p.priority, tags: p.tags, ...(templates?.[p.taskType]?.length ? { checklist: fromLines(templates[p.taskType]) } : {}),
@@ -163,7 +168,8 @@ function Review({ sheet, busy, onBack, onCancel, onImport }: {
   const read = useMemo(() => readRows(sheet.rows, headerRow, mapping, snap.clients), [sheet, headerRow, mapping, snap.clients]);
   const [actions, setActions] = useState<Record<string, ClientAction>>(() => defaultActions(read.clients));
   const allActions = useMemo(() => ({ ...defaultActions(read.clients), ...actions }), [read.clients, actions]);
-  const [opts, setOpts] = useState<Options>({ skipBefore: null, skipClosed: true, assignmentTag: mapping.type !== null });
+  const { repo } = useStore();
+  const [opts, setOpts] = useState<Options>({ skipBefore: null, skipClosed: true, assignmentTag: mapping.type !== null, linkSteps: true });
   const plan = useMemo(() => buildPlan(read, allActions, snap.occurrences, opts), [read, allActions, snap.occurrences, opts]);
   const before = useMemo(() => buildPlan(read, allActions, snap.occurrences, { ...opts, skipBefore: today }).before, [read, allActions, snap.occurrences, opts, today]);
   const closedInFile = read.rows.filter((r) => r.status === 'done' || r.status === 'cancelled').length;
@@ -269,6 +275,9 @@ function Review({ sheet, busy, onBack, onCancel, onImport }: {
             label={`Leave out tasks due before today${before ? ` (${before})` : ''}`} description="Otherwise they come in as overdue." />
           {closedInFile > 0 && <Checkbox checked={opts.skipClosed} onChange={(v) => setOpts((o) => ({ ...o, skipClosed: v }))}
             label={`Leave out tasks that are done or cancelled in the file (${closedInFile})`} description="Tasks already in Ledger are still closed when the file says they are done." />}
+          {repo.flow && mapping.period !== null && <Checkbox checked={!!opts.linkSteps} onChange={(v) => setOpts((o) => ({ ...o, linkSteps: v }))}
+            label={`Link the steps that belong together${opts.linkSteps && plan.links ? ` (${plan.links})` : ''}`}
+            description="Tasks for the same client, period and assignment become a chain in deadline order, e.g. lønnsgrunnlag → lønnskjøring → A-melding. Each step shows what it waits for, and you hear when the next one is ready." />}
           {mapping.type !== null && <Checkbox checked={opts.assignmentTag} onChange={(v) => setOpts((o) => ({ ...o, assignmentTag: v }))}
             label={`Tag each task with its ${cellText(header[mapping.type]).toLowerCase() || 'assignment'}`} description={`e.g. ${[...new Set(read.rows.map((r) => r.tags.find((t) => t.startsWith('oppdrag:'))?.slice(8)).filter(Boolean))].slice(0, 3).join(', ')}, so you can filter by it.`} />}
         </section>

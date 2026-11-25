@@ -209,7 +209,7 @@ export function Settings({ email }: { email?: string | null }) {
       </Section>
 
       <Section title="Application and data status">
-        {repo.mode === 'supabase' && !repo.notify && <DatabaseUpdate />}
+        {repo.mode === 'supabase' && !repo.flow && <DatabaseUpdate />}
         <dl className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 text-[13px]">
           <dt className="text-ink-3">Storage</dt>
           <dd className="flex items-center gap-1.5">
@@ -266,7 +266,8 @@ export function DatabaseUpdate() {
     <div className="rounded-lg border border-warn/30 bg-warn-soft p-4 text-[12.5px] text-warn">
       <p className="font-semibold">Database update available</p>
       <p className="mt-1 text-ink-2">
-        Run <code className="num rounded bg-surface px-1">apps/ledger/supabase/ledger.sql</code> again in Supabase → SQL Editor to turn on {repo.meetings ? 'notifications on your phone and PC with Ledger closed, and choosing them per task and meeting'
+        Run <code className="num rounded bg-surface px-1">apps/ledger/supabase/ledger.sql</code> again in Supabase → SQL Editor to turn on {repo.notify ? 'steps that follow each other (chains) and setting time aside for tasks in the calendar'
+          : repo.meetings ? 'notifications with Ledger closed, chains of steps and time set aside for tasks'
           : repo.current ? 'meetings in the calendar and phone/PC notifications' : <>meetings, notifications, checklists,
         “waiting since”, client contacts and documents, and holiday-aware due dates</>}. It only adds to Ledger’s own tables; Home Memory and Post
         are not touched, and nothing you have is changed.
