@@ -364,7 +364,7 @@ test('nothing is lost or broken by Escape, odd links or a phone screen', async (
   await page.keyboard.press('Escape');
 
   // A broken link falls back instead of blanking the page.
-  await page.goto('/calendar?date=foo&view=year');
+  await page.goto('/calendar?date=foo&view=decade');
   await expect(page.getByRole('heading', { level: 1, name: 'Calendar' })).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Month', checked: true })).toBeVisible();
 
