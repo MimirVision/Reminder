@@ -62,3 +62,24 @@ test('dragging a task into the hours sets time aside; the panel can clear it', a
   await expect(page.getByText('Time no longer set aside')).toBeVisible();
   await expect(block).toHaveCount(0);
 });
+
+test('the calendar has year, month, agenda and client views, and folds the same task for many clients into one', async ({ page }) => {
+  await page.goto('/calendar?view=month');
+  // Month: week numbers, and type-coloured chips with the client.
+  await expect(page.getByRole('button', { name: /^Open week \d+$/ }).or(page.getByTitle(/^Open week \d+$/)).first()).toBeVisible();
+  await page.getByRole('radio', { name: 'Year' }).click();
+  await expect(page.getByRole('region', { name: 'January' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'December' })).toBeVisible();
+  await page.getByRole('region', { name: 'December' }).getByRole('button', { name: 'December', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Month', checked: true })).toBeVisible();
+  await page.getByRole('radio', { name: 'Agenda' }).click();
+  await expect(page.locator('section[aria-label]').first()).toBeVisible();
+  await page.getByRole('radio', { name: 'Clients' }).click();
+  await expect(page.getByRole('table', { name: 'Tasks per client and day' })).toBeVisible();
+  await expect(page.getByRole('rowheader').first()).toBeVisible();
+  await page.getByRole('radio', { name: 'Week' }).click();
+  await page.getByRole('button', { name: 'Mon–Fri' }).click();
+  await expect(page.getByRole('group', { name: /meeting/ })).toHaveCount(5);
+  await page.getByRole('button', { name: 'Mon–Fri' }).click();
+  await expect(page.getByRole('group', { name: /meeting/ })).toHaveCount(7);
+});

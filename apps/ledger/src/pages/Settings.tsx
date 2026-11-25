@@ -136,7 +136,12 @@ export function Settings({ email }: { email?: string | null }) {
 
       <Section title="Defaults">
         <Field label="Calendar opens in">
-          {() => <div><Segmented label="Default calendar view" value={s.defaultCalendarView ?? 'month'} onChange={(v) => void saveSettings({ defaultCalendarView: v })} options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }, { value: 'day', label: 'Day' }]} /></div>}
+          {(p) => (
+            <Select {...p} className="w-48" value={s.defaultCalendarView ?? 'month'} onChange={(e) => void saveSettings({ defaultCalendarView: e.target.value as NonNullable<WorkspaceSettings['defaultCalendarView']> })}>
+              <option value="year">Year</option><option value="month">Month</option><option value="week">Week</option>
+              <option value="day">Day</option><option value="agenda">Agenda (a list)</option><option value="clients">Clients (rows per client)</option>
+            </Select>
+          )}
         </Field>
         <Field label="New schedules create tasks" hint="Each schedule can override this.">
           {(p) => (

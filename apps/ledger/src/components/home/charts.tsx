@@ -7,15 +7,13 @@ import { useStore } from '../../data/store';
 import { addDays, isoWeek, parts, startOfWeek, type ISODate } from '../../lib/dates';
 import { formatDate, formatDayLong } from '../../lib/format';
 import {
-  GROUPS, GROUP_LABEL, clientLoad, dueByDay, monthPace, niceMax, onTimeRate, typeMix, weeklyLoad, type TypeGroup,
+  GROUPS, GROUP_COLOR, GROUP_LABEL, clientLoad, dueByDay, monthPace, niceMax, onTimeRate, typeMix, weeklyLoad, type TypeGroup,
 } from '../../lib/insights';
 import { useRoute } from '../../router';
 import { cn } from '../../ui/cn';
 import { Frame } from './widgets';
 
-const COLOR: Record<TypeGroup, string> = {
-  bookkeeping: 'var(--viz-1)', vat: 'var(--viz-2)', payroll: 'var(--viz-3)', reporting: 'var(--viz-4)', yearEnd: 'var(--viz-5)', other: 'var(--viz-other)',
-};
+const COLOR = GROUP_COLOR;
 const GROUP_TYPES: Record<TypeGroup, string> = {
   bookkeeping: 'bookkeeping', vat: 'vat', payroll: 'payroll', reporting: 'reporting', yearEnd: 'annual,tax', other: 'follow_up,other',
 };

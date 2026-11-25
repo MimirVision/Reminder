@@ -53,7 +53,7 @@ export interface WorkspaceSettings {
   displayName?: string;
   locale?: string;
   weekStartsOn?: 1;
-  defaultCalendarView?: 'month' | 'week' | 'day';
+  defaultCalendarView?: 'year' | 'month' | 'week' | 'day' | 'agenda' | 'clients';
   defaultLeadDays?: number;
   defaultReminderDays?: number;
   theme?: 'light' | 'dark' | 'system';
