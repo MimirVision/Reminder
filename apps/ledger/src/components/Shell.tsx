@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Building2, CalendarDays, Home, ListChecks, Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, Plus, Repeat, Search, SearchCheck, Settings, X } from 'lucide-react';
+import { Building2, CalendarDays, Home, ListChecks, Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, Plus, Repeat, Search, Settings, X } from 'lucide-react';
 import { isOpen } from '../lib/types';
 import { useStore } from '../data/store';
 import { Link, useRoute } from '../router';
@@ -13,7 +13,6 @@ const NAV = [
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/clients', label: 'Clients', icon: Building2 },
   { to: '/recurring', label: 'Recurring Work', icon: Repeat },
-  { to: '/missing', label: 'Missing Tasks', icon: SearchCheck },
 ] as const;
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -21,7 +20,7 @@ export const MOD = isMac ? '⌘' : 'Ctrl';
 
 function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () => void; collapsed?: boolean; onToggle?: () => void }) {
   const { path } = useRoute();
-  const { reviewCount, repo, snap, today, clientById } = useStore();
+  const { repo, snap, today, clientById } = useStore();
   const active = (to: string) => (to === '/' ? path === '/' : path === to || path.startsWith(`${to}/`));
   const overdue = snap.occurrences.filter((o) => isOpen(o.status) && o.dueDate < today).length;
   // Meetings still to come today (by end time), so the calendar shows when the day has appointments left.
@@ -70,7 +69,6 @@ function Sidebar({ onNavigate, collapsed = false, onToggle }: { onNavigate?: () 
       <div className="flex flex-col gap-0.5">
         {NAV.map((n) => item(n.to, n.label, n.icon,
           n.to === '/tasks' ? count(overdue, 'danger', `${overdue} overdue`)
-            : n.to === '/missing' ? count(reviewCount, 'warn', `${reviewCount} to review`)
             : n.to === '/calendar' ? count(meetingsLeft, 'muted', `${meetingsLeft} meeting${meetingsLeft === 1 ? '' : 's'} left today`) : undefined))}
       </div>
       {pinned.length > 0 && (

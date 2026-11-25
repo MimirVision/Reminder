@@ -6,7 +6,6 @@ import { addDays, addMonths, diffDays, isoWeek, localISODate, minutesNow, monthG
 import { sortTasks } from '../../lib/filters';
 import { formatDate, formatDayLong, formatDue, formatMonth, formatWeekdayShort, greeting } from '../../lib/format';
 import { TYPE_LABEL } from '../../lib/labels';
-import { needsReview } from '../../lib/missing';
 import { isOpen, TASK_TYPES, type Meeting, type Occurrence } from '../../lib/types';
 import { sortMeetings, toMinutes } from '../../lib/meetings';
 import { UPCOMING_CHOICES, type WidgetItem } from '../../lib/widgets';
@@ -99,13 +98,12 @@ function DayRing({ done, planned }: { done: number; planned: number }) {
 }
 
 export function GreetingWidget() {
-  const { snap, today, expected } = useStore();
+  const { snap, today } = useStore();
   const open = useOpenTasks();
   const doneToday = useDoneToday();
   const dueToday = open.filter((o) => o.dueDate === today);
   const overdue = open.filter((o) => o.dueDate < today).length;
   const upcoming = open.filter((o) => o.dueDate > today && o.dueDate <= addDays(today, 14)).length;
-  const review = needsReview(expected).length;
   const urgent = dueToday.filter((t) => t.priority === 'urgent' || t.priority === 'high').length;
   const planned = dueToday.length + doneToday.length;
   const name = snap.workspace.settings.displayName?.trim();
@@ -116,9 +114,8 @@ export function GreetingWidget() {
         <h1 className="text-[32px] leading-[1.1] font-semibold tracking-[-0.025em]">{greeting()}{name ? `, ${name}` : ''}</h1>
         <nav aria-label="Summary" className="mt-1 text-[14.5px] text-ink-2">
           <Count n={dueToday.length} label="due today" to="/tasks?view=today" tone="accent" />,{' '}
-          <Count n={overdue} label="overdue" to="/tasks?view=overdue" tone="danger" />,{' '}
-          <Count n={upcoming} label="in the next 14 days" to="/tasks?status=todo,in_progress,waiting&due=next_14" tone="neutral" /> and{' '}
-          <Count n={review} label="missing to review" to="/missing" tone="warn" />.
+          <Count n={overdue} label="overdue" to="/tasks?view=overdue" tone="danger" /> and{' '}
+          <Count n={upcoming} label="in the next 14 days" to="/tasks?status=todo,in_progress,waiting&due=next_14" tone="neutral" />.
           {urgent > 0 && <> Start with the {urgent} high-priority task{urgent === 1 ? '' : 's'} due today.</>}
         </nav>
       </div>
@@ -246,29 +243,6 @@ export function WaitingWidget() {
         </ul>
       ) : <p className="text-[13px] text-ink-3">Nothing is waiting on a client.</p>}
     </Frame>
-  );
-}
-
-export function MissingWidget() {
-  const { expected, clientById, scheduleById } = useStore();
-  const review = needsReview(expected);
-  if (!review.length) {
-    return <Frame title="Missing tasks" padded><QuietLine icon={CalendarCheck}>Every expected recurring task exists or has been reviewed.</QuietLine></Frame>;
-  }
-  return (
-    <section aria-label="Missing tasks" className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto rounded-xl border border-warn/25 bg-warn-soft px-[18px] py-4 text-warn">
-      <h2 className="text-[15px] font-semibold tracking-[-0.01em]"><span className="tnum">{review.length}</span> expected task{review.length === 1 ? '' : 's'} missing</h2>
-      <ul className="flex flex-col gap-1 text-[13px]">
-        {review.map((i) => (
-          <li key={i.id} className="truncate">
-            <Link to={`/missing?focus=${encodeURIComponent(i.id)}`} className="hover:underline">
-              {clientById.get(i.clientId)?.name}: {i.title}, {i.periodName}{scheduleById.get(i.scheduleId)?.autoGenerate ? '' : ' (check-only)'}
-            </Link>
-          </li>
-        ))}
-      </ul>
-      <Link to="/missing" className="mt-auto inline-flex items-center gap-1 pt-1 text-[13px] font-semibold text-warn hover:underline">Review missing tasks <ArrowRight className="size-3.5" /></Link>
-    </section>
   );
 }
 

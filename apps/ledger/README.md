@@ -16,7 +16,6 @@ demo data; only add real client information where your employer allows it, and k
 | Calendar | Month and week views of the same tasks. Drag an open task to another day, or use the date picker in its panel. Moving one task never changes its schedule. |
 | Clients | Searchable, sortable list with open/overdue counts and next deadline; a workspace per client (open tasks, schedules, completed work, notes, activity). Archive and reactivate without losing history. |
 | Recurring Work | Schedules (rules) that create tasks (occurrences), with a live preview of the next periods. Pause, resume, end, and edit with an explicit choice of which open tasks change. |
-| Missing Tasks | Expected vs actual, per schedule and period, with the reason each item was flagged. Create the task, mark as reviewed, or record an exception. |
 | Settings | Name, time zone, date format, defaults; appearance (theme, accent colour, density, start page, reset Home); JSON backup, CSV export, restore, data status, erase. |
 
 **Meetings.** Book a meeting (New meeting in the calendar, `M`, or Ctrl/⌘ K) with a day, start and end time, an

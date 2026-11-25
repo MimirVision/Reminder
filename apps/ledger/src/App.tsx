@@ -21,7 +21,6 @@ import { ClientDetail } from './pages/ClientDetail';
 import { Clients } from './pages/Clients';
 import { Home } from './pages/Home';
 import { LoadError, NotInstalled, SignIn } from './pages/Auth';
-import { Missing } from './pages/Missing';
 import { Recurring } from './pages/Recurring';
 import { Settings } from './pages/Settings';
 import { Tasks } from './pages/Tasks';
@@ -66,7 +65,7 @@ function Screens({ email }: { email?: string | null }) {
   else if (path === '/clients') page = <Clients />;
   else if (match('/clients/:id', path)) page = <ClientDetail key={path} id={match('/clients/:id', path)!.id} />;
   else if (path === '/recurring') page = <Recurring />;
-  else if (path === '/missing') page = <Missing />;
+  else if (path === '/missing') page = <Recurring />; // old links to the removed Missing Tasks page
   else if (path === '/settings') page = <Settings email={email} />;
   else page = (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">

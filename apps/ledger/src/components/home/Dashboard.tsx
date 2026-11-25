@@ -14,14 +14,14 @@ import { cn } from '../../ui/cn';
 import { Confirm, Dialog, Menu, MenuItem, MenuLabel, MenuSeparator } from '../../ui/overlay';
 import { EmptyState } from '../../ui/states';
 import {
-  ActivityWidget, AttentionWidget, CalendarWidget, DeadlinesWidget, GreetingWidget, MissingWidget, NotesWidget, OverdueWidget, PinnedWidget,
+  ActivityWidget, AttentionWidget, CalendarWidget, DeadlinesWidget, GreetingWidget, NotesWidget, OverdueWidget, PinnedWidget,
   ProgressWidget, QuickAddWidget, StatsWidget, TodayWidget, UpcomingWidget, WaitingWidget, WeekWidget, DocumentsWidget, AgendaWidget, type WidgetProps,
 } from './widgets';
 import { ClientLoadWidget, HeatmapWidget, MixWidget, OnTimeWidget, PaceWidget, WorkloadWidget } from './charts';
 
 const RENDER: Record<WidgetType, (p: WidgetProps) => React.ReactNode> = {
   greeting: GreetingWidget, quickAdd: QuickAddWidget, today: TodayWidget, overdue: OverdueWidget, upcoming: UpcomingWidget,
-  week: WeekWidget, waiting: WaitingWidget, missing: MissingWidget, stats: StatsWidget, progress: ProgressWidget,
+  week: WeekWidget, waiting: WaitingWidget, stats: StatsWidget, progress: ProgressWidget,
   attention: AttentionWidget, pinned: PinnedWidget, activity: ActivityWidget, notes: NotesWidget, deadlines: DeadlinesWidget, calendar: CalendarWidget, documents: DocumentsWidget, agenda: AgendaWidget,
   workload: WorkloadWidget, heatmap: HeatmapWidget, pace: PaceWidget, ontime: OnTimeWidget, mix: MixWidget, clients: ClientLoadWidget,
 };

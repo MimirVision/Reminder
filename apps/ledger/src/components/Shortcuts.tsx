@@ -9,7 +9,7 @@ import { useStore } from '../data/store';
 
 const GO: Record<string, { to: string; label: string }> = {
   h: { to: '/', label: 'Home' }, t: { to: '/tasks', label: 'My Tasks' }, c: { to: '/calendar', label: 'Calendar' },
-  l: { to: '/clients', label: 'Clients' }, r: { to: '/recurring', label: 'Recurring Work' }, m: { to: '/missing', label: 'Missing Tasks' },
+  l: { to: '/clients', label: 'Clients' }, r: { to: '/recurring', label: 'Recurring Work' },
   s: { to: '/settings', label: 'Settings' },
 };
 
