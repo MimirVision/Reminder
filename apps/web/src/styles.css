@@ -777,3 +777,12 @@ body.wall .toast-dock { left: 0; }
   .page.house-page:not(.narrow):not(.map-mode), .page.places-page:not(.narrow):not(.map-mode) { --content: min(3700px, calc(100vw - var(--side) - 96px)); }
   .page.settings-page.set-shell:not(.narrow):not(.map-mode) { --content: 2300px; }
 }
+
+/* Bigger text on the overview board (CSS zoom: the whole board is drawn larger; the map keeps its own scale) */
+@media (min-width: 2800px) {
+  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.28; }
+  .cmd { height: calc(100vh - 28px); }
+}
+@media (min-width: 4000px) {
+  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.45; }
+}
