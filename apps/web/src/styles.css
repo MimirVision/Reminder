@@ -681,23 +681,10 @@ kbd { font: 600 11px var(--font-body); background: color-mix(in srgb, var(--ink)
 .keylist > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .keylist dt { display: flex; gap: 4px; } .keylist dt kbd { margin: 0; font-size: 12px; } .keylist dd { margin: 0; color: var(--muted); text-align: right; }
 
-.cmd { display: none; }
+.cmd { display: none; --cz: 1; }
 @media (min-width: 1800px) {
-  main.page.todo-page.command { --content: 0px; max-width: none; width: calc(100vw - var(--side)); padding: 18px 24px 24px; gap: 0; }
-  .cmd { display: grid; gap: 16px; align-items: stretch; grid-template-columns: minmax(380px, 1fr) minmax(0, 2.2fr) minmax(380px, 1fr);
-    grid-template-areas: "head head head" "today week map" "weather cal places" "activity activity activity"; }
-  .cmd-head { grid-area: head; }
-  .cmd-today { grid-area: today; } .cmd-week { grid-area: week; } .cmd-map { grid-area: map; } .cmd-weather { grid-area: weather; }
-  .cmd-cal { grid-area: cal; } .cmd-places { grid-area: places; } .cmd-activity { grid-area: activity; }
-  .cmd-panel { min-height: 340px; max-height: 760px; }
-  .cmd-map { min-height: 460px; }
-}
-@media (min-width: 2800px) {
-  main.page.todo-page.command { padding: 14px 20px 14px; }
-  .cmd { height: calc(100vh - 28px); gap: 14px; grid-template-columns: minmax(400px, 1fr) minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(400px, 1fr); grid-template-rows: auto minmax(0, 1.25fr) minmax(0, 1fr);
-    grid-template-areas: "head head head head" "today week week map" "weather cal places activity"; }
-  .cmd-panel { min-height: 0; max-height: none; }
-  .cmd-map { min-height: 0; }
+  main.page.todo-page.command { --content: 0px; max-width: none; width: calc(100vw - var(--side)); padding: 18px 24px 40px; gap: 0; }
+  .cmd { display: block; }
 }
 
 .cmd-head { display: flex; align-items: center; gap: 12px 32px; flex-wrap: wrap; padding: 6px 8px 2px; }
@@ -778,11 +765,27 @@ body.wall .toast-dock { left: 0; }
   .page.settings-page.set-shell:not(.narrow):not(.map-mode) { --content: 2300px; }
 }
 
-/* Bigger text on the overview board (CSS zoom: the whole board is drawn larger; the map keeps its own scale) */
-@media (min-width: 2800px) {
-  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.12; }
-  .cmd { height: calc(100vh - 28px); }
-}
-@media (min-width: 4000px) {
-  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.2; }
-}
+/* Text size on the overview board: CSS zoom on the contents, so panels keep their grid size and the map keeps its scale */
+.cmd-head, .cmd-ph, .cmd-pb { zoom: var(--cz); }
+.cmd-map .cmd-pb { zoom: 1; }
+.cmd-head { margin-bottom: 14px; }
+
+/* The panel grid, and its edit mode */
+.dash { position: relative; }
+.dash-item { position: absolute; transition: left 0.18s ease, top 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.dash-item > .cmd-panel { height: 100%; }
+.dash-item.lifted { z-index: 8; transition: none; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28); border-radius: 22px; opacity: 0.96; }
+.dash-ghost { position: absolute; border-radius: 22px; border: 2px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); transition: left 0.12s, top 0.12s, width 0.12s, height 0.12s; }
+.dash.dragging, .dash.dragging * { user-select: none; cursor: grabbing; }
+.dash.editing .cmd-pb, .dash.editing .cmd-ph { pointer-events: none; opacity: 0.35; }
+.dash.editing .cmd-panel { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.dash-bar { position: absolute; left: 0; right: 0; top: 0; height: 46px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; border-radius: 22px 22px 0 0; background: color-mix(in srgb, var(--card) 92%, transparent); cursor: grab; touch-action: none; border-bottom: 1px solid var(--line); }
+.dash-bar strong { flex: 1; font-size: 14px; } .dash-grip { color: var(--muted); letter-spacing: -2px; font-weight: 700; }
+.dash-bar:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.dash-size { position: absolute; right: 0; bottom: 0; width: 34px; height: 34px; cursor: nwse-resize; touch-action: none; border-radius: 0 0 22px 0; }
+.dash-size::after { content: ''; position: absolute; right: 9px; bottom: 9px; width: 12px; height: 12px; border-right: 3px solid var(--accent); border-bottom: 3px solid var(--accent); border-radius: 0 0 4px 0; }
+.dash-toolbar { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; border-radius: 18px; background: color-mix(in srgb, var(--accent) 9%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.dash-toolbar .hint { flex: 1; min-width: 260px; font-size: 13.5px; }
+.dash-toolbar .group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; white-space: nowrap; }
+.dash-toolbar .group:has(.chipbtn) { flex-wrap: wrap; white-space: normal; }
+.dash-toolbar .group > .muted { font-size: 13px; }

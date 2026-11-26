@@ -1308,5 +1308,16 @@
   "cmd.activityEmpty": "Nothing finished yet.",
   "cmd.daysAgo": "{n} d ago",
   "cmd.wall": "Wall mode",
-  "cmd.wallExit": "Exit wall mode"
+  "cmd.wallExit": "Exit wall mode",
+  "dash.customize": "Customize",
+  "dash.hint": "Drag a panel by its title bar, resize it from the corner, or focus the bar and use the arrow keys (Shift + arrows to resize).",
+  "dash.add": "Add back:",
+  "dash.text": "Text size",
+  "dash.smaller": "Smaller text",
+  "dash.larger": "Larger text",
+  "dash.tidy": "Tidy up",
+  "dash.reset": "Reset",
+  "dash.done": "Done",
+  "dash.move": "Move {name}",
+  "dash.hide": "Hide {name}"
 }

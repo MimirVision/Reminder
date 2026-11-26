@@ -1308,5 +1308,16 @@
   "cmd.activityEmpty": "Ingenting er gjort ennå.",
   "cmd.daysAgo": "for {n} d siden",
   "cmd.wall": "Veggmodus",
-  "cmd.wallExit": "Avslutt veggmodus"
+  "cmd.wallExit": "Avslutt veggmodus",
+  "dash.customize": "Tilpass",
+  "dash.hint": "Dra et panel i tittellinjen, endre størrelse fra hjørnet, eller sett fokus på linjen og bruk piltastene (Shift + piler for størrelse).",
+  "dash.add": "Legg tilbake:",
+  "dash.text": "Tekststørrelse",
+  "dash.smaller": "Mindre tekst",
+  "dash.larger": "Større tekst",
+  "dash.tidy": "Rydd opp",
+  "dash.reset": "Nullstill",
+  "dash.done": "Ferdig",
+  "dash.move": "Flytt {name}",
+  "dash.hide": "Skjul {name}"
 }
