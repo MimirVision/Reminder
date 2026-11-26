@@ -263,7 +263,7 @@ label.btn.disabled, .btn.disabled { opacity: 0.5; pointer-events: none; }
 
 /* ---------- Reading comfort */
 :root[data-text='large'] #root { zoom: 1.12; }
-:root[data-text='xl'] #root { zoom: 1.28; }
+:root[data-text='xl'] #root { zoom: 1.12; }
 :root[data-contrast='high'] { --muted: var(--ink); --line: color-mix(in srgb, var(--ink) 45%, transparent); --control: var(--ink); --glass-a: 0.96; --glass-blur: 0px; --sheen: 0; }
 :root[data-contrast='high'] .muted, :root[data-contrast='high'] .label { color: var(--ink); }
 :root[data-contrast='high'] .glass::before, :root[data-contrast='high'] .glass::after { display: none; }
@@ -780,9 +780,9 @@ body.wall .toast-dock { left: 0; }
 
 /* Bigger text on the overview board (CSS zoom: the whole board is drawn larger; the map keeps its own scale) */
 @media (min-width: 2800px) {
-  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.28; }
+  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.12; }
   .cmd { height: calc(100vh - 28px); }
 }
 @media (min-width: 4000px) {
-  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.45; }
+  .cmd-head, .cmd-panel:not(.cmd-map), .cmd-map .cmd-ph { zoom: 1.2; }
 }
