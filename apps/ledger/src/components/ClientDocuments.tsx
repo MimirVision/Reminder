@@ -1,7 +1,7 @@
 // Documents to collect from a client: bank statements, signed letters, inventory sheets. Each is requested, then
 // received; the list shows what is still outstanding and since when.
 import { useState } from 'react';
-import { Check, FileText, Plus, X } from 'lucide-react';
+import { Check, FileText, Mail, Plus, X } from 'lucide-react';
 import { useStore } from '../data/store';
 import { diffDays, type ISODate } from '../lib/dates';
 import { formatDate } from '../lib/format';
@@ -9,6 +9,7 @@ import type { Client, ClientDocument } from '../lib/types';
 import { cn } from '../ui/cn';
 import { EmptyState } from '../ui/states';
 import { newItemId } from './Checklist';
+import { RequestDocumentsDialog } from './RequestDocuments';
 
 export const outstanding = (c: Pick<Client, 'documents'> | undefined) => (c?.documents ?? []).filter((d) => !d.received);
 
@@ -16,6 +17,7 @@ export function ClientDocuments({ client, disabled }: { client: Client; disabled
   const { run, today } = useStore();
   const [text, setText] = useState('');
   const [showReceived, setShowReceived] = useState(false);
+  const [asking, setAsking] = useState(false);
   const docs = client.documents ?? [];
   const open = docs.filter((d) => !d.received);
   const received = docs.filter((d) => d.received);
@@ -59,9 +61,11 @@ export function ClientDocuments({ client, disabled }: { client: Client; disabled
           <input value={text} maxLength={300} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
             placeholder="Request a document… e.g. “Bank statements, October”" aria-label="Request a document"
             className="h-11 min-w-0 flex-1 bg-transparent text-[13px] placeholder:text-ink-3 focus:outline-none" />
-          {text.trim() && <button onClick={add} className="h-7 rounded-md bg-accent px-2.5 text-[12px] font-medium text-on-accent hover:bg-accent-hover">Add</button>}
+          {text.trim() ? <button onClick={add} className="h-7 rounded-md bg-accent px-2.5 text-[12px] font-medium text-on-accent hover:bg-accent-hover">Add</button>
+            : open.length > 0 && <button onClick={() => setAsking(true)} className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium text-accent hover:bg-accent-soft"><Mail className="size-3.5" /> Request by email</button>}
         </div>
       )}
+      {asking && <RequestDocumentsDialog client={client} open onOpenChange={setAsking} />}
       {docs.length === 0 ? (
         <EmptyState compact icon={FileText} title="No documents requested" body="Keep track of what you’re waiting for from this client: statements, signed letters, exports." />
       ) : (

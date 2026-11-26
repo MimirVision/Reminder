@@ -22,6 +22,7 @@ export class DemoRepo implements Repo {
   readonly current = true;
   readonly meetings = true;
   readonly notify = true;
+  readonly flow = true;
   readonly push = null;
   private s: Snapshot;
   private storage: Storage | null;
@@ -215,13 +216,29 @@ export class DemoRepo implements Repo {
     if (o.tags.length > 20) throw new RepoError('Up to 20 tags.');
   }
 
+  /** The same rules as the database: a step in this workspace, not itself, no loop; a planned block all or none. */
+  private checkFlow(o: Partial<Occurrence>, id?: string) {
+    if (o.afterId) {
+      if (o.afterId === id) throw new RepoError('A task cannot come after itself.');
+      if (!this.s.occurrences.some((x) => x.id === o.afterId)) throw new RepoError('The step it comes after no longer exists.');
+      let cur: string | null | undefined = o.afterId;
+      for (let n = 0; cur && n < 200; n++) {
+        cur = this.s.occurrences.find((x) => x.id === cur)?.afterId;
+        if (id && cur === id) throw new RepoError('Those steps would wait for each other.');
+      }
+    }
+    const p = [o.plannedOn, o.plannedStart, o.plannedEnd];
+    if (p.some(Boolean) && (!p.every(Boolean) || o.plannedEnd! <= o.plannedStart!)) throw new RepoError('A planned block needs a day, a start and a later end.');
+  }
+
   private insertOccurrence(input: NewOccurrence): Occurrence {
     this.checkOccurrence(input);
+    this.checkFlow(input);
     if (input.scheduleId && this.s.occurrences.some((o) => o.scheduleId === input.scheduleId && o.periodKey === input.periodKey)) {
       throw new RepoError('A task for that period already exists.');
     }
     const row: Occurrence = {
-      ...input, id: uid(), workspaceId: this.s.workspace.id, createdAt: now(), updatedAt: now(),
+      ...input, id: input.id ?? uid(), workspaceId: this.s.workspace.id, createdAt: now(), updatedAt: now(),
       completedAt: input.status === 'done' ? input.completedAt ?? now() : null,
       checklist: input.checklist ?? [],
       waitingSince: input.status === 'waiting' ? input.waitingSince ?? now() : null,
@@ -255,6 +272,7 @@ export class DemoRepo implements Repo {
     const gone = new Set(ids);
     for (const o of this.s.occurrences) if (gone.has(o.id) && !o.scheduleId) this.log('occurrence', o.id, o.clientId, 'deleted', { title: o.title, due: o.dueDate });
     this.s.occurrences = this.s.occurrences.filter((o) => !gone.has(o.id) || o.scheduleId);
+    for (const x of this.s.occurrences) if (x.afterId && gone.has(x.afterId) && !this.s.occurrences.some((y) => y.id === x.afterId)) x.afterId = null;
     this.save();
   }
 
@@ -271,6 +289,7 @@ export class DemoRepo implements Repo {
     const o = this.find(this.s.occurrences, id);
     const next = { ...o, ...patch };
     this.checkOccurrence(next);
+    this.checkFlow(next, id);
     if (patch.status) this.setStatus(o, patch.status);
     if (patch.dueDate && patch.dueDate !== o.dueDate) {
       this.log('occurrence', id, o.clientId, 'rescheduled', { title: next.title, from: o.dueDate, to: patch.dueDate });
@@ -288,6 +307,7 @@ export class DemoRepo implements Repo {
     if (o.scheduleId) throw new RepoError('Tasks from a schedule can’t be deleted. Mark it cancelled instead, so the period stays accounted for.');
     this.s.occurrences = this.s.occurrences.filter((x) => x.id !== id);
     this.log('occurrence', id, o.clientId, 'deleted', { title: o.title, due: o.dueDate });
+    for (const x of this.s.occurrences) if (x.afterId === id) x.afterId = null;
     this.save();
   }
 

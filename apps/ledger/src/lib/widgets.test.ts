@@ -47,14 +47,14 @@ describe('home layout', () => {
   it('gives a layout saved before widgets had places a place in reading order, without holes', () => {
     // Half, third, half: the old flow left a hole after the third; packing fills it.
     const out = normalizeLayout([
-      { id: 'a', type: 'today', w: 6, h: 4 }, { id: 'b', type: 'week', w: 4, h: 4 }, { id: 'c', type: 'overdue', w: 6, h: 4 }, { id: 'd', type: 'missing', w: 2, h: 4 },
+      { id: 'a', type: 'today', w: 6, h: 4 }, { id: 'b', type: 'week', w: 4, h: 4 }, { id: 'c', type: 'overdue', w: 6, h: 4 }, { id: 'd', type: 'notes', w: 2, h: 4 },
     ]);
     expect(out.map((x) => [x.id, x.x, x.y])).toEqual([['a', 0, 0], ['b', 6, 0], ['c', 0, 4], ['d', 6, 4]]);
     sound(out);
   });
 
   it('removing a widget lets only the ones below it move up; nothing beside it shifts', () => {
-    const after = removeWidget(DEFAULT_LAYOUT, 'missing');
+    const after = removeWidget(DEFAULT_LAYOUT, 'deadlines');
     for (const it of after) if (it.id !== 'workload') expect(at(after, it.id)).toEqual(at(DEFAULT_LAYOUT, it.id));
     sound(after);
     const noAgenda = removeWidget(DEFAULT_LAYOUT, 'agenda');
@@ -85,7 +85,7 @@ describe('home layout', () => {
   });
 
   it('steps with the keyboard: sideways by a column, up and down past the neighbour', () => {
-    expect(at(nudge(DEFAULT_LAYOUT, 'missing', -1, 0), 'missing')).toEqual([3, 16, 4, 4]);
+    expect(at(nudge(DEFAULT_LAYOUT, 'deadlines', -1, 0), 'deadlines')).toEqual([3, 16, 4, 4]);
     const up = nudge(DEFAULT_LAYOUT, 'week', 0, -1);
     expect(at(up, 'week')[1]).toBeLessThan(16);
     sound(up);

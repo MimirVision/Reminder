@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Dialog as D } from 'radix-ui';
-import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, SearchCheck, Settings, Upload, Users } from 'lucide-react';
+import { Building2, CalendarDays, CornerDownLeft, Home, ListChecks, Plus, Repeat, Search, Settings, Upload, Users } from 'lucide-react';
 import { useStore } from '../data/store';
 import { formatDue } from '../lib/format';
 import { parseQuickAdd } from '../lib/quickadd';
@@ -52,7 +52,6 @@ export function CommandPalette() {
       { id: 'calendar', label: 'Calendar', icon: CalendarDays, group: 'Go to', run: go('/calendar') },
       { id: 'clients', label: 'Clients', icon: Building2, group: 'Go to', run: go('/clients') },
       { id: 'recurring', label: 'Recurring Work', icon: Repeat, group: 'Go to', run: go('/recurring') },
-      { id: 'missing', label: 'Missing Tasks', icon: SearchCheck, group: 'Go to', run: go('/missing') },
       { id: 'settings', label: 'Settings', icon: Settings, group: 'Go to', run: go('/settings') },
     ];
     const s = q.trim().toLowerCase();

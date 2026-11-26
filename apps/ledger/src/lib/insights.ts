@@ -9,6 +9,11 @@ export const GROUPS: TypeGroup[] = ['bookkeeping', 'vat', 'payroll', 'reporting'
 export const GROUP_LABEL: Record<TypeGroup, string> = {
   bookkeeping: 'Bookkeeping', vat: 'VAT', payroll: 'Payroll', reporting: 'Reporting', yearEnd: 'Year-end & tax', other: 'Other',
 };
+/** Each group's chart colour (index.css): the same in every chart and in the calendar. */
+export const GROUP_COLOR: Record<TypeGroup, string> = {
+  bookkeeping: 'var(--viz-1)', vat: 'var(--viz-2)', payroll: 'var(--viz-3)', reporting: 'var(--viz-4)', yearEnd: 'var(--viz-5)', other: 'var(--viz-other)',
+};
+export const typeColor = (t: TaskType) => GROUP_COLOR[groupOf(t)];
 export const groupOf = (t: TaskType): TypeGroup =>
   t === 'annual' || t === 'tax' ? 'yearEnd' : t === 'follow_up' || t === 'other' ? 'other' : t;
 

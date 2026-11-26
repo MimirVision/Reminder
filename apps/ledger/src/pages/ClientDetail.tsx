@@ -10,7 +10,6 @@ import { useStore } from '../data/store';
 import { formatDayShort, formatDue } from '../lib/format';
 import { sortMeetings } from '../lib/meetings';
 import { sortTasks } from '../lib/filters';
-import { needsReview } from '../lib/missing';
 import { isOpen } from '../lib/types';
 import { Link, useRoute } from '../router';
 import { Pill } from '../ui/badges';
@@ -25,7 +24,7 @@ import { ScheduleList } from './Recurring';
 type Tab = 'open' | 'recurring' | 'completed' | 'meetings' | 'documents' | 'notes' | 'activity';
 
 export function ClientDetail({ id }: { id: string }) {
-  const { snap, clientById, run, expected, today, repo } = useStore();
+  const { snap, clientById, run, today, repo } = useStore();
   const ui = useUI();
   const { navigate } = useRoute();
   const client = clientById.get(id);
@@ -39,7 +38,6 @@ export function ClientDetail({ id }: { id: string }) {
   const open = useMemo(() => sortTasks(tasks.filter((o) => isOpen(o.status)), 'due', clientById), [tasks, clientById]);
   const done = useMemo(() => sortTasks(tasks.filter((o) => !isOpen(o.status)), 'completed', clientById), [tasks, clientById]);
   const schedules = snap.schedules.filter((s) => s.clientId === id);
-  const missing = needsReview(expected).filter((i) => i.clientId === id);
   const clientMeetings = useMemo(() => sortMeetings(snap.meetings.filter((m) => m.clientId === id)), [snap.meetings, id]);
   const upcomingMeetings = clientMeetings.filter((m) => m.date >= today);
   const activity = snap.activity.filter((a) => a.clientId === id);
@@ -79,7 +77,6 @@ export function ClientDetail({ id }: { id: string }) {
             <span className={stats?.overdue ? 'font-medium text-danger' : ''}>{stats?.overdue ?? 0} overdue</span>
             <span aria-hidden>·</span>
             <span>Next deadline <span className={stats?.next === today ? 'font-medium text-accent-ink' : 'text-ink-2'}>{stats?.next ? formatDue(stats.next, today) : 'none'}</span></span>
-            {missing.length > 0 && <><span aria-hidden>·</span><Link to={`/missing?client=${id}`} className="font-medium text-warn hover:underline">{missing.length} missing to review</Link></>}
             {outstanding(client).length > 0 && <><span aria-hidden>·</span><button onClick={() => setTab('documents')} className="font-medium text-warn hover:underline">{outstanding(client).length} document{outstanding(client).length === 1 ? '' : 's'} outstanding</button></>}
           </p>
           {(client.contactName || client.contactEmail || client.contactPhone) && (
@@ -177,7 +174,7 @@ export function ClientDetail({ id }: { id: string }) {
 
       <ClientDialog open={editing} onOpenChange={setEditing} client={client} />
       <Confirm open={confirm === 'archive'} onOpenChange={(o) => !o && setConfirm(null)} tone="primary" title={`Archive ${client.name}?`} confirmLabel="Archive client"
-        body="All tasks and history are kept. Its schedules stop creating tasks and are no longer checked for missing work. Open tasks stay open; you can reactivate the client at any time."
+        body="All tasks and history are kept. Its schedules stop creating tasks. Open tasks stay open; you can reactivate the client at any time."
         onConfirm={() => run((r) => r.updateClient(id, { status: 'archived' }), { success: 'Client archived' })} />
       <Confirm open={confirm === 'delete'} onOpenChange={(o) => !o && setConfirm(null)} title={`Delete ${client.name}?`} confirmLabel="Delete client"
         body="This client has no tasks or schedules, so nothing else is affected. This can’t be undone."

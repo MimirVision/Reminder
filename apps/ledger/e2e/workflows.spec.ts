@@ -86,28 +86,6 @@ test('a new schedule previews its occurrences, generates once, and reloading nev
   expect(await countTasks()).toBe(first);
 });
 
-test('missing tasks explain why they were flagged and can be resolved', async ({ page }) => {
-  await page.goto('/missing');
-  const before = await page.locator('li[id^="exp-"]').count();
-  expect(before).toBeGreaterThan(0);
-  await expect(page.getByText(/before this schedule started creating tasks|automatic creation is off/).first()).toBeVisible();
-
-  const item = page.locator('li[id^="exp-"]').first();
-  await item.getByRole('button', { name: 'Create task' }).click();
-  await expect(page.getByText('1 task created')).toBeVisible();
-  await expect(page.locator('li[id^="exp-"]')).toHaveCount(before - 1);
-
-  await page.locator('li[id^="exp-"]').first().getByRole('button', { name: 'More actions' }).click();
-  await page.getByRole('menuitem', { name: /Record an exception/ }).click();
-  await page.getByLabel('Why is no task needed?').fill('Handled by previous accountant');
-  await page.getByRole('button', { name: 'Record exception' }).click();
-  await expect(page.locator('li[id^="exp-"]')).toHaveCount(before - 2);
-  await page.getByRole('tab', { name: /Reviewed/ }).click();
-  await expect(page.getByText('Exception recorded: Handled by previous accountant')).toBeVisible();
-  await page.goto('/');
-  expect(await count(page, 'Missing')).toBe(before - 2);
-});
-
 test('the calendar and the list show the same tasks, and the keyboard reaches everything', async ({ page }) => {
   await page.goto('/calendar');
   await expect(page.getByRole('heading', { level: 2 })).toBeVisible();
@@ -225,7 +203,7 @@ test('home is a dashboard you arrange: add, move, resize and remove widgets, and
 
   // Removing one leaves the widgets beside it where they are.
   const agenda = await place('agenda');
-  await page.getByRole('button', { name: 'Remove Missing tasks' }).click();
+  await page.getByRole('button', { name: 'Remove Deadline radar' }).click();
   expect(await place('agenda')).toEqual(agenda);
   await bar.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Notepad' }).fill('Call Nordvik about the bank feed');
@@ -233,7 +211,7 @@ test('home is a dashboard you arrange: add, move, resize and remove widgets, and
 
   const before = { week: await place('week'), notes: await place('notes'), today: await place('today') };
   await page.reload();
-  await expect(page.locator('[data-widget-type=missing]')).toHaveCount(0);
+  await expect(page.locator('[data-widget-type=deadlines]')).toHaveCount(0);
   expect({ week: await place('week'), notes: await place('notes'), today: await place('today') }).toEqual(before);
   await expect(page.getByRole('textbox', { name: 'Notepad' })).toHaveValue('Call Nordvik about the bank feed');
 });
@@ -386,13 +364,13 @@ test('nothing is lost or broken by Escape, odd links or a phone screen', async (
   await page.keyboard.press('Escape');
 
   // A broken link falls back instead of blanking the page.
-  await page.goto('/calendar?date=foo&view=year');
+  await page.goto('/calendar?date=foo&view=decade');
   await expect(page.getByRole('heading', { level: 1, name: 'Calendar' })).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Month', checked: true })).toBeVisible();
 
   // On a phone the lists keep their titles and the pages don't scroll sideways.
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ['/tasks', '/recurring', '/missing', '/clients/client-1', '/calendar?view=week']) {
+  for (const path of ['/tasks', '/recurring', '/clients/client-1', '/calendar?view=week']) {
     await page.goto(path);
     await page.waitForTimeout(150);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), path).toBe(true);

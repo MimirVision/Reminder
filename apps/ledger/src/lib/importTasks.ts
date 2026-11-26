@@ -6,6 +6,7 @@
 // "Oppdrag", ...). Running the same file again does not double anything: a row that is already in Ledger (same client,
 // task and period) is left alone, or gets its new due date if the file moved it.
 import { endOfMonth, fromParts, isISODate, type ISODate } from './dates';
+import { linkByDeadline } from './chains';
 import { isSheetDate, serialToDate, type Cell } from './sheet';
 import { isOpen, type Client, type Occurrence, type Priority, type TaskStatus, type TaskType } from './types';
 
@@ -210,7 +211,13 @@ export interface ImportRow {
   row: number; clientKey: string; title: string; description: string; dueDate: ISODate; period: Period | null;
   status: TaskStatus; taskType: TaskType; priority: Priority; tags: string[];
 }
-export interface Planned extends ImportRow { clientId: string | null }
+export interface Planned extends ImportRow {
+  clientId: string | null;
+  /** The index (in `creates`) of the step this one comes after, or -1. */
+  after: number;
+  /** Which steps belong together: client, period and assignment. */
+  group: string | null;
+}
 export interface Update { row: number; task: Occurrence; patch: { dueDate?: ISODate; status?: TaskStatus; description?: string } }
 
 export interface Plan {
@@ -221,6 +228,8 @@ export interface Plan {
   /** Rows not imported, with the reason. */
   skipped: { row: number; reason: string }[];
   before: number;
+  /** How many of the new tasks come after another one. */
+  links: number;
   unknownStatuses: string[];
   clients: FileClient[];
 }
@@ -232,6 +241,8 @@ export interface Options {
   skipClosed: boolean;
   /** Add the assignment (Oppdrag) as a tag. */
   assignmentTag: boolean;
+  /** Link steps that belong together (same client, period and assignment) in deadline order. */
+  linkSteps?: boolean;
 }
 
 const sameTitle = (a: string, b: string) => norm(a) === norm(b);
@@ -310,7 +321,13 @@ export function buildPlan(read: ReturnType<typeof readRows>, actions: Record<str
     }
     if (o.skipClosed && closed) { skipped.push({ row: r.row, reason: 'Done or cancelled in the file' }); continue; }
     if (o.skipBefore && r.dueDate < o.skipBefore) { before++; continue; }
-    creates.push({ ...item, clientId });
+    // Steps of one piece of work: same client and period, and the same assignment when the file has one. Without a
+    // period there is nothing to say which tasks belong together, so they are not linked.
+    const assignment = r.tags.find((t) => t.startsWith('oppdrag:'))?.slice(8) ?? '';
+    const group = r.period ? `${r.clientKey}|${r.period.start}|${assignment}` : null;
+    creates.push({ ...item, clientId, after: -1, group: closed ? null : group });
   }
-  return { rows: read.rows.length + read.skipped.length, creates, updates, unchanged, skipped: skipped.sort((a, b) => a.row - b.row), before, unknownStatuses: read.unknownStatuses, clients: read.clients };
+  if (o.linkSteps) linkByDeadline(creates).forEach((a, i) => { creates[i].after = a; });
+  const links = creates.filter((c) => c.after >= 0).length;
+  return { rows: read.rows.length + read.skipped.length, creates, updates, unchanged, skipped: skipped.sort((a, b) => a.row - b.row), before, links, unknownStatuses: read.unknownStatuses, clients: read.clients };
 }

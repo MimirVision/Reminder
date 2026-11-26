@@ -91,7 +91,11 @@ export function addDaysISO(date: string, n: number): string {
 
 // ---- what is due ----
 
-export interface RemTask { id: string; clientId: string; scheduleId: string | null; title: string; dueDate: string; status: string; notifyDays?: number[] | null }
+export interface RemTask {
+  id: string; clientId: string; scheduleId: string | null; title: string; dueDate: string; status: string; notifyDays?: number[] | null;
+  /** Time set aside for it: a reminder when that starts. */
+  plannedOn?: string | null; plannedStart?: string | null; plannedEnd?: string | null;
+}
 export interface RemMeeting { id: string; clientId: string | null; title: string; date: string; start: string; end: string; location?: string; notifyMinutes?: number[] | null }
 export interface RemSchedule { id: string; notifyDays?: number[] | null }
 
@@ -99,7 +103,7 @@ export interface Reminder {
   /** Unique per item, lead and due date/time: moving a task re-arms its reminders, and nothing is announced twice. */
   key: string;
   at: number;
-  kind: 'task' | 'meeting';
+  kind: 'task' | 'meeting' | 'block';
   id: string;
   /** Days (tasks) or minutes (meetings) before. */
   lead: number;
@@ -133,6 +137,15 @@ export function remindersBetween(data: {
     for (const lead of taskDays(t, schedules, s)) {
       const at = zonedInstant(addDaysISO(t.dueDate, -lead), s.taskTime, tz);
       if (at > from && at <= to) out.push({ key: `t:${t.id}:${t.dueDate}:${lead}`, at, kind: 'task', id: t.id, lead, title: t.title, client: data.clientName(t.clientId) ?? null, date: t.dueDate });
+    }
+  }
+  // Time set aside for a task: a reminder as it starts.
+  for (const t of data.tasks) {
+    if (!OPEN.has(t.status) || !t.plannedOn || !t.plannedStart || !t.plannedEnd) continue;
+    const at = zonedInstant(t.plannedOn, t.plannedStart, tz);
+    if (at > from && at <= to) {
+      out.push({ key: `p:${t.id}:${t.plannedOn}T${t.plannedStart}`, at, kind: 'block', id: t.id, lead: 0, title: t.title,
+        client: data.clientName(t.clientId) ?? null, date: t.plannedOn, start: t.plannedStart, end: t.plannedEnd });
     }
   }
   for (const m of data.meetings) {
@@ -188,7 +201,13 @@ export function messagesFor(reminders: Reminder[], details: boolean): PushMessag
   const taskGroups = new Map<number, Reminder[]>();
   for (const r of reminders) {
     if (r.kind === 'task') taskGroups.set(r.at, [...(taskGroups.get(r.at) ?? []), r]);
-    else {
+    else if (r.kind === 'block') {
+      out.push({
+        title: details ? `Time for: ${clip(r.title, 80)}` : 'Time set aside for a task',
+        body: details ? [`${r.start}–${r.end}`, r.client && clip(r.client, 80)].filter(Boolean).join(' · ') : `${r.start}–${r.end}`,
+        tag: `ledger-block-${r.id}`, url: `/calendar?view=day&date=${r.date}&task=${r.id}`, keys: [r.key],
+      });
+    } else {
       const when = meetingWhen(r.lead, r.start!, r.date);
       const time = `${r.start}–${r.end}`;
       out.push({

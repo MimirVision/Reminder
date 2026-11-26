@@ -26,7 +26,8 @@ const toOccurrence = (r: Row): Occurrence => ({
   id: r.id, workspaceId: r.workspace_id, clientId: r.client_id, scheduleId: r.schedule_id, title: r.title, description: r.description,
   taskType: r.task_type, periodKey: r.period_key, periodStart: r.period_start, periodEnd: r.period_end, dueDate: r.due_date,
   scheduledDueDate: r.scheduled_due_date, status: r.status, priority: r.priority, tags: r.tags ?? [], completedAt: r.completed_at,
-  checklist: r.checklist ?? [], waitingSince: r.waiting_since ?? null, notifyDays: r.notify_days ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
+  checklist: r.checklist ?? [], waitingSince: r.waiting_since ?? null, notifyDays: r.notify_days ?? null, afterId: r.after_id ?? null,
+  plannedOn: r.planned_on ?? null, plannedStart: r.planned_start ? hhmm(r.planned_start) : null, plannedEnd: r.planned_end ? hhmm(r.planned_end) : null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const hhmm = (t: string) => String(t ?? '').slice(0, 5);
 const toMeeting = (r: Row): Meeting => ({
@@ -51,6 +52,7 @@ const occurrenceRow = (o: Partial<Occurrence>): Row => strip({
   period_key: o.periodKey, period_start: o.periodStart, period_end: o.periodEnd, due_date: o.dueDate,
   scheduled_due_date: o.scheduledDueDate, status: o.status, priority: o.priority, tags: o.tags, completed_at: o.completedAt,
   checklist: o.checklist, waiting_since: o.waitingSince, notify_days: o.notifyDays,
+  after_id: o.afterId, planned_on: o.plannedOn, planned_start: o.plannedStart, planned_end: o.plannedEnd,
 });
 const clientRow = (c: Partial<Client>): Row => strip({
   name: c.name, reference: c.reference === '' ? null : c.reference, status: c.status, notes: c.notes,
@@ -61,6 +63,8 @@ const clientRow = (c: Partial<Client>): Row => strip({
 const V3_COLUMNS = ['checklist', 'waiting_since', 'contact_name', 'contact_email', 'contact_phone', 'documents'];
 /** Columns added by 0005_ledger_notifications.sql. */
 const V5_COLUMNS = ['notify_days', 'notify_minutes'];
+/** Columns added by 0006_ledger_flow.sql. */
+const V6_COLUMNS = ['after_id', 'planned_on', 'planned_start', 'planned_end'];
 
 function strip(r: Row): Row {
   return Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined));
@@ -76,6 +80,7 @@ export class SupabaseRepo implements Repo {
   current = false;
   meetings = false;
   notify = false;
+  flow = false;
   readonly push: PushApi;
   private ws: Workspace | null = null;
   constructor(private sb: SupabaseClient) {
@@ -84,7 +89,7 @@ export class SupabaseRepo implements Repo {
 
   /** A row to write, without the newer columns while the database doesn't have them yet. */
   private w(r: Row): Row {
-    const drop = [...(this.current ? [] : V3_COLUMNS), ...(this.notify ? [] : V5_COLUMNS)];
+    const drop = [...(this.current ? [] : V3_COLUMNS), ...(this.notify ? [] : V5_COLUMNS), ...(this.flow ? [] : V6_COLUMNS)];
     return Object.fromEntries(Object.entries(r).filter(([k]) => !drop.includes(k)));
   }
 
@@ -111,6 +116,7 @@ export class SupabaseRepo implements Repo {
     this.current = !v.error && Number(v.data) >= 3;
     this.meetings = !v.error && Number(v.data) >= 4;
     this.notify = !v.error && Number(v.data) >= 5;
+    this.flow = !v.error && Number(v.data) >= 6;
     const [clients, schedules, pauses, occurrences, reviews, meetings, activity, runs] = await Promise.all([
       this.all('ledger_clients'), this.all('ledger_schedules'), this.all('ledger_schedule_pauses'), this.all('ledger_occurrences', 'due_date'),
       this.all('ledger_reviews'),
@@ -171,7 +177,7 @@ export class SupabaseRepo implements Repo {
     const ids: string[] = [];
     try {
       for (let i = 0; i < list.length; i += 200) {
-        const rows = check(await this.sb.from('ledger_occurrences').insert(list.slice(i, i + 200).map((o) => this.w({ ...occurrenceRow(o), workspace_id: ws }))).select('id')) as Row[];
+        const rows = check(await this.sb.from('ledger_occurrences').insert(list.slice(i, i + 200).map((o) => this.w({ ...(o.id ? { id: o.id } : {}), ...occurrenceRow(o), workspace_id: ws }))).select('id')) as Row[];
         ids.push(...rows.map((r) => r.id as string));
       }
     } catch (e) {

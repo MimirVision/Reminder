@@ -5,10 +5,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { setWorkspaceTimeZone, todayIn, type ISODate } from '../lib/dates';
 import { setLocale } from '../lib/format';
-import { liveSchedules } from '../lib/generation';
 import { calendarOf, type HolidayCalendar } from '../lib/holidays';
-import { detectExpected, needsReview, type ExpectedItem } from '../lib/missing';
 import type { Client, Occurrence, Schedule, Snapshot, WorkspaceSettings } from '../lib/types';
+import { isOpen } from '../lib/types';
 import { isNotInstalled } from './config';
 import { friendlyError, type Repo } from './repo';
 import { useToast } from '../ui/toast';
@@ -22,8 +21,6 @@ interface Store {
   today: ISODate;
   clientById: Map<string, Client>;
   scheduleById: Map<string, Schedule>;
-  expected: ExpectedItem[];
-  reviewCount: number;
   /** The holiday calendar due dates use: the workspace's choice, or none while the database is on an older ledger.sql. */
   calendar: HolidayCalendar;
   lastGeneration: { at: string; created: number; error: string | null } | null;
@@ -163,6 +160,11 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
       // Undo puts back exactly what this change replaced, including when it was completed.
       const undoPatch = before ? { ...pick(before, patch), ...(patch.status && before.status === 'done' ? { completedAt: before.completedAt } : {}) } : null;
       if (success) toast.show(success, undoPatch ? { undo: () => { void patchOccurrenceRef.current(id, undoPatch); } } : {});
+      // Finishing a step makes the next ones ready: say which.
+      if (before && isOpen(before.status) && patch.status && !isOpen(patch.status)) {
+        const next = snapRef.current.occurrences.filter((o) => o.afterId === id && isOpen(o.status));
+        if (next.length) toast.show(next.length === 1 ? `Next step is ready: ${next[0].title}` : `${next.length} next steps are ready: ${next.map((o) => o.title).join(', ')}`);
+      }
       softRefresh();
       return true;
     } catch (e) {
@@ -179,11 +181,6 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
   const clientById = useMemo(() => new Map(snap.clients.map((c) => [c.id, c])), [snap.clients]);
   const scheduleById = useMemo(() => new Map(snap.schedules.map((s) => [s.id, s])), [snap.schedules]);
   const calendar: HolidayCalendar = repo.current ? calendarOf(snap.workspace.settings) : 'none';
-  const expected = useMemo(
-    () => detectExpected({ ...snap, schedules: liveSchedules(snap.schedules, snap.clients), holidays: calendar }, today),
-    [snap, today, calendar],
-  );
-  const reviewCount = useMemo(() => needsReview(expected).length, [expected]);
   const lastGeneration = useMemo(() => {
     const r = snap.runs[0];
     if (!r) return null;
@@ -205,7 +202,7 @@ export function StoreProvider({ repo, children }: { repo: Repo; children: ReactN
     return job;
   }, [repo, toast, reload]);
 
-  const value: Store = { repo, state, snap, today, clientById, scheduleById, expected, reviewCount, calendar, lastGeneration, reload: open, run, patchOccurrence, saveSettings };
+  const value: Store = { repo, state, snap, today, clientById, scheduleById, calendar, lastGeneration, reload: open, run, patchOccurrence, saveSettings };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -1,5 +1,6 @@
 // The calendar's week and day views: tasks along the top (they have a day, not a time), and below them the hours of
 // the day with meetings placed at their time. Click an empty slot to book a meeting there; drag a meeting to move it.
+// Drag a task from the top into the hours to set time aside for it (a block), and drag the block to move it.
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 import { MapPin } from 'lucide-react';
 import { useStore } from '../data/store';
@@ -7,7 +8,7 @@ import type { ISODate } from '../lib/dates';
 import { formatDayLong, formatWeekdayShort } from '../lib/format';
 import { durationMinutes, fromMinutes, layoutDay, toMinutes } from '../lib/meetings';
 import { minutesNow, parts, weekday } from '../lib/dates';
-import type { Meeting } from '../lib/types';
+import { isOpen, type Meeting, type Occurrence } from '../lib/types';
 import { cn } from '../ui/cn';
 import { useUI } from './ui-state';
 
@@ -25,9 +26,13 @@ function useNowMinutes() {
   return n;
 }
 
-export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop, taskDropTarget, setTaskDropTarget }: {
+export function TimeGrid({ days, meetings, blocks, onPlan, today, holiday, taskCell, onTaskDrop, taskDropTarget, setTaskDropTarget }: {
   days: ISODate[];
   meetings: Meeting[];
+  /** Tasks with time set aside on these days. */
+  blocks: Occurrence[];
+  /** Sets aside time for a task (from a drag into the hours, or moving its block). */
+  onPlan?: (id: string, day: ISODate, start: string, end: string) => void;
   today: ISODate;
   holiday: (d: ISODate) => string | null;
   /** The tasks of a day, for the row above the hours. */
@@ -42,13 +47,16 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
   const scroller = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<{ day: ISODate; min: number } | null>(null);
   const [dropAt, setDropAt] = useState<{ day: ISODate; min: number; len: number } | null>(null);
-  const grab = useRef<{ id: string; offset: number; len: number } | null>(null);
+  const grab = useRef<{ kind: 'meeting' | 'block'; id: string; offset: number; len: number } | null>(null);
 
   const byDay = new Map<ISODate, Meeting[]>();
   for (const m of meetings) { const l = byDay.get(m.date) ?? []; l.push(m); byDay.set(m.date, l); }
+  const blocksByDay = new Map<ISODate, Occurrence[]>();
+  for (const b of blocks) { if (!b.plannedOn) continue; const l = blocksByDay.get(b.plannedOn) ?? []; l.push(b); blocksByDay.set(b.plannedOn, l); }
 
-  // Open on the working day: 07:00, or earlier if a meeting starts earlier.
-  const firstStart = Math.min(7 * 60, ...meetings.filter((m) => days.includes(m.date)).map((m) => toMinutes(m.start)));
+  // Open on the working day: 07:00, or earlier if a meeting or a block starts earlier.
+  const firstStart = Math.min(7 * 60, ...meetings.filter((m) => days.includes(m.date)).map((m) => toMinutes(m.start)),
+    ...blocks.filter((b) => b.plannedOn && days.includes(b.plannedOn)).map((b) => toMinutes(b.plannedStart!)));
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = Math.max(0, (firstStart / 60) * HOUR_PX - 8);
   }, [days[0], days.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -64,20 +72,37 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
     ui.openMeeting({ mode: 'new', date: day, start: fromMinutes(start), end: fromMinutes(Math.min(start + 60, 23 * 60 + 59)) });
   };
 
+  // A task dragged in from the row above has no grab: it gets an hour, starting where it is dropped.
+  const isTask = (e: DragEvent) => e.dataTransfer.types.includes('text/ledger-task') && !!onPlan;
   const onDragOver = (e: DragEvent<HTMLDivElement>, day: ISODate) => {
-    if (!e.dataTransfer.types.includes('text/ledger-meeting') || !grab.current) return;
+    const g = grab.current ?? (isTask(e) ? { kind: 'block' as const, id: '', offset: 0, len: 60 } : null);
+    if (!g || !(e.dataTransfer.types.includes('text/ledger-meeting') || e.dataTransfer.types.includes('text/ledger-block') || isTask(e))) return;
     e.preventDefault();
-    const min = Math.max(0, Math.min(24 * 60 - grab.current.len, snap(minuteAt(e, e.currentTarget) - grab.current.offset)));
-    setDropAt({ day, min, len: grab.current.len });
+    const min = Math.max(0, Math.min(24 * 60 - g.len, snap(minuteAt(e, e.currentTarget) - g.offset)));
+    setDropAt({ day, min, len: g.len });
   };
   const onDrop = (e: DragEvent<HTMLDivElement>, day: ISODate) => {
     e.preventDefault();
     const g = grab.current, at = dropAt;
     grab.current = null;
     setDropAt(null);
-    if (!g || !at) return;
+    if (!at) return;
+    const len = g?.len ?? 60;
+    const start = fromMinutes(at.min), end = fromMinutes(Math.min(at.min + len, 23 * 60 + 59));
+    if (!g) {
+      const id = e.dataTransfer.getData('text/ledger-task');
+      const t = blocks.find((b) => b.id === id);
+      // A task that already has a block keeps its length.
+      const keep = t?.plannedStart && t.plannedEnd ? toMinutes(t.plannedEnd) - toMinutes(t.plannedStart) : 60;
+      if (id) onPlan?.(id, day, start, fromMinutes(Math.min(at.min + keep, 23 * 60 + 59)));
+      return;
+    }
+    if (g.kind === 'block') {
+      const b = blocks.find((x) => x.id === g.id);
+      if (b && !(b.plannedOn === day && b.plannedStart === start)) onPlan?.(g.id, day, start, end);
+      return;
+    }
     const m = meetings.find((x) => x.id === g.id);
-    const start = fromMinutes(at.min), end = fromMinutes(Math.min(at.min + g.len, 23 * 60 + 59));
     if (!m || (m.date === day && m.start === start)) return;
     void run((r) => r.updateMeeting(g.id, { date: day, start, end }), { success: `Moved to ${formatDayLong(day)} at ${start}` });
   };
@@ -124,7 +149,9 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
           </div>
           {days.map((d) => {
             const list = byDay.get(d) ?? [];
-            const lanes = layoutDay(list);
+            const dayBlocks = blocksByDay.get(d) ?? [];
+            // Meetings and blocks share the day: overlapping ones sit side by side.
+            const lanes = layoutDay([...list, ...dayBlocks.map((b) => ({ id: `b:${b.id}`, start: b.plannedStart!, end: b.plannedEnd! }))]);
             const weekend = weekday(d) >= 6;
             return (
               <div key={d} role="group" aria-label={`${formatDayLong(d)}: ${list.length} meeting${list.length === 1 ? '' : 's'}`}
@@ -156,7 +183,7 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
                     <button key={m.id} draggable
                       onDragStart={(e) => {
                         const rect = e.currentTarget.getBoundingClientRect();
-                        grab.current = { id: m.id, offset: snap(((e.clientY - rect.top) / HOUR_PX) * 60), len };
+                        grab.current = { kind: 'meeting', id: m.id, offset: snap(((e.clientY - rect.top) / HOUR_PX) * 60), len };
                         e.dataTransfer.setData('text/ledger-meeting', m.id);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
@@ -177,6 +204,40 @@ export function TimeGrid({ days, meetings, today, holiday, taskCell, onTaskDrop,
                       </span>
                       {len >= 45 && client && <span className="truncate text-[11px] text-ink-2">{client}</span>}
                       {len >= 75 && m.location && <span className="flex min-w-0 items-center gap-1 truncate text-[11px] text-ink-3"><MapPin className="size-3 shrink-0" />{m.location}</span>}
+                    </button>
+                  );
+                })}
+                {dayBlocks.map((b) => {
+                  const pos = lanes.get(`b:${b.id}`) ?? { lane: 0, lanes: 1 };
+                  const len = toMinutes(b.plannedEnd!) - toMinutes(b.plannedStart!);
+                  const client = clientById.get(b.clientId)?.name;
+                  const finished = !isOpen(b.status);
+                  return (
+                    <button key={`b:${b.id}`} draggable
+                      onDragStart={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        grab.current = { kind: 'block', id: b.id, offset: snap(((e.clientY - rect.top) / HOUR_PX) * 60), len };
+                        e.dataTransfer.setData('text/ledger-block', b.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => { grab.current = null; setDropAt(null); }}
+                      onClick={(e) => { e.stopPropagation(); ui.openTask(b.id); }}
+                      title={`${b.plannedStart}–${b.plannedEnd} Time for: ${b.title}${client ? ` · ${client}` : ''}`}
+                      aria-label={`Time set aside for ${b.title}, ${b.plannedStart} to ${b.plannedEnd}${client ? `, ${client}` : ''}. Open task`}
+                      // Hatched, so time for a task never looks like a meeting with someone.
+                      className={cn('absolute flex cursor-grab flex-col overflow-hidden rounded-md border border-l-[3px] border-line-strong border-l-ink-3 bg-surface px-1.5 py-0.5 text-left text-[11.5px] leading-tight shadow-soft transition-[filter] hover:brightness-[0.97] active:cursor-grabbing',
+                        'bg-[repeating-linear-gradient(135deg,var(--c-sunken)_0_5px,transparent_5px_10px)]', finished && 'opacity-55')}
+                      style={{
+                        top: (toMinutes(b.plannedStart!) / 60) * HOUR_PX + 1,
+                        height: Math.max(18, (len / 60) * HOUR_PX - 2),
+                        left: `calc(${(pos.lane / pos.lanes) * 100}% + 2px)`,
+                        width: `calc(${100 / pos.lanes}% - 4px)`,
+                      }}>
+                      <span className={cn('flex min-w-0 gap-1', len < 75 ? 'items-center' : 'flex-col')}>
+                        <span className={cn('truncate font-semibold text-ink', finished && 'line-through')}>{b.title}</span>
+                        <span className="num shrink-0 text-[11px] text-ink-3">{b.plannedStart}{len >= 75 && `–${b.plannedEnd}`}</span>
+                      </span>
+                      {len >= 45 && client && <span className="truncate text-[11px] text-ink-2">{client}</span>}
                     </button>
                   );
                 })}

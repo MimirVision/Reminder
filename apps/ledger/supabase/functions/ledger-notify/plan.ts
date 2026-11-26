@@ -31,7 +31,8 @@ export function planRun(rows: RunRows, now: number): WorkspacePlan[] {
     const reminders = remindersBetween({
       settings, timeZone: str(w.timezone) || 'Europe/Oslo', clientName: (c) => clientName.get(c),
       tasks: mine(rows.occurrences).map((o) => ({ id: str(o.id), clientId: str(o.client_id), scheduleId: o.schedule_id ? str(o.schedule_id) : null,
-        title: str(o.title), dueDate: str(o.due_date), status: str(o.status), notifyDays: cleanDays(o.notify_days) })),
+        title: str(o.title), dueDate: str(o.due_date), status: str(o.status), notifyDays: cleanDays(o.notify_days),
+        plannedOn: o.planned_on ? str(o.planned_on) : null, plannedStart: o.planned_start ? hhmm(o.planned_start) : null, plannedEnd: o.planned_end ? hhmm(o.planned_end) : null })),
       schedules: mine(rows.schedules).map((s) => ({ id: str(s.id), notifyDays: cleanDays(s.notify_days) })),
       meetings: mine(rows.meetings).map((m) => ({ id: str(m.id), clientId: m.client_id ? str(m.client_id) : null, title: str(m.title), date: str(m.meeting_date),
         start: hhmm(m.start_time), end: hhmm(m.end_time), location: str(m.location), notifyMinutes: cleanMinutes(m.notify_minutes) })),
@@ -47,7 +48,8 @@ export function messagesForClaimed(plan: WorkspacePlan, claimed: Set<string>): P
 
 /** Seconds a push may wait for a device that is off: a meeting reminder is useless after the meeting starts. */
 export function ttlFor(m: PushMessage, now: number, reminders: Reminder[]): number {
-  const meeting = reminders.find((r) => r.kind === 'meeting' && m.keys.includes(r.key));
+  // A meeting's or a block's reminder is no use once it has started.
+  const meeting = reminders.find((r) => (r.kind === 'meeting' || r.kind === 'block') && m.keys.includes(r.key));
   if (!meeting) return 12 * 3600;
   const startsIn = Math.round((meeting.at + meeting.lead * 60_000 - now) / 1000);
   return Math.max(60, Math.min(12 * 3600, startsIn));
