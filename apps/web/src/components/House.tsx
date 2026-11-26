@@ -80,15 +80,15 @@ export function House({ household }: { household: Household }) {
   );
   const head = <div className="head"><h1>{t('house.title')}</h1>{switcher}</div>;
 
-  if (mode === 'moving') return <main className="page">{head}<MovingView household={household} /></main>;
-  if (mode === 'facts') return <main className="page">{head}<FactsView household={household} /></main>;
+  if (mode === 'moving') return <main className="page house-page">{head}<MovingView household={household} /></main>;
+  if (mode === 'facts') return <main className="page house-page">{head}<FactsView household={household} /></main>;
   if (mode === 'prep') return <main className="page house-page">{head}<Prep household={household} /></main>;
   if (mode === 'register') return <main className="page house-page">{head}<Register household={household} /></main>;
   if (mode === 'report') return <main className="page house-page">{head}<ConditionView household={household} /></main>;
 
   if (tasks.length === 0) {
     return (
-      <main className="page">
+      <main className="page house-page">
         {head}
         {err && <p className="error">{err}</p>}
         <span className="muted">{t('house.intro')}</span>

@@ -27,6 +27,8 @@ export function Nav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void })
         <dt>T</dt><dd>{t('desk.keyTomorrow')}</dd>
         <dt>Ctrl K</dt><dd>{t('desk.keyPalette')}</dd>
         <dt>1–4</dt><dd>{t('desk.keyTabs')}</dd>
+        <dt>V</dt><dd>{t('cmd.keyView')}</dd>
+        <dt>?</dt><dd>{t('cmd.keyHelp')}</dd>
       </dl>
     </div>
   );

@@ -72,6 +72,11 @@ export async function listDoneSince(householdId: string, days = 7): Promise<Pick
   return check(await supabase.from('memories').select('id, done_at, done_by, author_id').eq('household_id', householdId).eq('status', 'done').gte('done_at', since).limit(500));
 }
 
+/** The latest finished to-dos, for the activity panel on a wide screen. */
+export async function listRecentDone(householdId: string, limit = 14): Promise<Pick<Memory, 'id' | 'body' | 'done_at' | 'done_by' | 'author_id'>[]> {
+  return check(await supabase.from('memories').select('id, body, done_at, done_by, author_id').eq('household_id', householdId).eq('status', 'done').not('done_at', 'is', null).order('done_at', { ascending: false }).limit(limit));
+}
+
 export type NewMemory = {
   id?: string;
   household_id: string;

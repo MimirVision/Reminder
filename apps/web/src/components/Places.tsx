@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { addPlace, deletePlace, listPlaces, updatePlaceCategory, updatePlaceRadius } from '../lib/api';
 import { CATEGORIES, categoryName, placeLabel, shopName } from '../lib/labels';
 import { findExistingPlace, directionsUrl, categoryFromName } from '../lib/placeSearch';
@@ -7,6 +7,12 @@ import { useI18n } from '../i18n';
 import { Icon } from './icons';
 import { PlaceSearchBox, type Pick } from './PlaceSearchBox';
 import { useToast } from './Toast';
+import { buildPins } from '../lib/pins';
+import { useHere } from '../lib/useHere';
+import { useMedia, WIDE_QUERY } from '../lib/useMedia';
+import { useTheme } from '../theme';
+
+const TodoMap = lazy(() => import('./TodoMap'));
 
 const RADII = [100, 150, 250, 500, 1000];
 
@@ -15,6 +21,11 @@ export function Places({ household }: { household: Household }) {
   const toast = useToast();
   const [places, setPlaces] = useState<Place[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const wide = useMedia(WIDE_QUERY);
+  const { resolved } = useTheme();
+  const { here, locate } = useHere(wide);
+  const [selected, setSelected] = useState<string | null>(null);
+  const pins = useMemo(() => buildPins(places, new Map(), {}, (p) => placeLabel(p, t)), [places, t]);
   const [key, setKey] = useState(0); // remounts the search box after adding, so it is empty again
 
   const load = useCallback(async () => {
@@ -49,6 +60,7 @@ export function Places({ household }: { household: Household }) {
       <span className="muted">{t('places.intro')}</span>
       {err && <p className="error" role="alert">{err}</p>}
 
+      <div className="places-body"><div className="places-left">
       <div className="label">{t('places.addSpecific')}</div>
       <div className="card">
         <span className="muted">{t('places.addHelp')}</span>
@@ -58,7 +70,7 @@ export function Places({ household }: { household: Household }) {
       {places.length === 0 && <p className="muted">{t('places.empty')}</p>}
       <div className="cards-grid">
       {places.map((p) => (
-        <div className="card place" key={p.id}>
+        <div className={`card place${selected === p.id ? ' sel' : ''}`} key={p.id} onClick={() => setSelected(p.id)}>
           <div className="row spread">
             <div className="rt">
               <strong><Icon name={p.kind === 'category' ? 'store' : 'pin'} size={16} /> {placeLabel(p, t)}</strong>
@@ -84,6 +96,15 @@ export function Places({ household }: { household: Household }) {
           </div>
         </div>
       ))}
+      </div>
+      </div>
+      {wide && (
+        <div className="places-map">
+          <Suspense fallback={<div className="map" />}>
+            <TodoMap pins={pins} here={here} selectedKey={selected} resolved={resolved} bottomInset={0} onSelect={(pin) => setSelected(pin.placeId)} onLocate={locate} onAdd={() => document.querySelector<HTMLInputElement>('.places-page input[type=search]')?.focus()} />
+          </Suspense>
+        </div>
+      )}
       </div>
     </main>
   );
